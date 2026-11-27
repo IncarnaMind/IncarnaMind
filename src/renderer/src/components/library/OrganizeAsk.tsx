@@ -69,7 +69,7 @@ function Card({
       tabIndex={-1}
       data-testid={testId}
       onKeyDown={onKeyDown}
-      className="mt-3 flex flex-col gap-1 rounded-lg border border-rule bg-sheet px-4 py-3 text-[13px] leading-5 text-ink-secondary"
+      className="mt-3 flex flex-col gap-1 rounded-lg border border-rule bg-sheet px-4 py-3 text-ui leading-5 text-ink-secondary"
     >
       {children}
     </section>
@@ -96,7 +96,7 @@ function ConsentCard({ needs }: { needs: Extract<OrganizeNeeds, { needs: "consen
   const service = needs.service.name;
   return (
     <Card testId="library-organize-consent" labelledBy={title}>
-      <p id={title} className="font-semibold text-ink">
+      <p id={title} className="text-ink">
         {t("library.organize.consent.title", { service })}
       </p>
       <p data-testid="library-organize-sends">{t("library.organize.consent.sends", { service })}</p>
@@ -160,7 +160,7 @@ function NeedsModel() {
   const title = useId();
   return (
     <Card testId="library-organize-needs-model" labelledBy={title}>
-      <p id={title} className="font-semibold text-ink">
+      <p id={title} className="text-ink">
         {t("library.organize.needsModel")}
       </p>
       <div className="mt-2 flex flex-wrap items-center justify-end gap-2">

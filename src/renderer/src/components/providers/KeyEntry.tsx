@@ -150,10 +150,7 @@ export function KeyEntry({
 
   return (
     <div className="flex flex-col gap-1">
-      <label
-        htmlFor={`${id}-key`}
-        className="text-[13px] leading-5 font-semibold text-ink-secondary"
-      >
+      <label htmlFor={`${id}-key`} className="text-ui leading-5 text-ink-secondary">
         {t(label)}
       </label>
       <input

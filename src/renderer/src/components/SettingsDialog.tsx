@@ -12,7 +12,7 @@ import { AiSettings } from "./ai/AiSettings";
 import { BackgroundSettings } from "./BackgroundSettings";
 import { ConnectorsSettings } from "./connectors/ConnectorsSettings";
 import { EvidenceSettings } from "./EvidenceSettings";
-import { CloseLineIcon } from "./lineIcons";
+import { CloseLineIcon } from "./icons";
 import { MeetingsSettings } from "./MeetingsSettings";
 import { MotionRow } from "./MotionSettings";
 import { OutputLocationSettings } from "./OutputLocationSettings";
@@ -78,7 +78,7 @@ export function SettingsDialog() {
           className="flex w-[200px] shrink-0 flex-col overflow-y-auto border-r border-rule bg-frame p-2"
         >
           <div className="flex h-11 shrink-0 items-center px-2">
-            <h2 id="settings-title" className="text-ui font-semibold text-ink">
+            <h2 id="settings-title" className="text-ui text-ink">
               {t("settings.title")}
             </h2>
           </div>
@@ -117,7 +117,7 @@ export function SettingsDialog() {
               onClick={close}
               className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
             >
-              <CloseLineIcon className="size-4" />
+              <CloseLineIcon />
             </button>
           </header>
           {/*

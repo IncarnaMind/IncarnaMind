@@ -14,7 +14,7 @@ import type { ReplyPiece } from "../../../../shared/helpReplyRead";
 import { formatLocation, isTranscriptLocation } from "../../../../shared/locations";
 import type { EndedLine } from "../../helpReplyEnd";
 import { useT } from "../../i18n";
-import { CheckLineIcon } from "../lineIcons";
+import { CheckLineIcon } from "../icons";
 import { TipPopover } from "../TipPopover";
 import { useTip } from "../useTip";
 

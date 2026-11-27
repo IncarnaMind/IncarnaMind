@@ -8,7 +8,7 @@ import { comparedLabel, versionLabel } from "../../historyLabels";
 import { languageNow, translateNow, useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { useUndo } from "../../undo";
-import { CloseLineIcon, HistoryLineIcon, RestoreLineIcon } from "../lineIcons";
+import { CloseLineIcon, HistoryLineIcon, RestoreLineIcon } from "../icons";
 import { ProblemLine } from "../ProblemLine";
 import { UndoLineAt } from "../UndoLine";
 import { buttonStyle, iconButtonClass } from "../ui";
@@ -236,7 +236,7 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
             onClick={onClose}
             className={iconButtonClass}
           >
-            <CloseLineIcon className="size-4" />
+            <CloseLineIcon />
           </button>
         </div>
       </header>

@@ -100,7 +100,7 @@ export function StepKeyField({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-3">
-        <label htmlFor={`${id}-key`} className={`${fieldLabelClass} font-semibold`}>
+        <label htmlFor={`${id}-key`} className={`${fieldLabelClass} `}>
           {label}
         </label>
         {keyUrl && (
@@ -108,7 +108,7 @@ export function StepKeyField({
             href={keyUrl}
             target="_blank"
             rel="noreferrer"
-            className="shrink-0 text-[12px] leading-[18px] text-ink-meta underline underline-offset-2 hover:text-ink"
+            className="shrink-0 text-small leading-[18px] text-ink-meta underline underline-offset-2 hover:text-ink"
           >
             {t("meetings.key.get")} ↗
           </a>

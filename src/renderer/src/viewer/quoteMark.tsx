@@ -7,8 +7,8 @@ import {
   useState,
 } from "react";
 import type { ViewerCitation } from "../../../shared/documentViewer";
+import { ExclamationIcon, NotEqualIcon, QuestionIcon, TickIcon } from "../components/icons";
 import { useT } from "../i18n";
-import { ExclamationIcon, NotEqualIcon, QuestionIcon, TickIcon } from "./icons";
 import { type MarkMeasure, measureOf } from "./sheetMark";
 
 /**

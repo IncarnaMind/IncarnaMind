@@ -25,7 +25,7 @@ import { taskOffers } from "../../taskActions";
 import { needsYou } from "../../taskGroups";
 import { pauseTask, resumeTask, reviewTask, stopTask, useTasks } from "../../tasks";
 import { failedLine, stepLine, taskName } from "../../taskText";
-import { CheckLineIcon } from "../lineIcons";
+import { CheckLineIcon } from "../icons";
 import { MetaLine } from "../MetaLine";
 
 /**

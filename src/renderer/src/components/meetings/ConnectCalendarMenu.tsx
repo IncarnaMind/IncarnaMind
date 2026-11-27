@@ -4,7 +4,7 @@ import { useCalendars } from "../../calendars";
 import { SENDS_LINES, SERVICE_NAMES } from "../../calendarWords";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { CalendarLineIcon } from "../lineIcons";
+import { CalendarLineIcon } from "../icons";
 import { menuFrameClass, menuTitleClass, tallMenuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
@@ -63,11 +63,11 @@ export function ConnectCalendarMenu({
                   }}
                   className={`${tallMenuItemClass} items-start pl-2`}
                 >
-                  <CalendarLineIcon className="mt-0.5 size-4 shrink-0 text-ink-secondary" />
+                  <CalendarLineIcon className="mt-0.5 shrink-0 text-ink-secondary" />
                   <span className="min-w-0 flex-1">
                     <span className="block">{t(SERVICE_NAMES[service])}</span>
                     {sends && (
-                      <span className="block text-[12px] leading-[18px] text-ink-meta">
+                      <span className="block text-small leading-[18px] text-ink-meta">
                         {t(sends)}
                       </span>
                     )}

@@ -74,7 +74,7 @@ export function WebLookBar({
   return (
     <div
       data-testid="viewer-web-look-bar"
-      className="shrink-0 border-b border-rule px-4 py-1.5 text-[13px] leading-5 text-ink-meta"
+      className="shrink-0 border-b border-rule px-4 py-1.5 text-ui leading-5 text-ink-meta"
     >
       <MetaLine
         as="div"

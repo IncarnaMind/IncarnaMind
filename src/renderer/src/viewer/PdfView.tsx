@@ -23,21 +23,21 @@ import {
 } from "../../../shared/quoteMatch";
 import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
-import { core } from "../core";
-import { translateNow, useT } from "../i18n";
-import { useAppStore, type ViewerTarget } from "../store";
-import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
-import { noteMarkElement } from "./annotationMarks";
-import { citedPlaceGone, quotesOf } from "./citedPlace";
 import {
-  ExpandIcon,
+  DisclosureIcon as ExpandIcon,
   FitWidthIcon,
   NextPageIcon,
   OutlineToggleIcon,
   PreviousPageIcon,
   ZoomInIcon,
   ZoomOutIcon,
-} from "./icons";
+} from "../components/icons";
+import { core } from "../core";
+import { translateNow, useT } from "../i18n";
+import { useAppStore, type ViewerTarget } from "../store";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { noteMarkElement } from "./annotationMarks";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { LockedPdf } from "./LockedPdf";
 import { loadOutline, type OutlineItem } from "./outline";
 import { isMissingDocumentError, isPasswordError, loadPdfJs, openPdf, type PdfJs } from "./pdfjs";
@@ -1080,7 +1080,7 @@ function OutlineEntry({
             onClick={() => setExpanded((open) => !open)}
             className="pdf-outline-expand"
           >
-            <ExpandIcon className={`size-3.5 ${expanded ? "rotate-90" : ""}`} />
+            <ExpandIcon className={expanded ? "rotate-90" : ""} />
           </button>
         )}
       </div>
@@ -1105,7 +1105,7 @@ function OutlineToggle({ open, onToggle }: { open: boolean; onToggle(): void }) 
       onClick={onToggle}
       className="viewer-icon-button"
     >
-      <OutlineToggleIcon className="size-4" />
+      <OutlineToggleIcon />
     </button>
   );
 }
@@ -1132,7 +1132,7 @@ function PageNavigation({
         onClick={() => onGo(current - 1)}
         className="viewer-icon-button"
       >
-        <PreviousPageIcon className="size-4" />
+        <PreviousPageIcon />
       </button>
       <PageNumberInput current={current} count={count} onGo={onGo} />
       <span data-testid="pdf-page-count" className="viewer-page-count">
@@ -1147,7 +1147,7 @@ function PageNavigation({
         onClick={() => onGo(current + 1)}
         className="viewer-icon-button"
       >
-        <NextPageIcon className="size-4" />
+        <NextPageIcon />
       </button>
     </>
   );
@@ -1179,7 +1179,7 @@ function ZoomControls({
         onClick={onZoomOut}
         className="viewer-icon-button"
       >
-        <ZoomOutIcon className="size-4" />
+        <ZoomOutIcon />
       </button>
       <span
         data-testid="pdf-zoom-level"
@@ -1197,7 +1197,7 @@ function ZoomControls({
         onClick={onZoomIn}
         className="viewer-icon-button"
       >
-        <ZoomInIcon className="size-4" />
+        <ZoomInIcon />
       </button>
       <button
         type="button"
@@ -1208,7 +1208,7 @@ function ZoomControls({
         onClick={onFitWidth}
         className="viewer-icon-button"
       >
-        <FitWidthIcon className="size-4" />
+        <FitWidthIcon />
       </button>
     </>
   );

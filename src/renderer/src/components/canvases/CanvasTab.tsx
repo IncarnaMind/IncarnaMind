@@ -99,7 +99,7 @@ export function CanvasTab({ canvasId }: { canvasId: string }) {
       >
         <p
           data-testid="canvas-unchecked"
-          className="shrink-0 border-b border-rule px-4 py-2 text-[13px] leading-5 text-ink-meta"
+          className="shrink-0 border-b border-rule px-4 py-2 text-ui leading-5 text-ink-meta"
         >
           {t("canvas.unchecked", { agent: canvas.agent })}
         </p>

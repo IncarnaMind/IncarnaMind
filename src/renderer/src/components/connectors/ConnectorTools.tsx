@@ -55,7 +55,7 @@ export function ConnectorTools({
       .catch((failure: unknown) => useAppStore.getState().reportError(failure));
   };
   if (tools.length === 0) {
-    return <p className="px-4 text-[13px] leading-5 text-ink-meta">{t("connectors.tools.none")}</p>;
+    return <p className="px-4 text-ui leading-5 text-ink-meta">{t("connectors.tools.none")}</p>;
   }
   return (
     <>

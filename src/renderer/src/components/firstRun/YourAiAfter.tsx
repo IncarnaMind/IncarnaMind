@@ -328,7 +328,7 @@ function DoneRow({ done, left, onRetry }: { done: Done; left: boolean; onRetry()
           </span>
           <span
             role="status"
-            className={`text-[12px] leading-[18px] ${left ? "text-ink-secondary" : "text-ink-meta"}`}
+            className={`text-small leading-[18px] ${left ? "text-ink-secondary" : "text-ink-meta"}`}
           >
             {"error" in done && <ProblemMark />}
             {line}
@@ -338,10 +338,10 @@ function DoneRow({ done, left, onRetry }: { done: Done; left: boolean; onRetry()
       </div>
       {details !== null && (
         <details data-testid="setup-done-details" className="px-3 pb-2 pl-[52px]">
-          <summary className="cursor-pointer text-[12px] leading-[18px] text-ink-secondary">
+          <summary className="cursor-pointer text-small leading-[18px] text-ink-secondary">
             {t("agents.connect.details")}
           </summary>
-          <pre className="mt-1 max-h-40 overflow-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink">
+          <pre className="mt-1 max-h-40 overflow-auto rounded-md bg-frame p-2 font-mono text-small leading-[18px] break-all whitespace-pre-wrap text-ink">
             {details}
           </pre>
         </details>

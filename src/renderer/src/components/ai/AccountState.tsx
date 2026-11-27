@@ -16,7 +16,7 @@ export function AccountState({ state }: { state: RowState }) {
     <span
       data-testid="account-state"
       data-tone={state.tone}
-      className="inline-flex shrink-0 items-center gap-1.5 text-[12px] leading-[18px] whitespace-nowrap text-ink-secondary"
+      className="inline-flex shrink-0 items-center gap-1.5 text-small leading-[18px] whitespace-nowrap text-ink-secondary"
     >
       <span aria-hidden="true" className={`size-1.5 rounded-full ${DOT[state.tone]}`} />
       {state.label}

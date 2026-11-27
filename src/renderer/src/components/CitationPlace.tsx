@@ -30,7 +30,7 @@ export function CitationPlaceLine({
         id={`${id}-question`}
         data-testid="export-place-question"
         title={t("export.citationPlace.hint")}
-        className="min-w-0 text-[14px] leading-5 text-ink-secondary"
+        className="min-w-0 text-ui leading-5 text-ink-secondary"
       >
         {t("export.citationPlace")}{" "}
         {count.citations > 0 && (
@@ -86,10 +86,7 @@ export function CitationPlaceRow({
         )}
       </div>
       {byStyle ? (
-        <span
-          data-testid="export-citation-place-style"
-          className="text-[13px] leading-5 text-ink-meta"
-        >
+        <span data-testid="export-citation-place-style" className="text-ui leading-5 text-ink-meta">
           {t("export.citationPlace.byStyle")}
         </span>
       ) : (

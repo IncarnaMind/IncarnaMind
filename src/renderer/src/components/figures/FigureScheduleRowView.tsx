@@ -21,7 +21,22 @@ import { useLanguage, useT } from "../../i18n";
 import { useSelectable, useSelection } from "../../selection";
 import { useAppStore } from "../../store";
 import { TREE_ROW } from "../../treeKeys";
-import { CheckLineIcon, ChevronRightLineIcon, MoreLineIcon } from "../lineIcons";
+import {
+  CheckedByMeIcon,
+  ChevronRightLineIcon,
+  CopyLineIcon,
+  EyeLineIcon,
+  type Icon,
+  LinkLineIcon,
+  MineLineIcon,
+  MoreLineIcon,
+  OpenBesideLineIcon,
+  QuoteIcon,
+  ReplaceIcon,
+  RetryLineIcon,
+  SumIcon,
+} from "../icons";
+import { MenuItemParts } from "../MenuItemParts";
 import { useObjectMenu } from "../ObjectMenu";
 import { iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
@@ -115,21 +130,19 @@ export function FigureScheduleRowView({
   };
   const dash = <span className="figure-dash">—</span>;
 
-  const action = (label: string, run: () => void, keys?: string, checked?: boolean) => (
+  const action = (icon: Icon, label: string, run: () => void, keys?: string, checked?: boolean) => (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
     <button
       type="button"
       role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
       aria-checked={checked}
-      className={menuItemClass}
+      className={`${menuItemClass} pl-2`}
       onClick={() => {
         menu.close();
         run();
       }}
     >
-      <span className="flex-1">{label}</span>
-      {checked && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
-      {keys && <span className="text-ink-meta">{keys}</span>}
+      <MenuItemParts icon={icon} label={label} keys={keys} checked={checked} />
     </button>
   );
   const looked = parent.shown.state;
@@ -144,12 +157,14 @@ export function FigureScheduleRowView({
     : [
         checks.length > 0 &&
           action(
+            RetryLineIcon,
             checks.length > 1
               ? t("figures.checkCount", { count: checks.length })
               : t("claim.checkAgain"),
             () => props.onCheckAgain(checks),
           ),
         action(
+          CheckedByMeIcon,
           signed.length > 1
             ? t(signing.off ? "signOff.unmarkCount" : "signOff.markCount", { count: signed.length })
             : t("signOff.action"),
@@ -160,26 +175,39 @@ export function FigureScheduleRowView({
         looked === "contradicted" &&
           parent.sourceInput &&
           totals.length === 0 &&
-          action(t("figures.changeToSource", { value: sourceValueText(parent) ?? "" }), () =>
-            props.onChangeToSource([parent.id]),
+          action(
+            ReplaceIcon,
+            t("figures.changeToSource", { value: sourceValueText(parent) ?? "" }),
+            () => props.onChangeToSource([parent.id]),
           ),
         looked === "supported" &&
           parent.sourceInput &&
           !parent.cited &&
-          action(t("claim.addAsCitation"), () => props.onAddCitation(parent.id)),
+          action(QuoteIcon, t("claim.addAsCitation"), () => props.onAddCitation(parent.id)),
         !parent.calculated &&
-          action(t("figures.chooseCitation"), () => props.onChooseCitation(parent.id)),
+          action(LinkLineIcon, t("figures.chooseCitation"), () =>
+            props.onChooseCitation(parent.id),
+          ),
         keeps.length > 0 &&
           action(
+            MineLineIcon,
             keeps.length > 1
               ? t("figures.keepCount", { count: keeps.length })
               : t("claim.keepAsView"),
             () => props.onKeep(keeps),
           ),
-        parent.place.table &&
-          action(t(totals.length > 0 ? "figures.notTotal" : "figures.total"), () =>
-            props.onTotalRole(parent.id, totals.length > 0 ? totals : ["row"], totals.length === 0),
-          ),
+        ...(parent.place.table
+          ? (["row", "column"] as const).map((axis) => {
+              const on = totals.includes(axis);
+              return action(
+                SumIcon,
+                t(axis === "row" ? "figures.totalRow" : "figures.totalColumn"),
+                () => props.onTotalRole(parent.id, [axis], !on),
+                undefined,
+                on,
+              );
+            })
+          : []),
       ].filter(Boolean);
 
   const { name, value, difference } = shows;
@@ -285,7 +313,7 @@ export function FigureScheduleRowView({
                   useSelection.getState().choose("figures", lineRef(mindId, line));
               }}
             >
-              <MoreLineIcon className="size-4" />
+              <MoreLineIcon />
             </button>
             <div
               {...menu.menuProps}
@@ -297,12 +325,17 @@ export function FigureScheduleRowView({
                 if (event.key === "Escape") event.stopPropagation();
               }}
             >
-              {action(t("figures.openSource"), () => onOpen(line), "↵")}
-              {action(t("figures.showInNote"), () => props.onShowFigure(parent), "Space")}
+              {action(OpenBesideLineIcon, t("figures.openSource"), () => onOpen(line), "↵")}
+              {action(
+                EyeLineIcon,
+                t("figures.showInNote"),
+                () => props.onShowFigure(parent),
+                "Space",
+              )}
               {acts.length > 0 && <div className={menuRuleClass} />}
               {acts}
               <div className={menuRuleClass} />
-              {action(t("menu.copy"), onCopy, "⌘C")}
+              {action(CopyLineIcon, t("menu.copy"), onCopy, "⌘C")}
             </div>
           </>
         )}

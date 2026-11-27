@@ -1,4 +1,4 @@
-import { RemoveIcon } from "./icons";
+import { RemoveIcon } from "../components/icons";
 
 /**
  * A quote in the composer, as a chip before its text (DESIGN.md, Composer):
@@ -56,7 +56,7 @@ export function QuoteChip({
         onClick={onRemove}
         className="scope-chip-remove"
       >
-        <RemoveIcon className="size-2.5" />
+        <RemoveIcon />
       </button>
     </span>
   );

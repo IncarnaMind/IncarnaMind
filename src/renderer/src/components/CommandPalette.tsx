@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { MessageKey } from "../../../shared/i18n";
+import { commandIcon } from "../commands/commandIcons";
 import { assistantHandle } from "../commands/handles";
 import { keysHere, pressesShortcut } from "../commands/keymap";
 import { commands, labelOf } from "../commands/registry";
@@ -53,7 +54,7 @@ import {
   NoteLineIcon,
   SearchLineIcon,
   SparkLineIcon,
-} from "./lineIcons";
+} from "./icons";
 import { Marked } from "./Marked";
 import { ProblemMark } from "./ProblemLine";
 import { errorTextClass } from "./ui";
@@ -296,7 +297,7 @@ function Palette() {
       className="mx-auto mt-16 mb-auto open:flex max-h-[calc(100vh-96px)] w-[640px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-xl bg-sheet p-0 text-ink shadow-popover backdrop:bg-transparent"
     >
       <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-rule px-4">
-        <SearchLineIcon className="size-4 shrink-0 text-ink-meta" />
+        <SearchLineIcon className="shrink-0 text-ink-meta" />
         <input
           ref={field}
           value={query}
@@ -312,7 +313,7 @@ function Palette() {
             setQuery(event.target.value);
             setActiveKey(null);
           }}
-          className="h-full min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-placeholder"
+          className="h-full min-w-0 flex-1 bg-transparent text-ui text-ink outline-none placeholder:text-ink-placeholder"
         />
         <Key>esc</Key>
       </div>
@@ -346,7 +347,7 @@ function Palette() {
               id={`${id}-status`}
               role="status"
               data-testid={waiting ? "palette-searching" : "palette-empty"}
-              className="px-2 pt-4 pb-2 text-[13px] leading-5 text-ink-meta"
+              className="px-2 pt-4 pb-2 text-ui leading-5 text-ink-meta"
             >
               {t(
                 waiting
@@ -359,7 +360,7 @@ function Palette() {
           )
         )}
       </div>
-      <div className="flex h-9 shrink-0 items-center gap-4 border-t border-rule px-4 text-[12px] whitespace-nowrap text-ink-meta">
+      <div className="flex h-9 shrink-0 items-center gap-4 border-t border-rule px-4 text-small whitespace-nowrap text-ink-meta">
         <Hint keys="↑↓" label={t("palette.hint.move")} />
         <Hint keys={keysHere("Enter")} label={t("palette.hint.open")} />
         <Hint keys={keysHere("CmdOrCtrl+Enter")} label={t("palette.hint.openTab")} />
@@ -383,10 +384,7 @@ function Group({
   return (
     // biome-ignore lint/a11y/useSemanticElements: options in a listbox are grouped by role, which a fieldset can't be.
     <div role="group" aria-labelledby={id} data-testid="palette-group" data-group={group.id}>
-      <div
-        id={id}
-        className="px-2 pt-3 pb-1 text-[12px] leading-[18px] font-semibold text-ink-meta"
-      >
+      <div id={id} className="px-2 pt-3 pb-1 text-small leading-[18px] text-ink-meta">
         {title}
       </div>
       {children}
@@ -405,7 +403,7 @@ function Hint({ keys, label }: { keys: string; label: string }) {
 
 function Key({ children }: { children: ReactNode }) {
   return (
-    <kbd className="shrink-0 rounded-sm border border-rule px-1 font-sans text-[11px] leading-4 text-ink-meta">
+    <kbd className="shrink-0 rounded-sm border border-rule px-1 font-sans text-small leading-4 text-ink-meta">
       {children}
     </kbd>
   );
@@ -431,7 +429,8 @@ function ItemIcon({ item }: { item: PaletteItem }) {
     case "ask":
       return <SparkLineIcon className={className} />;
     case "command": {
-      const Icon = commands.get(item.id)?.icon;
+      const command = commands.get(item.id);
+      const Icon = command && commandIcon(command);
       return Icon ? (
         <Icon className={className} />
       ) : (
@@ -489,20 +488,20 @@ function Option({
             <Marked text={item.name} ranges={ranges} />
           </span>
           {item.meta && (
-            <span className="min-w-0 shrink truncate text-[12px] text-ink-meta" title={item.meta}>
+            <span className="min-w-0 shrink truncate text-small text-ink-meta" title={item.meta}>
               {item.meta}
             </span>
           )}
         </span>
         {words && (
-          <span className="block truncate text-[13px] leading-5 text-ink-secondary">
+          <span className="block truncate text-ui leading-5 text-ink-secondary">
             <Marked text={item.excerpt} ranges={item.highlights} />
           </span>
         )}
         {purpose !== "" && (
           <span
             data-testid="palette-purpose"
-            className="block truncate text-[12px] leading-4 text-ink-meta"
+            className="block truncate text-small leading-4 text-ink-meta"
             title={purpose}
           >
             {purpose}
@@ -510,10 +509,10 @@ function Option({
         )}
       </span>
       {item.kind === "command" && item.checked && (
-        <CheckLineIcon data-testid="palette-checked" className="size-4 shrink-0 text-ink-meta" />
+        <CheckLineIcon data-testid="palette-checked" className="shrink-0 text-ink-meta" />
       )}
       {item.kind === "command" && item.shortcut && (
-        <span className="shrink-0 text-[12px] text-ink-meta">{item.shortcut}</span>
+        <span className="shrink-0 text-small text-ink-meta">{item.shortcut}</span>
       )}
       {active && item.kind !== "command" && (
         <span className={`flex shrink-0 ${words ? "pt-0.5" : ""}`}>

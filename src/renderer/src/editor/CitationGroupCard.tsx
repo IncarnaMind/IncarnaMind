@@ -1,9 +1,9 @@
 import type { ReactNode, RefObject } from "react";
 import type { CitationCheck, StyledRun } from "../../../core/api";
+import { CheckStateIcon, ClaimMarkIcon } from "../components/icons";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { useGap, useT } from "../i18n";
 import type { CitationLook } from "./citationLooks";
-import { CheckStateIcon, ClaimMarkIcon } from "./icons";
 import { StyledRuns } from "./StyledRuns";
 import { runsText } from "./styledText";
 

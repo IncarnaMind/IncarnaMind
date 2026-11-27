@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { InlineName } from "../components/InlineName";
-import { PlusLineIcon } from "../components/lineIcons";
+import { PlusLineIcon } from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { stepOutlineFocus } from "../components/OutlinePanel";
 import { rowActionButtonClass } from "../components/sidebarRows";
@@ -313,7 +313,7 @@ export function NoteTabsPanel({
                 className="pdf-outline-title note-tab-new"
                 style={{ paddingLeft: INSET }}
               >
-                <PlusLineIcon className="size-3.5 shrink-0" />
+                <PlusLineIcon className="shrink-0" />
                 {t("noteTabs.new")}
               </button>
             </div>

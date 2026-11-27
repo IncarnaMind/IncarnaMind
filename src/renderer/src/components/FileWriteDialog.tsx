@@ -174,7 +174,7 @@ function FolderPath({ path, testId }: { path: string; testId: string }) {
     <PathText
       path={path}
       testId={testId}
-      className="rounded-md border border-rule bg-frame px-3 py-2 font-mono text-[13px] leading-5 text-ink-secondary"
+      className="rounded-md border border-rule bg-frame px-3 py-2 font-mono text-ui leading-5 text-ink-secondary"
     />
   );
 }

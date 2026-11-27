@@ -49,10 +49,10 @@ export function SharePageContents({
   return (
     <div
       data-testid="share-contents"
-      className="mb-2 rounded-lg bg-frame px-3.5 py-3 text-[13px] leading-[19px] text-ink"
+      className="mb-2 rounded-lg bg-frame px-3.5 py-3 text-ui leading-[19px] text-ink"
     >
       <p>
-        <strong className="font-semibold">{label}</strong>
+        <strong className="font-normal">{label}</strong>
         {gap(label, contents)}
         {contents}
         {gap(contents, readers)}
@@ -70,7 +70,7 @@ export function SharePageContents({
           const words = (
             <>
               <span className="min-w-0 flex-1 truncate">{document.name}</span>
-              <span className="shrink-0 text-[12px] text-ink-meta">{meta}</span>
+              <span className="shrink-0 text-small text-ink-meta">{meta}</span>
             </>
           );
           return (
@@ -112,7 +112,7 @@ export function SharePageContents({
             : t("export.share.large.other", { count: pictures, size })}
         </ProblemLine>
       ) : (
-        <p data-testid="share-size" className="mt-2 text-[12.5px] leading-[18px] text-ink-meta">
+        <p data-testid="share-size" className="mt-2 text-small leading-[18px] text-ink-meta">
           {t("export.share.size", { size })}
         </p>
       )}

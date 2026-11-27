@@ -239,8 +239,10 @@ for (const [language, width] of [
 
     // The table's menu makes the chart, inserted after the Answer.
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }));
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    const chartItem = window.getByTestId("chart.fromTable");
+    await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }), {
+      button: "right",
+    });
+    const chartItem = window.getByTestId("block-actions").getByTestId("chart.fromTable");
     await expect(chartItem).toHaveText(words.chartFromTable);
     await pointAndClick(window, chartItem);
     const chart = editor.getByTestId("chart");
@@ -409,8 +411,8 @@ for (const [language, width] of [
     const question = language === "zh-CN" ? "分季度营业收入 revenue quarter" : WORDS.en.question;
     const { editor, table } = await askForFigures(window, language, question);
     await pointAndClick(window, table.locator("td").nth(3));
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("chart.fromTable"));
+    await pointAndClick(window, table.locator("td").nth(3), { button: "right" });
+    await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await pointAndClick(window, chart.getByTestId("chart-kind"));
     await pointAndClick(window, window.getByTestId("chart-kind-pie"));
@@ -464,8 +466,10 @@ for (const [language, width] of [
     );
     await expect(table.locator("td").nth(1)).toContainText("$289.4 million");
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q4$/ }));
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("chart.fromTable"));
+    await pointAndClick(window, table.locator("td").filter({ hasText: /^Q4$/ }), {
+      button: "right",
+    });
+    await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await pointAndClick(window, chart.getByTestId("chart-kind"));
     await pointAndClick(window, window.getByTestId("chart-kind-pie"));
@@ -524,8 +528,10 @@ for (const [language, width] of [
     await useLocalChatModel(window);
     const { editor, table } = await askForFigures(window, language);
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }));
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("chart.fromTable"));
+    await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }), {
+      button: "right",
+    });
+    await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     const find = chart.getByTestId("chart-find-uncited");
     const card = window.getByTestId("chart-card");
@@ -608,8 +614,8 @@ test("the foot's button works from the keyboard alone, and Esc goes back to it",
   await useLocalChatModel(window);
   const { editor, table } = await askForFigures(window, "en");
   await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }));
-  await pointAndClick(window, window.getByTestId("table-menu"));
-  await pointAndClick(window, window.getByTestId("chart.fromTable"));
+  await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }), { button: "right" });
+  await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
   const chart = editor.getByTestId("chart");
   const find = chart.getByTestId("chart-find-uncited");
   const card = window.getByTestId("chart-card");
@@ -654,8 +660,10 @@ test("a chart cut at 500 values lists every row of its table in Show as table, a
   const table = editor.locator("table");
   await expect(table.locator("tr")).toHaveCount(261);
   await pointAndClick(window, table.locator("td").filter({ hasText: /^Day 2$/ }));
-  await pointAndClick(window, window.getByTestId("table-menu"));
-  await pointAndClick(window, window.getByTestId("chart.fromTable"));
+  await pointAndClick(window, table.locator("td").filter({ hasText: /^Day 2$/ }), {
+    button: "right",
+  });
+  await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
   const chart = editor.getByTestId("chart");
   await expect(chart.getByTestId("chart-point")).toHaveCount(500);
   await expect(chart.getByTestId("chart-cut")).toHaveText(
@@ -702,11 +710,11 @@ for (const [language, width] of [
       if (inCell) break;
       await window.keyboard.press("ArrowUp");
     }
-    // ⌘/ opens the table's menu, where Chart from table is, once the editor has the cursor in
-    // the cell (its ⋯ shows there).
+    // Shift+F10 opens the cell's menu, where Chart from table is, once the editor has the cursor
+    // in the cell (the table's ⋯ shows there); the table's own ⌘/ menu is for editing it.
     await expect(window.getByTestId("table-menu")).toBeVisible();
-    await window.keyboard.press("ControlOrMeta+/");
-    const chartItem = window.getByTestId("chart.fromTable");
+    await window.keyboard.press("Shift+F10");
+    const chartItem = window.getByTestId("block-actions").getByTestId("chart.fromTable");
     await expect(chartItem).toBeVisible();
     for (let press = 0; press < 12; press++) {
       if (await chartItem.evaluate((element) => element === document.activeElement)) break;
@@ -791,8 +799,8 @@ test("a chart exports to Word as a picture the app draws, with its caption and i
   await useLocalChatModel(window);
   const { editor, table } = await askForFigures(window, "en");
   await pointAndClick(window, table.locator("td").filter({ hasText: /^Q1$/ }));
-  await pointAndClick(window, window.getByTestId("table-menu"));
-  await pointAndClick(window, window.getByTestId("chart.fromTable"));
+  await pointAndClick(window, table.locator("td").filter({ hasText: /^Q1$/ }), { button: "right" });
+  await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
   await expect(editor.getByTestId("chart").getByTestId("chart-point")).toHaveCount(8);
 
   // The file's bytes, as Export writes them.

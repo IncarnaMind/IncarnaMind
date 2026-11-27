@@ -99,7 +99,9 @@ test("first run: the row follows the plan, says the usage limits first before an
     const usage = notice.getByTestId("claude-plan-usage");
     const sends = notice.getByTestId("claude-plan-sends");
     await expect(usage).toHaveText(USAGE);
-    await expect(usage).toHaveCSS("font-weight", "600");
+    // The interface is regular (#3766): the notice stands out by its ink, the line after it is grey.
+    await expect(usage).toHaveCSS("font-weight", "400");
+    await expect(usage).toHaveCSS("color", "rgb(23, 25, 28)");
     await expect(sends.locator("p")).toHaveText(
       "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to Anthropic. · Details",
     );
@@ -196,7 +198,7 @@ test("Settings: Cancel keeps nothing; signed in, the row names the account and S
     await expect(row.getByTestId("claude-plan-account")).toHaveText(USAGE);
 
     await row.getByTestId("plans-claude-sign-in").click();
-    await expect(row.getByTestId("claude-plan-usage")).toHaveCSS("font-weight", "600");
+    await expect(row.getByTestId("claude-plan-usage")).toHaveCSS("color", "rgb(23, 25, 28)");
     await row.getByTestId("claude-plan-sign-in").click();
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     await row.getByTestId("claude-plan-cancel").click();
@@ -329,7 +331,9 @@ test("in Chinese: the row waits under Other ways, before a model on this compute
     const usage = notice.getByTestId("claude-plan-usage");
     const sends = notice.getByTestId("claude-plan-sends");
     await expect(usage).toHaveText("回答会计入你 Claude Pro、Max 或 Team 订阅的限额。");
-    await expect(usage).toHaveCSS("font-weight", "600");
+    // The interface is regular (#3766): the notice stands out by its ink, the line after it is grey.
+    await expect(usage).toHaveCSS("font-weight", "400");
+    await expect(usage).toHaveCSS("color", "rgb(23, 25, 28)");
     await expect(sends.locator("p")).toHaveText(
       "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 Anthropic。 · 详情",
     );

@@ -1,9 +1,9 @@
 import { type ReactNode, useId } from "react";
 import type { CommandId } from "../../../shared/commands";
-import { CheckIcon } from "../components/icons";
+import { MenuItemParts } from "../components/MenuItemParts";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
-import { menuItemClass, menuItemUnavailableClass } from "../components/ui";
+import { dangerItemClass, menuItemClass, menuItemUnavailableClass } from "../components/ui";
 import { useT } from "../i18n";
 import type { CardAction } from "./cardActions";
 
@@ -39,7 +39,8 @@ const FIND_SOURCES: readonly CommandId[] = ["check.findSources"];
 /**
  * The card's one ⋯ (#2869): every action that isn't a button, in the card's order, Open the page
  * first, then the check's own commands, Find sources… among them, as the right-click menu lists
- * them, then About this check: where it looked, with what model and when, as the record keeps it.
+ * them; then what takes something away, in red, last (DESIGN.md, Menus); then About this check:
+ * where it looked, with what model and when, as the record keeps it.
  */
 export function CardMenu({
   id,
@@ -55,11 +56,30 @@ export function CardMenu({
 }) {
   const t = useT();
   if (actions.length === 0 && about.length === 0 && !findSources) return null;
-  // Where a row ticks, every row keeps the tick's room, so their words start in one line.
-  const ticks = actions.some((action) => action.checked !== undefined);
   const here: Partial<Record<CommandId, () => void>> | undefined = findSources
     ? { "check.findSources": findSources }
     : undefined;
+  const item = (action: CardAction, close: () => void) => (
+    <button
+      key={action.key}
+      type="button"
+      {...(action.checked === undefined
+        ? { role: "menuitem" }
+        : { role: "menuitemcheckbox", "aria-checked": action.checked })}
+      data-testid={action.testId}
+      aria-disabled={action.disabled || undefined}
+      className={`${menuItemClass} ${menuItemUnavailableClass} pl-2${action.danger ? ` ${dangerItemClass}` : ""}`}
+      onClick={() => {
+        if (action.disabled) return;
+        close();
+        action.onClick();
+      }}
+    >
+      <MenuItemParts icon={action.icon} label={action.label} checked={action.checked} />
+    </button>
+  );
+  const kept = actions.filter((action) => !action.danger);
+  const red = actions.filter((action) => action.danger);
   return (
     <ObjectMenu
       target={{ kind: "check", id }}
@@ -69,35 +89,8 @@ export function CardMenu({
       here={here}
       // The command's own test reads the sentence at the caret, which needn't be this card's.
       without={findSources ? undefined : FIND_SOURCES}
-      first={
-        actions.length > 0
-          ? (close) =>
-              actions.map((action) => (
-                <button
-                  key={action.key}
-                  type="button"
-                  {...(action.checked === undefined
-                    ? { role: "menuitem" }
-                    : { role: "menuitemcheckbox", "aria-checked": action.checked })}
-                  data-testid={action.testId}
-                  aria-disabled={action.disabled || undefined}
-                  className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
-                  onClick={() => {
-                    if (action.disabled) return;
-                    close();
-                    action.onClick();
-                  }}
-                >
-                  {ticks && (
-                    <span className="claim-menu-tick" aria-hidden="true">
-                      {action.checked && <CheckIcon className="claim-menu-tick-icon" />}
-                    </span>
-                  )}
-                  <span className="flex-1">{action.label}</span>
-                </button>
-              ))
-          : undefined
-      }
+      first={kept.length > 0 ? (close) => kept.map((action) => item(action, close)) : undefined}
+      more={red.length > 0 ? (close) => red.map((action) => item(action, close)) : undefined}
       foot={about.length > 0 ? <AboutThisCheck lines={about} /> : undefined}
     />
   );

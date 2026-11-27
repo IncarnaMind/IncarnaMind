@@ -2,7 +2,7 @@ import type { LayoutTab } from "../../../../core/api";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { focusTab } from "../../tabFocus";
-import { CheckLineIcon, ChevronDownLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronDownLineIcon } from "../icons";
 import { menuFrameClass, menuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import { TabIcon, useTabTitle } from "./tabItems";
@@ -72,7 +72,7 @@ function Row({ tab, active, close }: { tab: LayoutTab; active: boolean; close():
       }}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
-        {active && <CheckLineIcon className="size-4" />}
+        {active && <CheckLineIcon />}
       </span>
       <span className="flex size-4 shrink-0 items-center justify-center text-ink-meta [&_svg]:size-3.5">
         <TabIcon item={tab.item} />

@@ -119,7 +119,7 @@ export function AddWebPageDialog() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
                 }}
-                className={`${inputClass} resize-y font-mono text-[13px] leading-5`}
+                className={`${inputClass} resize-y font-mono text-ui leading-5`}
               />
               {tried && invalid && (
                 <ProblemLine testId="add-web-page-invalid">
@@ -200,7 +200,7 @@ function AddressResult({
   const reason = problem && t(reasonKey(problem.reason));
   return (
     <li data-testid="add-web-page-result" data-address={address} className="min-w-0">
-      <div className="flex min-w-0 items-baseline gap-3 text-[13px] leading-5">
+      <div className="flex min-w-0 items-baseline gap-3 text-ui leading-5">
         <span title={address} className="min-w-0 flex-1 truncate font-mono text-ink">
           {address}
         </span>

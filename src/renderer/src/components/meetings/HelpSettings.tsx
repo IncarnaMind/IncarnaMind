@@ -126,7 +126,7 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
                 setProblem(null);
                 void save(standard ?? "");
               }}
-              className="text-[13px] leading-5 text-accent hover:underline"
+              className="text-ui leading-5 text-accent hover:underline"
             >
               {t(standard ? "meetings.settings.keysDefault" : "meetings.settings.keysRemove")}
             </button>
@@ -161,7 +161,7 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
           id={`${id}-problem`}
           role="alert"
           data-testid="help-keys-problem"
-          className="text-[12px] leading-[18px] text-ink-secondary"
+          className="text-small leading-[18px] text-ink-secondary"
         >
           {problem.kind === "invalid" &&
             t(isMac ? "meetings.settings.keysInvalid.mac" : "meetings.settings.keysInvalid.other")}
@@ -178,7 +178,7 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
                   setRecording(true);
                   document.getElementById(id)?.focus();
                 }}
-                className="font-semibold text-accent hover:underline"
+                className="text-accent hover:underline"
               >
                 {t("meetings.settings.keysChooseAnother")}
               </button>

@@ -5,7 +5,7 @@ import { keysLabel } from "../../commands/keys";
 import { useT } from "../../i18n";
 import { useQuestions } from "../../questions";
 import { typesText } from "../../undo";
-import { CheckLineIcon } from "../lineIcons";
+import { CheckLineIcon } from "../icons";
 
 const CONTINUE_KEYS = "CmdOrCtrl+Enter";
 
@@ -206,7 +206,7 @@ export function QuestionCard({ request }: { request: UserQuestionRequest }) {
               </span>
               {multiple ? (
                 <span aria-hidden="true" className="choice-box" data-on={on || undefined}>
-                  {on && <CheckLineIcon className="size-3" />}
+                  {on && <CheckLineIcon />}
                 </span>
               ) : (
                 <span aria-hidden="true" className="choice-radio" data-on={on || undefined} />

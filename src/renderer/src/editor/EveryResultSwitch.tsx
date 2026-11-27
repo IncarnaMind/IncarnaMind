@@ -1,5 +1,6 @@
 import type * as Y from "yjs";
 import { setEveryCheckResult } from "../../../shared/everyCheckResult";
+import { EyeLineIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { useEveryCheckResult } from "./useEveryCheckResult";
 
@@ -22,6 +23,7 @@ export function EveryResultSwitch({
   const shown = useEveryCheckResult(doc);
   const content = (
     <>
+      {inMenu && <EyeLineIcon className="shrink-0" />}
       <span className="flex-1">{t("checks.everyResult")}</span>
       <span className="switch" data-on={shown || undefined} aria-hidden="true" />
     </>

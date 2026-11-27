@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode, Ref } from "react";
-import { ExclamationIcon } from "../viewer/icons";
+import { ExclamationIcon } from "./icons";
 import { actionParts, MetaLine } from "./MetaLine";
 
 /**
@@ -45,7 +45,7 @@ export function LineAction({
       data-testid={action.testId}
       disabled={action.disabled}
       onClick={action.onClick}
-      className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline disabled:opacity-50 disabled:hover:no-underline"
+      className="rounded-sm text-accent underline-offset-2 hover:underline disabled:opacity-50 disabled:hover:no-underline"
     >
       {action.label}
     </button>
@@ -94,7 +94,7 @@ export function ProblemLine({
       role={role}
       data-testid={testId}
       title={title}
-      className={`font-sans text-[13px] leading-5 break-words text-ink-meta ${className}`}
+      className={`font-sans text-ui leading-5 break-words text-ink-meta ${className}`}
     >
       <MetaLine
         as="div"

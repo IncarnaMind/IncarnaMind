@@ -9,7 +9,7 @@ import {
   comparisonRowKey,
   useComparisonTables,
 } from "../comparisonTableState";
-import { OpenBesideLineIcon } from "../components/lineIcons";
+import { OpenBesideLineIcon } from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
@@ -213,7 +213,7 @@ export function ComparisonRowView({ node, editor, getPos }: ReactNodeViewProps) 
                 tabIndex={-1}
                 onClick={() => openRowDocument(documentId)}
               >
-                <OpenBesideLineIcon className="size-3.5" />
+                <OpenBesideLineIcon />
               </button>
             )}
             <ObjectMenu

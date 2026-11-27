@@ -238,7 +238,7 @@ export function AgentPairingRow({
                       .openAgentInstallAgain(pairing.id)
                       .then(() => onInstallReopened(shimOutOfDate), reportError)
                   }
-                  className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                  className="rounded-sm text-accent underline-offset-2 hover:underline"
                 >
                   {t("agents.pairing.installAgain")}
                 </button>
@@ -255,7 +255,7 @@ export function AgentPairingRow({
               {t("agents.sorting.tagConsent", { agent: pairingInSentence(pairing, t) })}{" "}
               <button
                 type="button"
-                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                className="rounded-sm text-accent underline-offset-2 hover:underline"
                 onClick={() =>
                   core.updateAgent(pairing.id, { shareTagNames: true }).catch(reportError)
                 }
@@ -272,7 +272,7 @@ export function AgentPairingRow({
                 type="button"
                 data-testid="agent-pairing-repair-button"
                 onClick={() => core.repairAgent(pairing.id).then(onRepaired, reportError)}
-                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                className="rounded-sm text-accent underline-offset-2 hover:underline"
               >
                 {t("agents.pairing.repair")}
               </button>
@@ -293,7 +293,7 @@ export function AgentPairingRow({
                           .replaceAgentSkill(pairing.id)
                           .then(() => setReplacing(false), reportError)
                       }
-                      className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                      className="rounded-sm text-accent underline-offset-2 hover:underline"
                     >
                       {t("agents.pairing.skillOld.confirm")}
                     </button>
@@ -304,7 +304,7 @@ export function AgentPairingRow({
                       data-testid="agent-skill-replace-cancel"
                       onKeyDown={closeOnEscape}
                       onClick={() => setReplacing(false)}
-                      className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                      className="rounded-sm text-accent underline-offset-2 hover:underline"
                     >
                       {t("agents.pairing.skillOld.cancel")}
                     </button>
@@ -319,7 +319,7 @@ export function AgentPairingRow({
                     type="button"
                     data-testid="agent-skill-replace"
                     onClick={() => setReplacing(true)}
-                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                    className="rounded-sm text-accent underline-offset-2 hover:underline"
                   >
                     {t("agents.pairing.skillOld.replace")}
                   </button>
@@ -343,7 +343,7 @@ export function AgentPairingRow({
                             .openAgentInstallAgain(pairing.id)
                             .then(() => onInstallReopened(true), reportError)
                         }
-                        className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                        className="rounded-sm text-accent underline-offset-2 hover:underline"
                       >
                         {t("agents.pairing.installAgain")}
                       </button>
@@ -365,7 +365,7 @@ export function AgentPairingRow({
                     type="button"
                     data-testid="agent-setup-undo"
                     onClick={() => core.undoAgentSetup(pairing.id).then(onUndone, reportError)}
-                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                    className="rounded-sm text-accent underline-offset-2 hover:underline"
                   >
                     {t("agents.done.undo")}
                   </button>
@@ -378,7 +378,7 @@ export function AgentPairingRow({
                     href={helpUrl(pairing.client as AgentClientId, language)}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-semibold text-accent underline-offset-2 hover:underline"
+                    className="text-accent underline-offset-2 hover:underline"
                   >
                     {t("agents.settings.help")}
                   </a>
@@ -425,7 +425,7 @@ export function AgentPairingRow({
     >
       {open === "folders" && (
         <fieldset data-testid="agent-pairing-folders" className="mb-2 flex min-w-0 flex-col">
-          <legend className="text-[13px] leading-5 font-semibold text-ink">
+          <legend className="text-ui leading-5 text-ink">
             {t("agents.pairing.foldersTitle", { agent: pairingInSentence(pairing, t) })}
           </legend>
           <AgentShareChoice
@@ -446,7 +446,7 @@ export function AgentPairingRow({
           className="mb-2 flex max-h-64 flex-col gap-1 overflow-y-auto"
         >
           {activity?.length === 0 && (
-            <li className="text-[12px] leading-[18px] text-ink-meta">
+            <li className="text-small leading-[18px] text-ink-meta">
               {t("agents.activity.empty")}
             </li>
           )}
@@ -455,16 +455,16 @@ export function AgentPairingRow({
               key={call.id}
               data-testid="agent-activity-call"
               data-outcome={call.outcome}
-              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-[13px] leading-5"
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 text-ui leading-5"
             >
               <span className="text-ink-meta">{timeWords(call.at, language)}</span>
               <span className="break-words text-ink-secondary">{activityWords(call, t)}</span>
               {call.request !== null && (
                 <details data-testid="agent-activity-request" className="col-start-2">
-                  <summary className="cursor-pointer text-[12px] leading-[18px] text-ink-meta">
+                  <summary className="cursor-pointer text-small leading-[18px] text-ink-meta">
                     {t("agents.activity.request")}
                   </summary>
-                  <p className="mt-1 text-[12px] leading-[18px] whitespace-pre-wrap break-words text-ink-secondary">
+                  <p className="mt-1 text-small leading-[18px] whitespace-pre-wrap break-words text-ink-secondary">
                     {call.request}
                   </p>
                 </details>
@@ -474,7 +474,7 @@ export function AgentPairingRow({
         </ol>
       )}
       <details>
-        <summary className="cursor-pointer text-[12px] leading-[18px] text-ink-meta">
+        <summary className="cursor-pointer text-small leading-[18px] text-ink-meta">
           {t("agents.pairing.details")}
         </summary>
         <button
@@ -496,7 +496,7 @@ export function AgentPairingRow({
             >
               {copied === "skill" ? t("agents.pairing.copied") : t("agents.pairing.copySkill")}
             </button>
-            <p className="mt-1 text-[12px] leading-[18px] text-ink-meta">
+            <p className="mt-1 text-small leading-[18px] text-ink-meta">
               {t("agents.pairing.copySkill.hint")}
             </p>
           </>

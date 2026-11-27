@@ -186,7 +186,7 @@ function UsesKeyLine({ catalogId }: { catalogId: string }) {
   const provider =
     language === "zh-CN" ? `${spaced("汉", named)}${named}${spaced(named, "汉")}` : named;
   return (
-    <p data-testid="models-sorting-key" className="text-[12px] leading-5 text-ink-meta">
+    <p data-testid="models-sorting-key" className="text-small leading-5 text-ink-meta">
       {t("decisions.usesKey", { provider })}
     </p>
   );

@@ -4,7 +4,7 @@ import { clockTime, paddedClockTime } from "../../../shared/clock";
 import { shownSpeaker, type TranscriptLine } from "../../../shared/speakers";
 import { joinsUnspaced } from "../../../shared/transcriptTurns";
 import { atTime } from "../../../shared/wordTimes";
-import { PlusLineIcon } from "../components/lineIcons";
+import { PlusLineIcon } from "../components/icons";
 import { SpeakerMenu } from "../components/meetings/SpeakerMenu";
 import { useT } from "../i18n";
 import type { SpeakersStep } from "../store";
@@ -272,7 +272,7 @@ export function TranscriptTurn({
           style={{ marginTop: aim?.top ?? 0 }}
           className="transcript-add"
         >
-          <PlusLineIcon className="size-3.5" />
+          <PlusLineIcon />
           <span className="transcript-add-word">{t("transcript.addToNote")}</span>
         </button>
       ) : null}

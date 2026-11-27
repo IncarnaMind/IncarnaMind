@@ -32,7 +32,7 @@ export function ChatGptPlanWay({
 }) {
   const t = useT();
   const storage = useChatGptStorage();
-  const lineClass = "text-[12px] leading-[18px] text-ink-meta";
+  const lineClass = "text-small leading-[18px] text-ink-meta";
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <ChatGptStorageNotice storage={storage} />
@@ -88,7 +88,7 @@ export function LocalWay({
       className={`flex flex-col items-start gap-1.5 ${quiet ? "" : "px-2 py-1.5"}`}
     >
       {!quiet && (
-        <span className="text-ui font-semibold text-ink">
+        <span className="text-ui text-ink">
           {t(read === "not-running" ? "setup.way.local.install" : "setup.way.local")}
         </span>
       )}
@@ -96,7 +96,7 @@ export function LocalWay({
         data-testid="ollama-status"
         data-read={read}
         data-looking={read === "looking" || undefined}
-        className="text-[13px] leading-5 text-ink-secondary"
+        className="text-ui leading-5 text-ink-secondary"
       >
         {t(
           read === "looking"
@@ -112,7 +112,7 @@ export function LocalWay({
       <OllamaAction ollama={ollama} />
       {/* One line in every state, so nothing under it moves when the line below changes. */}
       {(!quiet || keeps) && (
-        <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
+        <p data-testid="setup-local-keeps" className="min-h-[18px] text-small leading-[18px]">
           {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
           {keeps ? (
             <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>

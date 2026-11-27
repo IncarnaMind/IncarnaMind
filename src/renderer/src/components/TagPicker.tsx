@@ -18,7 +18,7 @@ import { type Box, enterFrom, exitToward } from "../motion";
 import { useAppStore } from "../store";
 import { actionFor, pickerOptions, type TagOnDocuments, tagsOnDocuments } from "../tagEditing";
 import { useUndo } from "../undo";
-import { CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
+import { CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./icons";
 import { ProblemMark } from "./ProblemLine";
 import { TagDot, tagChipColour } from "./TagColour";
 import { TypingTextarea } from "./TypingTextarea";
@@ -151,7 +151,7 @@ export const tagPopoverClass =
 
 /** A chip's shape in the picker's field and on a row: 20px, radius 4. Its colours are its Tag's. */
 export const chipClass =
-  "inline-flex h-5 max-w-[10rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-[12px] leading-5";
+  "inline-flex h-5 max-w-[10rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-small leading-5";
 
 const undoStepOf = (event: KeyboardEvent) =>
   pressesShortcut("edit.undo", event.nativeEvent)
@@ -347,7 +347,7 @@ export function TagPicker({
               onClick={() => void run(() => remove(state.tag.id))}
               className="inline-flex size-4 items-center justify-center rounded-sm opacity-70 hover:bg-sheet/70 hover:opacity-100"
             >
-              <CloseLineIcon className="size-2.5" />
+              <CloseLineIcon />
             </button>
           </span>
         ))}
@@ -385,7 +385,7 @@ export function TagPicker({
         className="max-h-64 overflow-y-auto p-1"
       >
         {options.length === 0 && (
-          <p className="px-2 py-1 text-[13px] text-ink-meta">{t("tags.picker.none")}</p>
+          <p className="px-2 py-1 text-ui text-ink-meta">{t("tags.picker.none")}</p>
         )}
         {options.map((option, index) =>
           option.kind === "create" ? (
@@ -405,7 +405,7 @@ export function TagPicker({
                 index === current ? "bg-hover" : ""
               }`}
             >
-              <PlusLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+              <PlusLineIcon className="shrink-0 text-ink-meta" />
               <span className="min-w-0 flex-1 truncate">
                 {t("tags.picker.create", { name: option.name })}
               </span>
@@ -417,7 +417,7 @@ export function TagPicker({
                   event.stopPropagation();
                   setDescribing(option.name);
                 }}
-                className="shrink-0 rounded-sm px-1 text-[12px] text-ink-meta hover:bg-chip hover:text-ink"
+                className="shrink-0 rounded-sm px-1 text-small text-ink-meta hover:bg-chip hover:text-ink"
               >
                 {t("tags.picker.describe")}
               </button>
@@ -503,7 +503,7 @@ function TagOption({
         title={markTitle}
         className="flex size-3.5 shrink-0 items-center justify-center"
       >
-        {coverage === "all" && <CheckLineIcon className="size-3.5 text-ink" />}
+        {coverage === "all" && <CheckLineIcon className="text-ink" />}
         {coverage === "some" && <span className="h-0.5 w-2.5 rounded-full bg-ink-secondary" />}
       </span>
       <TagDot colour={tag.colour} />
@@ -543,10 +543,8 @@ function DescribeTag({
         }
       }}
     >
-      <p className="text-ui font-semibold break-words text-ink">
-        {t("tags.picker.create", { name })}
-      </p>
-      <label className="block text-[13px] leading-5 text-ink-secondary">
+      <p className="text-ui break-words text-ink">{t("tags.picker.create", { name })}</p>
+      <label className="block text-ui leading-5 text-ink-secondary">
         {t("tags.picker.descriptionLabel")}
         <TypingTextarea
           data-picker-field

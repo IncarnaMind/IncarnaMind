@@ -1,6 +1,6 @@
 import { getSchema, type JSONContent } from "@tiptap/core";
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { tableCellFigurePlaces } from "../../src/core/answers/checks/figureOccurrences";
 import {
@@ -15,8 +15,8 @@ import {
 import { noteFooting, readTableSnapshot } from "../../src/core/figureSchedule";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
-  createAgentNoteCache,
   createHomeNoteStateReader,
+  type HomeSharedContext,
 } from "../../src/renderer/src/homeNoteStates";
 import {
   decodeHomeSnapshot,
@@ -26,9 +26,9 @@ import {
 } from "../../src/renderer/src/noteState";
 import { translate } from "../../src/shared/i18n";
 import { sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
-import { recordNoteWriter } from "../../src/shared/noteWriter";
 import { writeOpinionSentences } from "../../src/shared/opinions";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 
 const AT = "2026-10-26T12:00:00.000Z";
 const schema = getSchema(noteExtensions());
@@ -682,94 +682,189 @@ describe("createHomeNoteStateReader (#3822)", () => {
     reader.dispose();
   });
 
-  test("createAgentNoteCache preserves the previous decoded Note and dirty flag when replacement decode fails", async () => {
-    const mindId = "agent-note-1";
-    const pairingId = "pair-1";
-    const makeAgentState = (text: string) =>
-      updateFromDoc(
-        {
-          type: "doc",
-          content: [
-            {
-              type: "paragraph",
-              attrs: { [BLOCK_ID_ATTRIBUTE]: "p-agent" },
-              content: [{ type: "text", text }],
-            },
-          ],
-        },
-        (doc) => {
-          recordNoteWriter(doc, {
-            source: "outside-agent",
-            agent: "Test Agent",
-            pairingId,
-            createdAt: AT,
-            mindId,
-          });
-        },
-      );
-
-    let currentState = makeAgentState("First agent sentence.");
-    let failDecode = false;
-    let firstDisposed = false;
-    let fetchCount = 0;
-
-    const cache = createAgentNoteCache({
+  test("a Note with figures in a table is read again when the Documents or the Library change, and decoded again only when it reads differently", async () => {
+    const tableState = paragraphDoc("Total 30", "p-table");
+    const proseState = paragraphDoc("Spring tides rise highest at full moon.", "p-prose");
+    const place = { blockId: "p-table", from: 6, to: 8 };
+    let footing: MindContentSnapshot["footing"] = [];
+    const calls: string[][] = [];
+    const decodedIds: string[] = [];
+    let latest: ReadonlyMap<string, NoteReading> = new Map();
+    const reader = createHomeNoteStateReader({
       readMindContents: async (mindIds) => {
-        fetchCount++;
-        return mindIds.map((id) => ({
-          mindId: id,
-          state: currentState,
-          cellFigures: [],
-          footing: [],
-        }));
+        calls.push([...mindIds]);
+        return mindIds.map((mindId) =>
+          mindId === "table"
+            ? { mindId, state: tableState, cellFigures: [place], footing }
+            : { mindId, state: proseState, cellFigures: [], footing: [] },
+        );
       },
       decode: async (snapshot) => {
-        if (failDecode) throw new Error("corrupt replacement");
-        const real = await decodeHomeSnapshot(snapshot);
-        if (fetchCount === 1) {
-          return {
-            ...real,
-            dispose() {
-              firstDisposed = true;
-              real.dispose();
-            },
-          };
-        }
-        return real;
+        decodedIds.push(snapshot.state === tableState ? "table" : "prose");
+        return decodeHomeSnapshot(snapshot);
+      },
+      onChange: (states) => {
+        latest = states;
+      },
+      onError: (error) => {
+        throw error;
       },
     });
+    const minds = [
+      { id: "table", folderId: null },
+      { id: "prose", folderId: null },
+    ];
+    reader.sync(minds, { documents: [], keptCitationTexts: [], library: null });
+    await flush();
+    expect(calls).toEqual([["table", "prose"]]);
 
-    const candidates = [{ id: mindId, folderId: null }];
-    const pairings = new Set([pairingId]);
-    const ctx = { documents: [], keptCitationTexts: [], library: null };
+    reader.sync(minds, {
+      documents: [{ id: "doc-1", contentHash: "h1" }],
+      keptCitationTexts: [],
+      library: null,
+    });
+    await flush();
+    expect(calls).toEqual([["table", "prose"], ["table"]]);
+    expect(decodedIds).toEqual(["table", "prose"]);
 
-    const first = await cache.read(candidates, pairings, ctx);
-    expect(fetchCount).toBe(1);
-    expect(first?.mindId).toBe(mindId);
-    expect(first?.state?.kind).toBe("not-checked");
-    expect(firstDisposed).toBe(false);
-    expect(cache.isDirty(mindId)).toBe(false);
+    footing = [{ id: "fig-total", footing: [], waiting: true }];
+    reader.sync(minds, {
+      documents: [{ id: "doc-1", contentHash: "h1" }],
+      keptCitationTexts: [],
+      library: { groups: [], documentWalls: {} },
+    });
+    await flush();
+    expect(calls).toEqual([["table", "prose"], ["table"], ["table"]]);
+    expect(decodedIds).toEqual(["table", "prose", "table"]);
+    expect(latest.get("table")).toBeDefined();
+    expect(latest.get("prose")).toBeDefined();
+    reader.dispose();
+  });
 
-    // Mark dirty and fail decoding the replacement: old doc must stay undisposed and dirty flag kept.
-    cache.markDirty(mindId);
-    failDecode = true;
-    await expect(cache.read(candidates, pairings, ctx)).rejects.toThrow("corrupt replacement");
-    expect(fetchCount).toBe(2);
-    expect(firstDisposed).toBe(false);
-    expect(cache.has(mindId)).toBe(true);
-    expect(cache.isDirty(mindId)).toBe(true);
+  test("the state line of a short Note, a long one, one edited since and one whose Documents changed is a fresh read's", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir);
+    const sources = await createSourceFolder();
+    const [annual] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Annual.txt", "Revenue reached 120 million in 2025."),
+    ]);
+    if (!annual) throw new Error("The Document wasn't added.");
+    const checked = "Revenue reached 120 million in 2025.";
+    const short = await core.createMind({ title: "Short" });
+    await core.applyMindUpdate(
+      short.id,
+      updateFromDoc({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            attrs: { [BLOCK_ID_ATTRIBUTE]: "p-checked" },
+            content: [
+              {
+                type: "text",
+                text: checked,
+                marks: [
+                  {
+                    type: CLAIM_CHECK_MARK,
+                    attrs: checkedAttrs(checked, {
+                      versions: [{ documentId: annual.id, contentHash: annual.contentHash }],
+                    }),
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const long = await core.createMind({ title: "Long" });
+    await core.applyMindUpdate(
+      long.id,
+      updateFromDoc({
+        type: "doc",
+        content: Array.from({ length: 600 }, (_, at) => ({
+          type: "paragraph",
+          attrs: { [BLOCK_ID_ATTRIBUTE]: `long-${at}` },
+          content: [
+            {
+              type: "text",
+              text: `Clause ${at + 1}: fees of ${at + 10} thousand are invoiced monthly in arrears.`,
+            },
+          ],
+        })),
+      }),
+    );
+    await core.closeMind(short.id);
+    await core.closeMind(long.id);
 
-    // Next read retries, succeeds, disposes the old doc, and clears dirty.
-    failDecode = false;
-    currentState = makeAgentState("First updated sentence. Second updated sentence.");
-    const retried = await cache.read(candidates, pairings, ctx);
-    expect(fetchCount).toBe(3);
-    expect(firstDisposed).toBe(true);
-    expect(cache.isDirty(mindId)).toBe(false);
-    expect(retried?.mindId).toBe(mindId);
-    expect(retried?.state?.kind).toBe("not-checked");
+    let latest: ReadonlyMap<string, NoteReading> = new Map();
+    const reader = createHomeNoteStateReader({
+      readMindContents: (ids) => core.readMindContents(ids),
+      onChange: (states) => {
+        latest = states;
+      },
+      onError: (error) => {
+        throw error;
+      },
+    });
+    const minds = [
+      { id: short.id, folderId: null },
+      { id: long.id, folderId: null },
+    ];
+    // Each Note as a read of the whole Note now gives it, from what is stored.
+    const freshReading = (mindId: string, context: HomeSharedContext) => {
+      const rows = queryDatabase<{ data: Uint8Array }>(
+        dataDir,
+        "SELECT data FROM mind_updates WHERE mind_id = ? AND deleted_at IS NULL ORDER BY rowid",
+        [mindId],
+      );
+      const state = Y.mergeUpdates(rows.map((row) => new Uint8Array(row.data)));
+      return homeReading({ state, cellFigures: [], footing: [] }, { ...context, folderId: null });
+    };
+    const sameAsFresh = async (context: HomeSharedContext) => {
+      await vi.waitFor(
+        () => {
+          for (const { id } of minds) {
+            const shown = latest.get(id);
+            const fresh = freshReading(id, context);
+            expect(shown?.health).toEqual(fresh.health);
+            expect(shown?.state).toEqual(fresh.state);
+          }
+        },
+        { timeout: 5_000, interval: 20 },
+      );
+    };
 
-    cache.dispose();
+    const started = { documents: await core.listDocuments(), keptCitationTexts: [], library: null };
+    reader.sync(minds, started);
+    await sameAsFresh(started);
+    expect(latest.get(short.id)?.state?.kind).toBe("checked");
+    expect(latest.get(long.id)?.health.toCheck.length).toBe(600);
+
+    await core.applyMindUpdate(
+      short.id,
+      updateFromDoc({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            attrs: { [BLOCK_ID_ATTRIBUTE]: "p-added" },
+            content: [{ type: "text", text: "Cargo volumes doubled after the dredging." }],
+          },
+        ],
+      }),
+    );
+    reader.refresh([short.id]);
+    await sameAsFresh(started);
+    expect(latest.get(short.id)?.health.toCheck.length).toBe(1);
+
+    await core.deleteDocument(annual.id);
+    const changed = { documents: await core.listDocuments(), keptCitationTexts: [], library: null };
+    expect(changed.documents).toEqual([]);
+    reader.sync(minds, changed);
+    await sameAsFresh(changed);
+    expect(latest.get(short.id)?.state?.kind).not.toBe("checked");
+    reader.dispose();
   });
 
   test("readTableSnapshot yields inside large table paragraph, fact, and place loops with identical output", async () => {

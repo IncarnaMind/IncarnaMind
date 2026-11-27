@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ComputerLineIcon } from "./lineIcons";
+import { ComputerLineIcon } from "./icons";
 
 /**
  * What stays on this computer ("Stays on this computer"): its icon, then the
@@ -17,7 +17,7 @@ export function OnThisComputer({
       data-testid="on-this-computer"
       className={`inline-flex items-center gap-1 text-ink-secondary ${className}`}
     >
-      <ComputerLineIcon className="size-3.5 shrink-0" />
+      <ComputerLineIcon className="shrink-0" />
       {children}
     </span>
   );

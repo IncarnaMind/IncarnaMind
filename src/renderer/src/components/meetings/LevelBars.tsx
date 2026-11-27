@@ -5,7 +5,7 @@ import { useT } from "../../i18n";
 import { LEVEL_BARS, useMeetingLevels } from "../../meetingLevels";
 import { isWaitingForPermission } from "../../meetings";
 import { motionMode, subscribeMotion } from "../../motion";
-import { StopLineIcon, WarningLineIcon } from "../lineIcons";
+import { StopLineIcon, WarningLineIcon } from "../icons";
 
 /** Where a bar stands when the bars hold still: highest in the middle. */
 const STILL_SHAPE = [0.55, 0.8, 1, 0.8, 0.55];
@@ -45,7 +45,7 @@ export function LevelBars({ meeting, onStop }: { meeting: Meeting; onStop?: () =
         data-testid="level-warning"
         className="level-warning"
       >
-        <WarningLineIcon className="size-3.5" />
+        <WarningLineIcon />
       </span>
     );
   }
@@ -87,7 +87,7 @@ export function LevelBars({ meeting, onStop }: { meeting: Meeting; onStop?: () =
       data-pointed={pointed}
       className="level-meter level-meter--stop"
     >
-      {pointed ? <StopLineIcon data-testid="level-stop-icon" className="size-3.5" /> : bars}
+      {pointed ? <StopLineIcon data-testid="level-stop-icon" /> : bars}
     </button>
   );
 }

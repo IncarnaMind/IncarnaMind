@@ -60,7 +60,7 @@ export function LimitsSection() {
               type="button"
               data-testid="ai-limits-privacy-link"
               onClick={() => showPage("privacy")}
-              className="text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline"
+              className="text-ui leading-5 text-accent underline-offset-2 hover:underline"
             >
               {t("ai.limits.read.review")}
             </button>

@@ -1,7 +1,7 @@
 import type { AnswerToolCall, ConversationAnswer, UserAnswer } from "../../../../core/api";
 import { useT } from "../../i18n";
 import type { Translate } from "../../objects";
-import { ChatLineIcon } from "../lineIcons";
+import { ChatLineIcon } from "../icons";
 
 /** What a question the assistant asked comes to, in its row: waiting, chosen, or skipped. */
 export function askCallText(t: Translate, call: AnswerToolCall): string {

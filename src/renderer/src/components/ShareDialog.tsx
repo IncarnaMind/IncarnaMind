@@ -5,7 +5,7 @@ import { errorMessage } from "../errors";
 import { exportMind, exportPreferences } from "../exports";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { CloseLineIcon } from "./lineIcons";
+import { CloseLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import { SharePageContents } from "./SharePageContents";
 import { SwitchRow } from "./SwitchRow";
@@ -117,7 +117,7 @@ function SharePageForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           onClick={onDone}
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-hover hover:text-ink"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </header>
 
@@ -144,7 +144,7 @@ function SharePageForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
       )}
 
       <div className={`${dialogActionsClass} shrink-0 px-6 pt-5 pb-6`}>
-        <span className="mr-auto min-w-0 text-[12.5px] leading-[18px] text-ink-meta">
+        <span className="mr-auto min-w-0 text-small leading-[18px] text-ink-meta">
           {t("export.share.nothing")}
         </span>
         <button type="button" onClick={onDone} className={buttonClass}>

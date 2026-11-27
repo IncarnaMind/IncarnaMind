@@ -185,7 +185,7 @@ export function MeetingsSettings() {
         <details ref={templates}>
           <summary
             data-testid="meeting-templates-disclosure"
-            className="cursor-pointer text-[13px] font-semibold text-ink"
+            className="cursor-pointer text-ui text-ink"
           >
             {t("meetings.settings.templates")}
           </summary>

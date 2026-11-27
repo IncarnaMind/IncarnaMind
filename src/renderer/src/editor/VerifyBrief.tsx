@@ -9,9 +9,9 @@ import {
   observeBrief,
   type VerificationBrief,
 } from "../../../shared/verificationBrief";
+import { ClaimMarkIcon, type ClaimMarkState } from "../components/icons";
 import { useLanguage, useT } from "../i18n";
 import { type ShownClaim, shownClaims } from "./claimChecks";
-import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 
 /** The brief a Mind made by "Verify a document…" keeps, as it changes; null while it has none. */
 export function useVerificationBrief(doc: Y.Doc): VerificationBrief | null {

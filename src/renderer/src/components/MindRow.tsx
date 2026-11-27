@@ -14,7 +14,7 @@ import { isMoveToKey, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { useIsExample } from "./GettingStarted";
 import { InlineName } from "./InlineName";
-import { MindLineIcon } from "./lineIcons";
+import { MindLineIcon } from "./icons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import {
   clearsActions,

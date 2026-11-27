@@ -116,7 +116,7 @@ export function ManageUsageLink({ className = "" }: { className?: string }) {
       target="_blank"
       rel="noreferrer"
       data-testid="chatgpt-manage-usage"
-      className={`font-semibold text-accent underline-offset-2 hover:underline ${className}`}
+      className={` text-accent underline-offset-2 hover:underline ${className}`}
     >
       {t("chatgpt.manageUsage")} ↗
     </a>
@@ -186,10 +186,10 @@ export function ChatGptSignInState({
   const t = useT();
   const late = useLate(sign.waiting);
   const [troubleShown, setTroubleShown] = useState(false);
-  const link = "font-semibold text-accent underline-offset-2 hover:underline";
+  const link = "text-accent underline-offset-2 hover:underline";
   if (sign.waiting && quiet) {
     return (
-      <div className="flex w-full flex-col gap-1 text-[13px] leading-5 text-ink-secondary">
+      <div className="flex w-full flex-col gap-1 text-ui leading-5 text-ink-secondary">
         <p className="flex flex-wrap items-center gap-x-2">
           <span>{t("chatgpt.signingIn")}</span>
           <button type="button" data-testid="chatgpt-cancel" onClick={sign.cancel} className={link}>
@@ -227,7 +227,7 @@ export function ChatGptSignInState({
   }
   if (sign.waiting) {
     return (
-      <div className="flex w-full flex-col gap-1 text-[13px] leading-5 text-ink-secondary">
+      <div className="flex w-full flex-col gap-1 text-ui leading-5 text-ink-secondary">
         <p className="flex flex-wrap items-center gap-x-2">
           {late ? (
             <span data-testid="chatgpt-late">{t("chatgpt.late")}</span>
@@ -270,7 +270,7 @@ export function ChatGptSignInState({
           ? { testId: "chatgpt-retry", label: t("chatgpt.signInAgain"), run: {} }
           : null;
   return (
-    <div role="alert" data-testid="chatgpt-error" className="text-[13px] leading-5 break-words">
+    <div role="alert" data-testid="chatgpt-error" className="text-ui leading-5 break-words">
       <p className="text-ink">
         <ProblemMark />
         {failureText}
@@ -281,7 +281,7 @@ export function ChatGptSignInState({
               type="button"
               data-testid={action.testId}
               onClick={() => void sign.run(action.run)}
-              className="font-semibold text-accent underline-offset-2 hover:underline"
+              className="text-accent underline-offset-2 hover:underline"
             >
               {action.label}
             </button>

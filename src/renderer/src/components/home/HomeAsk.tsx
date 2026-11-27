@@ -10,12 +10,12 @@ import {
 import { menuKeysLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
 import { core } from "../../core";
-import { AskArrowIcon } from "../../editor/icons";
 import { withKeys } from "../../editor/withShortcut";
 import { useT } from "../../i18n";
 import { askInNote } from "../../ownAiInNote";
 import { runsInBackground } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
+import { AskArrowIcon } from "../icons";
 import { NewMenu } from "../NewMenu";
 import { ProblemLine } from "../ProblemLine";
 import { TypingTextarea } from "../TypingTextarea";
@@ -129,7 +129,7 @@ export function HomeAsk() {
             onClick={() => void send()}
             className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-on-primary disabled:bg-chip disabled:text-ink-meta"
           >
-            <AskArrowIcon className="size-3" />
+            <AskArrowIcon />
           </button>
         </div>
       )}

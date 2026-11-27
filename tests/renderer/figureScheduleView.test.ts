@@ -509,10 +509,16 @@ test("a total that agrees with its source but doesn't add up names both facts an
   expect(container.querySelector('[data-figure-id="total"] .figure-place')?.textContent).toBe(
     "Segments › table, Total row",
   );
-  expect(button("Treat as a total", menuOf("total") ?? container)).toBeNull();
-  await click(button("Not a total", menuOf("total") ?? container));
+  // The table's two switches: its row is ticked as a total, its column is not.
+  const totalRow = button("Treat row as a total", menuOf("total") ?? container);
+  const totalColumn = button("Treat column as a total", menuOf("total") ?? container);
+  expect(totalRow?.getAttribute("aria-checked")).toBe("true");
+  expect(totalColumn?.getAttribute("aria-checked")).toBe("false");
+  await click(totalRow);
   expect(actions.onTotalRole).toHaveBeenLastCalledWith("total", ["row"], false);
-  expect(button("Not a total", menuOf("first") ?? container)).toBeNull();
+  await click(button("Treat column as a total", menuOf("total") ?? container));
+  expect(actions.onTotalRole).toHaveBeenLastCalledWith("total", ["column"], true);
+  expect(button("Treat row as a total", menuOf("first") ?? container)).toBeNull();
 });
 
 test("one selected figure is outlined; the menu acts on every selected figure and says how many", async () => {

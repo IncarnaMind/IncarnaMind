@@ -17,7 +17,7 @@ export function SendsLine({
   return (
     <DetailsLine
       testId={testId}
-      className="text-[12px] leading-5 text-ink-meta"
+      className="text-small leading-5 text-ink-meta"
       details={
         <div className="flex flex-col gap-1.5">
           <ul className="list-disc pl-4">

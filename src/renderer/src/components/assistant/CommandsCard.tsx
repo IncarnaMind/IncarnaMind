@@ -21,7 +21,7 @@ import type { Translate } from "../../objects";
 import { openReview } from "../../organizeReview";
 import { settingsPageLabels } from "../../settingsPages";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, ShieldLineIcon } from "../lineIcons";
+import { CheckLineIcon, ShieldLineIcon } from "../icons";
 import { Dot } from "./AskedChangesCard";
 
 const ITEMS_SHOWN = 8;

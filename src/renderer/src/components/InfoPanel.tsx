@@ -37,7 +37,7 @@ import { reviewProblemKind, reviewReason } from "../reviewProblems";
 import { scanningStatus } from "../scanStatus";
 import { useAppStore } from "../store";
 import { chipsOf } from "../tagEditing";
-import { DocumentLineIcon, FolderLineIcon } from "./lineIcons";
+import { DocumentLineIcon, FolderLineIcon } from "./icons";
 import { TagDot } from "./TagColour";
 import { buttonClass } from "./ui";
 import { useFocusReturn } from "./useFocusReturn";
@@ -167,14 +167,10 @@ function Header({ icon, name, line }: { icon: ReactNode; name: string; line: str
     <div className="flex items-center gap-2.5 border-b border-rule px-4 pt-3.5 pb-2.5">
       <span className="flex size-7 shrink-0 items-center justify-center text-ink-meta">{icon}</span>
       <div className="min-w-0 flex-1">
-        <p
-          data-testid="info-name"
-          title={name}
-          className="truncate text-ui leading-5 font-semibold text-ink"
-        >
+        <p data-testid="info-name" title={name} className="truncate text-ui leading-5 text-ink">
           {name}
         </p>
-        <p data-testid="info-summary" className="truncate text-[12px] leading-4 text-ink-meta">
+        <p data-testid="info-summary" className="truncate text-small leading-4 text-ink-meta">
           {line}
         </p>
       </div>
@@ -184,7 +180,7 @@ function Header({ icon, name, line }: { icon: ReactNode; name: string; line: str
 
 function Rows({ children }: { children: ReactNode }) {
   return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 px-4 py-3 text-[13px] leading-5 select-text">
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 px-4 py-3 text-ui leading-5 select-text">
       {children}
     </dl>
   );
@@ -341,7 +337,7 @@ function DocumentInfo({ document }: { document: Document }) {
   return (
     <>
       <Header
-        icon={<DocumentLineIcon kind={document.kind} className="size-7" />}
+        icon={<DocumentLineIcon kind={document.kind} data-size="18" />}
         name={displayName(document)}
         line={summary}
       />
@@ -525,7 +521,7 @@ function LinkedFolderInfo({ linked }: { linked: LinkedFolder }) {
   return (
     <>
       <Header
-        icon={<FolderLineIcon className="size-7" />}
+        icon={<FolderLineIcon data-size="18" />}
         name={folderName(linked.path)}
         line={`${count} · ${size}`}
       />
@@ -574,7 +570,7 @@ function FolderInfo({ group }: { group: LibraryGroup }) {
   const onDisk = useFolderOnDisk(bound?.linked ?? null);
   return (
     <>
-      <Header icon={<FolderLineIcon className="size-7" />} name={group.name} line={documents} />
+      <Header icon={<FolderLineIcon data-size="18" />} name={group.name} line={documents} />
       <Rows>
         {bound && (
           <Row label={t("info.where")} testId="info-path">
@@ -605,7 +601,7 @@ function FolderInfo({ group }: { group: LibraryGroup }) {
         <>
           <p
             data-testid="info-promise"
-            className="px-4 pb-3 text-[12px] leading-[18px] text-ink-meta"
+            className="px-4 pb-3 text-small leading-[18px] text-ink-meta"
           >
             {t("folder.bound.promise")}
           </p>

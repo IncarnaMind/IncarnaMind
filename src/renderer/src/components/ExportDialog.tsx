@@ -29,7 +29,7 @@ import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
 import { useAppStore } from "../store";
 import { CitationPlaceRow } from "./CitationPlace";
-import { ChevronDownLineIcon, CloseLineIcon } from "./lineIcons";
+import { ChevronDownLineIcon, CloseLineIcon } from "./icons";
 import { MarkAiTextRow } from "./MarkAiText";
 import { ProblemLine } from "./ProblemLine";
 import { SwitchRow } from "./SwitchRow";
@@ -162,10 +162,7 @@ function WordReviewRows({
         />
       ) : (
         fileCommentsNote && (
-          <p
-            data-testid="export-file-comments"
-            className="py-2.5 text-[13px] leading-5 text-ink-meta"
-          >
+          <p data-testid="export-file-comments" className="py-2.5 text-ui leading-5 text-ink-meta">
             {fileCommentsNote}
           </p>
         )
@@ -217,7 +214,7 @@ function TheirChangesRow({
           <option value="shown">{t("export.theirChanges.shown")}</option>
           <option value="accepted">{t("export.theirChanges.accepted")}</option>
         </select>
-        <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+        <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 text-ink-meta" />
       </span>
     </div>
   );
@@ -286,7 +283,7 @@ function MarksRows({
                 </option>
               ))}
             </select>
-            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 text-ink-meta" />
           </span>
         </div>
         <span id={`${id}-hint`} className={hintClass}>
@@ -350,7 +347,7 @@ function CitationStyleRow({ mindId }: { mindId: string }) {
         {byDefault && (
           <span
             data-testid="export-citation-style-default"
-            className="text-[13px] leading-5 text-ink-meta"
+            className="text-ui leading-5 text-ink-meta"
           >
             {t("export.citationStyle.default")}
           </span>
@@ -367,7 +364,7 @@ function CitationStyleRow({ mindId }: { mindId: string }) {
         <span id="export-citation-style-value" className="truncate">
           {label ?? "…"}
         </span>
-        <ChevronDownLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+        <ChevronDownLineIcon className="shrink-0 text-ink-meta" />
       </button>
     </div>
   );
@@ -408,7 +405,7 @@ function SaveToRow() {
           <span
             data-testid="export-save-to"
             title={location ?? undefined}
-            className="truncate text-[13px] leading-5 text-ink-meta"
+            className="truncate text-ui leading-5 text-ink-meta"
           >
             {output === null || location === null
               ? "…"
@@ -573,7 +570,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           onClick={onDone}
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-hover hover:text-ink"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </header>
 
@@ -601,11 +598,11 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
                 </option>
               ))}
             </select>
-            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 text-ink-meta" />
           </span>
         </div>
 
-        <div className="flex flex-col py-3 text-[13px] leading-5 text-ink-meta">
+        <div className="flex flex-col py-3 text-ui leading-5 text-ink-meta">
           <p data-testid="export-format-note">{t(FORMAT_NOTES[format])}</p>
           {format === "docx" && (
             <p data-testid="export-pending-note">{t("export.options.docx.pending")}</p>

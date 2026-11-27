@@ -3,7 +3,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { core } from "../core";
 import { useGap, useT } from "../i18n";
 import { useAppStore } from "../store";
-import { CloseLineIcon } from "./lineIcons";
+import { CloseLineIcon } from "./icons";
 import { buttonStyle } from "./ui";
 
 export const USAGE_DATA_DETAILS_URL =
@@ -56,7 +56,7 @@ export function UsageDataCard() {
       className="mx-2 mb-2 flex shrink-0 flex-col gap-2 rounded-lg bg-sheet p-2.5 shadow-[inset_0_0_0_1px_var(--color-rule)]"
     >
       <div className="flex items-start justify-between gap-2">
-        <h2 id={`${id}-title`} className="text-[13px] leading-5 font-semibold text-ink">
+        <h2 id={`${id}-title`} className="text-ui leading-5 text-ink">
           {title}
         </h2>
         {tester && (
@@ -68,15 +68,15 @@ export function UsageDataCard() {
             onClick={() => void hide()}
             className="inline-flex size-[22px] shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
           >
-            <CloseLineIcon strokeWidth={2.5} className="size-3" />
+            <CloseLineIcon />
           </button>
         )}
       </div>
-      <p className="text-[13px] leading-5 text-ink-secondary">
+      <p className="text-ui leading-5 text-ink-secondary">
         {t(tester ? "usageData.card.tester.body" : "usageData.card.body")}
       </p>
       {tester ? (
-        <label className="flex items-center justify-between gap-2 text-[13px] leading-5 font-semibold text-ink">
+        <label className="flex items-center justify-between gap-2 text-ui leading-5 text-ink">
           {t("usageData.card.tester.switch")}
           <input
             type="checkbox"
@@ -114,12 +114,12 @@ export function UsageDataCard() {
         aria-expanded={what}
         aria-controls={`${id}-what`}
         onClick={() => setWhat(!what)}
-        className="self-start rounded-sm text-[13px] leading-5 text-accent underline-offset-2 hover:underline focus-visible:outline-offset-0"
+        className="self-start rounded-sm text-ui leading-5 text-accent underline-offset-2 hover:underline focus-visible:outline-offset-0"
       >
         {t("usageData.card.what")}
       </button>
       {what && (
-        <div id={`${id}-what`} className="flex flex-col gap-1.5 text-[13px] leading-5">
+        <div id={`${id}-what`} className="flex flex-col gap-1.5 text-ui leading-5">
           <p className="text-ink-secondary">{t("usageData.card.example")}</p>
           <ul
             data-testid="usage-data-examples"

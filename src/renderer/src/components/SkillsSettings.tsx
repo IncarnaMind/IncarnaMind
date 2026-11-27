@@ -27,7 +27,19 @@ import {
 } from "../skills";
 import { useAppStore } from "../store";
 import { DetailsLine } from "./DetailsLine";
-import { ExportLineIcon, MoreLineIcon, PlusLineIcon } from "./lineIcons";
+import {
+  ArchiveIcon,
+  DuplicateIcon,
+  ExportLineIcon,
+  FolderLineIcon,
+  type Icon,
+  MoreLineIcon,
+  PencilLineIcon,
+  PlusLineIcon,
+  SparkLineIcon,
+  TrashLineIcon,
+} from "./icons";
+import { MenuItemParts } from "./MenuItemParts";
 import { MetaLine } from "./MetaLine";
 import { ProblemLine, ProblemMark } from "./ProblemLine";
 import { SkillEditor } from "./SkillEditor";
@@ -41,6 +53,7 @@ import {
 } from "./settings/SettingsGroup";
 import {
   buttonStyle,
+  dangerItemClass,
   errorTextClass,
   ghostButtonClass,
   iconButtonClass,
@@ -250,7 +263,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
         disabled={busy !== null || preview !== null}
         className={buttonStyle("secondary", "sm")}
       >
-        <ExportLineIcon className="size-4" />
+        <ExportLineIcon />
         {t("skills.settings.import")}
       </button>
       <div
@@ -272,7 +285,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
               }}
               className={`${menuItemClass} pl-2`}
             >
-              {t("skills.import.folder")}
+              <MenuItemParts icon={FolderLineIcon} label={t("skills.import.folder")} />
             </button>
             <button
               type="button"
@@ -284,7 +297,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
               }}
               className={`${menuItemClass} pl-2`}
             >
-              {t("skills.import.zip")}
+              <MenuItemParts icon={ArchiveIcon} label={t("skills.import.zip")} />
             </button>
           </>
         )}
@@ -294,7 +307,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
   const importFeedback = (
     <>
       {busy === "reading" && (
-        <p className="text-[13px] leading-5 text-ink-meta">{t("skills.import.reading")}</p>
+        <p className="text-ui leading-5 text-ink-meta">{t("skills.import.reading")}</p>
       )}
       {error && <ImportError error={error} />}
       {exported && <ExportStatus exported={exported} onExport={exportZip} />}
@@ -335,7 +348,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
             }}
             className={buttonStyle("secondary", "sm")}
           >
-            <PlusLineIcon className="size-4" />
+            <PlusLineIcon />
             {t("skills.settings.new")}
           </button>
           {importControls}
@@ -355,9 +368,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
 
       <SettingsSection testId="skills-yours" title={t("skills.settings.yours")}>
         {yours.length === 0 ? (
-          <p className="px-4 text-[13px] leading-5 text-ink-meta">
-            {t("skills.settings.yours.empty")}
-          </p>
+          <p className="px-4 text-ui leading-5 text-ink-meta">{t("skills.settings.yours.empty")}</p>
         ) : (
           <SettingsGroup>{yours.map(row)}</SettingsGroup>
         )}
@@ -524,7 +535,7 @@ export function SkillScriptsSettings() {
                 }}
                 className={`${rowFieldClass} w-20`}
               />
-              <span className="text-[13px] leading-5 text-ink-meta">
+              <span className="text-ui leading-5 text-ink-meta">
                 {t("scripts.settings.seconds")}
               </span>
             </>
@@ -595,15 +606,15 @@ function SkillRow({
     menu.close();
     action();
   };
-  const item = (testId: string, text: string, action: () => void) => (
+  const item = (testId: string, icon: Icon, text: string, action: () => void, red = false) => (
     <button
       type="button"
       role="menuitem"
       data-testid={testId}
       onClick={choose(action)}
-      className={`${menuItemClass} pl-2`}
+      className={`${menuItemClass} pl-2${red ? ` ${dangerItemClass}` : ""}`}
     >
-      {text}
+      <MenuItemParts icon={icon} label={text} />
     </button>
   );
 
@@ -643,7 +654,7 @@ function SkillRow({
             title={label}
             className={iconButtonClass}
           >
-            <MoreLineIcon className="size-4" />
+            <MoreLineIcon />
           </button>
           <div
             {...menu.menuProps}
@@ -655,7 +666,9 @@ function SkillRow({
             {menu.open && (
               <>
                 {!skill.builtIn &&
-                  item("skill-edit", t("skills.settings.edit"), () => onEdit(skill))}
+                  item("skill-edit", PencilLineIcon, t("skills.settings.edit"), () =>
+                    onEdit(skill),
+                  )}
                 {skill.meetingTemplate && (
                   <button
                     type="button"
@@ -672,21 +685,30 @@ function SkillRow({
                         .catch(useAppStore.getState().reportError);
                     })}
                   >
-                    <span aria-hidden="true" className="w-4 shrink-0">
-                      {skill.meetingFillUncovered !== false ? "✓" : ""}
-                    </span>
-                    {t("skills.settings.meetingFillUncovered")}
+                    <MenuItemParts
+                      icon={SparkLineIcon}
+                      label={t("skills.settings.meetingFillUncovered")}
+                      checked={skill.meetingFillUncovered !== false}
+                    />
                   </button>
                 )}
-                {item("skill-export", t("skills.settings.export"), () => onExport(skill))}
+                {item("skill-export", ExportLineIcon, t("skills.settings.export"), () =>
+                  onExport(skill),
+                )}
                 {skill.builtIn &&
-                  item("skill-duplicate", t("skills.settings.duplicate"), () => {
+                  item("skill-duplicate", DuplicateIcon, t("skills.settings.duplicate"), () => {
                     void duplicateSkill(skill.id);
                   })}
                 <div className={menuRuleClass} />
-                {item("skill-remove", t("skills.settings.remove"), () => {
-                  void removeSkill(skill.id);
-                })}
+                {item(
+                  "skill-remove",
+                  TrashLineIcon,
+                  t("skills.settings.remove"),
+                  () => {
+                    void removeSkill(skill.id);
+                  },
+                  true,
+                )}
               </>
             )}
           </div>
@@ -721,24 +743,21 @@ function SkillPreview({
       data-testid="skill-preview"
       className="flex flex-col gap-3 rounded-lg border border-rule bg-sheet p-4 text-ui text-ink"
     >
-      <p className="text-label font-semibold text-ink-meta">{t("skills.preview.title")}</p>
+      <p className="text-small text-ink-meta">{t("skills.preview.title")}</p>
       <div className="flex flex-col gap-0.5">
-        <p data-testid="skill-preview-name" className="text-ui font-semibold text-ink">
+        <p data-testid="skill-preview-name" className="text-ui text-ink">
           {skillTitle(preview.name, t)}
         </p>
-        <p
-          data-testid="skill-preview-description"
-          className="text-[13px] leading-5 text-ink-secondary"
-        >
+        <p data-testid="skill-preview-description" className="text-ui leading-5 text-ink-secondary">
           {preview.description}
         </p>
         {preview.license && (
-          <p className="text-[12px] leading-[18px] text-ink-meta">
+          <p className="text-small leading-[18px] text-ink-meta">
             {t("skills.preview.license", { license: preview.license })}
           </p>
         )}
         {preview.compatibility && (
-          <p className="text-[12px] leading-[18px] text-ink-meta">
+          <p className="text-small leading-[18px] text-ink-meta">
             {t("skills.preview.compatibility", { compatibility: preview.compatibility })}
           </p>
         )}
@@ -749,20 +768,18 @@ function SkillPreview({
         </p>
       )}
       <details>
-        <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary select-none hover:text-ink">
+        <summary className="cursor-pointer text-ui leading-5 text-ink-secondary select-none hover:text-ink">
           {preview.files.length === 1
             ? t("skills.preview.files.one", { size })
             : t("skills.preview.files", { count: preview.files.length, size })}
         </summary>
-        <ul className="mt-1 max-h-40 overflow-y-auto font-mono text-[12px] leading-5 text-ink-secondary">
+        <ul className="mt-1 max-h-40 overflow-y-auto font-mono text-small leading-5 text-ink-secondary">
           {preview.files.map((file) => (
             <li key={file.path} data-testid="skill-preview-file" className="flex gap-2">
               <span className="truncate">{file.path}</span>
               <span className="shrink-0 text-ink-meta">{formatSize(file.size, t)}</span>
               {file.script && (
-                <span className="shrink-0 font-sans font-semibold text-ink">
-                  {t("skills.preview.script")}
-                </span>
+                <span className="shrink-0 font-sans text-ink">{t("skills.preview.script")}</span>
               )}
             </li>
           ))}
@@ -812,13 +829,13 @@ function ImportError({ error }: { error: SkillImportError | string }) {
       role="alert"
       data-testid="skill-import-error"
       data-kind={error.kind}
-      className="flex flex-col gap-1 text-[13px] leading-5 text-ink"
+      className="flex flex-col gap-1 text-ui leading-5 text-ink"
     >
       <p>
         <ProblemMark />
         {message}
       </p>
-      <details className="text-[12px] text-ink-meta">
+      <details className="text-small text-ink-meta">
         <summary className="cursor-pointer">{t("skills.error.details")}</summary>
         <p className="mt-1 break-words">{error.message}</p>
       </details>

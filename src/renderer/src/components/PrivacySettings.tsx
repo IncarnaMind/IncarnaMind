@@ -283,7 +283,7 @@ function UsageDataItem({
           href={USAGE_DATA_DETAILS_URL}
           target="_blank"
           rel="noreferrer"
-          className="text-[13px] leading-5 text-accent underline-offset-2 hover:text-accent-strong hover:underline"
+          className="text-ui leading-5 text-accent underline-offset-2 hover:text-accent-strong hover:underline"
         >
           {t("privacy.usageData.details")}
         </a>
@@ -296,7 +296,7 @@ function UsageDataItem({
           {t("privacy.usageData.resetId")}
         </button>
         {reset && (
-          <span role="status" className="text-[12px] leading-[18px] text-ink-meta">
+          <span role="status" className="text-small leading-[18px] text-ink-meta">
             {t("privacy.usageData.resetDone")}
           </span>
         )}

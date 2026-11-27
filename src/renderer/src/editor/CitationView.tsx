@@ -58,6 +58,7 @@ import { applyCitationWording, citationWordingFix } from "../citationWording";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
 import { CheckTheRest } from "../components/assistant/CheckTheRest";
+import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { useAnswerBeingWritten } from "../conversations";
@@ -110,7 +111,6 @@ import {
 } from "./citationScan";
 import { sentenceAround } from "./citationSentence";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
-import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import {
   AssistantFoldedContext,
   ConversationIdContext,

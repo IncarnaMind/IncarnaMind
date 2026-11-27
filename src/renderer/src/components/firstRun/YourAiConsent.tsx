@@ -59,7 +59,7 @@ export function YourAiConsent({
   const fileClients = connects.filter((client) => client.setup === "file");
   return (
     <div className="-mt-1 flex flex-col gap-2">
-      <p data-testid="setup-consent" className="text-[13px] leading-5 text-ink-secondary">
+      <p data-testid="setup-consent" className="text-ui leading-5 text-ink-secondary">
         {said}
         {gap(said, t("agents.connect.details"))}
         <button
@@ -122,7 +122,7 @@ export function YourAiConsent({
           )}
           {installs && <InstallDisclosure testId="setup-consent-install" />}
           <details data-testid="setup-consent-technical" className="flex flex-col">
-            <summary className="cursor-pointer text-[13px] leading-5 font-medium text-ink-secondary">
+            <summary className="cursor-pointer text-ui leading-5 text-ink-secondary">
               {t("setupPage.ai.details.technical")}
             </summary>
             <div className="mt-2 flex flex-col gap-2.5">
@@ -169,7 +169,7 @@ function SettingsChange({ client }: { client: AgentClient }) {
   if (!preview) return null;
   return (
     <div data-testid="setup-consent-app" data-client={client.id} className="flex flex-col gap-1">
-      <p className="text-[12px] leading-[18px] font-semibold text-ink">{clientName(client, t)}</p>
+      <p className="text-small leading-[18px] text-ink">{clientName(client, t)}</p>
       <FileChangePreview preview={preview} testIdPrefix="setup-consent" />
       {client.skillPath && (
         <p data-testid="setup-consent-skill" className={dialogTextClass}>

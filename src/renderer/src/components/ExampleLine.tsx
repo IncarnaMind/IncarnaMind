@@ -39,7 +39,7 @@ export function ExampleLine({ mindId }: { mindId: string }) {
           {...addMenu.buttonProps}
           type="button"
           data-testid="example-add-own"
-          className="rounded-sm font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+          className="rounded-sm text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
         >
           {t("examples.line.add")}
         </button>

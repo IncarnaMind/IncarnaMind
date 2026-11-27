@@ -1,10 +1,15 @@
 import type { ReactNode } from "react";
+import type { Icon } from "../components/icons";
 
 /** One thing a check card offers, in the order the card has always listed them. */
 export interface CardAction {
   key: string;
   testId: string;
   label: string;
+  /** Its icon in the card's ⋯; a button shows only the words. */
+  icon?: Icon;
+  /** Takes something away: the last row of the ⋯, in red. */
+  danger?: boolean;
   /** What the card styled as its main action: the first of them is the card's first button. */
   primary?: boolean;
   /** Keep as my view, the second button wherever the card offers it (#2869). */

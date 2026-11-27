@@ -19,7 +19,7 @@ import {
   SortLineIcon,
   TagLineIcon,
   TrashLineIcon,
-} from "../lineIcons";
+} from "../icons";
 
 const ICONS: Readonly<Record<string, ComponentType<{ className?: string }>>> = {
   "document.rename": PencilLineIcon,

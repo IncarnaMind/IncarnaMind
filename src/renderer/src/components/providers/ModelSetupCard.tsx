@@ -72,7 +72,7 @@ export function ModelSetupCard() {
       <h2
         id="model-setup-title"
         data-setup-title={view === null ? true : undefined}
-        className={view === null ? "text-[15px] leading-6 font-semibold text-ink" : "sr-only"}
+        className={view === null ? "text-ui leading-6 text-ink" : "sr-only"}
       >
         {t("setup.title")}
       </h2>
@@ -118,7 +118,7 @@ export function ModelSetupCard() {
               >
                 <summary
                   data-testid="setup-other"
-                  className="cursor-default text-[13px] leading-5 font-semibold text-ink-secondary"
+                  className="cursor-default text-ui leading-5 text-ink-secondary"
                 >
                   {t("setup.other")}
                 </summary>
@@ -137,7 +137,7 @@ export function ModelSetupCard() {
             type="button"
             data-testid="setup-back"
             onClick={() => setView(null)}
-            className="self-start text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
+            className="self-start text-ui text-accent underline-offset-2 hover:underline"
           >
             ‹ {t("setup.back")}
           </button>

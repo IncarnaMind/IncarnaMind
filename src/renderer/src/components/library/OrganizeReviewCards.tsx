@@ -25,8 +25,10 @@ import {
   FolderLineIcon,
   LooseDocumentsLineIcon,
   MoreLineIcon,
+  PencilLineIcon,
   PlusLineIcon,
-} from "../lineIcons";
+} from "../icons";
+import { MenuItemParts } from "../MenuItemParts";
 import { rowInputClass } from "../sidebarRows";
 import { tagChipColour } from "../TagColour";
 import { chipClass } from "../TagPicker";
@@ -165,25 +167,22 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
           />
         )}
         {card.stays && card.id === NOT_IN_A_FOLDER ? (
-          <LooseDocumentsLineIcon
-            aria-hidden="true"
-            className="size-[18px] shrink-0 text-ink-secondary"
-          />
+          <LooseDocumentsLineIcon aria-hidden="true" className="shrink-0 text-ink-secondary" />
         ) : (
-          <FolderLineIcon aria-hidden="true" className="size-[18px] shrink-0 text-ink-secondary" />
+          <FolderLineIcon aria-hidden="true" className="shrink-0 text-ink-secondary" />
         )}
         {rename.renaming ? (
           <InlineName
             value={card.name}
             label={t("organizeReview.renameLabel", { name: card.name })}
             testId="organize-review-rename"
-            className={`${rowInputClass} h-7 max-w-80 text-[15px] font-semibold`}
+            className={`${rowInputClass} h-7 max-w-80 text-ui `}
             {...rename.field((name) =>
               editReview({ kind: "renameFolder", newFolderId: card.id, name }),
             )}
           />
         ) : (
-          <h3 className="m-0 flex min-w-0 text-[15px] leading-5 font-semibold text-ink">
+          <h3 className="m-0 flex min-w-0 text-ui leading-5 text-ink">
             {card.proposed ? (
               <button
                 type="button"
@@ -206,7 +205,7 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
             )}
           </h3>
         )}
-        <span className="shrink-0 text-[13px] tabular-nums text-ink-meta">
+        <span className="shrink-0 text-ui tabular-nums text-ink-meta">
           {formatCount(card.items.length, language)}
         </span>
         <span className="min-w-0 flex-1" />
@@ -265,7 +264,7 @@ function CardMenu({
         title={t("organizeReview.folderActions", { name: card.name })}
         className={`${iconButtonClass} ${onHover}`}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -286,7 +285,7 @@ function CardMenu({
               }}
               className={`${menuItemClass} pl-2`}
             >
-              {t("organizeReview.rename")}
+              <MenuItemParts icon={PencilLineIcon} label={t("organizeReview.rename")} />
             </button>
             {others.length > 0 && (
               <>
@@ -308,6 +307,7 @@ function CardMenu({
                     }}
                     className={`${menuItemClass} pl-2`}
                   >
+                    <FolderLineIcon className="shrink-0" />
                     <span className="min-w-0 flex-1 truncate">{cardPath(other)}</span>
                     <span className="shrink-0 tabular-nums text-ink-meta">
                       {formatCount(other.items.length, language)}
@@ -360,7 +360,7 @@ function OrganizeReviewRow({
         }
         className="m-0 size-4 shrink-0 accent-accent"
       />
-      {doc && <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />}
+      {doc && <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />}
       <button
         type="button"
         data-row-main
@@ -381,7 +381,7 @@ function OrganizeReviewRow({
         {name}
       </button>
       {item.agent && item.agent !== context.saidAgent && (
-        <span className="max-w-[35%] truncate text-xs text-ink-meta" title={item.agent}>
+        <span className="max-w-[35%] truncate text-small text-ink-meta" title={item.agent}>
           {t("organizeReview.agent", { agent: item.agent })}
         </span>
       )}
@@ -437,7 +437,7 @@ function RowChips({
               addTag(item, event.currentTarget.value, context.tags);
               setAdding(false);
             }}
-            className={`${rowInputClass} w-32 text-[12px]`}
+            className={`${rowInputClass} w-32 text-small`}
           />
           <datalist id={list}>
             {context.tags.map((tag) => (
@@ -454,7 +454,7 @@ function RowChips({
           onClick={() => setAdding(true)}
           className={`inline-flex size-6 items-center justify-center rounded-md text-ink-meta hover:bg-hover hover:text-ink ${onHover}`}
         >
-          <PlusLineIcon className="size-3" />
+          <PlusLineIcon />
         </button>
       )}
     </span>
@@ -505,7 +505,7 @@ function ReviewChip({
         }
         className="hidden size-4 items-center justify-center rounded-sm opacity-70 group-hover/review-row:inline-flex group-focus-within/review-row:inline-flex hover:bg-sheet/60 hover:opacity-100"
       >
-        <CloseLineIcon className="size-2.5" />
+        <CloseLineIcon />
       </button>
     </span>
   );
@@ -545,7 +545,7 @@ function RowMenu({
         title={t("organizeReview.rowActions", { name })}
         className={`${iconButtonClass} ${onHover}`}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -629,7 +629,7 @@ export function LeftOutCard({
               at === 0 ? "" : "border-t border-rule"
             }`}
           >
-            {doc && <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />}
+            {doc && <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />}
             <button
               type="button"
               data-row-main
@@ -649,7 +649,7 @@ export function LeftOutCard({
               {reason && (
                 <span
                   data-testid="organize-review-reason"
-                  className="text-[13px] leading-5 text-ink-meta"
+                  className="text-ui leading-5 text-ink-meta"
                 >
                   {reason}
                 </span>

@@ -3,7 +3,6 @@ import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import { menuKeysLabel } from "../commands/keymap";
 import { type CommandContext, commands, labelOf, offered } from "../commands/registry";
-import { TableIcon } from "../editor/icons";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import {
@@ -17,8 +16,10 @@ import {
   MoreLineIcon,
   PlusLineIcon,
   RecordingLineIcon,
+  TableLineIcon,
   VerifyLineIcon,
-} from "./lineIcons";
+} from "./icons";
+import { MenuItemParts } from "./MenuItemParts";
 import { buttonClass, iconButtonClass, menuClass, menuItemClass } from "./ui";
 import { usePopoverMenu, useSubmenu } from "./usePopoverMenu";
 
@@ -53,7 +54,7 @@ const NEW_ITEMS: readonly NewItem[] = [
 
 const MORE_ITEMS: readonly NewItem[] = [
   { id: "word.import", testId: "plus-import-word", icon: WordIcon },
-  { id: "comparison.start", testId: "plus-compare-documents", icon: TableIcon },
+  { id: "comparison.start", testId: "plus-compare-documents", icon: TableLineIcon },
   { id: "verify.document", testId: "plus-verify-document", icon: VerifyLineIcon },
   {
     id: "folder.starters",
@@ -111,9 +112,7 @@ export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
         }}
         className={`${menuItemClass} pl-2`}
       >
-        <Icon className="size-4 shrink-0 text-ink-meta" />
-        <span className="flex-1">{entry.label}</span>
-        {entry.keys && <span className="pl-4 text-[13px] text-ink-meta">{entry.keys}</span>}
+        <MenuItemParts icon={Icon} label={entry.label} keys={entry.keys} />
       </button>
     );
   };
@@ -129,7 +128,7 @@ export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
           title={t("home.newMind.more")}
           className={`${buttonClass} -ml-px w-8 rounded-l-none px-0`}
         >
-          <ChevronDownLineIcon className="size-3.5" />
+          <ChevronDownLineIcon />
         </button>
       ) : (
         <button
@@ -140,7 +139,7 @@ export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
           title={t("sidebar.plus")}
           className={`${iconButtonClass} text-ink-secondary`}
         >
-          <PlusLineIcon className="size-4" />
+          <PlusLineIcon />
         </button>
       )}
       <div
@@ -160,9 +159,9 @@ export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
               data-testid={testId("plus-more")}
               className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
             >
-              <MoreLineIcon className="size-4 shrink-0 text-ink-meta" />
+              <MoreLineIcon className="shrink-0" />
               <span className="flex-1">{t("sidebar.plus.more")}</span>
-              <ChevronRightLineIcon className="size-3.5 text-ink-meta" />
+              <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
             </button>
           </>
         )}

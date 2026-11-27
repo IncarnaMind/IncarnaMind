@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { MAX_TAB_GROUPS } from "../../../../core/api";
 import type { CommandId } from "../../../../shared/commands";
+import { commandIcon } from "../../commands/commandIcons";
 import { shortcutLabel } from "../../commands/keymap";
 import { type CommandContext, commands, isEnabled, offered } from "../../commands/registry";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { MoreLineIcon } from "../lineIcons";
+import { MoreLineIcon } from "../icons";
+import { MenuItemParts } from "../MenuItemParts";
 import { menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
@@ -57,10 +59,11 @@ function MenuItems({
         }}
         className={`${menuItemClass} pl-2`}
       >
-        <span className="flex-1">{item.label}</span>
-        {command?.shortcut && (
-          <span className="pl-4 text-[13px] text-ink-meta">{shortcutLabel(item.command)}</span>
-        )}
+        <MenuItemParts
+          icon={command && commandIcon(command)}
+          label={item.label}
+          keys={command?.shortcut ? shortcutLabel(item.command) : null}
+        />
       </button>
     );
   });

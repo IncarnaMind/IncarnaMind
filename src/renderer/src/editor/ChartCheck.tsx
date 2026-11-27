@@ -1,5 +1,5 @@
 import type { CitationCheck } from "../../../core/api";
-import { CheckMarkIcon } from "./icons";
+import { CheckMarkIcon } from "../components/icons";
 
 export function ChartCheck({
   check,

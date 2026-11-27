@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
+import { RemoveIcon } from "../components/icons";
 import { menuFrameClass } from "../components/ui";
 import { usePopoverMenu } from "../components/usePopoverMenu";
-import { RemoveIcon } from "./icons";
 
 export interface ScopeCountRow {
   key: string;
@@ -92,7 +92,7 @@ export function ScopeCountMenu({
                   }}
                   className="flex shrink-0 rounded p-1.5 text-ink-meta -outline-offset-2 hover:bg-hover hover:text-ink focus-visible:bg-hover"
                 >
-                  <RemoveIcon className="size-2.5" />
+                  <RemoveIcon />
                 </button>
               )}
             </div>

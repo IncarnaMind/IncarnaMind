@@ -182,8 +182,6 @@ registerMenu("block", [
   "table.columnLeft",
   "table.columnRight",
   "table.headerRow",
-  "table.totalRow",
-  "table.totalColumn",
   "chart.fromTable",
   "table.convertToText",
   "chart.table",

@@ -18,7 +18,7 @@ import { useAppStore } from "../../store";
 import { focusShownContent, focusTab, forgetContentFocus } from "../../tabFocus";
 import { tabLabelEm } from "../../tabLabel";
 import { InlineName } from "../InlineName";
-import { CloseLineIcon, PinLineIcon, PlusLineIcon, SplitLineIcon } from "../lineIcons";
+import { CloseLineIcon, PinLineIcon, PlusLineIcon, SplitLineIcon } from "../icons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { SidebarToggle } from "../SidebarToggle";
 import { TasksChip } from "../TasksChip";
@@ -305,7 +305,7 @@ function Tab({ tab, groupId, selected, divider, dragged }: TabProps) {
             }}
             className="tab-close"
           >
-            <PinLineIcon className="size-[13px] [stroke-width:1.75]" />
+            <PinLineIcon />
           </button>
         ) : (
           <button

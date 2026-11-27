@@ -6,7 +6,6 @@ import { useMindFormatting } from "../../citationFormatting";
 import { useCitationStylePicker, useStyleLabel } from "../../citationStylePicker";
 import { shortcutLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
-import { ClaimMarkIcon } from "../../editor/icons";
 import { takeExportMenuRequest, useExportMenuRequests } from "../../exportMenuRequest";
 import { EXPORT_OPTIONS_FORMATS, exportFormatNow, FORMAT_LABELS, useExports } from "../../exports";
 import { useMindNoteStates } from "../../home";
@@ -16,12 +15,16 @@ import { exportStateLine } from "../../noteState";
 import { useAppStore } from "../../store";
 import {
   ChevronRightLineIcon,
+  ClaimMarkIcon,
   DocumentLineIcon,
   ExportLineIcon,
   LinkLineIcon,
   MoreLineIcon,
+  QuoteIcon,
   SettingsLineIcon,
-} from "../lineIcons";
+  SparkLineIcon,
+  VerifyLineIcon,
+} from "../icons";
 import { menuClass, menuItemClass, menuRuleClass, tallMenuItemClass } from "../ui";
 import { openMenuFromRightClick, usePopoverMenu, useSubmenu } from "../usePopoverMenu";
 
@@ -42,7 +45,7 @@ const ICON_KIND: Readonly<Record<ExportFormat, DocumentKind>> = {
 };
 
 function FormatIcon({ format }: { format: ExportFormat }) {
-  return <DocumentLineIcon kind={ICON_KIND[format]} className="size-4 shrink-0 text-ink-meta" />;
+  return <DocumentLineIcon kind={ICON_KIND[format]} className="shrink-0" />;
 }
 
 function Item({
@@ -70,7 +73,7 @@ function Item({
       {icon}
       <span className="flex-1 whitespace-nowrap">{label}</span>
       {hint && (
-        <span className="max-w-56 min-w-0 pl-4 text-right text-[13px] leading-5 break-keep text-ink-meta">
+        <span className="max-w-56 min-w-0 pl-4 text-right text-small break-keep text-ink-meta">
           {hint}
         </span>
       )}
@@ -158,7 +161,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const shareWebPage = (
     <Item
       testId="export-share-web-page"
-      icon={<LinkLineIcon className="size-4 shrink-0 text-ink-meta" />}
+      icon={<LinkLineIcon className="shrink-0" />}
       label={t("export.share.menu")}
       onClick={() => run("mind.shareWebPage")}
     />
@@ -197,7 +200,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
                     role="menuitem"
                     data-testid="export-note-state"
                     data-state={running ? "running" : noteState?.kind}
-                    className={`${tallMenuItemClass} pl-2 text-[13px] leading-5 text-ink-secondary`}
+                    className={`${tallMenuItemClass} pl-2 text-ui leading-5 text-ink-secondary`}
                     onClick={() => {
                       menu.close();
                       stateLine.run();
@@ -215,14 +218,14 @@ export function ExportMenu({ mindId }: { mindId: string }) {
               data-testid="export-more"
               className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
             >
-              <MoreLineIcon className="size-4 shrink-0 text-ink-meta" />
+              <MoreLineIcon className="shrink-0" />
               <span className="flex-1">{t("export.more")}</span>
-              <ChevronRightLineIcon className="size-3.5 text-ink-meta" />
+              <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
             </button>
             <div className={menuRuleClass} />
             <Item
               testId="export-citation-style-menu"
-              icon={<span aria-hidden="true" className="size-4 shrink-0" />}
+              icon={<QuoteIcon className="shrink-0" />}
               label={t("export.citationStyle")}
               {...(styleName && { hint: styleName })}
               onClick={() => {
@@ -233,7 +236,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
             />
             <Item
               testId="export-options"
-              icon={<SettingsLineIcon className="size-4 shrink-0 text-ink-meta" />}
+              icon={<SettingsLineIcon className="shrink-0" />}
               label={t("export.options")}
               onClick={() => run("mind.exportOptions")}
             />
@@ -257,13 +260,13 @@ export function ExportMenu({ mindId }: { mindId: string }) {
         <div className={menuRuleClass} />
         <Item
           testId="export-ai-use-statement"
-          icon={<span aria-hidden="true" className="size-4 shrink-0" />}
+          icon={<SparkLineIcon className="shrink-0" />}
           label={t("aiStatement.command")}
           onClick={() => run("mind.aiUseStatement")}
         />
         <Item
           testId="export-check-record"
-          icon={<span aria-hidden="true" className="size-4 shrink-0" />}
+          icon={<VerifyLineIcon className="shrink-0" />}
           label={t("checkRecord.command")}
           onClick={() => run("mind.checkRecord")}
         />

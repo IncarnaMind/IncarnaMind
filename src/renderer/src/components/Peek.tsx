@@ -29,8 +29,8 @@ import { PEEK_WIDTH, placePeek } from "../peekPlace";
 import { scanningStatus } from "../scanStatus";
 import { refOfKey } from "../selectionModel";
 import { useAppStore } from "../store";
+import { ChevronDownLineIcon, DocumentLineIcon } from "./icons";
 import { KeyCap } from "./KeyCap";
-import { ChevronDownLineIcon, DocumentLineIcon } from "./lineIcons";
 import { MoveToPicker } from "./MoveToPicker";
 import { PathText } from "./PathText";
 import { PeekPage } from "./PeekPage";
@@ -259,11 +259,11 @@ function PeekCard({ target }: { target: PeekTarget }) {
       className="inset-auto m-0 flex max-h-[calc(100vh-16px)] flex-col overflow-y-auto rounded-[10px] border-0 bg-sheet p-0 text-ui text-ink shadow-popover"
     >
       <div className="flex items-center gap-2 px-3.5 pt-3">
-        <DocumentLineIcon kind={document.kind} className="size-4 shrink-0 text-ink-meta" />
+        <DocumentLineIcon kind={document.kind} className="shrink-0 text-ink-meta" />
         <p
           data-testid="peek-name"
           title={name}
-          className="min-w-0 flex-1 truncate text-ui font-semibold text-ink"
+          className="min-w-0 flex-1 truncate text-ui text-ink"
         >
           {name}
         </p>
@@ -274,7 +274,7 @@ function PeekCard({ target }: { target: PeekTarget }) {
       </div>
       <dl
         data-testid="peek-facts"
-        className="grid grid-cols-[76px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1 px-3.5 pt-2.5 text-[12px] leading-[18px]"
+        className="grid grid-cols-[76px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1 px-3.5 pt-2.5 text-small leading-[18px]"
       >
         <Fact label={t("peek.kind")} testId="peek-kind">
           <span className="block truncate">{documentSummary(document, units, t, language)}</span>
@@ -289,7 +289,7 @@ function PeekCard({ target }: { target: PeekTarget }) {
               className="-ml-1 inline-flex max-w-full items-center gap-1 rounded-sm px-1 hover:bg-hover"
             >
               <span className="truncate">{folder?.name ?? t("library.unsorted")}</span>
-              <ChevronDownLineIcon className="size-3 shrink-0 text-ink-meta" />
+              <ChevronDownLineIcon className="shrink-0 text-ink-meta" />
             </button>
           ) : (
             // A meeting's Transcript is where its Note is, and moves with it (#2528).

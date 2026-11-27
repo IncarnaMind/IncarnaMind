@@ -2,7 +2,7 @@ import { Fragment, useState } from "react";
 import type { Checkpoint } from "../../../../core/api";
 import { beforeAiChange, byDay, reasonLabel, timeLabel, versionLabel } from "../../historyLabels";
 import { useLanguage, useT } from "../../i18n";
-import { CheckLineIcon, ChevronDownLineIcon, ChevronUpLineIcon, SparkLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronDownLineIcon, ChevronUpLineIcon, SparkLineIcon } from "../icons";
 import { menuClass, menuItemClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 

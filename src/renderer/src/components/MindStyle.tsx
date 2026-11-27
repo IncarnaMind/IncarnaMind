@@ -27,7 +27,7 @@ import {
   useMindStyle,
   useNewMindStyle,
 } from "../mindStyles";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon } from "./icons";
 import { SearchPicker } from "./SearchPicker";
 import {
   menuClass,
@@ -194,14 +194,14 @@ function FontChoices({ mindId, onOtherFonts }: { mindId: string; onOtherFonts():
               aria-checked={chosen}
               data-testid={`mind-style-font-${preset}`}
               onClick={() => void chooseFont(mindId, preset)}
-              className={`flex h-16 flex-col items-center justify-center gap-0.5 rounded-md text-[12px] leading-4 -outline-offset-2 hover:bg-hover ${
+              className={`flex h-16 flex-col items-center justify-center gap-0.5 rounded-md text-small leading-4 -outline-offset-2 hover:bg-hover ${
                 chosen
                   ? "text-ink shadow-[inset_0_0_0_1.5px_var(--color-accent)]"
                   : "text-ink-secondary"
               }`}
             >
               <span
-                className="text-[22px] leading-7 text-ink"
+                className="text-heading leading-7 text-ink"
                 style={{ fontFamily: PRESET_FACES[preset] }}
               >
                 Ag
@@ -221,7 +221,7 @@ function FontChoices({ mindId, onOtherFonts }: { mindId: string; onOtherFonts():
           className={`${tallMenuItemClass} mt-1 pl-2`}
         >
           <span className="flex size-4 shrink-0 items-center justify-center">
-            <CheckLineIcon className="size-4" />
+            <CheckLineIcon />
           </span>
           <span className="min-w-0 flex-1">
             <span
@@ -232,7 +232,7 @@ function FontChoices({ mindId, onOtherFonts }: { mindId: string; onOtherFonts():
               {family}
             </span>
             {!installed && (
-              <span className="block text-[12px] leading-4 text-ink-meta">
+              <span className="block text-small leading-4 text-ink-meta">
                 {t("mindStyle.font.missing")}
               </span>
             )}
@@ -274,9 +274,9 @@ function SizeChoice({ mindId }: { mindId: string }) {
               aria-checked={chosen}
               data-testid={`mind-style-size-${each}`}
               onClick={() => void chooseSize(mindId, each)}
-              className={`h-6 truncate rounded-md px-1 text-[13px] leading-5 -outline-offset-2 ${
+              className={`h-6 truncate rounded-md px-1 text-ui leading-5 -outline-offset-2 ${
                 chosen
-                  ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_var(--color-shadow-soft)]"
+                  ? "bg-sheet text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_var(--color-shadow-soft)]"
                   : "text-ink-secondary hover:text-ink"
               }`}
             >
@@ -315,9 +315,9 @@ function LineSpacingChoice({ mindId, onCustom }: { mindId: string; onCustom(): v
               aria-checked={chosen}
               data-testid={`mind-style-line-${each}`}
               onClick={() => void chooseLineSpacing(mindId, each)}
-              className={`h-6 flex-auto truncate rounded-md px-1 text-[13px] leading-5 -outline-offset-2 ${
+              className={`h-6 flex-auto truncate rounded-md px-1 text-ui leading-5 -outline-offset-2 ${
                 chosen
-                  ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_var(--color-shadow-soft)]"
+                  ? "bg-sheet text-ink shadow-[0_0_0_1px_var(--color-rule),0_1px_2px_var(--color-shadow-soft)]"
                   : "text-ink-secondary hover:text-ink"
               }`}
             >
@@ -335,7 +335,7 @@ function LineSpacingChoice({ mindId, onCustom }: { mindId: string; onCustom(): v
         className={`${menuItemClass} px-2`}
       >
         <span className="flex size-4 shrink-0 items-center justify-center">
-          {typed && <CheckLineIcon className="size-4" />}
+          {typed && <CheckLineIcon />}
         </span>
         <span className="min-w-0 flex-1 truncate">
           {`${t("format.lineSpacing.custom")}${typed ? ` ${lineSpacing}` : ""}`}

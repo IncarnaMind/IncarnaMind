@@ -41,7 +41,7 @@ export function AddProvider({
         <ProviderLogo id={catalogProvider(catalogId) ? catalogId : null} large />
         <h4
           data-testid="provider-page-title"
-          className="min-w-0 truncate text-[17px] leading-6 font-semibold text-ink"
+          className="min-w-0 truncate text-body leading-6 text-ink"
           title={name}
         >
           {name}

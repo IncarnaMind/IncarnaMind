@@ -11,6 +11,7 @@ import {
   type TableActionId,
   TableKeys,
   tableSpot,
+  wholeLines,
 } from "../../src/renderer/src/editor/tableCommands";
 
 const paragraph = (text = ""): JSONContent =>
@@ -152,6 +153,61 @@ describe("tables in the editor", () => {
     expect(runTableAction(editor, action("deleteColumn"))).toBe(true);
     expect(grid(editor)).toEqual([["#b1"], ["b2"], ["b3"]]);
     expect(tableSpot(editor.state)?.canDeleteColumns).toBe(false);
+  });
+
+  // protects=the cell bar's Delete takes only rows or columns the selection holds whole, and says which; fails_when=cells dragged across delete their rows, or a column's Delete takes a row; no_claim=where the bar sits.
+  test("the cell bar's Delete is for whole rows or whole columns: cells dragged across get none", () => {
+    const lettered = (rows: number): JSONContent => {
+      const table = emptyTable(rows, 3);
+      table.content?.forEach((row, rowIndex) => {
+        row.content?.forEach((cell, column) => {
+          cell.content = [paragraph(`${"abc"[column]}${rowIndex + 1}`)];
+        });
+      });
+      return table;
+    };
+    const select = (editor: Editor, from: [number, number], to: [number, number]) => {
+      const cell = ([row, column]: [number, number]) => inCell(editor, row, column) - 2;
+      editor.view.dispatch(
+        editor.state.tr.setSelection(CellSelection.create(editor.state.doc, cell(from), cell(to))),
+      );
+      return wholeLines(editor.state.selection);
+    };
+    const deleteWhole = (editor: Editor) => {
+      const lines = wholeLines(editor.state.selection);
+      if (lines === null) throw new Error("Nothing whole to delete.");
+      return runTableAction(editor, action(lines === "columns" ? "deleteColumn" : "deleteRow"));
+    };
+
+    const editor = editorWith([lettered(3)]);
+    editor.commands.setTextSelection(inCell(editor, 1, 1));
+    expect(wholeLines(editor.state.selection)).toBeNull();
+    // Two cells, and a block of four: neither whole rows nor whole columns, so no Delete.
+    expect(select(editor, [1, 0], [1, 1])).toBeNull();
+    expect(select(editor, [1, 0], [2, 1])).toBeNull();
+
+    // A row's handle selects it whole: Delete takes that row and no other.
+    expect(select(editor, [1, 0], [1, 2])).toBe("rows");
+    expect(deleteWhole(editor)).toBe(true);
+    expect(grid(editor)).toEqual([
+      ["#a1", "#b1", "#c1"],
+      ["a3", "b3", "c3"],
+    ]);
+
+    // A column's handle selects it whole: Delete takes the column, not a row.
+    expect(select(editor, [0, 1], [1, 1])).toBe("columns");
+    expect(deleteWhole(editor)).toBe(true);
+    expect(grid(editor)).toEqual([
+      ["#a1", "#c1"],
+      ["a3", "c3"],
+    ]);
+
+    // In a one-row table a column is still a column, and two of its cells are two columns.
+    const oneRow = editorWith([lettered(1)]);
+    expect(select(oneRow, [0, 1], [0, 1])).toBe("columns");
+    expect(deleteWhole(oneRow)).toBe(true);
+    expect(grid(oneRow)).toEqual([["#a1", "#c1"]]);
+    expect(select(oneRow, [0, 0], [0, 0])).toBe("columns");
   });
 
   test("outside a table there is no table menu", () => {

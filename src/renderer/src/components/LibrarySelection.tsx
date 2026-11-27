@@ -12,8 +12,8 @@ import type { ObjectRef } from "../objects";
 import { useSelectedOn, useSelection } from "../selection";
 import { useAppStore } from "../store";
 import { DELETE_KEYS, TAGS_KEYS } from "../treeKeys";
+import { CloseLineIcon } from "./icons";
 import { useDocumentMove } from "./library/DocumentMoveTo";
-import { CloseLineIcon } from "./lineIcons";
 import { ObjectMenu } from "./ObjectMenu";
 import { SelectionTags } from "./SelectionTags";
 
@@ -21,7 +21,7 @@ const boxClass = "size-4 shrink-0 cursor-pointer accent-accent";
 
 /** A command in the selection bar: a quiet text button, with its keys after it. */
 const barCommandClass =
-  "h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] whitespace-nowrap text-ink-secondary hover:bg-rule hover:text-ink aria-disabled:text-ink-placeholder aria-disabled:hover:bg-transparent";
+  "h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap text-ink-secondary hover:bg-rule hover:text-ink aria-disabled:text-ink-placeholder aria-disabled:hover:bg-transparent";
 
 /**
  * The commands the bar names, in its order, each from the width it shows at,
@@ -130,7 +130,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         className={`${barCommandClass} hidden ${from}`}
       >
         {menuLabelOf(item.command, ctx, t)}
-        {keys && <span className="text-[12px] text-ink-meta">{keys}</span>}
+        {keys && <span className="text-small text-ink-meta">{keys}</span>}
       </button>
     );
   };
@@ -148,7 +148,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         event.preventDefault();
         useSelection.getState().clear("library");
       }}
-      className="@container sticky top-0 z-10 mt-2 flex h-9 min-w-0 items-center gap-1 rounded-md bg-frame pr-1 pl-2.5 text-[13px] before:absolute before:inset-y-0 before:right-full before:w-10 before:bg-sheet"
+      className="@container sticky top-0 z-10 mt-2 flex h-9 min-w-0 items-center gap-1 rounded-md bg-frame pr-1 pl-2.5 text-ui before:absolute before:inset-y-0 before:right-full before:w-10 before:bg-sheet"
     >
       <input
         ref={all}
@@ -161,7 +161,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         }
         className={boxClass}
       />
-      <span role="status" className="mr-2 ml-1 shrink-0 font-semibold whitespace-nowrap text-ink">
+      <span role="status" className="mr-2 ml-1 shrink-0 whitespace-nowrap text-ink">
         {t("library.selected", { count })}
       </span>
       {move && button(move)}
@@ -170,7 +170,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         testId="library-selection-tags"
         className={`${barCommandClass} inline-flex`}
         keys={
-          <span className="hidden text-[12px] text-ink-meta @[44rem]:inline">
+          <span className="hidden text-small text-ink-meta @[44rem]:inline">
             {keysHere(TAGS_KEYS)}
           </span>
         }
@@ -194,8 +194,8 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         onClick={() => useSelection.getState().clear("library")}
         className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-ink-meta hover:bg-rule hover:text-ink"
       >
-        <CloseLineIcon className="size-3.5" />
-        <span className="text-[12px]">Esc</span>
+        <CloseLineIcon />
+        <span className="text-small">Esc</span>
       </button>
     </div>
   );

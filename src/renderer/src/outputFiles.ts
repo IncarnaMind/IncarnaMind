@@ -43,9 +43,9 @@ export const showOutputLocationSetting = (): void =>
 
 /** Open and Show in Finder on a file IncarnaMind saved: Export's saved line and the conversation's card. */
 export const SAVED_OPEN_BUTTON =
-  "h-7 rounded-md bg-sheet px-3 text-[13px] leading-5 font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover";
+  "h-7 rounded-md bg-sheet px-3 text-ui leading-5 text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover";
 export const SAVED_SHOW_BUTTON =
-  "h-7 rounded-md px-2.5 text-[13px] leading-5 font-semibold text-ink-secondary hover:bg-hover hover:text-ink";
+  "h-7 rounded-md px-2.5 text-ui leading-5 text-ink-secondary hover:bg-hover hover:text-ink";
 
 /**
  * Why Open or Show in Finder didn't work on a file IncarnaMind saved, as the line or card that

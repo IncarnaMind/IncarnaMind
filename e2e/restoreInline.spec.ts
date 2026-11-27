@@ -152,8 +152,8 @@ for (const { language, lines, ask, shortened, restore, review } of CASES) {
       const applied = await gapsAround(line, first, note);
       expect(applied.below).toBeGreaterThanOrEqual(0);
       expect(applied.below).toBeLessThan(applied.above);
-      await expect(line.getByTestId("applied-count")).toHaveCSS("font-weight", "600");
-      await expect(line.getByTestId("applied-review")).toHaveCSS("font-weight", "600");
+      await expect(line.getByTestId("applied-count")).toHaveCSS("font-weight", "400");
+      await expect(line.getByTestId("applied-review")).toHaveCSS("font-weight", "400");
       await expect(line.getByTestId("applied-review")).toHaveCSS("color", "rgb(23, 25, 28)");
 
       await pointAndClick(window, line.getByTestId("applied-review"));
@@ -165,8 +165,8 @@ for (const { language, lines, ask, shortened, restore, review } of CASES) {
       const reviewing = await gapsAround(line, first, note);
       expect(reviewing.below).toBeGreaterThanOrEqual(0);
       expect(reviewing.below).toBeLessThan(reviewing.above);
-      await expect(line.getByTestId("applied-count")).toHaveCSS("font-weight", "600");
-      await expect(line.getByTestId("applied-done")).toHaveCSS("font-weight", "600");
+      await expect(line.getByTestId("applied-count")).toHaveCSS("font-weight", "400");
+      await expect(line.getByTestId("applied-done")).toHaveCSS("font-weight", "400");
       await expect(line.getByTestId("applied-done")).toHaveCSS("color", "rgb(23, 25, 28)");
       await expect(restores.first()).toHaveCSS("font-size", "12px");
       await expect(restores.first()).toHaveAttribute(

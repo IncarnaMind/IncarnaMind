@@ -1,5 +1,5 @@
 import { paddedClockTime } from "../../../shared/clock";
-import { CloseLineIcon, PauseLineIcon, ResumeLineIcon } from "../components/lineIcons";
+import { CloseLineIcon, PauseLineIcon, ResumeLineIcon } from "../components/icons";
 import { ProblemMark } from "../components/ProblemLine";
 import { describeError } from "../errors";
 import { useT } from "../i18n";
@@ -43,11 +43,7 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
         onClick={() => void toggle()}
         className="transcript-player-toggle"
       >
-        {playing ? (
-          <PauseLineIcon aria-hidden="true" className="size-3.5" />
-        ) : (
-          <ResumeLineIcon aria-hidden="true" className="size-3.5" />
-        )}
+        {playing ? <PauseLineIcon aria-hidden="true" /> : <ResumeLineIcon aria-hidden="true" />}
       </button>
       {failure === null ? (
         <>
@@ -61,7 +57,7 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
               }}
             />
           </span>
-          <span className="text-[12px] whitespace-nowrap text-ink-meta">
+          <span className="text-small whitespace-nowrap text-ink-meta">
             {t("transcript.player.spaceToPause")}
           </span>
         </>
@@ -79,7 +75,7 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
         onClick={stop}
         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-hover hover:text-ink"
       >
-        <CloseLineIcon aria-hidden="true" className="size-3" />
+        <CloseLineIcon aria-hidden="true" />
       </button>
     </fieldset>
   );

@@ -4,7 +4,7 @@ import { mindCallText } from "../../answerStepWords";
 import { namedMind } from "../../changeProblems";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { MindLineIcon } from "../lineIcons";
+import { MindLineIcon } from "../icons";
 
 /**
  * The Mind a call of a Minds' Tool (#202) is about, as the User knows it: the

@@ -14,7 +14,7 @@ import {
   CopyLineIcon,
   MindLineIcon,
   PlusLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { useGoesBy } from "../UndoLine";
 
 /** How long "Copied" says so. */
@@ -89,7 +89,7 @@ export function AnswerActions({
         data-testid="answer-added"
         className="assistant-answer-actions assistant-answer-actions--added"
       >
-        <CheckLineIcon aria-hidden="true" className="size-3.5 shrink-0 text-ink-secondary" />
+        <CheckLineIcon aria-hidden="true" className="shrink-0 text-ink-secondary" />
         <span role="status" title={said.fullMessage} className="assistant-answer-added">
           {said.message}
         </span>
@@ -133,7 +133,7 @@ export function AnswerActions({
       }}
       className="assistant-answer-action assistant-answer-action--collapses"
     >
-      {copied ? <CheckLineIcon className="size-3.5" /> : <CopyLineIcon className="size-3.5" />}
+      {copied ? <CheckLineIcon /> : <CopyLineIcon />}
       <span className="assistant-answer-action-label">
         {copied ? t("answer.copied") : t("answer.copy")}
       </span>
@@ -149,7 +149,7 @@ export function AnswerActions({
       onClick={onWriteNote}
       className="assistant-answer-action"
     >
-      <MindLineIcon className="size-3.5" />
+      <MindLineIcon />
       <span className="assistant-answer-action-label">{t("answer.writeNote")}</span>
     </button>
   );
@@ -165,7 +165,7 @@ export function AnswerActions({
         onClick={() => (focusedMindName ? onAdd() : pick.current && onPick(pick.current))}
         className="assistant-answer-action assistant-answer-add-main"
       >
-        <PlusLineIcon className="size-3.5 shrink-0" />
+        <PlusLineIcon className="shrink-0" />
         <span data-testid="answer-add-label" className="assistant-answer-add-label">
           {named && focusedMindName
             ? t("answer.add.named", { mind: focusedMindName })
@@ -183,7 +183,7 @@ export function AnswerActions({
         onClick={(event) => onPick(event.currentTarget)}
         className="assistant-answer-action assistant-answer-add-more"
       >
-        <ChevronDownLineIcon className="size-3" />
+        <ChevronDownLineIcon />
       </button>
     </span>
   );

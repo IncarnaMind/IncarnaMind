@@ -32,8 +32,16 @@ import { FoundPassages } from "../components/assistant/FoundPassages";
 import { MindCall } from "../components/assistant/MindCall";
 import { DetailsLine } from "../components/DetailsLine";
 import { useIsExampleAnswer } from "../components/GettingStarted";
-import { PlugIcon, ScriptIcon, SkillIcon, StopIcon } from "../components/icons";
-import { DocumentLineIcon, FindSourcesLineIcon } from "../components/lineIcons";
+import {
+  ChevronRightLineIcon,
+  DocumentLineIcon,
+  FindSourcesLineIcon,
+  PlugIcon,
+  RegenerateSmallIcon,
+  ScriptIcon,
+  SkillIcon,
+  StopLineIcon,
+} from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine, ProblemMark } from "../components/ProblemLine";
 import {
@@ -67,7 +75,6 @@ import { useAppStore } from "../store";
 import { reasonKey } from "../webPages";
 import { AnalysisCall } from "./AnalysisCall";
 import { CommandApprovalCard } from "./CommandApprovalCard";
-import { ChevronRightSmallIcon, RegenerateSmallIcon } from "./icons";
 import { useMindId } from "./mindContext";
 import { PlanLimitLine } from "./PlanLimitLine";
 import { ThirdPartyLine } from "./ThirdPartyLine";
@@ -272,7 +279,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
             onClick={() => stop(mindId, answerId)}
             className="answer-action"
           >
-            <StopIcon className="size-3" />
+            <StopLineIcon />
             {t("answer.stop")}
           </button>
         )}
@@ -283,7 +290,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
             onClick={() => writeAgain()}
             className="answer-action"
           >
-            <RegenerateSmallIcon className="size-3" />
+            <RegenerateSmallIcon />
             {t("answer.regenerate")}
           </button>
         )}
@@ -1232,7 +1239,7 @@ export function SkillRow({ name, use, reads }: SkillUse) {
     >
       <p className="answer-call-summary answer-call-summary--static">
         {status === "failed" ? (
-          <span className="answer-call-icon flex items-center justify-center">
+          <span className="answer-call-icon flex size-4 items-center justify-center">
             <ProblemMark className="" />
           </span>
         ) : (
@@ -1295,7 +1302,7 @@ function SearchesSummary({
       >
         <span>{summary}</span>
         {searches.length > 1 && <span>· {t("search.count", { count: searches.length })}</span>}
-        <ChevronRightSmallIcon className="answer-meta-chevron" />
+        <ChevronRightLineIcon className="answer-meta-chevron" />
       </button>
     </span>
   );

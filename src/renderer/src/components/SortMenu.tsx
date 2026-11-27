@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import { DEFAULT_SORT, SORT_KEYS, type Sort, type SortKey } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { type SortRequest, useSortMenu } from "../sortMenu";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon } from "./icons";
 import { menuClass, menuItemClass, menuRuleClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
@@ -77,7 +77,7 @@ function Items({ request, close }: { request: SortRequest; close(): void }) {
       className={`${menuItemClass} pl-2`}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
-        {checked && <CheckLineIcon className="size-4" />}
+        {checked && <CheckLineIcon />}
       </span>
       <span className="flex-1">{label}</span>
     </button>

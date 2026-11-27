@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import type { FocusEvent, KeyboardEvent, RefObject } from "react";
-import { ChatLineIcon } from "../components/lineIcons";
+import { ChatLineIcon } from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { stopEdit, useEdits } from "../editWithAi";
 import { useT } from "../i18n";
@@ -82,7 +82,7 @@ export function EditField({
             onClick={onHandOff}
             className="selection-edit-handoff"
           >
-            <ChatLineIcon className="size-4" />
+            <ChatLineIcon />
           </button>
         )}
       </div>

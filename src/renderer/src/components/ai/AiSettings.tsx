@@ -21,7 +21,7 @@ import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
 import { useAgentsRead, YourAiSection } from "../agents/YourAiSection";
-import { MicLineIcon } from "../lineIcons";
+import { MicLineIcon } from "../icons";
 import { TranscriptionSetUp } from "../meetings/TranscriptionSetUp";
 import { AddProvider } from "../providers/AddProvider";
 import { ChatGptPlanRow } from "../providers/ChatGptPlanSettings";
@@ -457,11 +457,11 @@ function EntryPage({
         <ProviderLogo
           id={logo}
           large
-          fallback={entry.kind === "transcription" ? <MicLineIcon className="size-6" /> : undefined}
+          fallback={entry.kind === "transcription" ? <MicLineIcon data-size="18" /> : undefined}
         />
         <h4
           data-testid="provider-page-title"
-          className="min-w-0 truncate text-[17px] leading-6 font-semibold text-ink"
+          className="min-w-0 truncate text-body leading-6 text-ink"
           title={name}
         >
           {entry.kind === "transcription" ? t(ROUTE_LABELS[entry.route]) : name}

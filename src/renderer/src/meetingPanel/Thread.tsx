@@ -2,7 +2,7 @@ import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { Meeting, MeetingHelp } from "../../../core/api";
 import { withFigureText } from "../../../shared/figureMarkers";
 import { MEETING_PANEL_BRIDGE_KEY } from "../../../shared/meetingPanel";
-import { ChevronRightLineIcon } from "../components/lineIcons";
+import { ChevronRightLineIcon } from "../components/icons";
 import {
   HelpHeading,
   HelpOutline,
@@ -293,7 +293,7 @@ function EarlierLine({
         onClick={onOpen}
         className="help-earlier"
       >
-        <ChevronRightLineIcon aria-hidden="true" className="size-3 shrink-0" />
+        <ChevronRightLineIcon aria-hidden="true" className="shrink-0" />
         <span className="help-earlier-time">{clockTime(help.atMs)}</span>
         <span aria-hidden="true">·</span>
         <b className="help-earlier-asked">{helpAsked(help, t)}</b>

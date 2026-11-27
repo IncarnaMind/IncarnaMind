@@ -81,7 +81,7 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
       (localMode ? null : t("meetings.route.consent"));
     if (line === null) return null;
     return (
-      <p data-testid="meetings-route-consent" className="text-[12px] leading-5 text-ink-meta">
+      <p data-testid="meetings-route-consent" className="text-small leading-5 text-ink-meta">
         {line}
       </p>
     );
@@ -91,9 +91,9 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
       <CloudLine
         service={service}
         testId="meetings-route-consent"
-        className="text-[12px] leading-5 text-ink-meta"
+        className="text-small leading-5 text-ink-meta"
       />
-      <LanguagesLine service={service} className="text-[12px] leading-5 text-ink-meta" />
+      <LanguagesLine service={service} className="text-small leading-5 text-ink-meta" />
     </>
   );
 }

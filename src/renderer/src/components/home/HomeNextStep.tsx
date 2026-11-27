@@ -126,7 +126,7 @@ export function HomeNextStep({ step }: { step: Step }) {
       aria-label={label}
       title={label}
       onClick={() => void run()}
-      className="max-w-full min-w-0 rounded-sm text-left font-semibold break-words text-ink underline-offset-2 hover:underline hover:decoration-rule-strong disabled:opacity-50"
+      className="max-w-full min-w-0 rounded-sm text-left break-words text-ink underline-offset-2 hover:underline hover:decoration-rule-strong disabled:opacity-50"
     >
       {said.message}
     </button>

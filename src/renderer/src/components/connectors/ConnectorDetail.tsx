@@ -13,7 +13,7 @@ import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, PencilLineIcon, TrashLineIcon } from "../lineIcons";
+import { CheckLineIcon, PencilLineIcon, TrashLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsBackLink } from "../SettingsBackLink";
 import {
@@ -146,7 +146,7 @@ export function ConnectorDetail({
     action = (
       <span
         data-testid="connector-signing-in"
-        className="flex shrink-0 items-center gap-2 text-[13px] leading-5 text-ink-secondary"
+        className="flex shrink-0 items-center gap-2 text-ui leading-5 text-ink-secondary"
       >
         <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
         {t("remoteConnectors.signingIn")}
@@ -199,13 +199,10 @@ export function ConnectorDetail({
         <div className="flex flex-wrap items-center gap-3">
           <ConnectorTile name={name} large />
           <div className="flex min-w-[200px] flex-1 flex-col">
-            <h4
-              data-testid="connector-name"
-              className="text-[17px] leading-6 font-semibold break-words text-ink"
-            >
+            <h4 data-testid="connector-name" className="text-body leading-6 break-words text-ink">
               {name}
             </h4>
-            <p className="text-[12px] leading-[18px] text-ink-meta">{meta}</p>
+            <p className="text-small leading-[18px] text-ink-meta">{meta}</p>
           </div>
           {action}
         </div>
@@ -223,7 +220,7 @@ export function ConnectorDetail({
             data-testid="connector-connected"
             label={
               <span className="flex items-center gap-2">
-                <CheckLineIcon className="size-3.5 shrink-0 text-ink-secondary" />
+                <CheckLineIcon className="shrink-0 text-ink-secondary" />
                 {t("connectors.directory.done", { name })}
               </span>
             }
@@ -260,7 +257,7 @@ export function ConnectorDetail({
         ) : entry?.tools ? (
           <ReviewedTools tools={entry.tools} />
         ) : (
-          <p className="px-4 text-[13px] leading-5 text-ink-meta">
+          <p className="px-4 text-ui leading-5 text-ink-meta">
             {t("connectors.directory.what.before")}
           </p>
         )}
@@ -383,7 +380,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
                   onClick={() => setEditing((open) => !open)}
                   className={iconButtonClass}
                 >
-                  <PencilLineIcon className="size-4" />
+                  <PencilLineIcon />
                 </button>
               )}
               <button
@@ -394,7 +391,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
                 onClick={() => void act(() => core.deleteConnector(id))}
                 className={iconButtonClass}
               >
-                <TrashLineIcon className="size-4" />
+                <TrashLineIcon />
               </button>
             </>
           }
@@ -403,10 +400,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
           <SettingsRow
             label={t("remoteConnectors.key.label")}
             control={
-              <span
-                data-testid="connector-key-mask"
-                className="text-[13px] leading-5 text-ink-meta"
-              >
+              <span data-testid="connector-key-mask" className="text-ui leading-5 text-ink-meta">
                 {keyMaskLine(connector.headers ?? [], language)}
               </span>
             }
@@ -502,9 +496,7 @@ function ErrorNotice({
               {t("remoteConnectors.key.change")}
             </button>
           ) : error.retrying && error.kind !== "unreachable" ? (
-            <span className="text-[13px] leading-5 text-ink-meta">
-              {t("connectors.restarting")}
-            </span>
+            <span className="text-ui leading-5 text-ink-meta">{t("connectors.restarting")}</span>
           ) : (
             <button type="button" onClick={onRetry} className={buttonStyle("secondary", "sm")}>
               {t("connectors.retry")}
@@ -513,7 +505,7 @@ function ErrorNotice({
         }
       >
         {error.kind !== "missing-command" && error.message && (
-          <details className="min-w-0 text-[12px] leading-[18px] text-ink-meta">
+          <details className="min-w-0 text-small leading-[18px] text-ink-meta">
             <summary className="cursor-pointer">{t("connectors.details")}</summary>
             <pre className="mt-1 max-h-32 overflow-auto font-mono whitespace-pre-wrap break-words">
               {error.message}

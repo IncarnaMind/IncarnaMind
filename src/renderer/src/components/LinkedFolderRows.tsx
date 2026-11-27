@@ -11,7 +11,7 @@ import { useRequests } from "../requests";
 import { allExamples, useAppStore } from "../store";
 import { useTreeItem } from "../treeKeys";
 import { ExampleChip } from "./GettingStarted";
-import { LinkLineIcon } from "./lineIcons";
+import { LinkLineIcon } from "./icons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import {
   clearsActions,
@@ -130,7 +130,7 @@ function LinkedFolderRow({
               data-testid="folder-status"
               data-state={state.kind}
               title={status.full}
-              className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+              className="min-w-0 shrink truncate text-small text-ink-meta"
             >
               <span aria-hidden="true" className="@max-[13rem]:hidden">
                 {status.short}
@@ -165,7 +165,7 @@ function LinkedFolderRow({
         <p
           role="status"
           data-testid="linked-folder-nothing-to-read"
-          className="pr-2 pb-1 pl-8 text-[12px] leading-[18px] text-ink-meta"
+          className="pr-2 pb-1 pl-8 text-small leading-[18px] text-ink-meta"
         >
           {t("linkedFolders.nothingToRead.notice", { folder: name })}
         </p>

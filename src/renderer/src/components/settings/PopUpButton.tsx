@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type Ref, type SelectHTMLAttributes, useId } from "react";
-import { CheckLineIcon, ChevronUpDownLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronUpDownLineIcon } from "../icons";
 import { menuFrameClass, menuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import { SettingsRow } from "./SettingsGroup";
@@ -10,7 +10,7 @@ export interface PopUpOption<Value extends string> {
 }
 
 const popUpLook =
-  "h-7 rounded-md border border-rule-strong bg-sheet text-[13px] leading-5 text-ink hover:bg-frame active:bg-hover disabled:opacity-50 disabled:hover:bg-sheet";
+  "h-7 rounded-md border border-rule-strong bg-sheet text-ui leading-5 text-ink hover:bg-frame active:bg-hover disabled:opacity-50 disabled:hover:bg-sheet";
 
 /**
  * A choice among a few options, as macOS draws one at a row's right end: a button that shows the
@@ -67,7 +67,7 @@ export function PopUpButton<Value extends string>({
         className={`inline-flex max-w-64 items-center gap-1 pr-1.5 pl-2.5 ${popUpLook}`}
       >
         <span className="truncate">{chosen?.label ?? value}</span>
-        <ChevronUpDownLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+        <ChevronUpDownLineIcon className="shrink-0 text-ink-meta" />
       </button>
       <div
         {...menu.menuProps}
@@ -92,7 +92,7 @@ export function PopUpButton<Value extends string>({
             className={`${menuItemClass} pl-2`}
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
-              {option.value === value && <CheckLineIcon className="size-4" />}
+              {option.value === value && <CheckLineIcon />}
             </span>
             <span className="flex-1">{option.label}</span>
           </button>
@@ -162,7 +162,7 @@ export function PopUpSelect({
       <select {...rest} className={`min-w-0 appearance-none pr-7 pl-2.5 ${popUpLook} ${className}`}>
         {children}
       </select>
-      <ChevronUpDownLineIcon className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-ink-meta" />
+      <ChevronUpDownLineIcon className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-ink-meta" />
     </span>
   );
 }

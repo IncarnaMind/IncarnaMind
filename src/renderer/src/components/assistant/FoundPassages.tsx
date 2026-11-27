@@ -27,13 +27,11 @@ export function FoundPassages({
   if (passages.length === 0 && !emptyNote) return null;
   return (
     <div data-testid="found-passages" className="flex flex-col gap-1.5">
-      <p className="m-0 text-[12px] leading-[18px] font-semibold text-ink-secondary">
-        {t("answer.found")}
-      </p>
+      <p className="m-0 text-small leading-[18px] text-ink-secondary">{t("answer.found")}</p>
       {passages.length === 0 ? (
         <p
           data-testid="found-passages-none"
-          className="m-0 text-[12px] leading-[18px] text-ink-meta"
+          className="m-0 text-small leading-[18px] text-ink-meta"
         >
           {t("answer.offline.none")}
         </p>
@@ -64,7 +62,7 @@ export function FoundPassages({
                 >
                   <span
                     data-testid="found-passage-document"
-                    className="block truncate text-[11px] leading-4 text-ink-meta"
+                    className="block truncate text-small leading-4 text-ink-meta"
                   >
                     {passage.documentName}
                     {where && <span data-testid="found-passage-where"> · {where}</span>}
@@ -74,7 +72,7 @@ export function FoundPassages({
                   </span>
                   <span
                     data-testid="found-passage-text"
-                    className="line-clamp-2 text-[12px] leading-[18px] text-ink-secondary"
+                    className="line-clamp-2 text-small leading-[18px] text-ink-secondary"
                   >
                     {passage.text.replace(/\s+/g, " ").trim()}
                   </span>

@@ -1,0 +1,19 @@
+language css;
+
+or {
+  `font-size: $size` as $found where {
+    $size <: or {
+      r"(?s).*[0-9](?:px|rem)\b.*",
+      r"(?s)\s*(?:xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger)\b.*"
+    }
+  },
+  `font: $value` as $found where { $value <: r"(?s).*[0-9](?:px|rem)\b.*" },
+  CssAtRule() as $found where {
+    $found <: or {
+      r"(?s)@apply\b.*(?:^|[\s:!])text-\[[0-9.]+(?:px|rem|em|%)\].*",
+      r"(?s)@apply\b.*(?:^|[\s:!])text-(?:xs|sm|base|lg|xl|[2-9]xl)(?:[\s;!/]|$).*"
+    }
+  }
+} where {
+  register_diagnostic(span = $found, message = "Use a type token (--text-title, --text-heading, --text-body, --text-ui, --text-small, or text-ui and the others in @apply): the interface has five sizes (DESIGN.md, Typography; #3766). Only a size relative to the words around it (em, %) is free.", severity = "error")
+}

@@ -8,21 +8,21 @@ import {
   SearchLineIcon,
   SettingsLineIcon,
   SparkLineIcon,
+  TableLineIcon,
   UploadLineIcon,
-} from "../components/lineIcons";
+} from "../components/icons";
 import { menuClass, menuItemClass, menuRuleClass, menuTitleClass } from "../components/ui";
 import { usePopoverMenu, useSubmenu } from "../components/usePopoverMenu";
 import { useT } from "../i18n";
 import { skillDescription, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { type PlusRow, type PlusRowId, plusRows, plusSkillItems } from "./composerPlusRows";
-import { TableIcon } from "./icons";
 
 const COMPARE = "comparison.start";
 const WINDOW: CommandContext = { selection: [], focus: null, surface: "mind" };
 
-const iconClass = "size-4 shrink-0 text-ink-meta";
-const keyClass = "pl-4 text-[13px] text-ink-meta";
+const iconClass = "shrink-0";
+const keyClass = "pl-4 text-small text-ink-meta";
 
 /**
  * The + at the left of the composer's row (#2924). Each row calls what "/", "@" or ⌘K already
@@ -96,7 +96,7 @@ export function ComposerPlus({
       case "compare":
         return {
           label: compare ? labelOf(compare, WINDOW, t) : "",
-          icon: <TableIcon className={iconClass} />,
+          icon: <TableLineIcon className={iconClass} />,
           run: () => void commands.run(COMPARE, WINDOW).catch(useAppStore.getState().reportError),
         };
     }
@@ -112,7 +112,7 @@ export function ComposerPlus({
         title={t("composer.plus")}
         className="composer-plus"
       >
-        <PlusLineIcon className="size-3.5" />
+        <PlusLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -135,7 +135,7 @@ export function ComposerPlus({
                   <SparkLineIcon className={iconClass} />
                   <span className="flex-1">{t("composer.skills.label")}</span>
                   <span className={keyClass}>{row.key}</span>
-                  <ChevronRightLineIcon className="size-3.5 text-ink-meta" />
+                  <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
                 </button>
               ) : (
                 <PlusRowButton
