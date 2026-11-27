@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { expect, test, vi } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import type { CoreAdapters } from "../../src/core/adapters";
@@ -7,10 +8,11 @@ import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
+import { agentsAdapter } from "../helpers/agents";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { startLiveAgentMeeting } from "../helpers/liveAgentMeeting";
-import { until } from "../helpers/transcription";
+import { transcribingCore, until } from "../helpers/transcription";
 
 const monday = "The launch is on Monday.";
 const friday = "Correction, the launch is on Friday.";
@@ -778,5 +780,469 @@ test("opening an older stopped meeting keeps its original summary without sendin
     expect(run).not.toHaveBeenCalled();
   } finally {
     reopened.close();
+  }
+});
+
+const zhOpening = "北桥项目的内审定于周二。由陈琳发出议程。唐敏周五清点门卡。";
+const zhCancel =
+  "取消周二的北桥项目内审和原议程。北桥项目内审最终改到周四，周二不举行。由陈琳向所有参会人确认这一改动。";
+const zhUnrelated = "办公室门禁读卡器偶尔会重复刷卡，目前先观察，不作决定。";
+
+const zhOpeningReply = JSON.stringify({
+  summary: "北桥项目内审定于周二，陈琳负责发议程，唐敏周五清点门卡。",
+  changes: [
+    {
+      id: null,
+      kind: "decision",
+      status: "active",
+      text: "北桥项目的内审定于周二。",
+      quote: "北桥项目的内审定于周二。",
+    },
+    {
+      id: null,
+      kind: "action",
+      status: "active",
+      text: "陈琳发出议程。",
+      quote: "由陈琳发出议程。",
+    },
+    {
+      id: null,
+      kind: "action",
+      status: "active",
+      text: "唐敏周五清点门卡。",
+      quote: "唐敏周五清点门卡。",
+    },
+  ],
+});
+
+const zhReconciledCancelReply = JSON.stringify({
+  summary: "北桥项目内审改到周四，原议程已取消，陈琳向所有参会人确认这一改动。",
+  changes: [
+    {
+      id: 1,
+      kind: "decision",
+      status: "active",
+      text: "北桥项目内审改到周四，周二不举行。",
+      quote: "北桥项目内审最终改到周四，周二不举行。",
+    },
+    {
+      id: 2,
+      kind: "action",
+      status: "cancelled",
+      text: "陈琳发出原议程（已取消）。",
+      quote: "取消周二的北桥项目内审和原议程。",
+    },
+    {
+      id: null,
+      kind: "action",
+      status: "active",
+      text: "陈琳向所有参会人确认内审改到周四。",
+      quote: "由陈琳向所有参会人确认这一改动。",
+    },
+  ],
+  unchanged: [3],
+});
+
+// Simulates the #3472 failure when active-item reconciliation is omitted from instructions.
+const zhUnreconciledCancelReply = JSON.stringify({
+  summary: "北桥项目内审改到周四，原议程已取消，陈琳向所有参会人确认这一改动。",
+  changes: [
+    {
+      id: 1,
+      kind: "decision",
+      status: "active",
+      text: "北桥项目内审改到周四，周二不举行。",
+      quote: "北桥项目内审最终改到周四，周二不举行。",
+    },
+    {
+      id: null,
+      kind: "action",
+      status: "active",
+      text: "陈琳向所有参会人确认内审改到周四。",
+      quote: "由陈琳向所有参会人确认这一改动。",
+    },
+  ],
+});
+
+const asksForReconciliation = (instructions?: string) =>
+  !!instructions?.includes("unchanged (an array of numeric IDs)") &&
+  !!instructions?.includes("When a deliverable is explicitly withdrawn");
+
+async function startTimedMeeting(
+  run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>,
+  lines: string[],
+) {
+  const dir = await createTempDataFolder();
+  const { core, capture, clock, record } = await transcribingCore(dir, {
+    engine: { lines, maxSpeechMs: 3000 },
+    adapters: { agents: await agentsAdapter(dir), summarizeWithMeetingAgent: run },
+  });
+  const folder = await core.createLibraryGroup({ name: "Audit", description: "" });
+  await core.setAgentsEnabled(true);
+  const { pairing } = await core.connectAgent({
+    name: "Codex",
+    client: "codex",
+    folderIds: [folder.id],
+  });
+  await core.updateSettings({
+    device: {
+      meetingNoticeAccepted: true,
+      meetingNotesAgentId: pairing.id,
+      meetingSummaryRoute: pairing.id,
+    },
+  });
+  const meeting = await core.createMeeting({ folderId: folder.id });
+  await core.startMeeting({ meetingId: meeting.id, systemAudio: false });
+  const speakTurn = async (afterInterval: boolean) => {
+    if (afterInterval) {
+      for (let gap = 0; gap < 60_000; gap += 5_000) {
+        clock.advance(5_000);
+        capture.push("microphone", 5_000, true);
+        await nextTurn();
+        await nextTurn();
+      }
+    }
+    record(2_000, ["microphone"]);
+    clock.advance(1_000);
+    capture.push("microphone", 1_000, true);
+  };
+  const summary = async () => (await core.listMeetings()).find((m) => m.id === meeting.id)?.summary;
+  return { core, meeting, speakTurn, summary };
+}
+
+// protects=every cancellation timing sends active-item reconciliation and enforces unchanged accounting so no withdrawn action stays open after Stop (#3472)
+// fails_when=before-stop or in-flight-at-stop runs without active-item review, makes extra calls, or leaves the agenda action active
+test.each(["before-stop", "in-flight-at-stop", "after-stop"] as const)(
+  "reconciles a withdrawn action regardless of Stop timing (%s) (#3472)",
+  async (timing) => {
+    const hold = timing === "in-flight-at-stop" ? Promise.withResolvers<void>() : null;
+    let cancelStarted = false;
+    const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+      async ({ instructions, prompt }) => {
+        if (!prompt.includes(zhCancel)) return zhOpeningReply;
+        cancelStarted = true;
+        if (hold) await hold.promise;
+        return asksForReconciliation(instructions)
+          ? zhReconciledCancelReply
+          : zhUnreconciledCancelReply;
+      },
+    );
+    const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+      zhOpening,
+      zhCancel,
+    ]);
+    try {
+      await speakTurn(false);
+      await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(3));
+      const warm = await summary();
+      if (timing === "after-stop") {
+        await speakTurn(false);
+        await until(core, meeting.id, (state) => state.lines >= 2);
+      } else {
+        await speakTurn(true);
+        await until(core, meeting.id, (state) => state.lines >= 2);
+        if (timing === "before-stop") {
+          await vi.waitFor(async () =>
+            expect((await summary())?.throughMs).toBeGreaterThan(warm?.throughMs ?? 0),
+          );
+        } else {
+          await vi.waitFor(() => expect(cancelStarted).toBe(true));
+        }
+      }
+
+      const atStop = await core.stopMeeting(meeting.id);
+      expect(atStop.summary?.text).toBeTruthy();
+      if (hold) {
+        await until(core, meeting.id, (state) => state.state === "saved");
+        hold.resolve();
+      }
+      await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+      expect(await summary()).toMatchObject({
+        state: "ready",
+        items: [
+          { id: 1, kind: "decision", status: "active", text: expect.stringContaining("周四") },
+          { id: 2, kind: "action", status: "cancelled" },
+          { id: 3, kind: "action", status: "active", text: "唐敏周五清点门卡。" },
+          { id: 4, kind: "action", status: "active", text: expect.stringContaining("陈琳") },
+        ],
+      });
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(asksForReconciliation(run.mock.calls[1]?.[0].instructions)).toBe(true);
+      const sources = await core.getMeetingSummaryItemSources(meeting.id, 2);
+      expect(sources?.sources.map((source) => source.text)).toEqual([
+        "由陈琳发出议程。",
+        "取消周二的北桥项目内审和原议程。",
+      ]);
+    } finally {
+      hold?.resolve();
+      core.close();
+    }
+  },
+);
+
+test("a live cancellation followed by unrelated speech cancels the action while its quote is in view (#3472)", async () => {
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+    async ({ instructions, prompt }) => {
+      if (prompt.includes(zhCancel)) {
+        return asksForReconciliation(instructions)
+          ? zhReconciledCancelReply
+          : zhUnreconciledCancelReply;
+      }
+      if (prompt.includes(zhUnrelated)) {
+        return JSON.stringify({
+          summary: "北桥项目内审改到周四，原议程已取消，读卡器问题继续观察。",
+          changes: [],
+          unchanged: [1, 3, 4],
+        });
+      }
+      return zhOpeningReply;
+    },
+  );
+  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+    zhOpening,
+    zhCancel,
+    zhUnrelated,
+  ]);
+  try {
+    await speakTurn(false);
+    await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(3));
+    await speakTurn(true);
+    await vi.waitFor(async () =>
+      expect((await summary())?.items?.find((item) => item.id === 2)?.status).toBe("cancelled"),
+    );
+    await speakTurn(false);
+    await until(core, meeting.id, (state) => state.lines >= 3);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect((await summary())?.items).toMatchObject([
+      { id: 1, status: "active" },
+      { id: 2, status: "cancelled" },
+      { id: 3, status: "active" },
+      { id: 4, status: "active" },
+    ]);
+    expect(run).toHaveBeenCalledTimes(3);
+  } finally {
+    core.close();
+  }
+});
+
+test("a long meeting split across multiple Stop batches reconciles a cancellation in an earlier batch (#3472)", async () => {
+  const filler = `无关背景说明：${"各部门同步了常规进展，暂无新增决定。".repeat(360)}`;
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+    async ({ instructions, prompt }) => {
+      if (prompt.includes(zhCancel)) {
+        return asksForReconciliation(instructions)
+          ? zhReconciledCancelReply
+          : zhUnreconciledCancelReply;
+      }
+      if (prompt.includes("无关背景说明")) {
+        return JSON.stringify({
+          summary: "北桥项目内审改到周四，原议程已取消，其余部门同步了常规进展。",
+          changes: [],
+          unchanged: [1, 3, 4],
+        });
+      }
+      return zhOpeningReply;
+    },
+  );
+  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+    zhOpening,
+    zhCancel,
+    filler,
+    filler,
+    filler,
+  ]);
+  try {
+    await speakTurn(false);
+    await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(3));
+    // All remaining turns arrive within 60s so Stop splits them across at least two 12,000-char batches.
+    for (let i = 0; i < 4; i++) await speakTurn(false);
+    await until(core, meeting.id, (state) => state.lines >= 5);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect(run.mock.calls.length).toBeGreaterThanOrEqual(3);
+    const batchWithCancel = run.mock.calls.find(([req]) => req.prompt.includes(zhCancel));
+    expect(asksForReconciliation(batchWithCancel?.[0].instructions)).toBe(true);
+    expect((await summary())?.items).toMatchObject([
+      { id: 1, status: "active" },
+      { id: 2, status: "cancelled" },
+      { id: 3, status: "active" },
+      { id: 4, status: "active" },
+    ]);
+  } finally {
+    core.close();
+  }
+});
+
+test("a cancellation processed live after resuming a stopped meeting is reconciled before the second Stop (#3472)", async () => {
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+    async ({ instructions, prompt }) => {
+      if (!prompt.includes(zhCancel)) return zhOpeningReply;
+      return asksForReconciliation(instructions)
+        ? zhReconciledCancelReply
+        : zhUnreconciledCancelReply;
+    },
+  );
+  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [zhOpening, zhCancel]);
+  try {
+    await speakTurn(false);
+    await until(core, meeting.id, (state) => state.lines >= 1);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+
+    await core.resumeMeeting(meeting.id);
+    await speakTurn(true);
+    await vi.waitFor(async () =>
+      expect((await summary())?.items?.find((item) => item.id === 2)?.status).toBe("cancelled"),
+    );
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect((await summary())?.items).toMatchObject([
+      { id: 1, status: "active" },
+      { id: 2, status: "cancelled" },
+      { id: 3, status: "active" },
+      { id: 4, status: "active" },
+    ]);
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    core.close();
+  }
+});
+
+test.each(["before-stop", "in-flight-at-stop"] as const)(
+  "rejects a live reply that omits an active item, keeps the warm overview, and recovers at Stop (%s) (#3472)",
+  async (timing) => {
+    const hold = timing === "in-flight-at-stop" ? Promise.withResolvers<void>() : null;
+    let cancelCalls = 0;
+    const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+      async ({ prompt }) => {
+        if (!prompt.includes(zhCancel)) return zhOpeningReply;
+        cancelCalls++;
+        if (cancelCalls === 1) {
+          if (hold) await hold.promise;
+          return zhUnreconciledCancelReply;
+        }
+        return zhReconciledCancelReply;
+      },
+    );
+    const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+      zhOpening,
+      zhCancel,
+    ]);
+    try {
+      await speakTurn(false);
+      await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(3));
+      const warmText = (await summary())?.text;
+      await speakTurn(true);
+      await until(core, meeting.id, (state) => state.lines >= 2);
+      if (timing === "before-stop") {
+        await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+        expect((await summary())?.text).toBe(warmText);
+      } else {
+        await vi.waitFor(() => expect(cancelCalls).toBe(1));
+      }
+
+      const atStop = await core.stopMeeting(meeting.id);
+      expect(atStop.summary?.text).toBe(warmText);
+      if (hold) {
+        await until(core, meeting.id, (state) => state.state === "saved");
+        hold.resolve();
+      }
+      await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+      expect((await summary())?.items?.find((item) => item.id === 2)?.status).toBe("cancelled");
+      expect(cancelCalls).toBe(2);
+    } finally {
+      hold?.resolve();
+      core.close();
+    }
+  },
+);
+
+test("when every attempt omits an active item, the meeting stays retryable instead of ready with an open action (#3472)", async () => {
+  let fixed = false;
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) => {
+    if (!prompt.includes(zhCancel)) return zhOpeningReply;
+    return fixed ? zhReconciledCancelReply : zhUnreconciledCancelReply;
+  });
+  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [zhOpening, zhCancel]);
+  try {
+    await speakTurn(false);
+    await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(3));
+    await speakTurn(true);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (state) => state.state === "saved");
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
+    expect((await summary())?.state).toBe("failed");
+
+    fixed = true;
+    await core.retryMeetingSummary(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect((await summary())?.items?.find((item) => item.id === 2)?.status).toBe("cancelled");
+  } finally {
+    core.close();
+  }
+});
+
+test("once all prior items are closed, later updates return to the two-key contract (#3472)", async () => {
+  const openAction = "Avery will send the agenda.";
+  const cancelAction = "Cancel the agenda; nobody needs to send it.";
+  const tail = "Thanks everyone, see you next week.";
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+    async ({ instructions, prompt }) => {
+      if (prompt.includes(cancelAction)) {
+        expect(asksForReconciliation(instructions)).toBe(true);
+        return JSON.stringify({
+          summary: "The agenda was cancelled.",
+          changes: [
+            {
+              id: 1,
+              kind: "action",
+              status: "cancelled",
+              text: "Agenda cancelled.",
+              quote: "Cancel the agenda",
+            },
+          ],
+          unchanged: [],
+        });
+      }
+      if (prompt.includes(tail)) {
+        expect(instructions).toContain("two keys");
+        return JSON.stringify({ summary: "The agenda was cancelled.", changes: [] });
+      }
+      return JSON.stringify({
+        summary: "Avery will send the agenda.",
+        changes: [
+          {
+            id: null,
+            kind: "action",
+            status: "active",
+            text: openAction,
+            quote: openAction,
+          },
+        ],
+      });
+    },
+  );
+  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+    openAction,
+    cancelAction,
+    tail,
+  ]);
+  try {
+    await speakTurn(false);
+    await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(1));
+    await speakTurn(true);
+    await vi.waitFor(async () => expect((await summary())?.items?.[0]?.status).toBe("cancelled"));
+    await speakTurn(false);
+    await until(core, meeting.id, (state) => state.lines >= 3);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect((await summary())?.items).toEqual([
+      { id: 1, kind: "action", status: "cancelled", text: "Agenda cancelled." },
+    ]);
+    expect(run).toHaveBeenCalledTimes(3);
+  } finally {
+    core.close();
   }
 });

@@ -10,10 +10,9 @@ import { createFakeChatModel } from "../../src/main/fakeChatModel";
 import { meetingWords } from "../fixtures/meetingSummaryWords";
 
 async function summarize(lines: string[], prior?: Pick<MeetingSummaryInput, "previous" | "items">) {
-  const input = {
+  const input: MeetingSummaryInput = {
     previous: null,
     ...prior,
-    closing: !!prior,
     utterances: lines.map((text) => ({ text })),
   };
   const model = createFakeChatModel({
