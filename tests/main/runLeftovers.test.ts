@@ -18,7 +18,9 @@ import {
   type Classified,
   classify,
   createRunSweeper,
+  type GroupStopper,
   killProcess,
+  killProcessGroup,
   listProcesses,
   type ProcessRow,
   procRow,
@@ -27,6 +29,7 @@ import {
   type Stopper,
   type SweepDeps,
   signallable,
+  signallableGroups,
   sweepRun,
 } from "../../src/main/runLeftovers";
 import { loadOsSandbox } from "../../src/main/sandbox";
@@ -108,8 +111,8 @@ describe("the sweep's classifier, on a listing it is given", () => {
       "604 not this run's profile",
       "605 not this run's profile",
       "606 not this run's profile",
-      "607 not this run's profile",
-      "608 not this run's profile",
+      "607 gone before check",
+      "608 gone before check",
       "609 not this run's profile",
       "1 not a process to signal",
       "0 not a process to signal",
@@ -159,6 +162,90 @@ describe("the sweep's classifier, on a listing it is given", () => {
     expect(asked).toEqual([]);
     const none = await classify(rows, RUN, { ...linux, group: 0 }, check);
     expect(none.filter((each) => each.verdict === "member")).toEqual([]);
+  });
+});
+
+describe("signallableGroups: refuses every group not proved to hold only this run's members", () => {
+  test("allows a group where every listed process is a verified member of this run", async () => {
+    const rows = [...APP, row(601, { group: 600 }), row(602, { group: 600 }), row(700)];
+    const { check } = answering({ 601: OURS, 602: OURS, 700: [1, 1, 0] });
+    const classified = await classify(rows, RUN, CONTEXT, check);
+    expect(signallableGroups(classified, rows, CONTEXT)).toEqual([600]);
+  });
+
+  test("refuses a mixed group holding a non-member or a vanished candidate alongside a member", async () => {
+    const rows = [
+      ...APP,
+      row(601, { group: 600 }),
+      row(602, { group: 600 }),
+      row(611, { group: 610 }),
+      row(612, { group: 610 }),
+    ];
+    const { check } = answering({
+      601: OURS,
+      602: [1, 1, 0],
+      611: OURS,
+      612: [-1, -1, -1],
+    });
+    const classified = await classify(rows, RUN, CONTEXT, check);
+    expect(signallableGroups(classified, rows, CONTEXT)).toEqual([]);
+  });
+
+  test("refuses the app's own group and every ancestor's group", async () => {
+    const ancestors = [
+      row(300, { ppid: 1, group: 300, startedMs: 0 }),
+      row(400, { ppid: 300, group: 400, startedMs: 0 }),
+      row(500, { ppid: 400, group: 450, startedMs: 0 }),
+    ];
+    const rows = [
+      ...ancestors,
+      row(601, { group: 450 }),
+      row(602, { group: 400 }),
+      row(603, { group: 300 }),
+      row(604, { group: 500 }),
+    ];
+    const { check } = answering({ 601: OURS, 602: OURS, 603: OURS, 604: OURS });
+    const classified = await classify(rows, RUN, CONTEXT, check);
+    expect(signallableGroups(classified, rows, CONTEXT)).toEqual([]);
+  });
+
+  test("refuses PID 1's group and group 0", async () => {
+    const rows = [...APP, row(601, { group: 1 }), row(602, { group: 0 })];
+    const { check } = answering({ 601: OURS, 602: OURS });
+    const classified = await classify(rows, RUN, CONTEXT, check);
+    expect(signallableGroups(classified, rows, CONTEXT)).toEqual([]);
+  });
+
+  test("refuses a group a member left for when another process belongs to it", async () => {
+    const rows = [
+      ...APP,
+      row(700, { group: 700, startedMs: Date.parse("2026-11-02T09:50:00Z") }),
+      row(601, { group: 700 }),
+    ];
+    const { check } = answering({ 601: OURS, 700: [0, 0, 0] });
+    const classified = await classify(rows, RUN, CONTEXT, check);
+    expect(signallableGroups(classified, rows, CONTEXT)).toEqual([]);
+  });
+
+  test("refuses all groups when the snapshot is empty, missing the app or an ancestor, or has unreadable groups", async () => {
+    const memberOnly = [row(601, { group: 600 })];
+    const { check } = answering({ 601: OURS });
+    expect(signallableGroups([], [], CONTEXT)).toEqual([]);
+    // App missing from snapshot.
+    const missingApp = await classify(memberOnly, RUN, CONTEXT, check);
+    expect(signallableGroups(missingApp, memberOnly, CONTEXT)).toEqual([]);
+    // Ancestor 400 missing from snapshot.
+    const missingAncestorRows = [row(500, { ppid: 400, startedMs: 0 }), row(601, { group: 600 })];
+    const missingAncestor = await classify(missingAncestorRows, RUN, CONTEXT, check);
+    expect(signallableGroups(missingAncestor, missingAncestorRows, CONTEXT)).toEqual([]);
+    // Unreadable group id on a row.
+    const badGroupRows = [...APP, row(601, { group: 600 }), row(700, { group: Number.NaN })];
+    const badGroup = await classify(badGroupRows, RUN, CONTEXT, check);
+    expect(signallableGroups(badGroup, badGroupRows, CONTEXT)).toEqual([]);
+    // Mismatched lengths.
+    const goodRows = [...APP, row(601, { group: 600 })];
+    const good = await classify(goodRows, RUN, CONTEXT, check);
+    expect(signallableGroups(good.slice(0, 2), goodRows, CONTEXT)).toEqual([]);
   });
 });
 
@@ -254,6 +341,122 @@ describe("the sweep's stops, through a stopper that records", () => {
     const { deps, sent } = computer(table, new Set(), "linux");
     expect(await sweepRun(RUN, 600, deps)).toEqual([601]);
     expect(sent).toEqual([]);
+  });
+
+  test("drains a verified all-member group via groupStopper, retries survivors, and never signals again after ESRCH", async () => {
+    const table = [...APP, row(601, { group: 600 }), row(602, { group: 600 }), row(700)];
+    const { deps, sent } = computer(table, new Set([601, 602, 603]));
+    const groupSent: string[] = [];
+    let kills = 0;
+    const groupStopper: GroupStopper = (pgid, signal) => {
+      groupSent.push(`${signal} -${pgid}`);
+      const has = table.some((each) => each.group === pgid);
+      if (!has) return false;
+      if (signal === "SIGKILL") {
+        kills += 1;
+        for (let i = table.length - 1; i >= 0; i--) {
+          if (table[i]?.group === pgid) table.splice(i, 1);
+        }
+        // First SIGKILL missed a mid-fork child in the same group; second SIGKILL wipes it.
+        if (kills === 1) table.push(row(603, { ppid: 1, group: 600 }));
+      }
+      return true;
+    };
+    deps.groupStopper = groupStopper;
+    expect(await sweepRun(RUN, 600, deps)).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(groupSent).toEqual([
+      "SIGSTOP -600",
+      "SIGKILL -600",
+      "0 -600",
+      "SIGSTOP -600",
+      "SIGKILL -600",
+      "0 -600",
+    ]);
+    expect(table.map((each) => each.pid)).toEqual([400, 500, 700]);
+  });
+
+  test("falls back to per-pid stopping and never calls groupStopper when a group is mixed", async () => {
+    const table = [...APP, row(601, { group: 600 }), row(700, { group: 600 })];
+    const { deps, sent } = computer(table, new Set([601]));
+    const groupSent: string[] = [];
+    deps.groupStopper = (pgid, signal) => {
+      groupSent.push(`${signal} -${pgid}`);
+      return true;
+    };
+    expect(await sweepRun(RUN, 600, deps)).toEqual([]);
+    expect(groupSent).toEqual([]);
+    expect(sent).toEqual(["SIGSTOP 601", "SIGKILL 601"]);
+    expect(table.map((each) => each.pid)).toEqual([400, 500, 700]);
+  });
+
+  test("handles EPERM on a zombie-only group during drain without losing verification of live members", async () => {
+    // Case 1: SIGKILL ends the group, then XNU returns EPERM to kill(-pgid, 0) while zombies await reaping.
+    const drainedTable = [...APP, row(601, { group: 600 }), row(602, { ppid: 601, group: 600 })];
+    const drained = computer(drainedTable, new Set([601, 602]));
+    drained.deps.groupStopper = (pgid, signal) => {
+      if (signal === "SIGKILL") {
+        for (let i = drainedTable.length - 1; i >= 0; i--) {
+          if (drainedTable[i]?.group === pgid) drainedTable.splice(i, 1);
+        }
+        return true;
+      }
+      if (signal === 0)
+        throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+      return true;
+    };
+    expect(await sweepRun(RUN, 600, drained.deps)).toEqual([]);
+
+    // Case 2: EPERM happens while a live member is STILL present — sweep must never count it as clean.
+    const stuckTable = [...APP, row(601, { group: 600 })];
+    const stuck = computer(stuckTable, new Set([601]));
+    stuck.deps.groupStopper = (_pgid, signal) => {
+      if (signal === "SIGKILL") {
+        throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+      }
+      return true;
+    };
+    expect(await sweepRun(RUN, 600, stuck.deps)).toEqual([601]);
+  });
+
+  test("a new unkilled member appearing during settle triggers another sweep pass immediately", async () => {
+    const table = [...APP, row(601)];
+    const { deps, sent } = computer(table, new Set([601, 602]));
+    const stopper = deps.stopper;
+    deps.stopper = (pid, signal) => {
+      const ok = stopper(pid, signal);
+      if (pid === 601 && signal === "SIGKILL") table.push(row(602, { ppid: 1 }));
+      return ok;
+    };
+    expect(await sweepRun(RUN, 600, deps)).toEqual([]);
+    expect(sent).toEqual(["SIGSTOP 601", "SIGKILL 601", "SIGSTOP 602", "SIGKILL 602"]);
+  });
+
+  test("a single vanished candidate re-scans and clears once the next pass is clean", async () => {
+    const table = [...APP, row(601)];
+    const { deps, sent } = computer(table, new Set());
+    let checks = 0;
+    deps.check = async (questions) => {
+      checks += 1;
+      if (checks === 1) {
+        table.splice(2, 1);
+        return questions.map(() => -1);
+      }
+      return questions.map(() => 1);
+    };
+    expect(await sweepRun(RUN, 600, deps)).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(checks).toBe(2);
+  });
+
+  test("candidates vanishing before sandbox_check (-1) never count as clean", async () => {
+    let nextPid = 601;
+    const { deps } = computer([...APP], new Set());
+    deps.list = async () => [...APP, row(nextPid++)];
+    deps.check = async (questions) => questions.map(() => -1);
+    const left = await sweepRun(RUN, 600, deps);
+    expect(left.length).toBe(1);
+    expect(left[0]).toBeGreaterThanOrEqual(601);
   });
 });
 
@@ -385,6 +588,34 @@ describe("the app's stopper", () => {
       kill.mockRestore();
     }
   });
+
+  test("killProcessGroup rejects unsignallable groups, signals -pgid, returns false on ESRCH, and throws on EPERM", () => {
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    try {
+      for (const pgid of [1, 0, -1, -601, process.pid]) {
+        expect(() => killProcessGroup(pgid, "SIGKILL")).toThrow(
+          `signal group ${pgid}, which it never does`,
+        );
+      }
+      expect(kill).not.toHaveBeenCalled();
+      expect(killProcessGroup(601, "SIGSTOP")).toBe(true);
+      expect(killProcessGroup(601, 0)).toBe(true);
+      expect(kill.mock.calls).toEqual([
+        [-601, "SIGSTOP"],
+        [-601, 0],
+      ]);
+      kill.mockImplementationOnce(() => {
+        throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+      });
+      expect(killProcessGroup(601, "SIGKILL")).toBe(false);
+      kill.mockImplementationOnce(() => {
+        throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+      });
+      expect(() => killProcessGroup(601, "SIGKILL")).toThrow("not permitted");
+    } finally {
+      kill.mockRestore();
+    }
+  });
 });
 
 /**
@@ -491,6 +722,37 @@ describe("the sweeper: runs a crash left, and runs it couldn't end", () => {
     );
     expect(await readdir(records)).toEqual([`${id}.json`]);
     ends = true;
+    expect(await sweeper.stuck()).toBeNull();
+    expect(await readdir(records)).toEqual([]);
+    await rm(records, { recursive: true, force: true });
+  }, 30_000);
+
+  test("keeps the run's record on disk while a stand-in still forks and vanishes before sandbox_check (-1)", async () => {
+    const records = await mkdtemp(join(tmpdir(), "incarnamind-test-records-"));
+    const id = "44444444-4444-4444-8444-444444444444";
+    let forking = true;
+    let nextPid = 900;
+    const sweeper = createRunSweeper({
+      report: () => {},
+      records,
+      stopper: () => true,
+      computer: {
+        platform: "darwin",
+        list: async () =>
+          forking ? [self(), row(nextPid++, { uid, startedMs: Date.now() + 5000 })] : [self()],
+        check: async (questions) => questions.map(() => -1),
+      },
+    });
+    const { sweep } = await sweeper.begin(id, join(records, "incarnamind-code-z", "work"));
+    await sweep(600);
+    // Stand-in is still forking: record MUST stay on disk and new runs stay refused.
+    expect(await readdir(records)).toEqual([`${id}.json`]);
+    expect(await sweeper.stuck()).toBe(
+      "A process of an earlier run in the sandbox couldn't be stopped, so no new program runs here until IncarnaMind is restarted.",
+    );
+    expect(await readdir(records)).toEqual([`${id}.json`]);
+    // Once the stand-in stops forking, a clean pass removes the record and unblocks new runs.
+    forking = false;
     expect(await sweeper.stuck()).toBeNull();
     expect(await readdir(records)).toEqual([]);
     await rm(records, { recursive: true, force: true });
@@ -898,6 +1160,63 @@ describe.runIf(process.platform === "darwin" && sandbox.available)(
         guard.signalled.filter((each) => each.pid === decoy.child).map((each) => each.signal),
       ).toEqual(["SIGSTOP", "SIGKILL"]);
       expect(errors).toEqual([]);
+    }, 90_000);
+
+    test("the guarded group stopper refuses foreign and app groups, and stops a run's setsid group whole", async () => {
+      if (!sandbox.available) throw new Error("No OS sandbox.");
+      const records = join(root, "records-group");
+      await mkdir(records, { mode: 0o700 });
+      const guard = createSweepGuard();
+      guard.records(records);
+      const plain = foreign.get("no sandbox") ?? 0;
+      const appGroup = (await listProcesses()).find((each) => each.pid === process.pid)?.group ?? 0;
+      expect(await guard.groupStopper(plain, "SIGSTOP")).toBe(false);
+      expect(await guard.groupStopper(appGroup, "SIGSTOP")).toBe(false);
+      expect(guard.refused.map((each) => each.pid)).toEqual([-plain, -appGroup]);
+      guard.refused.length = 0;
+
+      const folder = join(root, "run-group");
+      await mkdir(folder);
+      const env = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
+      const errors: unknown[] = [];
+      const executor = sandbox.createExecutor({
+        processes: createProcessLauncher(async () => env),
+        environment: async () => env,
+        tempDir: root,
+        denyRead: [],
+        reportError: (error) => errors.push(error),
+        runRecords: records,
+        sweep: guard.sweep,
+      });
+      const stop = new AbortController();
+      const running = executor.run({
+        command: process.execPath,
+        args: ["-e", SETSID],
+        cwd: folder,
+        env: {},
+        allow: { read: [WORKING_FOLDER], write: [WORKING_FOLDER], network: "none" },
+        timeoutMs: 120_000,
+        maxOutputBytes: 1024,
+        signal: stop.signal,
+      });
+      const decoy = await vi.waitFor(
+        async () =>
+          JSON.parse(await readFile(join(folder, "pids.json"), "utf8")) as {
+            pid: number;
+            child: number;
+          },
+        { timeout: 20_000, interval: 50 },
+      );
+      stop.abort();
+      await running;
+      const after = await listProcesses();
+      expect(after.some((each) => each.pid === decoy.child)).toBe(false);
+      expect(guard.refused).toEqual([]);
+      expect(guard.signalled.some((each) => each.pid === -decoy.child)).toBe(true);
+      expect(errors).toEqual([]);
+      for (const [label, pid] of foreign) {
+        expect([label, after.some((each) => each.pid === pid)]).toEqual([label, true]);
+      }
     }, 90_000);
   },
 );

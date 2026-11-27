@@ -435,6 +435,34 @@ describe("the meter's ticks (macOS)", () => {
     expect(each.reports).toEqual(["Error: footprint failed"]);
   });
 
+  test("a footprint killed at its deadline under load falls back to resident memory without reporting", async () => {
+    const { folder } = await workingFolder();
+    let footprints = 0;
+    const { command } = computer({
+      ps: () => "600 1 600 501 2048",
+      footprint: () => {
+        footprints += 1;
+        if (footprints === 1) {
+          throw Object.assign(new Error("Command failed: /usr/bin/footprint --noCategories"), {
+            killed: true,
+            signal: "SIGTERM",
+          });
+        }
+        return footprintOf(600, 6 * MB);
+      },
+    });
+    const meters = createMeters({ command, platform: "darwin", interval: false });
+    const each = watcher();
+    meters.meter().watch(600, folder, each.use, each.unmeasured);
+    for (let n = 0; n < 3; n++) {
+      await meters.tick();
+      await meters.settle();
+    }
+    expect(footprints).toBe(2);
+    expect(each.peak().memory).toBe(6 * MB);
+    expect(each.reports).toEqual([]);
+  });
+
   test("the run's processes launchd took over are told from the tick's listing, with one start-time lookup for all runs, and counted, with every process under them, in its memory and its open files", async () => {
     const { folder } = await workingFolder();
     const listing = [

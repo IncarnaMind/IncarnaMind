@@ -97,7 +97,7 @@ function osExecutor(
       throw error;
     },
     runRecords,
-    sweep: { stopper: guard.stopper },
+    sweep: guard.sweep,
     ...rest,
   });
 }
@@ -195,7 +195,7 @@ async function setUp(
       throw error;
     },
     runRecords,
-    sweep: { stopper: guard.stopper },
+    sweep: guard.sweep,
   });
   return { root, executor, home, canary, data, database, skillDir, outside, tempDir };
 }
@@ -1342,7 +1342,7 @@ console.log(JSON.stringify(results));
             throw error;
           },
           runRecords,
-          sweep: { stopper: guard.stopper },
+          sweep: guard.sweep,
         });
 
         const request = async (read: ExecRequest["allow"]["read"]) => ({

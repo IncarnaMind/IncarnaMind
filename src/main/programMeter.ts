@@ -205,7 +205,9 @@ async function macFootprints(
   try {
     return footprints(await command("/usr/bin/footprint", args));
   } catch (error) {
-    if ((error as { code?: unknown }).code === NONE_LEFT) return new Map();
+    if ((error as { code?: unknown }).code === NONE_LEFT || isCommandTimeout(error)) {
+      return new Map();
+    }
     throw error;
   }
 }

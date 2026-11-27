@@ -141,7 +141,7 @@ export function declaredAccess(level: SandboxLevel, allow: ExecAllow): ExecAcces
  */
 export function stopProcessTree(child: ChildProcess): void {
   const { pid } = child;
-  if (pid === undefined) return;
+  if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return;
   const killChild = () => {
     try {
       child.kill("SIGKILL");
@@ -162,10 +162,73 @@ export function stopProcessTree(child: ChildProcess): void {
     return;
   }
   try {
-    process.kill(-pid, "SIGKILL");
+    process.kill(-pid, "SIGSTOP");
   } catch {
     // Not a group leader after all (a launcher that ignored `processGroup`), or gone.
     killChild();
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    killChild();
+  }
+}
+
+const DRAIN_TIMEOUT_MS = 5000;
+const DRAIN_INTERVAL_MS = 20;
+
+export interface DrainProcessGroupOptions {
+  timeoutMs?: number;
+  intervalMs?: number;
+  /** Defaults to `process.kill`; a test may pass a stand-in. */
+  kill?: (target: number, signal: "SIGSTOP" | "SIGKILL" | 0) => void;
+}
+
+/**
+ * Freezes and kills a POSIX process group in a loop until the kernel reports `ESRCH` (no process
+ * left in the group), closing the fork-during-SIGKILL race on macOS and Linux (#2644). Never
+ * signals `-group` again once `ESRCH` is seen, and never signals 1 or less or this process.
+ * Returns true once the group is gone, false on `EPERM` or timeout.
+ */
+export async function drainProcessGroup(
+  group: number,
+  options: DrainProcessGroupOptions = {},
+): Promise<boolean> {
+  if (
+    process.platform === "win32" ||
+    !Number.isSafeInteger(group) ||
+    group <= 1 ||
+    group === process.pid
+  ) {
+    return true;
+  }
+  const kill = options.kill ?? ((target, signal) => process.kill(target, signal));
+  const timeoutMs = options.timeoutMs ?? DRAIN_TIMEOUT_MS;
+  const intervalMs = options.intervalMs ?? DRAIN_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+  const send = (signal: "SIGSTOP" | "SIGKILL" | 0): "sent" | "gone" | "denied" => {
+    try {
+      kill(-group, signal);
+      return "sent";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return "gone";
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return "denied";
+      throw error;
+    }
+  };
+  while (true) {
+    const stopped = send("SIGSTOP");
+    if (stopped === "gone") return true;
+    if (stopped === "denied") return false;
+    const killed = send("SIGKILL");
+    if (killed === "gone") return true;
+    if (killed === "denied") return false;
+    if (Date.now() >= deadline) return send(0) === "gone";
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    const alive = send(0);
+    if (alive === "gone") return true;
+    if (alive === "denied") return false;
   }
 }
 
@@ -392,8 +455,14 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
         // One sweep at a time: the program's end, a stop and the run's end each ask for one.
         let sweeping = Promise.resolve();
         let group = 0;
+        let groupDrained = false;
         const leftovers = () => {
-          sweeping = sweeping.then(() => program.sweep?.(group));
+          sweeping = sweeping.then(async () => {
+            if (!groupDrained && group > 0) {
+              groupDrained = await drainProcessGroup(group);
+            }
+            await program.sweep?.(group);
+          });
           return sweeping;
         };
         try {

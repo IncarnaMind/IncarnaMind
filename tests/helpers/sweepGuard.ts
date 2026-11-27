@@ -1,15 +1,24 @@
 /**
- * The real stopper, for tests that run programs in the OS sandbox: it signals a pid only when,
+ * The real stoppers, for tests that run programs in the OS sandbox: a pid is signalled only when,
  * listed just before, it is a member of one of the runs recorded in the test's own records
- * folders. Any other pid is refused, not signalled, and kept for the test to fail on.
+ * folders, and a group (`-pgid`) only when every live process in that group is a verified member
+ * of one of those runs (via `signallableGroups`). Any other live pid or group is refused, not
+ * signalled, and kept for the test to fail on.
  */
 import { appendFile, readdir, readFile } from "node:fs/promises";
 import {
   classify,
+  type GroupStopper,
   killProcess,
+  killProcessGroup,
   listProcesses,
+  type ProcessRow,
   type RunRecord,
   type Stopper,
+  signallable,
+  signallableGroups,
+  startTimes,
+  sweepRun,
 } from "../../src/main/runLeftovers";
 import { sandboxCheck } from "../../src/main/sandboxCheck";
 
@@ -23,6 +32,32 @@ export interface Signalled {
 
 /** Where each signal is also written as a line of JSON, when a person runs the tests to read. */
 const LOG = process.env.INCARNAMIND_TEST_SWEEP_SIGNALS;
+
+/** The app and every ancestor up to PID 1, so `classify` and `signallableGroups` only check target rows. */
+function ancestorsOf(rows: readonly ProcessRow[], app: number): ProcessRow[] {
+  const byPid = new Map(rows.map((each) => [each.pid, each]));
+  const chain: ProcessRow[] = [];
+  const seen = new Set<number>();
+  for (let pid = app; pid > 1 && !seen.has(pid); ) {
+    seen.add(pid);
+    const row = byPid.get(pid);
+    if (!row) break;
+    chain.push(row);
+    pid = row.ppid;
+  }
+  return chain;
+}
+
+function uniqueRows(rows: readonly ProcessRow[]): ProcessRow[] {
+  const seen = new Set<number>();
+  const kept: ProcessRow[] = [];
+  for (const row of rows) {
+    if (seen.has(row.pid)) continue;
+    seen.add(row.pid);
+    kept.push(row);
+  }
+  return kept;
+}
 
 export function createSweepGuard() {
   const folders = new Set<string>();
@@ -43,6 +78,13 @@ export function createSweepGuard() {
   }
 
   const stoppedHere = new Set<number>();
+  const authorizedGroups = new Set<number>();
+  const context = () => ({
+    platform: process.platform,
+    uid: process.getuid?.() ?? -1,
+    app: process.pid,
+    group: 0,
+  });
 
   const stopper: Stopper = async (pid, signal) => {
     // Letting go on what this guard let be stopped: the one signal to a pid that may not be the
@@ -58,23 +100,31 @@ export function createSweepGuard() {
     }
     const rows = await listProcesses();
     const row = rows.find((each) => each.pid === pid);
-    const seen = { pid, signal, command: row?.command ?? "", startedMs: row?.startedMs ?? 0 };
-    const context = {
-      platform: process.platform,
-      uid: process.getuid?.() ?? -1,
-      app: process.pid,
-      group: 0,
-    };
+    // Already exited before the guard checked it: nothing to signal and no wrong target.
+    if (!row) return false;
+    const seen = { pid, signal, command: row.command, startedMs: row.startedMs };
+    const subset = uniqueRows([...ancestorsOf(rows, process.pid), row]);
+    const ctx = context();
     let run: string | undefined;
+    let gone = false;
     for (const record of await runs()) {
-      const classified = await classify(rows, record, context, sandboxCheck);
-      if (classified.some((each) => each.pid === pid && each.verdict === "member")) {
+      const classified = await classify(subset, record, ctx, sandboxCheck);
+      const verdict = classified.find((each) => each.pid === pid)?.verdict;
+      if (verdict === "member") {
         run = record.id;
         break;
       }
+      if (verdict === "gone before check") gone = true;
     }
     if (LOG) await appendFile(LOG, `${JSON.stringify({ ...seen, run: run ?? null })}\n`);
     if (run === undefined) {
+      if (gone) return false;
+      // On macOS, a process that turns into a zombie during `osascript` answers `[1,1,1]` instead
+      // of `-1`; check whether it is still a live non-zombie before recording a refusal (#2644).
+      const stillAlive = (await listProcesses()).some(
+        (each) => each.pid === pid && each.startedMs === row.startedMs,
+      );
+      if (!stillAlive) return false;
       refused.push(seen);
       return false;
     }
@@ -83,11 +133,101 @@ export function createSweepGuard() {
     return killProcess(pid, signal);
   };
 
+  const groupStopper: GroupStopper = async (pgid, signal) => {
+    const seenBase = { pid: -pgid, signal: String(signal), command: "", startedMs: 0 };
+    if (!signallable(pgid, process.pid)) {
+      refused.push(seenBase);
+      return false;
+    }
+    if (signal === 0) {
+      if (!authorizedGroups.has(pgid)) {
+        refused.push(seenBase);
+        return false;
+      }
+      return killProcessGroup(pgid, 0);
+    }
+    const rows = await listProcesses();
+    const inGroup = rows.filter((each) => each.group === pgid);
+    if (inGroup.length === 0) return false;
+    const seen = {
+      pid: -pgid,
+      signal,
+      command: inGroup[0]?.command ?? "",
+      startedMs: inGroup[0]?.startedMs ?? 0,
+    };
+    const ancestors = ancestorsOf(rows, process.pid);
+    const forbidden = new Set<number>([0, 1, process.pid]);
+    for (const each of ancestors) {
+      forbidden.add(each.pid);
+      forbidden.add(each.group);
+    }
+    const subset = uniqueRows([...ancestors, ...inGroup]);
+    const ctx = context();
+    let run: string | undefined;
+    let hadVanished = false;
+    for (const record of await runs()) {
+      const classified = await classify(subset, record, ctx, sandboxCheck);
+      if (signallableGroups(classified, subset, ctx).includes(pgid)) {
+        run = record.id;
+        break;
+      }
+      if (!forbidden.has(pgid)) {
+        const verdicts = inGroup.map(
+          (member) => classified.find((each) => each.pid === member.pid)?.verdict,
+        );
+        if (
+          verdicts.some((verdict) => verdict === "gone before check") &&
+          verdicts.every((verdict) => verdict === "member" || verdict === "gone before check")
+        ) {
+          hadVanished = true;
+        }
+      }
+    }
+    if (LOG) await appendFile(LOG, `${JSON.stringify({ ...seen, run: run ?? null })}\n`);
+    if (run === undefined) {
+      if (hadVanished) return false;
+      // If processes in the group exited or became zombies during `osascript`, fail closed without
+      // a false refusal so `sweepRun` can fall back and re-scan (#2644).
+      if (!forbidden.has(pgid)) {
+        const after = new Set(
+          (await listProcesses()).map((each) => `${each.pid}@${each.startedMs}`),
+        );
+        if (inGroup.some((each) => !after.has(`${each.pid}@${each.startedMs}`))) return false;
+      }
+      refused.push(seen);
+      return false;
+    }
+    authorizedGroups.add(pgid);
+    signalled.push({ ...seen, run });
+    return killProcessGroup(pgid, signal);
+  };
+
+  async function sweepRemaining(): Promise<void> {
+    if (process.platform !== "darwin") return;
+    const ctx = context();
+    for (const record of await runs()) {
+      await sweepRun(record, 0, {
+        list: listProcesses,
+        started: startTimes,
+        check: sandboxCheck,
+        stopper,
+        groupStopper,
+        log: () => {},
+        platform: ctx.platform,
+        uid: ctx.uid,
+        app: ctx.app,
+      });
+    }
+  }
+
   return {
     stopper,
+    groupStopper,
+    sweep: { stopper, groupStopper },
     signalled,
     refused,
-    /** A records folder whose runs' members this stopper may signal. */
+    sweepRemaining,
+    /** A records folder whose runs' members these stoppers may signal. */
     records(folder: string): string {
       folders.add(folder);
       return folder;

@@ -19,6 +19,7 @@ import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../sr
 import {
   createLocalExecutor,
   declaredAccess,
+  drainProcessGroup,
   type ProgramMeter,
   type ProgramUse,
   WORKING_FOLDER,
@@ -498,9 +499,12 @@ const guard = createSweepGuard();
 // Outside each case's temporary folder, which the contract checks is left empty.
 const runRecords = guard.records(await mkdtemp(join(tmpdir(), "incarnamind-test-runs-")));
 afterAll(async () => {
-  // Each pid a run's sweep signalled was a member of one of this file's own runs.
-  expect(guard.refused).toEqual([]);
-  await rm(runRecords, { recursive: true, force: true });
+  try {
+    await rm(runRecords, { recursive: true, force: true });
+  } finally {
+    // Each pid or group a run's sweep signalled was a member of one of this file's own runs.
+    expect(guard.refused).toEqual([]);
+  }
 });
 executorContract(
   "the OS sandbox (sandbox level os)",
@@ -514,7 +518,7 @@ executorContract(
       denyRead: [join(tempDir, "stand-in-home"), join(tempDir, "stand-in-data")],
       reportError: failOnError,
       runRecords,
-      sweep: { stopper: guard.stopper },
+      sweep: guard.sweep,
     });
   },
   osSandbox.available ? undefined : osSandbox.reason,
@@ -665,4 +669,94 @@ test("a program whose folder the meter can't measure is stopped, so one run can'
     timedOut: false,
     limit: "folder-unknown",
   });
+});
+
+describe.runIf(process.platform !== "win32")("drainProcessGroup", () => {
+  test("refuses invalid targets, loops SIGSTOP+SIGKILL until ESRCH, never signals after ESRCH, and returns false on EPERM", async () => {
+    const calls: [number, string | number][] = [];
+    for (const invalid of [0, 1, -1, -600, 1.5, Number.NaN, process.pid]) {
+      expect(
+        await drainProcessGroup(invalid, {
+          kill: (target, signal) => calls.push([target, signal]),
+        }),
+      ).toBe(true);
+    }
+    expect(calls).toEqual([]);
+
+    // First SIGKILL leaves a survivor (probe 0 succeeds); second SIGKILL empties the group (probe 0 throws ESRCH).
+    let kills = 0;
+    let alive = true;
+    const ok = await drainProcessGroup(600, {
+      intervalMs: 1,
+      timeoutMs: 1000,
+      kill: (target, signal) => {
+        calls.push([target, signal]);
+        if (!alive) throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+        if (signal === "SIGKILL") {
+          kills += 1;
+          if (kills >= 2) alive = false;
+        }
+      },
+    });
+    expect(ok).toBe(true);
+    expect(calls).toEqual([
+      [-600, "SIGSTOP"],
+      [-600, "SIGKILL"],
+      [-600, 0],
+      [-600, "SIGSTOP"],
+      [-600, "SIGKILL"],
+      [-600, 0],
+    ]);
+
+    const denied = await drainProcessGroup(601, {
+      intervalMs: 1,
+      timeoutMs: 1000,
+      kill: () => {
+        throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+      },
+    });
+    expect(denied).toBe(false);
+  });
+
+  test("drains a bounded forking stand-in in its own process group to ESRCH on abort", async () => {
+    const started: number[] = [];
+    const base = createProcessLauncher(async () => smallEnvironment());
+    const executor = createLocalExecutor({
+      processes: {
+        async spawn(command, args, options) {
+          const child = await base.spawn(command, args, options);
+          if (child.pid !== undefined) started.push(child.pid);
+          return child;
+        },
+      },
+      tempDir: await createTempDataFolder(),
+      reportError: failOnError,
+    });
+    const stop = new AbortController();
+    const running = executor.run({
+      command: "/bin/sh",
+      args: [
+        "-c",
+        "n=0; while [ $n -lt 30 ]; do n=$((n + 1)); (/bin/sleep 0.2 & /bin/sleep 0.2 & wait) & /bin/sleep 0.08; done; wait",
+      ],
+      env: {},
+      allow: { read: [], write: [], network: "none" },
+      timeoutMs: 10_000,
+      maxOutputBytes: 1024,
+      signal: stop.signal,
+    });
+    await vi.waitFor(() => expect(started.length).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    stop.abort();
+    await running;
+    const pgid = started[0] ?? 0;
+    expect(pgid).toBeGreaterThan(1);
+    const inGroup = () =>
+      execFileSync("ps", ["-A", "-o", "pid=,pgid=,state="], { encoding: "utf8" })
+        .split("\n")
+        .map((line) => line.trim().split(/\s+/))
+        .filter(([, group]) => Number(group) === pgid);
+    expect(inGroup().filter(([, , state]) => !(state ?? "").startsWith("Z"))).toEqual([]);
+    await expect.poll(inGroup).toEqual([]);
+  }, 30_000);
 });
