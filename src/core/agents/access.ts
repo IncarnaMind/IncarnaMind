@@ -44,6 +44,7 @@ import {
 import { CHANGE_CHARS, givenChange } from "../../shared/claimChange";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
+import { LIBRARY_FACTS } from "../../shared/libraryFacts";
 import { isListedMind } from "../../shared/listedMinds";
 import { mindName } from "../../shared/naming";
 import type { CheckRow } from "../../shared/noteHealth";
@@ -105,7 +106,7 @@ import type { SearchToolParameters } from "../documents/searchTool";
 import { isRecord } from "../errors";
 import type { WordMade, WordSaved, WordSource } from "../exports/agentWordFiles";
 import type { Language } from "../language";
-import type { LibraryLists } from "../library/lists";
+import { type LibraryLists, libraryVersion } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
 import type { Footnote } from "../mindText";
@@ -861,9 +862,14 @@ export interface AgentAccessDeps {
   answer(question: string, documentIds: string[], signal: AbortSignal): Promise<OutsideAnswer>;
   /**
    * A Note's Check of what it hasn't checked yet, on the Note's model, asking the User nothing and
-   * searching none but `documentIds`, the Documents the agent may read.
+   * searching none but `documentIds`, the Documents the agent may read, counting only
+   * `libraryLists` when given (#2525).
    */
-  checkNote(mindId: string, documentIds: readonly string[]): Promise<OutsideCheck>;
+  checkNote(
+    mindId: string,
+    documentIds: readonly string[],
+    libraryLists?: LibraryLists,
+  ): Promise<OutsideCheck>;
   /**
    * A Note's sentences that hold no result yet, or with `every` all it judges, results or not, when
    * its Check searches none but `documentIds`.
@@ -879,11 +885,12 @@ export interface AgentAccessDeps {
   ): Judged<LandedCheck>;
   /**
    * What a Note's checks found, sentence by sentence, as its check record lists them for an agent
-   * that reaches `reach`.
+   * that reaches `reach` and the Library lists at `libraryVersion` (null when it has no grant).
    */
   checkRecord(
     mindId: string,
     reach: ReadonlySet<string>,
+    libraryVersion?: string | null,
   ): Promise<Pick<CheckRecord, "models" | "sentences"> & Partial<Pick<CheckRecord, "notChecked">>>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
@@ -2325,7 +2332,7 @@ export function createAgentAccess(
       );
     }
     started.set(pairing.id, [...lately, now]);
-    const run = deps.checkNote(mindId, [...checkReach(pairing)]);
+    const run = deps.checkNote(mindId, [...checkReach(pairing)], listsForCheck(pairing, mindId));
     run.then(
       (outcome) => {
         if (outcome.asked && SENT.has(outcome.result.kind)) return;
@@ -2560,6 +2567,13 @@ export function createAgentAccess(
       },
     };
   };
+
+  /**
+   * The Library's lists this pairing's grant covers for a Check of `mindId` (#2525); undefined
+   * when the pairing currently reaches no Folder or unfiled scope.
+   */
+  const listsForCheck = (pairing: AdmittedPairing, mindId: string): LibraryLists | undefined =>
+    reachedFolders(deps, pairing).size > 0 ? workFor(pairing).lists(mindId).lists : undefined;
 
   const handedFileTool = createHandedFileTool({
     deps,
@@ -2807,20 +2821,32 @@ export function createAgentAccess(
     // What the agent reaches may have changed while a Check ran, and again while its record is
     // read: a result resting on a Document the agent doesn't reach doesn't stand for it, so the
     // record is read again with what it reaches once it is read, and nothing told goes beyond.
+    const libraryVersionOf = (pairing: AdmittedPairing): string | null => {
+      const lists = listsForCheck(pairing, mindId);
+      return lists ? libraryVersion(lists) : null;
+    };
     let granted = deps.admit(pairingId);
     mindInScope(granted, mindId);
     let inScope = checkReach(granted);
-    let record = await deps.checkRecord(mindId, inScope);
+    let libVersion = libraryVersionOf(granted);
+    let record = await deps.checkRecord(mindId, inScope, libVersion);
     for (let reads = 1; ; reads++) {
       granted = deps.admit(pairingId);
       mindInScope(granted, mindId);
       const now = checkReach(granted);
-      if (now.size === inScope.size && [...now].every((id) => inScope.has(id))) break;
+      const nowLib = libraryVersionOf(granted);
+      if (
+        now.size === inScope.size &&
+        [...now].every((id) => inScope.has(id)) &&
+        nowLib === libVersion
+      )
+        break;
       if (reads >= MAX_RECORD_READS) {
         throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
       }
       inScope = now;
-      record = await deps.checkRecord(mindId, inScope);
+      libVersion = nowLib;
+      record = await deps.checkRecord(mindId, inScope, libVersion);
     }
     const read = new Set<string>();
     // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
@@ -2853,6 +2879,24 @@ export function createAgentAccess(
       // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
       const passage = group === "canBeCited" ? item.toCite : item;
       const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;
+      if (passage && judgedOn?.documentId === LIBRARY_FACTS && passage.evidence) {
+        if (
+          libVersion === null ||
+          judgedOn.contentHash !== libVersion ||
+          judgedOn.location?.kind !== "library" ||
+          judgedOn.location.source.kind !== "scope"
+        ) {
+          return { ...claim, ...unsaid };
+        }
+        return {
+          ...claim,
+          says: passage.says,
+          document: passage.evidence.name,
+          location: passage.evidence.location,
+          quote: null,
+          cite: null,
+        };
+      }
       // What a Document outside the pairing's Folders says stays there.
       if (!passage || !judgedOn || !passage.evidence || !inScope.has(judgedOn.documentId)) {
         return { ...claim, ...unsaid };

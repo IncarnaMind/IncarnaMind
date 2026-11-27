@@ -93,6 +93,7 @@ import {
   LocalModeError,
 } from "../../errors";
 import type { Language } from "../../language";
+import type { LibraryLists } from "../../library/lists";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import { withoutDateSuffix } from "../../providers/catalog";
@@ -1614,8 +1615,8 @@ export function createChecks(options: ChecksOptions) {
 
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),
-    checkMindOutside: (mindId: string, reach: ReadonlySet<string>) =>
-      mindCheck.checkOutside(mindId, reach),
+    checkMindOutside: (mindId: string, reach: ReadonlySet<string>, outsideLists?: LibraryLists) =>
+      mindCheck.checkOutside(mindId, reach, outsideLists),
     checkTaskOutside: judgedOutside.task,
     landJudgedOutside: judgedOutside.land,
     documentsAddedSinceChecks: (mindId: unknown) => mindCheck.documentsAddedSinceChecks(mindId),

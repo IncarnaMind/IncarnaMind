@@ -25,7 +25,7 @@ import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/che
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
-import type { ModelCall } from "../helpers/models";
+import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const TIDES = [
   "# Tides",
@@ -176,27 +176,296 @@ describe("an outside agent has its Note checked (#3317)", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=a check an outside agent started counts none of the Library's own lists, which follow the Note's Folder walls and not what the agent may read: its verdicts would tell the agent the names and counts of Documents outside its Folders (#2525); the User's own Check of the same Note may count them; fails_when=an agent can ask "is there a Document called X" of the whole Library through check_mind.
-  it("is offered no count of the Library's own lists, which the User's own Check is", async () => {
+  // protects=an outside agent's check_mind counts only the Library lists its own grant covers (#2525): Documents outside the grant, in ungranted Folders, in walled Folders (top-level or nested), soft-deleted items and Not cited workings leave the count unchanged; a grant change invalidates and re-counts; the User's own wider check never leaks; and no name outside the grant ever appears in any request the model receives; fails_when=check_mind counts anything outside the grant, keeps a stale count after a grant change, leaks the User's Library verdict, or sends any ungranted name to the model.
+  it("counts only the Library lists its own grant covers, and updates when the grant changes", async () => {
+    const CLAIM = "Your Library holds 3 Documents across 3 Folders and 2 other Notes.";
+    const CODE =
+      'result("documents", len(inputs["files"]))\nresult("folders", len(inputs["folders"]))\nresult("notes", len(inputs["notes"]))';
     const calls: ModelCall[] = [];
-    const { core, agent } = await paired({ calls, python: true });
-    // A model that can run code, on a service the User allowed checks to send to.
+    const runtime = createFakeAnalysisRuntime({
+      answer: (job) => {
+        const count = (name: string) => {
+          const table = job.inputs.find((each) => each.kind === "table" && each.name === name);
+          return table && table.kind === "table" ? table.rows.length : 0;
+        };
+        return {
+          output: {
+            results: [
+              {
+                kind: "figure",
+                name: "documents",
+                label: "documents",
+                unit: null,
+                value: count("files"),
+              },
+              {
+                kind: "figure",
+                name: "folders",
+                label: "folders",
+                unit: null,
+                value: count("folders"),
+              },
+              { kind: "figure", name: "notes", label: "notes", unit: null, value: count("notes") },
+            ],
+            // Deliberately print names to prove the model never sees printed output either.
+            printed: JSON.stringify(job.inputs),
+          },
+        };
+      },
+    });
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        if (!isCheckRun(call)) return { text: JSON.stringify({ claims: [CLAIM] }) };
+        const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+        if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+          return {
+            calls: [
+              {
+                tool: ANALYSIS_TOOLS.run,
+                input: {
+                  title: "Count Library lists",
+                  inputs: [
+                    { name: "files", library: "documents" },
+                    { name: "folders", library: "folders" },
+                    { name: "notes", library: "notes" },
+                  ],
+                  code: CODE,
+                },
+              },
+            ],
+          };
+        }
+        const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        const folders = Number(/- folders:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        const notes = Number(/- notes:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        if (docs === 3 && folders === 3 && notes === 2) {
+          return {
+            text: "Verdict: supported\nExplanation: The lists show 3 Documents across 3 Folders and 2 other Notes.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.",
+          };
+        }
+        return {
+          text: `Verdict: contradicted\nExplanation: The lists show ${docs} Documents across ${folders} Folders and ${notes} other Notes, not 3, 3 and 2.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.`,
+        };
+      },
+      { generate: () => ({ text: JSON.stringify({ claims: [CLAIM] }) }) },
+    );
+    const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
     const saved = await core.saveChatProvider({
       kind: "anthropic",
       apiKey: "sk-test",
       modelId: "claude-haiku-5-5",
     });
     if (saved.service) await core.allowDataFlow("checks", saved.service.id);
-    const mindId = await written(agent);
-    const countsLists = () =>
-      calls.some((call) => isCheckRun(call) && call.tools.includes(ANALYSIS_TOOLS.run));
 
-    await check(agent, mindId);
-    expect(calls.some(isCheckRun)).toBe(true);
-    expect(countsLists()).toBe(false);
+    const sources = await createSourceFolder();
+    const added = await addAndProcess(core, [
+      await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides come twice a month.\n"),
+      await writeSourceFile(sources, "Chart.md", "# Chart\n\nSoundings in metres.\n"),
+      await writeSourceFile(sources, "Quays.md", "# Quays\n\nTwo stone quays.\n"),
+      await writeSourceFile(sources, "LooseLeaflet.md", "# Loose\n\nUnfiled outside grant.\n"),
+      await writeSourceFile(sources, "Rivers.md", "# Rivers\n\nInland rivers.\n"),
+      await writeSourceFile(sources, "VaultLedger.md", "# Vault\n\nPrivate vault ledger.\n"),
+      await writeSourceFile(sources, "InnerSecret.md", "# Inner\n\nNested private wall.\n"),
+      await writeSourceFile(sources, "RemovedDoc.md", "# Removed\n\nSoft-deleted doc.\n"),
+      await writeSourceFile(sources, "OwnWorking.md", "# Working\n\nUser's own workings.\n"),
+    ]);
+    const byName = (name: string) => {
+      const doc = added.find((each) => each.name === name);
+      if (!doc) throw new Error(`Missing ${name}`);
+      return doc;
+    };
 
-    await core.checkMind({ requestId: "own", mindId, mode: "all" });
-    expect(countsLists()).toBe(true);
+    // Granted folders: Coast (with subfolder Coves) and Harbour.
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
+    const coves = await core.createLibraryGroup({
+      name: "Coves",
+      description: "",
+      parentId: coast.id,
+    });
+    const harbour = await core.createLibraryGroup({ name: "Harbour", description: "" });
+    // Ungranted folder, top-level walled folder, inner walled folder inside Coast, soft-deleted folder inside Coast.
+    const inland = await core.createLibraryGroup({ name: "Inland", description: "" });
+    const vault = await core.createLibraryGroup({ name: "PrivateVault", description: "" });
+    await core.updateLibraryGroup(vault.id, {
+      name: "PrivateVault",
+      description: "",
+      keepInside: true,
+    });
+    const innerWall = await core.createLibraryGroup({
+      name: "InnerWall",
+      description: "",
+      parentId: coast.id,
+    });
+    await core.updateLibraryGroup(innerWall.id, {
+      name: "InnerWall",
+      description: "",
+      keepInside: true,
+    });
+    const removedFolder = await core.createLibraryGroup({
+      name: "RemovedFolder",
+      description: "",
+      parentId: coast.id,
+    });
+
+    await core.assignDocumentGroup(byName("Tides").id, coast.id);
+    await core.assignDocumentGroup(byName("Chart").id, coves.id);
+    await core.assignDocumentGroup(byName("Quays").id, harbour.id);
+    await core.assignDocumentGroup(byName("Rivers").id, inland.id);
+    await core.assignDocumentGroup(byName("VaultLedger").id, vault.id);
+    await core.assignDocumentGroup(byName("InnerSecret").id, innerWall.id);
+    await core.assignDocumentGroup(byName("RemovedDoc").id, coast.id);
+    await core.assignDocumentGroup(byName("OwnWorking").id, coast.id);
+
+    // Notes inside and outside the grant, plus a soft-deleted one inside the grant.
+    await core.createMind({ title: "Coast log", folderId: coast.id });
+    await core.createMind({ title: "Harbour log", folderId: harbour.id });
+    await core.createMind({ title: "Inland brief", folderId: inland.id });
+    await core.createMind({ title: "VaultMemo", folderId: vault.id });
+    await core.createMind({ title: "InnerMemo", folderId: innerWall.id });
+    const removedNote = await core.createMind({ title: "RemovedNote", folderId: coast.id });
+
+    // Soft-delete doc, folder and note, and mark OwnWorking as Not cited.
+    await core.deleteDocument(byName("RemovedDoc").id);
+    await core.deleteLibraryGroup(removedFolder.id);
+    await core.deleteMind(removedNote.id);
+    await core.setNotCited(byName("OwnWorking").id, true);
+
+    const OUT_OF_GRANT = [
+      "LooseLeaflet",
+      "Inland",
+      "Rivers",
+      "Inland brief",
+      "PrivateVault",
+      "VaultLedger",
+      "VaultMemo",
+      "InnerWall",
+      "InnerSecret",
+      "InnerMemo",
+      "RemovedDoc",
+      "RemovedFolder",
+      "RemovedNote",
+      "OwnWorking",
+    ];
+    const assertNoLeak = (
+      seenCalls: readonly ModelCall[],
+      reply: unknown,
+      extra: string[] = [],
+    ) => {
+      const forbidden = [...OUT_OF_GRANT, ...extra];
+      const blobs = [...seenCalls.map((each) => JSON.stringify(each)), JSON.stringify(reply)];
+      for (const blob of blobs) {
+        for (const secret of forbidden) {
+          expect(blob).not.toContain(secret);
+        }
+      }
+    };
+
+    await core.setAgentsEnabled(true);
+    const { launch, pairing } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id, harbour.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Library rundown", folderId: coast.id, markdown: CLAIM },
+      }),
+    );
+
+    // 1. Grant [Coast, Harbour]: counts only granted Documents (3), Folders (3) and Notes (2).
+    calls.length = 0;
+    const first = structured<Checked>(await check(agent, mindId));
+    expect(first).toMatchObject({ status: "checked", supported: 1, needLook: 0, notChecked: 0 });
+    expect(runtime.jobs).toHaveLength(1);
+    const job1 = runtime.jobs[0];
+    expect(job1?.inputs).toMatchObject([
+      {
+        name: "files",
+        rows: expect.arrayContaining([
+          ["Tides", "markdown", "Coast", "Coast", ""],
+          ["Chart", "markdown", "Coves", "Coast / Coves", ""],
+          ["Quays", "markdown", "Harbour", "Harbour", ""],
+        ]),
+      },
+      {
+        name: "folders",
+        rows: expect.arrayContaining([
+          ["Coast", "", "Coast", 2],
+          ["Coves", "Coast", "Coast / Coves", 1],
+          ["Harbour", "", "Harbour", 1],
+        ]),
+      },
+      {
+        name: "notes",
+        rows: expect.arrayContaining([
+          ["Coast log", "Coast", "Coast"],
+          ["Harbour log", "Harbour", "Harbour"],
+        ]),
+      },
+    ]);
+    expect(job1?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1))).toEqual([
+      3, 3, 2,
+    ]);
+    assertNoLeak(calls, first);
+
+    // Unchanged grant: asking again sends nothing and keeps the verdict.
+    calls.length = 0;
+    const repeated = structured<Checked>(await check(agent, mindId));
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(1);
+    expect(repeated).toMatchObject({ status: "checked", supported: 1, needLook: 0 });
+
+    // 2. Grant narrowed to [Coast]: invalidates the prior Library count and re-checks under [Coast].
+    await core.updateAgent(pairing.id, { folderIds: [coast.id] });
+    calls.length = 0;
+    const narrowed = structured<Checked>(await check(agent, mindId));
+    expect(runtime.jobs).toHaveLength(2);
+    const job2 = runtime.jobs[1];
+    expect(job2?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1))).toEqual([
+      2, 2, 1,
+    ]);
+    expect(narrowed).toMatchObject({ status: "checked", supported: 0, needLook: 1, notChecked: 0 });
+    expect(narrowed.claims[0]).toMatchObject({
+      sentence: CLAIM,
+      group: "needLook",
+      result: "contradicted",
+      quote: null,
+      cite: null,
+    });
+    expect(narrowed.claims[0]?.says).toContain("2 Documents across 2 Folders and 1 other Notes");
+    assertNoLeak(calls, narrowed, ["Harbour", "Quays", "Harbour log"]);
+
+    // 3. The User runs their own Check (seeing full non-walled Library + left-out wall count),
+    // then the narrowed agent checks again: it re-checks within [Coast] and never inherits the User's verdict.
+    const own = await core.checkMind({ requestId: "own-full-check", mindId, mode: "all" });
+    expect(own.kind).toBe("checked");
+    expect(runtime.jobs).toHaveLength(3);
+    calls.length = 0;
+    const afterOwn = structured<Checked>(await check(agent, mindId));
+    expect(runtime.jobs).toHaveLength(4);
+    expect(
+      runtime.jobs[3]?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1)),
+    ).toEqual([2, 2, 1]);
+    expect(afterOwn).toMatchObject({ status: "checked", supported: 0, needLook: 1 });
+    assertNoLeak(calls, afterOwn, ["Harbour", "Quays", "Harbour log"]);
+
+    // 4. Grant expanded back to [Coast, Harbour]: updates the count back to Supported.
+    await core.updateAgent(pairing.id, { folderIds: [coast.id, harbour.id] });
+    calls.length = 0;
+    const expanded = structured<Checked>(await check(agent, mindId));
+    expect(runtime.jobs).toHaveLength(5);
+    expect(expanded).toMatchObject({ status: "checked", supported: 1, needLook: 0 });
+    assertNoLeak(calls, expanded);
+
+    // 5. Revoking all Folders leaves no grant: check_mind is refused and sends nothing.
+    await core.updateAgent(pairing.id, { folderIds: [] });
+    calls.length = 0;
+    expect(refusal(await check(agent, mindId))).toContain("No such passage");
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(5);
   });
 
   // protects=an agent learns which of the claims it wrote the User's Documents don't support, and the User sees the same marks in the Note; fails_when=the Tool checks only Citations, returns nothing of what the Document says, or leaves the Note unmarked

@@ -25,6 +25,7 @@ import {
 import { restsOnPassage } from "../../shared/claimParts";
 import { keptBinding } from "../../shared/figureRuns";
 import { withoutInertBrackets } from "../../shared/inertBrackets";
+import { LIBRARY_FACTS } from "../../shared/libraryFacts";
 import type { Translate } from "../../shared/locations";
 import { mindCheckOf, sentenceKey } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -184,6 +185,8 @@ export interface RecordSources {
   personId: string | null;
   /** The Documents whoever the record is for reaches: an outside agent's; null for the User. */
   reach?: ReadonlySet<string> | null;
+  /** The version of the Library lists whoever the record is for reaches (#2525); null when none. */
+  libraryVersion?: string | null;
   /** The walled Folder that keeps a Document inside it, seen from the Mind; null when it may read it. */
   keptInside?: ((documentId: string) => string | null) | null;
 }
@@ -302,6 +305,7 @@ export function readRecord(sources: RecordSources): {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  if (sources.libraryVersion != null) versions.set(LIBRARY_FACTS, sources.libraryVersion);
   const footing = noteFooting(fragment, { versions, folderId, scope });
   const reading = readingOf(fragment, {
     versions,

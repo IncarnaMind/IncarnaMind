@@ -5,8 +5,11 @@
  */
 import { expect, onTestFinished, test } from "vitest";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { libraryRead, listsFor } from "../../src/core/answers/checks/checkSetup";
+import type { ClaimCheckAttributes } from "../../src/core/api";
 import { libraryLists, libraryVersion } from "../../src/core/library/lists";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
+import { claimCheckShown } from "../../src/shared/claimChecks";
 import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { isCheckRun } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -247,4 +250,112 @@ test("Folders of one name are told apart by their paths", () => {
   ]);
   expect(lists.notes.rows).toEqual([["Rundown", "Archive", "South / Archive"]]);
   expect(libraryVersion(seen(false))).not.toBe(libraryVersion(lists));
+});
+
+// protects=an outside check with no grant is offered no Library lists, while one with a grant gets only its own scoped lists and never the full Library; fails_when=listsFor falls back to the User's libraryLists for an outside check without outsideLists.
+test("an outside check with no grant gets no Library lists", () => {
+  const full = libraryLists({
+    source: { kind: "library" },
+    documents: [{ id: "d1", name: "Secret", kind: "pdf", tags: [] }],
+    folders: [],
+    folderOf: new Map(),
+    tagNames: new Map(),
+    notes: [],
+  });
+  const granted = libraryLists({
+    source: { kind: "scope", name: "Coast", more: 0 },
+    documents: [{ id: "d2", name: "Tides", kind: "markdown", tags: [] }],
+    folders: [{ id: "f1", name: "Coast", parentId: null }],
+    folderOf: new Map([["d2", "f1"]]),
+    tagNames: new Map(),
+    notes: [],
+  });
+  const deps = { libraryLists: () => full };
+
+  expect(listsFor(deps, { outside: true })).toBeUndefined();
+  expect(listsFor(deps, { outside: true, outsideLists: granted })?.(null)).toBe(granted);
+  expect(listsFor(deps, {})?.(null)).toBe(full);
+});
+
+// protects=a Library-backed check stands for an outside reader only when its version matches the reader's grant and never when it carries a left-out wall count from outside the grant (#2525); fails_when=an outside reader accepts a Library mark without a grant, after a grant change, or from a User check that names walled Folders.
+test("a Library-backed mark stands for an outside reader only at its grant version and never on a left-out wall count", () => {
+  const scoped = libraryLists({
+    source: { kind: "scope", name: "Coast", more: 0 },
+    documents: [{ id: "d1", name: "Tides", kind: "markdown", tags: [] }],
+    folders: [{ id: "f1", name: "Coast", parentId: null }],
+    folderOf: new Map([["d1", "f1"]]),
+    tagNames: new Map(),
+    notes: [],
+  });
+  const walled = { ...scoped, source: { kind: "left-out" as const, folders: 1 } };
+  const version = libraryVersion(scoped);
+  const markOf = (lists: typeof scoped): ClaimCheckAttributes => {
+    const { citation } = libraryRead(lists, ["documents"]);
+    return {
+      id: "lib-mark",
+      request: "req-1",
+      action: "find-support",
+      state: "supported",
+      reason: null,
+      detail: null,
+      providerId: null,
+      modelId: null,
+      text: CLAIM,
+      evidence: citation,
+      says: "The list has 1 Document.",
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      scope: { folderId: "f1", widened: false },
+      versions: [{ documentId: LIBRARY_FACTS, contentHash: citation.contentHash }],
+      excluded: [],
+      checkedAt: "2026-11-26T09:00:00.000Z",
+    };
+  };
+  const nowBase = {
+    footing: "not-yet-known" as const,
+    text: CLAIM,
+    folderId: "f1",
+    scope: null,
+    reach: new Set(["d1"]),
+  };
+
+  expect(
+    claimCheckShown(markOf(scoped), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "supported" });
+
+  // No grant (no LIBRARY_FACTS version) -> does not stand.
+  expect(
+    claimCheckShown(markOf(scoped), {
+      ...nowBase,
+      versions: new Map(),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+
+  // Changed grant version -> stale library.
+  expect(
+    claimCheckShown(markOf(scoped), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, "different-version"]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "library" });
+
+  // Same rows, but mark carries User's whole-Library or left-out wall source -> never stands for an outside reader.
+  const wholeLibrary = { ...scoped, source: { kind: "library" as const } };
+  expect(
+    claimCheckShown(markOf(wholeLibrary), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+  expect(
+    claimCheckShown(markOf(walled), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
 });

@@ -27,6 +27,7 @@ import { citedCases } from "../../../shared/caseCitations";
 import { addedCouldChange, checkedSentence } from "../../../shared/claimChecks";
 import { partsToCheck } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -54,6 +55,7 @@ import type {
 import { CHART_NODE } from "../../api";
 import { parseModel } from "../../edits";
 import { InvalidInputError, isRecord } from "../../errors";
+import { type LibraryLists, libraryVersion } from "../../library/lists";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -133,6 +135,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** Each live Document's version now, for which checks need a re-check. */
   documentVersions(): ReadonlyMap<string, string>;
+  /** The Library's lists on this Note's side of the Folder walls (#2525). */
+  libraryLists?(mindId: string | null): LibraryLists;
   searched: Searched;
   documents: {
     /**
@@ -480,15 +484,25 @@ export function createMindCheck(options: MindCheckOptions) {
     figureIds: readonly string[] | null = null,
     blockIds: readonly string[] | null = null,
     reach: ReadonlySet<string> | null = null,
+    outsideLists: LibraryLists | null = null,
   ): Sending {
     const skipped = new Set(content.readSettings(mindId, readMindCheck)?.skipped ?? []);
     const versions = options.documentVersions();
+    const userVersions = options.libraryLists
+      ? new Map([...versions, [LIBRARY_FACTS, libraryVersion(options.libraryLists(mindId))]])
+      : versions;
+    const agentVersions =
+      reach && outsideLists
+        ? new Map([...versions, [LIBRARY_FACTS, libraryVersion(outsideLists)]])
+        : versions;
     const folderId = options.mindFolder(mindId);
     const scope = content.readSettings(mindId, mindScopeIn);
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
-      const theUsers = readingOf(blocks, { versions, folderId, scope, reach: null });
-      const theAgents = reach ? readingOf(blocks, { versions, folderId, scope, reach }) : theUsers;
+      const theUsers = readingOf(blocks, { versions: userVersions, folderId, scope, reach: null });
+      const theAgents = reach
+        ? readingOf(blocks, { versions: agentVersions, folderId, scope, reach })
+        : theUsers;
       const shownOf = (sentence: SelectedSentence, check: ClaimCheckAttributes) =>
         (check.scope.widened || check.scope.chosen ? theUsers : theAgents).ofSentence(
           sentence,
@@ -671,12 +685,20 @@ export function createMindCheck(options: MindCheckOptions) {
     input: ReturnType<typeof parseCheckMind>,
     signal: AbortSignal,
     reach?: ReadonlySet<string>,
+    outsideLists?: LibraryLists,
   ): Promise<CheckMindResult> {
     const { mindId, requestId, mode } = input;
     // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
     if (content.read(mindId, (blocks) => marksASourceName(blocks, sourceNamesIn(blocks))))
       content.edit(mindId, (blocks) => unmarkSourceNames(blocks, sourceNamesIn(blocks)));
-    const sent = sending(mindId, mode, input.figureIds, input.blockIds, reach ?? null);
+    const sent = sending(
+      mindId,
+      mode,
+      input.figureIds,
+      input.blockIds,
+      reach ?? null,
+      outsideLists ?? null,
+    );
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     await options.evidenceReady(signal, mindId);
@@ -712,7 +734,7 @@ export function createMindCheck(options: MindCheckOptions) {
       requestId,
       scope: scope.scope,
       prepared: width.prepared,
-      ...(reach && { outside: true }),
+      ...(reach && { outside: true, ...(outsideLists && { outsideLists }) }),
       ...(decision &&
         options.firstReading && {
           readFirst: readingsFirst(options.firstReading, decision, mindId),
@@ -1058,7 +1080,11 @@ export function createMindCheck(options: MindCheckOptions) {
     release,
 
     /** See `CoreApi.checkMind`. `reach`: see `check`. */
-    async checkMind(input: unknown, reach?: ReadonlySet<string>): Promise<CheckMindResult> {
+    async checkMind(
+      input: unknown,
+      reach?: ReadonlySet<string>,
+      outsideLists?: LibraryLists,
+    ): Promise<CheckMindResult> {
       const parsed = parseCheckMind(input);
       options.requireMind(parsed.mindId);
       if (options.isRunning(parsed.requestId)) {
@@ -1076,7 +1102,7 @@ export function createMindCheck(options: MindCheckOptions) {
       });
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
-        return await check(parsed, tracked.signal, reach);
+        return await check(parsed, tracked.signal, reach, outsideLists);
       } finally {
         tracked.done();
         const current = checking.get(parsed.mindId);
@@ -1095,14 +1121,19 @@ export function createMindCheck(options: MindCheckOptions) {
     /**
      * "Check this Mind" for an outside agent (#3317): what was never checked or needs a re-check,
      * on the Note's model, as the window's Check runs, within `reach`, the Documents the agent may
-     * read. It asks nothing of the User: a model that can't be used now, or whose data flow isn't
-     * allowed, is said instead (ADR-0022), and so is a Note checked against Documents beyond `reach`.
+     * read, and `outsideLists`, the Library lists its grant covers (#2525). It asks nothing of the
+     * User: a model that can't be used now, or whose data flow isn't allowed, is said instead
+     * (ADR-0022), and so is a Note checked against Documents beyond `reach`.
      */
-    async checkOutside(mindId: string, reach: ReadonlySet<string>): Promise<OutsideCheck> {
+    async checkOutside(
+      mindId: string,
+      reach: ReadonlySet<string>,
+      outsideLists?: LibraryLists,
+    ): Promise<OutsideCheck> {
       options.requireMind(mindId);
       const input = { requestId: randomUUID(), mindId, mode: "changed" };
       try {
-        return { asked: true, result: await windowCheck.checkMind(input, reach) };
+        return { asked: true, result: await windowCheck.checkMind(input, reach, outsideLists) };
       } catch (error) {
         if (error instanceof NotAsked) return { asked: false, reason: error.reason };
         throw error;

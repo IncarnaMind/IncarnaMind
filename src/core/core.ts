@@ -3298,15 +3298,16 @@ export function createCore(adapters: CoreAdapters): Core {
       id: folder.id,
       holds: new Set(library.treeDocumentIds(folder.id)),
     }));
+    // A meeting is counted once, as its Note (#2528, #3384), and Not cited workings never back a check.
+    const listed = documents
+      .getMany([...documentIds])
+      .filter((document) => document.meetingMindId === null && !document.notCited);
     return libraryLists({
       source,
-      // A meeting is counted once, as its Note, as the Library counts it (#2528, #3384).
-      documents: documents
-        .getMany([...documentIds])
-        .filter((document) => document.meetingMindId === null),
+      documents: listed,
       folders: granted.map((folder) => ({ ...folder, parentId: grantedAbove(folder.parentId) })),
       folderOf: new Map(
-        documentIds.flatMap((documentId) => {
+        listed.flatMap(({ id: documentId }) => {
           const [deepest] = trees
             .filter((tree) => tree.holds.has(documentId))
             .sort((a, b) => a.holds.size - b.holds.size);
@@ -7158,13 +7159,16 @@ export function createCore(adapters: CoreAdapters): Core {
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
-      checkNote: (mindId, documentIds) =>
-        inFlow("check-mind", () => checks.checkMindOutside(mindId, new Set(documentIds))),
+      checkNote: (mindId, documentIds, outsideLists) =>
+        inFlow("check-mind", () =>
+          checks.checkMindOutside(mindId, new Set(documentIds), outsideLists),
+        ),
       checkTask: (mindId, documentIds, every) =>
         checks.checkTaskOutside(mindId, documentIds, every),
       landJudged: (mindId, documentIds, agent, task, judged) =>
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
-      checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),
+      checkRecord: (mindId, reach, libVersion) =>
+        checkRecord.build(mindId, reach, libVersion ?? null),
       show: (place) => events.emit("agents.citationShown", place),
       opened: (opened) => events.emit("agents.opened", opened),
       canvases,

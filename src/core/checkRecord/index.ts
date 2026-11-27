@@ -101,6 +101,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
   async function build(
     mindId: unknown,
     reach: ReadonlySet<string> | null = null,
+    libraryVersion: string | null = null,
   ): Promise<CheckRecord> {
     const mind = deps.mind(mindId);
     const language = deps.language();
@@ -123,6 +124,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
               : null,
           personId: deps.personId(),
           reach,
+          libraryVersion,
           keptInside: deps.keptInside
             ? (documentId) => deps.keptInside?.(mind.id, documentId) ?? null
             : null,

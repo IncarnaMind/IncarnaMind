@@ -32,6 +32,7 @@ import {
 } from "../../src/core/api";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
 import type { WindowedPassage } from "../../src/core/documents/search";
+import { libraryLists } from "../../src/core/library/lists";
 import { translate } from "../../src/shared/i18n";
 import { recordNoteWriter } from "../../src/shared/noteWriter";
 
@@ -245,6 +246,15 @@ function accessChecking(
       }),
       minds: () => [mind],
       mindBlocks: (_mindId, look) => look(doc.getXmlFragment(MIND_CONTENT_FIELD)),
+      libraryLists: ({ source, documentIds, folderIds, mindIds }) =>
+        libraryLists({
+          source,
+          documents: documentIds.map((id) => ({ id, name: id, kind: "markdown", tags: [] })),
+          folders: folderIds.map((id) => ({ id, name: id, parentId: null })),
+          folderOf: new Map(),
+          tagNames: new Map(),
+          notes: mindIds.map((id) => ({ name: id, folderId: null })),
+        }),
       checkNote,
       checkWaitMs: 20,
       clock,
