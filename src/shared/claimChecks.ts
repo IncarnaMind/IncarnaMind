@@ -924,7 +924,7 @@ function libraryInReach(
 ): boolean {
   const current = now.versions?.get(LIBRARY_FACTS);
   if (current === undefined) return false;
-  return restsOn(check)
+  const citationsOk = restsOn(check)
     .filter((each) => each.documentId === LIBRARY_FACTS)
     .every(
       (each) =>
@@ -932,6 +932,11 @@ function libraryInReach(
         each.location?.kind === "library" &&
         each.location.source.kind === "scope",
     );
+  const workingsOk = [...resultsIn(check)]
+    .flatMap((each) => (each.parts ?? []).map((part) => part.working?.library))
+    .filter((each) => each != null)
+    .every((each) => each.source.kind === "scope");
+  return citationsOk && workingsOk;
 }
 
 /**

@@ -3294,10 +3294,13 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return null;
     };
-    const trees = granted.map((folder) => ({
-      id: folder.id,
-      holds: new Set(library.treeDocumentIds(folder.id)),
-    }));
+    const assigned = new Map(
+      library
+        .snapshot()
+        .assignments.flatMap(({ documentId, groupId }) =>
+          groupId === null ? [] : [[documentId, groupId] as const],
+        ),
+    );
     // A meeting is counted once, as its Note (#2528, #3384), and Not cited workings never back a check.
     const listed = documents
       .getMany([...documentIds])
@@ -3308,10 +3311,8 @@ export function createCore(adapters: CoreAdapters): Core {
       folders: granted.map((folder) => ({ ...folder, parentId: grantedAbove(folder.parentId) })),
       folderOf: new Map(
         listed.flatMap(({ id: documentId }) => {
-          const [deepest] = trees
-            .filter((tree) => tree.holds.has(documentId))
-            .sort((a, b) => a.holds.size - b.holds.size);
-          return deepest ? [[documentId, deepest.id] as const] : [];
+          const folder = grantedAbove(assigned.get(documentId) ?? null);
+          return folder ? [[documentId, folder] as const] : [];
         }),
       ),
       tagNames: new Map(tags.list().map((tag) => [tag.id, tag.name])),

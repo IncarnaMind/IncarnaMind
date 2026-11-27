@@ -582,6 +582,71 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
     );
   });
 
+  // protects=a sentence whose check is stale or not-checked (such as after a grant change invalidates its Library count even while its deciding quote is from a still-granted Document) never returns the stale explanation or evidence to the agent (#2525); fails_when=checkedNote returns says, document, quote or cite for a notChecked sentence.
+  it("strips stored explanation and evidence when a sentence is notChecked after a grant change", async () => {
+    const access = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        checkRecord: async () => ({
+          models: [],
+          sentences: [
+            {
+              kind: "sentence" as const,
+              origin: "other" as const,
+              text: "Tides confirms all 3 files across Coast and Harbour.",
+              result: "notChecked" as const,
+              reason: null,
+              row: "toCheck" as const,
+              says: "Harbour and Coast hold 3 Documents and Tides mentions spring tides.",
+              evidence: {
+                name: "Tides",
+                file: "Tides.md",
+                deleted: false,
+                size: 100,
+                sha256: "abc",
+                location: "§ Tides",
+                quote: "Spring tides happen twice a month",
+              },
+              judgedOn: {
+                passageId: "p-tides",
+                documentId: "tides",
+                documentName: "Tides",
+                contentHash: "abc",
+                pageFrom: 1,
+                pageTo: 1,
+                location: null,
+                quote: "Spring tides happen twice a month",
+                check: "found" as const,
+                checkReason: null,
+              },
+              toCite: null,
+              check: null,
+              scope: { folderId: "coast", widened: false },
+            },
+          ],
+        }),
+      },
+    );
+
+    const checked = await access.checkMind({ mindId: "note" });
+
+    expect(checked).toMatchObject({ supported: 0, needLook: 0, notChecked: 1 });
+    expect(checked.claims).toEqual([
+      {
+        sentence: "Tides confirms all 3 files across Coast and Harbour.",
+        group: "notChecked",
+        result: "not-checked",
+        reason: null,
+        says: null,
+        document: null,
+        location: null,
+        quote: null,
+        cite: null,
+      },
+    ]);
+  });
+
   // protects=the claims an agent is given list what needs a look first, then what isn't checked, then what can be cited, each in the Note's order, so the cap on them never hides a sentence that needs a look behind sentences that can be cited (#3453); fails_when=claims keeps the Note's order across the groups, and a long Note's unsupported sentence is counted in needLook but not listed
   it("lists what needs a look before what can be cited, whatever the Note's order", async () => {
     const item = {

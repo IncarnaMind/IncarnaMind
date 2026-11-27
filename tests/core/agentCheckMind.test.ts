@@ -178,7 +178,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
 
   // protects=an outside agent's check_mind counts only the Library lists its own grant covers (#2525): Documents outside the grant, in ungranted Folders, in walled Folders (top-level or nested), soft-deleted items and Not cited workings leave the count unchanged; a grant change invalidates and re-counts; the User's own wider check never leaks; and no name outside the grant ever appears in any request the model receives; fails_when=check_mind counts anything outside the grant, keeps a stale count after a grant change, leaks the User's Library verdict, or sends any ungranted name to the model.
   it("counts only the Library lists its own grant covers, and updates when the grant changes", async () => {
-    const CLAIM = "Your Library holds 3 Documents across 3 Folders and 2 other Notes.";
+    const CLAIM = "Your Library holds 3 Documents across 4 Folders and 2 other Notes.";
     const CODE =
       'result("documents", len(inputs["files"]))\nresult("folders", len(inputs["folders"]))\nresult("notes", len(inputs["notes"]))';
     const calls: ModelCall[] = [];
@@ -239,13 +239,13 @@ describe("an outside agent has its Note checked (#3317)", () => {
         const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
         const folders = Number(/- folders:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
         const notes = Number(/- notes:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
-        if (docs === 3 && folders === 3 && notes === 2) {
+        if (docs === 3 && folders === 4 && notes === 2) {
           return {
-            text: "Verdict: supported\nExplanation: The lists show 3 Documents across 3 Folders and 2 other Notes.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.",
+            text: "Verdict: supported\nExplanation: The lists show 3 Documents across 4 Folders and 2 other Notes.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.",
           };
         }
         return {
-          text: `Verdict: contradicted\nExplanation: The lists show ${docs} Documents across ${folders} Folders and ${notes} other Notes, not 3, 3 and 2.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.`,
+          text: `Verdict: contradicted\nExplanation: The lists show ${docs} Documents across ${folders} Folders and ${notes} other Notes, not 3, 4 and 2.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.`,
         };
       },
       { generate: () => ({ text: JSON.stringify({ claims: [CLAIM] }) }) },
@@ -276,7 +276,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       return doc;
     };
 
-    // Granted folders: Coast (with subfolder Coves) and Harbour.
+    // Granted folders: Coast (with subfolder Coves) and Harbour (empty parent holding subfolder Docks).
     const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
     const coves = await core.createLibraryGroup({
       name: "Coves",
@@ -284,6 +284,11 @@ describe("an outside agent has its Note checked (#3317)", () => {
       parentId: coast.id,
     });
     const harbour = await core.createLibraryGroup({ name: "Harbour", description: "" });
+    const docks = await core.createLibraryGroup({
+      name: "Docks",
+      description: "",
+      parentId: harbour.id,
+    });
     // Ungranted folder, top-level walled folder, inner walled folder inside Coast, soft-deleted folder inside Coast.
     const inland = await core.createLibraryGroup({ name: "Inland", description: "" });
     const vault = await core.createLibraryGroup({ name: "PrivateVault", description: "" });
@@ -310,7 +315,8 @@ describe("an outside agent has its Note checked (#3317)", () => {
 
     await core.assignDocumentGroup(byName("Tides").id, coast.id);
     await core.assignDocumentGroup(byName("Chart").id, coves.id);
-    await core.assignDocumentGroup(byName("Quays").id, harbour.id);
+    // Quays sits only in child Docks (Harbour has 0 direct Documents): ancestry must assign it to Docks.
+    await core.assignDocumentGroup(byName("Quays").id, docks.id);
     await core.assignDocumentGroup(byName("Rivers").id, inland.id);
     await core.assignDocumentGroup(byName("VaultLedger").id, vault.id);
     await core.assignDocumentGroup(byName("InnerSecret").id, innerWall.id);
@@ -375,7 +381,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       }),
     );
 
-    // 1. Grant [Coast, Harbour]: counts only granted Documents (3), Folders (3) and Notes (2).
+    // 1. Grant [Coast, Harbour]: counts only granted Documents (3), Folders (4) and Notes (2).
     calls.length = 0;
     const first = structured<Checked>(await check(agent, mindId));
     expect(first).toMatchObject({ status: "checked", supported: 1, needLook: 0, notChecked: 0 });
@@ -387,7 +393,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
         rows: expect.arrayContaining([
           ["Tides", "markdown", "Coast", "Coast", ""],
           ["Chart", "markdown", "Coves", "Coast / Coves", ""],
-          ["Quays", "markdown", "Harbour", "Harbour", ""],
+          ["Quays", "markdown", "Docks", "Harbour / Docks", ""],
         ]),
       },
       {
@@ -396,6 +402,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
           ["Coast", "", "Coast", 2],
           ["Coves", "Coast", "Coast / Coves", 1],
           ["Harbour", "", "Harbour", 1],
+          ["Docks", "Harbour", "Harbour / Docks", 1],
         ]),
       },
       {
@@ -407,7 +414,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       },
     ]);
     expect(job1?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1))).toEqual([
-      3, 3, 2,
+      3, 4, 2,
     ]);
     assertNoLeak(calls, first);
 
@@ -436,7 +443,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       cite: null,
     });
     expect(narrowed.claims[0]?.says).toContain("2 Documents across 2 Folders and 1 other Notes");
-    assertNoLeak(calls, narrowed, ["Harbour", "Quays", "Harbour log"]);
+    assertNoLeak(calls, narrowed, ["Harbour", "Docks", "Quays", "Harbour log"]);
 
     // 3. The User runs their own Check (seeing full non-walled Library + left-out wall count),
     // then the narrowed agent checks again: it re-checks within [Coast] and never inherits the User's verdict.
@@ -450,7 +457,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       runtime.jobs[3]?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1)),
     ).toEqual([2, 2, 1]);
     expect(afterOwn).toMatchObject({ status: "checked", supported: 0, needLook: 1 });
-    assertNoLeak(calls, afterOwn, ["Harbour", "Quays", "Harbour log"]);
+    assertNoLeak(calls, afterOwn, ["Harbour", "Docks", "Quays", "Harbour log"]);
 
     // 4. Grant expanded back to [Coast, Harbour]: updates the count back to Supported.
     await core.updateAgent(pairing.id, { folderIds: [coast.id, harbour.id] });

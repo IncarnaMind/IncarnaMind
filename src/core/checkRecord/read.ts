@@ -363,6 +363,7 @@ export function readRecord(sources: RecordSources): {
       state: checkedSentence({ text: sentence, check: shown, skipped: false, kept: false }),
     });
     const toCite = row === "notYetCited" ? partToCite(check, citations) : null;
+    const staleForReach = sources.reach != null && shown.state === "needs-recheck";
     sentences.push({
       kind: "sentence",
       text: recordSentence(sentence),
@@ -370,20 +371,24 @@ export function readRecord(sources: RecordSources): {
       reason: shown.state === "not-checked" ? shown.reason : null,
       scope: check.scope,
       row,
-      toCite: toCite && {
-        says: toCite.part.says,
-        evidence: documentOf(toCite.passage, sources),
-        judgedOn: toCite.passage,
-      },
+      toCite:
+        !staleForReach && toCite
+          ? {
+              says: toCite.part.says,
+              evidence: documentOf(toCite.passage, sources),
+              judgedOn: toCite.passage,
+            }
+          : null,
       origin,
-      says: check.says,
-      evidence: check.evidence
-        ? {
-            ...documentOf(check.evidence, sources),
-            ...(restsOnPassage(check) && { quote: null }),
-          }
-        : null,
-      judgedOn: check.evidence ?? null,
+      says: staleForReach ? null : check.says,
+      evidence:
+        !staleForReach && check.evidence
+          ? {
+              ...documentOf(check.evidence, sources),
+              ...(restsOnPassage(check) && { quote: null }),
+            }
+          : null,
+      judgedOn: staleForReach ? null : (check.evidence ?? null),
       check:
         result === "notChecked"
           ? null

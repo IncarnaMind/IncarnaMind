@@ -2876,6 +2876,10 @@ export function createAgentAccess(
         result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
         reason: group === "canBeCited" ? null : item.reason,
       };
+      // A sentence whose check no longer stands (including after a grant or Library change) keeps no prior explanation or evidence.
+      if (group === "notChecked") {
+        return { ...claim, ...unsaid };
+      }
       // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
       const passage = group === "canBeCited" ? item.toCite : item;
       const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;

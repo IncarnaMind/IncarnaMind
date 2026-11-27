@@ -5,11 +5,12 @@
  */
 import { expect, onTestFinished, test } from "vitest";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
-import { libraryRead, listsFor } from "../../src/core/answers/checks/checkSetup";
-import type { ClaimCheckAttributes } from "../../src/core/api";
+import { listsFor } from "../../src/core/answers/checks/checkSetup";
+import type { ClaimCheckAttributes, LibrarySource } from "../../src/core/api";
 import { libraryLists, libraryVersion } from "../../src/core/library/lists";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { pendingPart } from "../../src/shared/claimParts";
 import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { isCheckRun } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -287,10 +288,24 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
     tagNames: new Map(),
     notes: [],
   });
-  const walled = { ...scoped, source: { kind: "left-out" as const, folders: 1 } };
   const version = libraryVersion(scoped);
-  const markOf = (lists: typeof scoped): ClaimCheckAttributes => {
-    const { citation } = libraryRead(lists, ["documents"]);
+  const markOf = (source: LibrarySource): ClaimCheckAttributes => {
+    const citation = {
+      passageId: version,
+      documentId: LIBRARY_FACTS,
+      documentName: LIBRARY_FACTS,
+      contentHash: version,
+      pageFrom: null,
+      pageTo: null,
+      location: {
+        kind: "library" as const,
+        source,
+        fact: { kind: "documents" as const, count: 1 },
+      },
+      quote: "documents: 1",
+      check: "found" as const,
+      checkReason: null,
+    };
     return {
       id: "lib-mark",
       request: "req-1",
@@ -308,7 +323,7 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
       citedCaseUnchecked: false,
       citedCaseFound: false,
       scope: { folderId: "f1", widened: false },
-      versions: [{ documentId: LIBRARY_FACTS, contentHash: citation.contentHash }],
+      versions: [{ documentId: LIBRARY_FACTS, contentHash: version }],
       excluded: [],
       checkedAt: "2026-11-26T09:00:00.000Z",
     };
@@ -322,7 +337,7 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
   };
 
   expect(
-    claimCheckShown(markOf(scoped), {
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }), {
       ...nowBase,
       versions: new Map([[LIBRARY_FACTS, version]]),
     }),
@@ -330,7 +345,7 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
 
   // No grant (no LIBRARY_FACTS version) -> does not stand.
   expect(
-    claimCheckShown(markOf(scoped), {
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }), {
       ...nowBase,
       versions: new Map(),
     }),
@@ -338,24 +353,73 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
 
   // Changed grant version -> stale library.
   expect(
-    claimCheckShown(markOf(scoped), {
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }), {
       ...nowBase,
       versions: new Map([[LIBRARY_FACTS, "different-version"]]),
     }),
   ).toEqual({ state: "needs-recheck", why: "library" });
 
   // Same rows, but mark carries User's whole-Library or left-out wall source -> never stands for an outside reader.
-  const wholeLibrary = { ...scoped, source: { kind: "library" as const } };
   expect(
-    claimCheckShown(markOf(wholeLibrary), {
+    claimCheckShown(markOf({ kind: "library" }), {
       ...nowBase,
       versions: new Map([[LIBRARY_FACTS, version]]),
     }),
   ).toEqual({ state: "needs-recheck", why: "reach" });
   expect(
-    claimCheckShown(markOf(walled), {
+    claimCheckShown(markOf({ kind: "left-out", folders: 1 }), {
       ...nowBase,
       versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+
+  // Document-quote evidence combined with a User-side Library working/version -> still rejected on reach.
+  const mixedMark: ClaimCheckAttributes = {
+    ...markOf({ kind: "library" }),
+    evidence: {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides",
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides.",
+      check: "found",
+      checkReason: null,
+    },
+    versions: [
+      { documentId: "d1", contentHash: "h1" },
+      { documentId: LIBRARY_FACTS, contentHash: version },
+    ],
+    parts: [
+      {
+        ...pendingPart({ span: { start: 0, end: CLAIM.length }, kind: "fact" }),
+        verdict: "supported",
+        versions: [
+          { documentId: "d1", contentHash: "h1" },
+          { documentId: LIBRARY_FACTS, contentHash: version },
+        ],
+        working: {
+          title: "Count",
+          code: CODE,
+          rows: [],
+          ranAt: "2026-11-26T09:00:00.000Z",
+          library: {
+            source: { kind: "left-out", folders: 1 },
+            lists: [{ list: "documents", count: 1 }],
+          },
+        },
+      },
+    ],
+  };
+  expect(
+    claimCheckShown(mixedMark, {
+      ...nowBase,
+      versions: new Map([
+        ["d1", "h1"],
+        [LIBRARY_FACTS, version],
+      ]),
     }),
   ).toEqual({ state: "needs-recheck", why: "reach" });
 });
