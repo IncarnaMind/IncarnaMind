@@ -231,6 +231,7 @@ type DocumentFromRow = Pick<
   | "id"
   | "name"
   | "title"
+  | "kind"
   | "contentHash"
   | "status"
   | "fileStatus"
@@ -240,7 +241,7 @@ type DocumentFromRow = Pick<
   | "meetingMindId"
 >;
 
-const ROW_COLUMNS = `id, name, title, content_hash, status, failure_reason, file_status,
+const ROW_COLUMNS = `id, name, title, kind, content_hash, status, failure_reason, file_status,
   not_cited, own_file, counted_as_evidence, read_hidden_sheets, meeting_mind_id`;
 
 type ReadRow = Pick<
@@ -248,6 +249,7 @@ type ReadRow = Pick<
   | "id"
   | "name"
   | "title"
+  | "kind"
   | "content_hash"
   | "status"
   | "failure_reason"
@@ -2439,6 +2441,7 @@ export function createDocuments(options: DocumentsOptions) {
         id: row.id,
         name: row.name,
         title: row.title,
+        kind: row.kind as DocumentKind,
         contentHash: row.content_hash,
         status: statusOf(row),
         fileStatus: row.file_status as DocumentFileStatus,

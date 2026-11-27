@@ -9,6 +9,7 @@ import {
   acceptPlainTextKeys,
   addDocuments,
   checkCard,
+  checkChanged,
   checkNote,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
@@ -189,7 +190,8 @@ const mindCheckFinished = (window: Page, claims: number, { card = true } = {}) =
         (open !== null || !withCard) &&
         marks.length === count &&
         [...marks].every((mark) => mark.getAttribute("data-check") !== "checking") &&
-        open?.querySelector('[data-testid="card-foot-progress"]') == null
+        open?.querySelector('[data-testid="check-card-head"][data-stage="checking"]') == null &&
+        document.querySelector('[data-testid="note-check-stop"]') === null
       );
     },
     { count: claims, withCard: card },
@@ -368,7 +370,10 @@ test("The Note's one Check: the question with the price first on a cloud model u
   await expect(ask).toHaveCount(0);
   await mindCheckFinished(window, 15);
 
-  await expect(health.getByTestId("health-checked-all")).toContainText("Checked 15 sentences, ");
+  // The card's head says the check is done, and when; nothing under it counts the run again (#3840).
+  await expect(health.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
+  await expect(health.getByTestId("check-card-head")).toContainText("Check done");
+  await expect(health.getByTestId("check-card-head-aside")).not.toBeEmpty();
   await expect(marks(window)).toHaveCount(15);
   await expect(marks(window).and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
@@ -387,13 +392,16 @@ test("The Note's one Check: the question with the price first on a cloud model u
   await slideSelect(window, first, "Penguins");
   await window.keyboard.type("Puffins");
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
-  // The button waits with it, and its title says how many that is; its press checks what
-  // changed, here the edited claim alone, after the question the cap asks first.
-  await expect(button).toHaveAttribute("data-state", "check");
-  await expect(button.locator(".note-check-words")).toHaveText("Check");
-  await expect(button.locator(".note-check-count")).toHaveText("1");
+  // The button keeps the whole check's verdict, and its title says one waits; the card's Check 1
+  // new checks what changed, here the edited claim alone, after the question the cap asks first
+  // (#3840).
+  await expect(button).toHaveAttribute("data-state", "look");
+  await expect(button.locator(".note-check-count")).toHaveCount(0);
   await expect(button).toHaveAttribute("title", ONE_WAITS.en);
-  await checkNote(window);
+  await checkCard(window);
+  const checkNew = health.getByTestId("check-card-again");
+  await expect(checkNew).toHaveText("Check 1 new");
+  await pointAndClick(window, checkNew);
   await expect(ask).toContainText("Check 1 sentence in this note against your Documents?");
   await pointAndClick(window, confirm);
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
@@ -642,15 +650,17 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, width, 900);
       health = await checkCard(window);
       const body = health.locator(".check-card-body");
-      const line = health.getByTestId("card-foot-progress");
-      const foot = health.getByTestId("check-card-foot");
+      const head = health.getByTestId("check-card-head");
       const placed = async (): Promise<Placed> => ({
         card: await health.boundingBox(),
         body: await body.boundingBox(),
       });
-      // At rest the card has no Check of its own and no progress line: the Check is the Note's button.
-      await expect(line).toHaveCount(0);
+      // At rest the card has no Check of its own and says no run: the Check is the Note's button,
+      // and once the Note is checked, the card's quiet Check 1 new (#3840).
+      await expect(head).not.toHaveAttribute("data-stage", "checking");
       await expect(health.getByRole("button", { name: check, exact: true })).toHaveCount(0);
+      const checkNew = health.getByTestId("check-card-again");
+      await expect(checkNew).toHaveCount(at === 0 ? 0 : 1);
       await screenshot(window, `card-foot-${language}-${width}-open`);
       // The card takes its first paint's height, and a finished check's note line shows its when,
       // never the run's progress words.
@@ -660,33 +670,30 @@ for (const language of ["en", "zh-CN"] as const) {
       // The press asks first, under the cap: the question, with the price, lands in the foot below
       // the body. The card hangs where it was and its body keeps its box.
       await hold();
-      await checkNote(window);
+      if (at === 0) await checkNote(window);
+      else await pointAndClick(window, checkNew);
       const ask = health.getByTestId("mind-check-ask");
       // The scripted cloud model's estimate is of nothing, which shows no amount: its tokens show.
       await expect(ask).toContainText(language === "en" ? "tokens" : "token");
       expectKeepsPlace(await placed(), before, "at the question");
       await screenshot(window, `card-foot-${language}-${width}-asked`);
 
-      // Check answers it, and the run holds at its sentence judgement, so its Stop stays on show.
+      // Check answers it, and the run holds at its sentence judgement, so it stays on show.
       await pointAndClick(window, ask.getByTestId("mind-check-check"));
-      await expect(line).toBeVisible();
+      await expect(head).toHaveAttribute("data-stage", "checking");
       await heldRun();
       await screenshot(window, `card-foot-${language}-${width}-pressed`);
-      // The run's words are the button's, with its own Stop: the card keeps its place and its body
-      // its box while the foot holds only the run's Stop, one line in the foot's row.
+      // The run's words and its Stop are the button's: the card keeps its place and its body its
+      // box, its head says it is checking, and it has no Stop or Check of its own (#3840).
       expectKeepsPlace(await placed(), before, "while it runs");
       await expect(ask).toHaveCount(0);
-      const lineBox = await line.boundingBox();
-      const footBox = await foot.boundingBox();
-      const stopBox = await health.getByTestId("card-foot-stop").boundingBox();
-      if (!lineBox || !footBox || !stopBox) throw new Error("The run's Stop isn't drawn.");
-      expect(lineBox.height).toBeCloseTo(stopBox.height, 0);
-      expect(lineBox.y).toBeGreaterThanOrEqual(footBox.y - 0.5);
-      expect(lineBox.y + lineBox.height).toBeLessThanOrEqual(footBox.y + footBox.height + 0.5);
-      await expect(health.getByRole("button", { name: check, exact: true })).toHaveCount(0);
+      await expect(head).toContainText(checking);
+      for (const name of [check, stopWord]) {
+        await expect(health.getByRole("button", { name, exact: true })).toHaveCount(0);
+      }
+      await expect(checkNew).toHaveCount(0);
       // The body's note line takes a line only with something to say, and nothing has landed yet (#3756).
       await expect(health.locator(".check-card-note")).toHaveCount(0);
-      await expect(line).toHaveText(stopWord);
       // The button says the run's words once, with its own Stop beside it, which a keyboard User
       // reaches next.
       await expect(button).toHaveAttribute("data-state", "checking");
@@ -703,7 +710,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const first = health.locator(".check-row").first();
       await expect(first).toHaveCount(1);
       await expect(first).toBeInViewport();
-      await expect(line).toHaveCount(0);
+      await expect(head).toHaveAttribute("data-stage", "done");
       await expect(stop).toHaveCount(0);
       await expect(button).toHaveAttribute("data-state", "look");
       await screenshot(window, `card-${language}-${width}-ended`);
@@ -723,7 +730,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await narrow.evaluate((element) => {
         (element as HTMLElement).style.width = "220px";
       });
-      await checkNote(window);
+      await pointAndClick(window, narrow.getByTestId("check-card-again"));
       const asked = narrow.getByTestId("mind-check-ask");
       await expect(asked).toContainText("token");
       const price = asked.locator(".meta-line").first();
@@ -736,19 +743,19 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await hold();
       await pointAndClick(window, asked.getByTestId("mind-check-check"));
-      const narrowLine = narrow.getByTestId("card-foot-progress");
-      await expect(narrowLine).toBeVisible();
+      const narrowHead = narrow.getByTestId("check-card-head");
+      await expect(narrowHead).toHaveAttribute("data-stage", "checking");
       await heldRun();
-      // The run's Stop keeps its room in the narrow card too.
-      expect(await inside(narrowLine, narrow)).toBe(true);
+      // The head and how far the run has got keep their room in the narrow card too.
+      expect(await inside(narrowHead, narrow)).toBe(true);
       await screenshot(window, "card-foot-zh-CN-220-wrapped-pressed");
       await release();
       await mindCheckFinished(window, 17);
       await window.keyboard.press("Escape");
     }
 
-    // With no cap, a run under a dollar is checked at once with no question, and the foot comes
-    // only with the run's Stop, so the card does not jump at the press.
+    // With no cap, a run under a dollar is checked at once with no question, from the card's Check
+    // 1 new, and the card does not jump at the press: its foot keeps the fix, waiting (#3840).
     await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await core.updateSettings({ user: { monthlyCap: null } });
@@ -764,13 +771,15 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     const plain = await checkCard(window);
     const plainBody = plain.locator(".check-card-body");
-    const plainLine = plain.getByTestId("card-foot-progress");
-    await expect(button).toHaveAttribute("data-state", "check");
-    await expect(button.locator(".note-check-count")).toHaveText("1");
+    const plainHead = plain.getByTestId("check-card-head");
+    const plainNew = plain.getByTestId("check-card-again");
+    await expect(button).toHaveAttribute("data-state", "look");
+    await expect(button.locator(".note-check-count")).toHaveCount(0);
     await expect(button).toHaveAttribute("title", ONE_WAITS[language]);
+    await expect(plainNew).toHaveText(language === "en" ? "Check 1 new" : "核对新改的 1 句");
     // Its content has settled, so the press that follows runs: the card holds the height it opened with.
     await expect(plainBody).toHaveAttribute("style", /height/);
-    await expect(plainLine).toHaveCount(0);
+    await expect(plainHead).toHaveAttribute("data-stage", "done");
     const placedPlain = async (): Promise<Placed> => ({
       card: await plain.boundingBox(),
       body: await plainBody.boundingBox(),
@@ -779,16 +788,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await screenshot(window, `card-foot-${language}-noprice`);
 
     await hold();
-    await checkNote(window);
-    await expect(plainLine).toBeVisible();
+    await pointAndClick(window, plainNew);
+    await expect(plainHead).toHaveAttribute("data-stage", "checking");
     await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
     await heldRun();
     expectKeepsPlace(await placedPlain(), beforePlain, "while it runs with no question");
-    const plainLineBox = await plainLine.boundingBox();
-    const plainStopBox = await plain.getByTestId("card-foot-stop").boundingBox();
-    if (!plainLineBox || !plainStopBox) throw new Error("The run's Stop isn't drawn.");
-    expect(plainLineBox.height).toBeCloseTo(plainStopBox.height, 0);
-    await expect(plainLine).toHaveText(stopWord);
+    await expect(plainHead).toContainText(checking);
+    await expect(plain.getByTestId("badge-fix-sentences")).toBeDisabled();
+    await expect(plainNew).toHaveCount(0);
     await expect(button.locator(".note-check-words")).toContainText(checking);
     await screenshot(window, `card-foot-${language}-noprice-held`);
     await release();
@@ -817,7 +824,7 @@ test("a run's start and end leave the composer's typing alone", async () => {
   // The press asks first, under the cap: the card it opens stays open through the run.
   await checkAndConfirm(window);
   const health = window.getByTestId("check-card");
-  await expect(health.getByTestId("card-foot-progress")).toBeVisible();
+  await expect(health.getByTestId("check-card-head")).toHaveAttribute("data-stage", "checking");
   await expect
     .poll(() =>
       app.evaluate(
@@ -883,7 +890,8 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   const ask = health.getByTestId("mind-check-ask");
   await expect(ask).toHaveCount(0);
   await expect(health.getByTestId("estimate-price")).toHaveCount(0);
-  await expect(health.getByTestId("health-checked-all")).toContainText("已核对 15 句，");
+  await expect(health.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
+  await expect(health.getByTestId("check-card-head")).toContainText("核对完成");
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(15);
 
   // Nothing in the Folder says any of it: checked against every Document, the Tides PDF does.
@@ -896,14 +904,15 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await mindCheckFinished(window, 15);
   await expect(marks(window).and(window.locator('[data-check="supported"]'))).toHaveCount(3);
   await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
-  await expect(health.getByTestId("health-checked-all")).toBeVisible();
+  await expect(health.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(widen).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
   await expect(health.getByTestId("health-look")).toContainText("12 句需要留意");
   await screenshot(window, "mind-check-done-zh-narrow");
 
-  // A sentence written since: "核对" checks it alone, and the rest stay as they were.
+  // A sentence written since: the button keeps the check's verdict, and the card's "核对新改的 1 句"
+  // checks it alone, the rest staying as they were (#3840).
   const editor = window.getByTestId("mind-editor");
   const last = editor.locator(":scope > p").last();
   const box = await last.boundingBox();
@@ -913,10 +922,12 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await window.keyboard.type(" The harbour office opens at nine in the morning.");
   await expect(last).toContainText("timetable out. The harbour office opens");
   const button = noteCheck(window);
-  await expect(button.locator(".note-check-words")).toHaveText("核对");
-  await expect(button.locator(".note-check-count")).toHaveText("1");
+  await expect(button).toHaveAttribute("data-state", "look");
+  await expect(button.locator(".note-check-count")).toHaveCount(0);
   await expect(button).toHaveAttribute("title", ONE_WAITS["zh-CN"]);
-  await checkNote(window);
+  const written = await checkCard(window);
+  await expect(written.getByTestId("check-card-again")).toHaveText("核对新改的 1 句");
+  await checkChanged(window);
   await expect(marks(window)).toHaveCount(16);
   // What the check left, in the card opened again: nothing is left to check.
   await checkCard(window, window, { stopTimeout: 60_000 });
@@ -945,7 +956,7 @@ test("when the provider can't be reached while the claims are named, Try again n
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
 });
 
-test("Check with nothing changed sends nothing: the marks stay and the card says since when, with Check every sentence again, which checks for real; in English and Chinese", async () => {
+test("Check with nothing changed sends nothing: the marks stay and the card says so, with no time, with Check every sentence again, which checks for real; in English and Chinese", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -959,7 +970,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   const button = noteCheck(window);
   await checkAndConfirm(window);
   const card = window.getByTestId("check-card");
-  await expect(card.getByTestId("health-checked-all")).toContainText("Checked 15 sentences, ");
+  await expect(card.getByTestId("check-card-head")).toContainText("Check done");
   await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
   await expect(marks(window)).toHaveCount(15);
   const verdicts = () =>
@@ -971,12 +982,14 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   expect(sent).toBeGreaterThan(0);
 
   // Again, from ⌘K, for nothing waits on the button now: no model is asked, no question, no run;
-  // the marks are as they were, and the card says why.
+  // the marks are as they were, and the card says why, once, leaving the time to its head (#3840).
   await expect(button).toHaveAttribute("data-state", "look");
   await runCommand(window, "mind.check", "Check");
   const unchanged = card.getByTestId("mind-check-unchanged");
-  await expect(unchanged).toContainText("Nothing changed since ");
+  await expect(unchanged).toContainText("Nothing changed");
+  await expect(unchanged).not.toContainText("since");
   await expect(unchanged).toHaveAttribute("role", "status");
+  await expect(card.getByTestId("check-card-again")).toHaveCount(0);
   await expect(card.getByTestId("mind-check-ask")).toHaveCount(0);
   await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
   await expect(button).toHaveAttribute("data-state", "look");
@@ -1009,8 +1022,8 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   await slideSelect(window, first, "Penguins");
   await window.keyboard.type("Puffins");
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
-  await expect(button).toHaveAttribute("data-state", "check");
-  await expect(button.locator(".note-check-count")).toHaveText("1");
+  await expect(button).toHaveAttribute("data-state", "look");
+  await expect(button.locator(".note-check-count")).toHaveCount(0);
   await expect(button).toHaveAttribute("title", ONE_WAITS.en);
   await slideSelect(window, first, "Puffins");
   await window.keyboard.type("Penguins");
@@ -1021,7 +1034,8 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   const sentAgain = await modelRequests(window);
   await runCommand(window, "mind.check", translate("zh-CN", "mindCheck.command"));
   const reopened = window.getByTestId("check-card");
-  await expect(unchanged).toContainText(/^自 .+ 起没有改动/);
+  await expect(unchanged).toContainText(/^没有改动/);
+  await expect(unchanged).not.toContainText("起");
   await expect(unchanged.getByTestId("mind-check-every")).toHaveText("重新核对每一句");
   expect(await modelRequests(window)).toBe(sentAgain);
   const [lineBox, cardBox] = [await unchanged.boundingBox(), await reopened.boundingBox()];
@@ -1077,7 +1091,9 @@ test("the line that says nothing changed goes when a Document is edited or delet
   // A Check from ⌘K checks what changed, or says nothing did: the same Check as the button's.
   const check = () => runCommand(window, "mind.check", "Check");
   await checkNote(window);
-  await expect(card.getByTestId("health-checked-all")).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done", {
+    timeout: 30_000,
+  });
   await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
 
   // Each change leaves checks to make, so a press checks them and the line goes; checking them

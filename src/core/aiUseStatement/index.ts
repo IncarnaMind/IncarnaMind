@@ -32,6 +32,8 @@ export interface AiUseStatementOptions {
   entries(mindId: string): AiUseEntry[];
   providers(): Promise<ChatProvider[]>;
   documents(): readonly LiveDocument[];
+  /** The version of the Library's own lists on this Note's side of the Folder walls (#2525). */
+  libraryVersion?(mindId: string): string;
   keptCitationTexts(): readonly KeptCitationText[];
   language(): Language;
   createMind(input: NewMind): Mind;
@@ -63,6 +65,7 @@ export function createAiUseStatement(options: AiUseStatementOptions) {
           fragment,
           entries,
           documents: options.documents(),
+          ...(options.libraryVersion && { libraryVersion: options.libraryVersion(source.id) }),
           kept: options.keptCitationTexts(),
           folderId: source.folderId,
           modelName: modelNames,

@@ -40,6 +40,7 @@ import {
 } from "../verify";
 import { AnswerError } from "./AnswerView";
 import { AskedCheckLine, CheckNotReady } from "./CheckNotReady";
+import { Counted } from "./Counted";
 import {
   coverageOf,
   foundElsewhere,
@@ -50,7 +51,6 @@ import {
 import { HandedFileLine } from "./HandedFileLine";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { useRunModel } from "./ModelChip";
-import { Counted } from "./NoteHealth";
 import { NotYetCitedRow } from "./NotYetCitedRow";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";

@@ -1309,6 +1309,25 @@ export function createAgents(options: AgentsOptions) {
       });
     },
 
+    /**
+     * The name of a Document the connection reaches, by its id or one of its Passages; null for
+     * one it doesn't, and once the connection is gone (#3677).
+     */
+    documentNamed(pairingId: string, ref: { documentId?: string; passageId?: string }) {
+      let access = replyCitations.get(pairingId);
+      if (!access) {
+        access = createAgentAccess(accessDeps, pairingId);
+        replyCitations.set(pairingId, access);
+      }
+      try {
+        return access.documentNamed(ref);
+      } catch (error) {
+        if (!(error instanceof AgentRefusedError)) throw error;
+        replyCitations.delete(pairingId);
+        return null;
+      }
+    },
+
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */
     requestsFor(mindId: string): AgentRequest[] {
       return requests.forMind(mindId).map(shownRequest);

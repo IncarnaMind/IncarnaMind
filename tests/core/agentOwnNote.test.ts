@@ -504,4 +504,20 @@ describe("Undo and Redo of an agent's change to a Note it wrote (#3371)", () => 
       .toEqual(["Tide report", "Tides turn twice a day.", RANGE]);
     expect(pairing.id).not.toBe(again.pairing.id);
   });
+
+  // protects=claiming an agent's own-Note step hands ownership to one window atomically, blocking a second claim or second core undo, while leaving an earlier unclaimed step undoable in core (#3839); fails_when=a step can be claimed or undone twice, or claiming a newer step blocks undoing an earlier unclaimed step
+  it("claims a step once and leaves earlier unclaimed steps undoable in core", async () => {
+    const { core, client, a, b } = await changedTwice();
+    // Claiming step b removes it from core so a second window cannot claim or undo it again.
+    expect(await core.claimAgentChange(b)).toBe(true);
+    expect(await core.claimAgentChange(b)).toBe(false);
+    expect(await core.undoAgentChange(b)).toBe("unavailable");
+
+    // Step a, never claimed by any tab, stays on top of core's stack and can still be undone.
+    expect(await core.undoAgentChange(a)).toBe("done");
+    await expect
+      .poll(() => linesOf(client))
+      .toEqual(["Tide report", OPENING, "Ranges vary through the month."]);
+    expect(await core.claimAgentChange(a)).toBe(false);
+  });
 });

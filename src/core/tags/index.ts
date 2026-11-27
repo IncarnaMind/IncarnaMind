@@ -305,6 +305,21 @@ export function createTags(db: Database, now: () => string, language: () => Lang
     list,
     owned,
 
+    /** Live Tag ids on every Document, in one read (#2525, #2772). */
+    linksByDocument(): Map<string, { tagId: string }[]> {
+      const byDocument = new Map<string, { tagId: string }[]>();
+      for (const row of db.all<{ document_id: string; tag_id: string }>(
+        `SELECT l.document_id, l.tag_id
+         FROM document_tags l JOIN tags t ON t.id = l.tag_id
+         WHERE l.deleted_at IS NULL AND t.deleted_at IS NULL`,
+      )) {
+        const list = byDocument.get(row.document_id);
+        if (list) list.push({ tagId: row.tag_id });
+        else byDocument.set(row.document_id, [{ tagId: row.tag_id }]);
+      }
+      return byDocument;
+    },
+
     /**
      * Creates a Tag for each kind if no Tag has ever existed here (deleted ones
      * count, so deleting every kind doesn't bring them back), shown in the

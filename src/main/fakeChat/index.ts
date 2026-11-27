@@ -216,7 +216,7 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
   const fixture = SUMMARY_FIXTURES.find((sample) =>
     sample.rows.some(({ text, revision }) => known(text) || (revision && known(revision.text))),
   );
-  const closing = instructions.includes("the final confirmed segment");
+  const accountForActive = items.some((item) => item.status === "active");
   const changes =
     fixture?.rows.flatMap(
       ({
@@ -241,7 +241,7 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
         fixture?.opening ??
         "The meeting opened with a discussion of the launch date."),
     changes,
-    ...(closing && {
+    ...(accountForActive && {
       unchanged: items
         .filter(
           (item) => item.status === "active" && !changes.some((change) => change.id === item.id),

@@ -242,3 +242,15 @@ export function appliedAsAsked(
 ): boolean {
   return appliedRequests(doc, change.mindId, calls).has(change.request);
 }
+
+/**
+ * Whether applying `requests` needs a Checkpoint saved before accepting: outside-agent changes
+ * asked from a Note's input didn't save one when proposing (they might wait for the User),
+ * whereas the built-in assistant's tools already saved one of the Note before proposing (#3839).
+ */
+export function checkpointBeforeAccept(doc: Y.Doc, requests: Iterable<string>): boolean {
+  for (const request of requests) {
+    if (proposalRequestOf(doc, request)?.source === "outside-agent") return true;
+  }
+  return false;
+}

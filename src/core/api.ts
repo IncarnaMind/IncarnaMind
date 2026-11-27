@@ -8647,6 +8647,8 @@ export interface ClaimCheckBasis {
    * them, never a scope the check didn't search.
    */
   citedOnly?: true;
+  /** Checked by an outside agent (`check_mind`) under its scoped grant (#2525). */
+  outside?: true;
   /**
    * A fingerprint of what the result stands on, its claim and what frames its line: a deck's slide,
    * else the headings it is under (#3412): read against the line as it is now, a reading that knows
@@ -13850,7 +13852,12 @@ export type NoteDoing =
   /** A step with a tool of its own (#3653). */
   | { kind: "own"; action: NoteAction }
   | { kind: "said"; text: string }
-  | { kind: "thinking" }
+  /** `summary`: what the AI said of its thinking so far, where its agent gives it (#3677). */
+  | { kind: "thinking"; summary?: string }
+  /** The paragraph a change or a new Note is at, as the AI writes it (#3677). */
+  | { kind: "writing"; tool: AgentToolName; text: string }
+  /** The Document of the quote the AI is writing, by its name (#3677). */
+  | { kind: "quoting"; document: string }
   | { kind: "compacting" };
 
 /**
@@ -14505,6 +14512,11 @@ export interface CoreApi {
   undoAgentChange(step: string): Promise<AgentChangeStep>;
   /** Does an agent's change taken back again: only the Note's last one, before its next change. */
   redoAgentChange(step: string): Promise<AgentChangeStep>;
+  /**
+   * Hands an outside agent's own-Note change step from core to one window's tab history (#3839).
+   * Returns true once, removing it from core's stack; false if another window already claimed it.
+   */
+  claimAgentChange(step: string): Promise<boolean>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
@@ -17010,6 +17022,7 @@ const methods: Record<CoreApiMethod, true> = {
   releaseAskedChanges: true,
   undoAgentChange: true,
   redoAgentChange: true,
+  claimAgentChange: true,
   undoAddToNote: true,
   listNoteConversations: true,
   getSettings: true,

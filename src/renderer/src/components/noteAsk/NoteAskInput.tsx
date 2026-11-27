@@ -1,4 +1,5 @@
 import { type KeyboardEvent, type ReactNode, type RefObject, useLayoutEffect, useRef } from "react";
+import { clearFieldUndoPending, markFieldUndoPending } from "../../commands/edit";
 import { AskArrowIcon, RemoveIcon } from "../../editor/icons";
 import { useT } from "../../i18n";
 import { StopIcon } from "../icons";
@@ -129,11 +130,23 @@ export function NoteAskInput({
           rows={1}
           value={words}
           onChange={(event) => onWords(event.target.value)}
+          onInput={(event) => {
+            const native = event.nativeEvent;
+            const inputType = "inputType" in native ? native.inputType : "";
+            if (inputType === "historyUndo" && event.currentTarget.value === "") {
+              markFieldUndoPending(event.currentTarget);
+            } else {
+              clearFieldUndoPending(event.currentTarget);
+            }
+          }}
+          onBlur={(event) => clearFieldUndoPending(event.currentTarget)}
           onCompositionStart={(event) => {
             const element = event.currentTarget;
+            element.setAttribute("data-composing", "");
             composing.current = { words: element.value, at: element.selectionStart };
           }}
-          onCompositionEnd={() => {
+          onCompositionEnd={(event) => {
+            event.currentTarget.removeAttribute("data-composing");
             composing.current = null;
           }}
           onKeyDown={onKeyDown}

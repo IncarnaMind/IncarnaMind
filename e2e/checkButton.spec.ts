@@ -262,7 +262,7 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       await pointAndClick(window, button);
       await expect(card).toBeVisible();
-      await expect(card.getByTestId("health-all-checked")).toBeVisible();
+      await expect(card.getByTestId("check-card-head")).toHaveAttribute("data-stage", "clean");
     } finally {
       await app.close();
     }

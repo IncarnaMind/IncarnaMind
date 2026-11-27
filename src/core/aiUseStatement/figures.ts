@@ -10,6 +10,7 @@
 import * as Y from "yjs";
 import { citationState, type LiveDocument } from "../../shared/citations";
 import { type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
+import { versionsWithLibrary } from "../../shared/libraryFacts";
 import { mindScopeOf } from "../../shared/mindScope";
 import { readProposalAttribute } from "../../shared/proposals";
 import { comparableSentence } from "../../shared/sentences";
@@ -143,6 +144,8 @@ export interface FigureSources {
   /** The Mind's entries in the record of AI use. */
   entries: readonly AiUseEntry[];
   documents: readonly LiveDocument[];
+  /** The version of the Library's own lists on this Note's side of the Folder walls (#2525). */
+  libraryVersion?: string | null;
   kept: readonly KeptCitationText[];
   folderId: string | null;
   /** The name to give a model, or null when the record names none. */
@@ -341,7 +344,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   });
   const sentences = counts();
   const carried = counts();
-  const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
+  const versions = versionsWithLibrary(documents, sources.libraryVersion);
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const footing = noteFooting(fragment, { versions, folderId: sources.folderId, scope });
   const reading = readingOf(fragment, {

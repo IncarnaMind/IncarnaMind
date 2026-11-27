@@ -64,13 +64,18 @@ export function citedSources(
 }
 
 /**
- * The Library's lists a sentence's check may count (#2525): none in a check an outside agent
- * started, whose verdicts would tell the agent the names and counts of what it may not read.
+ * The Library's lists a sentence's check may count (#2525): for an outside agent's check, only the
+ * lists its own grant covers (none when none were given, as with no grant); for the User's own
+ * check, the Library's lists on its side of the Folder walls.
  */
 export const listsFor = (
   deps: Pick<ClaimCheckDependencies, "libraryLists">,
-  request: Pick<ClaimCheckRequest, "outside">,
-): ClaimCheckDependencies["libraryLists"] => (request.outside ? undefined : deps.libraryLists);
+  request: Pick<ClaimCheckRequest, "outside" | "outsideLists">,
+): ClaimCheckDependencies["libraryLists"] => {
+  if (!request.outside) return deps.libraryLists;
+  const { outsideLists } = request;
+  return outsideLists ? () => outsideLists : undefined;
+};
 
 /** What a run read of the Library's own lists: what its working keeps, and what its verdict rests on. */
 export interface LibraryRead {

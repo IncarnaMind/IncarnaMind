@@ -7,6 +7,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
+import { latestReasoning } from "../../answerSteps";
 import { canReviewApplied, reviewApplied } from "../../appliedEdits";
 import { undoAsked, useAskedState } from "../../askedChanges";
 import { openClaudeCodeSignIn } from "../../claudeCodeInstall";
@@ -20,6 +21,7 @@ import {
   allowAndAskAgain,
   askAgainInNote,
   askedAgain,
+  clearNoteAsk,
   firstWordsOf,
   type NoteAsk,
 } from "../../ownAiInNote";
@@ -155,8 +157,19 @@ function doingOf(ask: NoteAsk, t: Translate): ReactNode {
   if (ask.quiet) return t("noteAsk.pill.quiet", { agent: ask.agent });
   if (doing?.kind === "own") return ownDoingWords(t, doing.action);
   if (doing === null) return t("noteAsk.pill.working");
-  if (doing.kind === "thinking") return t("noteAsk.pill.thinking");
+  if (doing.kind === "thinking") {
+    // The summary as the assistant's step line shows a provider's (#1076).
+    const latest = latestReasoning(doing.summary);
+    return latest === "" ? t("noteAsk.pill.thinking") : `${t("noteAsk.pill.thinking")} · ${latest}`;
+  }
   if (doing.kind === "compacting") return t("noteAsk.pill.compacting");
+  if (doing.kind === "writing") {
+    const words = firstWordsOf(doing.text);
+    const any = STARTED[doing.tool];
+    if (words !== "") return t("noteAsk.doing.writing", { words });
+    return any ? t(any) : t("noteAsk.pill.working");
+  }
+  if (doing.kind === "quoting") return t("noteAsk.doing.cite.from", { document: doing.document });
   if (doing.kind === "said") {
     const lines = doing.text
       .split(/\n/)
@@ -220,6 +233,12 @@ export function NoteAskPill({
   const seconds = useSeconds(ask.startedAt, working);
   const [question] = ask.questions;
   const announce = useAnnounce(question, ask.agent);
+  // Undone, the change the line reports is no longer in the Note: the line goes, and the
+  // conversation keeps the reply.
+  const undone = useAskedState(ask.turnId ?? "", mindId) === "undone";
+  useEffect(() => {
+    if (undone && ask.state === "landed") clearNoteAsk(mindId);
+  }, [undone, ask.state, mindId]);
   if (working && question) {
     return (
       <div

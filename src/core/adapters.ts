@@ -1781,8 +1781,17 @@ export type OwnAiProgress =
   | { kind: "compacting" }
   | { kind: "compacted" }
   | { kind: "said"; text: string }
-  | { kind: "tool"; name: string }
-  | { kind: "thinking" }
+  /** A call of IncarnaMind's server as it starts, and its input once it is written whole. */
+  | { kind: "tool"; name: string; input?: Record<string, unknown> }
+  /**
+   * The AI thinks. `text`: the summary of its thinking so far, in its own words, where the agent
+   * gives one (#3677); "" as a new stretch of thinking begins.
+   */
+  | { kind: "thinking"; text?: string }
+  /** The paragraph a call of IncarnaMind's server writing into a Note is at, as it streams (#3677). */
+  | { kind: "writing"; tool: string; text: string }
+  /** The Passage of the quote a call of IncarnaMind's server is writing, as it streams (#3677). */
+  | { kind: "quoting"; passageId: string }
   /** The model the run answers on, as its start names it. */
   | { kind: "model"; model: string }
   /** The models the agent offers, as it answered `listModels` before the prompt went. */

@@ -144,7 +144,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("health-table-cells")).toHaveCount(0);
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
     await expect(card.getByTestId("health-found")).toHaveCount(0);
-    await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
+    await expect(card.getByTestId("check-card-head")).toHaveAttribute("data-stage", "not-checked");
     await screenshot(window, `check-counts-card-${language}`);
     // The card holds at a narrow window too.
     await setWindowSize(app, window, 900, 720);
@@ -169,7 +169,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // the Check (#1459), and the Note's old sentence with no Citation needs a look.
     await expect(done.getByTestId("health-look")).toContainText(words.look);
     await expect(done.getByTestId("health-supported")).toContainText(words.supportedAfter);
-    await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
+    await expect(done.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
     await expect(button).toHaveAttribute("title", new RegExp(`^${words.afterWords}(?: · |$)`));
     await expect(button.locator(".note-check-words")).toHaveText(words.afterWords);
     await screenshot(window, `check-counts-done-${language}`);
@@ -192,7 +192,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(allDone.getByTestId("health-look")).toHaveCount(0);
     // Supported with no Citation yet is done: nothing holds back "All supported" (#2831),
     // and it is the one that can be cited (#3358).
-    await expect(allDone.getByTestId("health-all-checked")).toBeVisible();
+    await expect(allDone.getByTestId("check-card-head")).toHaveAttribute("data-stage", "clean");
     await expect(allDone.getByTestId("health-notYetCited")).toContainText(words.uncited);
     await expect(allDone.getByTestId("health-noCitation")).toHaveCount(0);
     await screenshot(window, `check-counts-all-${language}`);

@@ -346,9 +346,29 @@ function readOwnTurn(
             answer.hook_on_failure_supported !== true
           )
             throw new ClaudeCodeHookError();
-          clearTimeout(waiting);
           turn.onModels?.(answer);
           turn.signal.throwIfAborted();
+          write(stdin, {
+            type: "control_request",
+            request_id: "own-settings",
+            request: { subtype: "get_settings" },
+          });
+          return undefined;
+        }
+        if (control.request_id === "own-settings" && !prompted) {
+          clearTimeout(waiting);
+          turn.signal.throwIfAborted();
+          // Its thinking in words, summarized, for the line above the Note's input (#3677), unless
+          // the User's own showThinkingSummaries says no: in a run like this one Claude Code takes
+          // the request over the setting, and one that can't say leaves it unasked.
+          const effective = object(object(control.response).effective);
+          if (control.subtype === "success" && effective.showThinkingSummaries !== false) {
+            write(stdin, {
+              type: "control_request",
+              request_id: "thinking",
+              request: { subtype: "set_max_thinking_tokens", thinking_display: "summarized" },
+            });
+          }
           prompted = true;
           write(stdin, userMessage(turn.prompt));
           for (const each of held.splice(0)) send(each.id, each.prompt);

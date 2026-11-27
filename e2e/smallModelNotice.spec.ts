@@ -104,8 +104,13 @@ async function checkSelection(window: Page, modelId: string) {
   await slideSelect(window, line, "Spring tides", { line, words: "full moon." });
   const menu = window.getByTestId("selection-menu");
   await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
-  await expect(window.getByTestId("claim-mark")).toHaveCount(1);
-  await expect((await checkCard(window)).getByTestId("mind-health")).toBeVisible();
+  const mark = window.getByTestId("claim-mark");
+  await expect(mark).toHaveCount(1);
+  await expect(mark).not.toHaveAttribute("data-check", "checking");
+  // Before any verdict, the card's head and line hold the sentence count while mind-health is empty (#3840).
+  const card = await checkCard(window);
+  await expect(card.getByTestId("check-card-top")).toBeVisible();
+  return card;
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -116,15 +121,19 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await setLanguage(window, language);
 
-    await checkSelection(window, "scripted-4b");
-    const notice = window.getByTestId("checks-small-model");
+    const card = await checkSelection(window, "scripted-4b");
+    const notice = card.getByTestId("checks-small-model");
     await expect(notice).toHaveText(NOTICE[language]);
-    // Quiet: in the badge's card under its rows, without covering them, and not a problem.
-    const health = await window.getByTestId("mind-health").boundingBox();
+    // Quiet: in the badge's card under its head and any rows, without covering them, and not a problem.
+    const cardBox = await card.boundingBox();
+    const top = await card.getByTestId("check-card-top").boundingBox();
+    const rows = await card.getByTestId("mind-health").boundingBox();
     const line = await notice.boundingBox();
-    if (!health || !line) throw new Error("The lines aren't drawn.");
-    const apart = line.x >= health.x + health.width - 1 || line.y >= health.y + health.height - 1;
+    if (!cardBox || !top || !line) throw new Error("The lines aren't drawn.");
+    const above = rows && rows.height > 0 ? rows : top;
+    const apart = line.x >= above.x + above.width - 1 || line.y >= above.y + above.height - 1;
     expect(apart).toBe(true);
+    expect(line.y + line.height).toBeLessThanOrEqual(cardBox.y + cardBox.height + 1);
     await expect(window.getByTestId("checks-problem")).toHaveCount(0);
     await app.close();
   });
@@ -136,8 +145,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await setLanguage(window, language);
 
-    await checkSelection(window, "scripted-30b");
-    await expect(window.getByTestId("checks-small-model")).toHaveCount(0);
+    const card = await checkSelection(window, "scripted-30b");
+    await expect(card.getByTestId("checks-small-model")).toHaveCount(0);
     await app.close();
   });
 }

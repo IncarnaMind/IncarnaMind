@@ -3134,6 +3134,19 @@ export async function checkNote(window: Page, scope: Page | Locator = window): P
 }
 
 /**
+ * Checks what changed in the Note in front since its whole check, as a person does: its Check
+ * button keeps the check's verdict then, so the press is the check card's quiet Check N new
+ * (#3840). It returns the card once the press is made; the run's end is the spec's to wait for.
+ */
+export async function checkChanged(window: Page): Promise<Locator> {
+  const card = await checkCard(window);
+  const again = card.getByTestId("check-card-again");
+  await expect(again).toBeVisible();
+  await pointAndClick(window, again);
+  return card;
+}
+
+/**
  * A Mind's Checks card (#909): open already, as a question opens it, or opened from ⌘K's Checks
  * once a run in `scope` has ended. Not from the Check button while its Note is in front: its press
  * checks whenever sentences wait, and the count a change makes lands a moment later, so the button

@@ -79,6 +79,7 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "read",
   "fromAnswer",
   "citedOnly",
+  "outside",
   "judgedWith",
   "figures",
   "remainder",
@@ -109,6 +110,7 @@ export const ClaimCheck = Mark.create({
             name === "remainder" ||
             name === "fromAnswer" ||
             name === "citedOnly" ||
+            name === "outside" ||
             name === "judgedWith" ||
             name === "change" ||
             name === "otherwise"

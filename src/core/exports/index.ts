@@ -31,7 +31,7 @@ import {
 } from "../../shared/exportMarks";
 import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
-import { factWords, sourceWords } from "../../shared/libraryFacts";
+import { factWords, sourceWords, versionsWithLibrary } from "../../shared/libraryFacts";
 import { citationLocation, type Translate } from "../../shared/locations";
 import { mindCommentsOf } from "../../shared/mindComments";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -130,6 +130,8 @@ export interface ExportsDependencies {
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   /** The live Documents: a Citation whose Document was deleted can't be checked. */
   liveDocuments(): readonly (SourceDocument & Pick<Document, "reference">)[];
+  /** The version of the Library's own lists on this Note's side of the Folder walls (#2525). */
+  libraryVersion?(mindId: string): string;
   /** The text kept of Documents unlinked with their Linked folder: Citations quoting it still check. */
   keptCitationTexts(): KeptCitationText[];
   /** A Citation's quote as a person reads it: from its Document's text, else from the quote alone; null when it has none. */
@@ -333,9 +335,7 @@ export function createExports(deps: ExportsDependencies) {
         readOptions.review = reviewReading(fragment);
       else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
-        versions: new Map(
-          documents.map((document) => [document.id, document.contentHash] as const),
-        ),
+        versions: versionsWithLibrary(documents, deps.libraryVersion?.(mind.id)),
         folderId: mind.folderId,
         scope: doc ? mindScopeOf(doc) : null,
         scopeItemName: deps.scopeItemName,

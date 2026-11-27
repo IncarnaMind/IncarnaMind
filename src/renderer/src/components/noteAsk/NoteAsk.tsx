@@ -13,7 +13,10 @@ import { createPortal } from "react-dom";
 import type { NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
+import { clearFieldUndoPending, hasFieldUndoPending } from "../../commands/edit";
+import { pressesShortcut } from "../../commands/keymap";
 import { core } from "../../core";
+import { redoInNote, undoInNote } from "../../editor/noteUndoKeys";
 import { useT } from "../../i18n";
 import {
   askInNote,
@@ -92,6 +95,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const [quote, setQuote] = useState(() => selectedForRequest(editor.state)?.quote ?? "");
   const [whole, setWhole] = useState(false);
   const open = useConversationOpen(mindId);
+  const tabId = useTabPlace()?.tabId;
   const place = useNoteColumns((state) => state.place);
   const slot = useWindowColumn().slot;
   // With no column to open in, or none that fits beside the groups, it opens upward.
@@ -178,12 +182,16 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       setWhole(whole);
     };
     try {
-      const went = await askInNote(mindId, {
-        words: typed,
-        quote: selected?.quote ?? "",
-        selection: selected?.selection ?? null,
-        caret: selected || going ? "" : caretOf(editor.state),
-      });
+      const went = await askInNote(
+        mindId,
+        {
+          words: typed,
+          quote: selected?.quote ?? "",
+          selection: selected?.selection ?? null,
+          caret: selected || going ? "" : caretOf(editor.state),
+        },
+        tabId,
+      );
       if (went === "problem" || went === "busy") giveBack();
       if (
         went === "link" &&
@@ -199,6 +207,26 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      event.currentTarget.value === "" &&
+      !event.nativeEvent.isComposing &&
+      !event.currentTarget.hasAttribute("data-composing")
+    ) {
+      if (pressesShortcut("edit.undo", event.nativeEvent)) {
+        event.preventDefault();
+        clearFieldUndoPending(event.currentTarget);
+        void undoInNote(editor);
+        return;
+      }
+      if (
+        pressesShortcut("edit.redo", event.nativeEvent) &&
+        !hasFieldUndoPending(event.currentTarget)
+      ) {
+        event.preventDefault();
+        void redoInNote(editor);
+        return;
+      }
+    }
     // The card never takes the focus: Shift+Tab from the input reaches its answers, on Deny (#3653).
     if (event.key === "Tab" && event.shiftKey && question) {
       const deny = document.querySelector<HTMLButtonElement>(

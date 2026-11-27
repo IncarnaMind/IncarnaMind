@@ -137,6 +137,11 @@ export interface ClaimCheckRequest {
   mindId?: string;
   /** An outside agent started the check (#3317): what it is told must stay within what it may read. */
   outside?: true;
+  /**
+   * The Library's lists an outside agent's check may count (#2525): what its grant covers, and
+   * nothing else. Absent when an outside check has no grant, in which case no lists are offered.
+   */
+  outsideLists?: LibraryLists;
   /** The Note whose call the sentence's Answer was asked in (#3005). */
   callIn?: string;
   /** Where the sentence starts in the Note, for what its `Id.` and `supra` refer to. */
