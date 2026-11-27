@@ -60,8 +60,9 @@ function planAndTagModel() {
       return reply({
         tagged: documents.map((doc) => ({
           ref: doc.ref,
+          purpose: "",
           kind: "report",
-          tags: [],
+          tagJudgements: [],
           topic: { name: "", description: "" },
         })),
       });

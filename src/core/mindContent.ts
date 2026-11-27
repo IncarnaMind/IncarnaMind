@@ -35,6 +35,21 @@ export type MindContent = ReturnType<typeof createMindContent>;
  */
 export const COMPACT_AFTER_UPDATES = 500;
 
+/**
+ * A table's element name as a stored row writes it: rows are v1 updates, which write each
+ * element's name as its length and then its letters. A row without these bytes holds no table;
+ * one with them may, or may hold them in its words or attributes.
+ */
+const TABLE_NAME = new Uint8Array([5, ...new TextEncoder().encode("table")]);
+
+function holdsBytes(bytes: Uint8Array, part: Uint8Array): boolean {
+  const [first = 0] = part;
+  for (let at = bytes.indexOf(first); at !== -1; at = bytes.indexOf(first, at + 1)) {
+    if (part.every((byte, each) => bytes[at + each] === byte)) return true;
+  }
+  return false;
+}
+
 /** The content schema version recorded in a Mind's document; a Mind that records none is version 1. */
 export const contentVersionOf = (doc: Y.Doc): number =>
   readContentVersion(doc.getMap(MIND_SETTINGS_FIELD).get(CONTENT_SCHEMA_VERSION_KEY));
@@ -397,6 +412,45 @@ export function createMindContent(
       } finally {
         doc.destroy();
       }
+    },
+
+    /**
+     * A key for what is stored for the Mind, which changes whenever its rows do, so a reading of
+     * its content can be kept until then (#3822); null while its loaded document holds a change
+     * not stored yet.
+     */
+    storedKey(mindId: string): string | null {
+      if (loaded.get(mindId)?.stored === false) return null;
+      return db
+        .all<{ id: string }>(
+          "SELECT id FROM mind_updates WHERE mind_id = ? AND deleted_at IS NULL ORDER BY rowid",
+          [mindId],
+        )
+        .map((row) => row.id)
+        .join(",");
+    },
+
+    /**
+     * The Mind's state as stored when that takes no decoding: its loaded document's, or its one
+     * row's. Null when it is stored in several rows.
+     */
+    storedStateUndecoded(mindId: string): Uint8Array | null {
+      const mind = loaded.get(mindId);
+      if (mind) return Y.encodeStateAsUpdate(mind.doc);
+      const rows = storedRows(mindId, false);
+      return rows.length === 1 && rows[0] ? Uint8Array.from(rows[0].data) : null;
+    },
+
+    /**
+     * The Mind's one stored row when it isn't loaded and no table was ever written in it, so a
+     * reader of its tables needn't decode it (#3822); null otherwise, or when that can't be told.
+     */
+    storedWithoutTables(mindId: string): Uint8Array | null {
+      if (loaded.has(mindId)) return null;
+      const rows = storedRows(mindId, false);
+      const [row] = rows;
+      if (rows.length !== 1 || !row || holdsBytes(row.data, TABLE_NAME)) return null;
+      return Uint8Array.from(row.data);
     },
 
     /**

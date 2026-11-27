@@ -115,7 +115,13 @@ describe("Requests to OpenAI say not to store", () => {
       {
         text: JSON.stringify({
           tagged: [
-            { ref: "d1", kind: "none", tags: ["t-report"], topic: { name: "", description: "" } },
+            {
+              ref: "d1",
+              purpose: "",
+              kind: "none",
+              tagJudgements: [{ id: "t-report", relation: "subject" }],
+              topic: { name: "", description: "" },
+            },
           ],
         }),
       },

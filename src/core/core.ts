@@ -105,7 +105,6 @@ import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { createDecisionChoice } from "./answers/checks/decisionChoice";
-import { containsTable } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { checkedSentences, keepsAView } from "./answers/checks/sentences";
 import { judgedNow, readingOf } from "./answers/checks/standing";
@@ -311,7 +310,7 @@ import { createExportLedger, ownFileOf } from "./exports/ledger";
 import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
-import { figureSchedule, readTableSnapshot } from "./figureSchedule";
+import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFirstRun } from "./firstRun";
@@ -387,6 +386,7 @@ import { calendarTemplate, helpTemplateForWriteup, writeupPlan } from "./meeting
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
+import { createMindSnapshots } from "./mindSnapshots";
 import { createMindSources } from "./mindSources";
 import {
   createMinds,
@@ -1061,6 +1061,7 @@ export function createCore(adapters: CoreAdapters): Core {
       upgrade: keyMarks,
     },
   );
+  const mindSnapshots = createMindSnapshots(content);
   const noteConversations = createNoteConversations({
     content,
     mindIds: () => minds.list().map((mind) => mind.id),
@@ -8113,25 +8114,18 @@ export function createCore(adapters: CoreAdapters): Core {
           mind = minds.get(mindId);
         } catch (error) {
           // A Mind deleted since Home listed it has no state to show; anything else is real.
-          if (error instanceof NotFoundError) continue;
+          if (error instanceof NotFoundError) {
+            mindSnapshots.forget(mindId);
+            continue;
+          }
           throw error;
         }
-        const versions = versionsFor(mind.id);
-        const snapshot = await content.inspectStored(
-          mindId,
-          async ({ state, blocks, settings, yieldTurn }) => {
-            const now = {
-              versions,
-              folderId: mind.folderId,
-              scope: mindScopeIn(settings),
-            };
-            const { cellFigures, footing } = await readTableSnapshot(blocks, now, yieldTurn);
-            return { mindId, state, cellFigures, footing };
-          },
-          (blocks) =>
-            blocks.toArray().some((child) => child instanceof Y.XmlElement && containsTable(child)),
+        found.push(
+          await mindSnapshots.read(mindId, () => ({
+            versions: versionsFor(mind.id),
+            folderId: mind.folderId,
+          })),
         );
-        found.push(snapshot);
       }
       return found;
     },

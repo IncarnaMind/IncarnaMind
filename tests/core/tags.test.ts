@@ -49,11 +49,23 @@ const PRESETS_EN = [
   "Letter",
   "Meeting notes",
   "Paper",
+  "Pitch deck",
   "Report",
   "Slides",
   "Statement",
 ];
-const PRESETS_ZH = ["书籍", "合同", "幻灯片", "发票", "报告", "论文", "对账单", "会议记录", "信函"];
+const PRESETS_ZH = [
+  "书籍",
+  "合同",
+  "幻灯片",
+  "发票",
+  "报告",
+  "论文",
+  "融资路演",
+  "对账单",
+  "会议记录",
+  "信函",
+];
 
 const PAPER_TEXT = `Attention Is All You Need
 
@@ -140,6 +152,7 @@ describe("Preset Tags", () => {
       "letter",
       "meeting-notes",
       "paper",
+      "pitch-deck",
       "report",
       "slides",
       "statement",
@@ -218,6 +231,7 @@ describe("Managing Tags", () => {
       "Letter",
       "Meeting notes",
       "Paper",
+      "Pitch deck",
       "Quarterly",
       "Report",
       "Slides",
@@ -225,7 +239,7 @@ describe("Managing Tags", () => {
     ]);
     expect(await core.createTag({ name: "receipts" })).toMatchObject({ description: "" });
     // Name order ignores case.
-    expect(names(await core.listTags()).indexOf("receipts")).toBe(7);
+    expect(names(await core.listTags()).indexOf("receipts")).toBe(8);
   });
 
   test("an edit makes a preset Tag the User's, and its Undo hides it at 0 again", async () => {

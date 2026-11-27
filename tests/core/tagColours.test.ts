@@ -7,7 +7,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { tagNamed } from "../helpers/tags";
 
 describe("Tag colours", () => {
-  test("the preset Tags come with their kinds' colours: eight colours for nine kinds, so Letter shares Book's", async () => {
+  test("the preset Tags come with their kinds' colours: eight colours for ten kinds, so Letter shares Book's and Pitch deck shares Statement's", async () => {
     const core = startCore(await createTempDataFolder());
     const colours = Object.fromEntries(
       (await core.listTags()).map((tag) => [tag.name, tag.colour]),
@@ -19,6 +19,7 @@ describe("Tag colours", () => {
       Letter: "orange",
       "Meeting notes": "gray",
       Paper: "purple",
+      "Pitch deck": "teal",
       Report: "blue",
       Slides: "yellow",
       Statement: "teal",
@@ -27,11 +28,11 @@ describe("Tag colours", () => {
 
   test("a new Tag takes the colour fewest Tags have, unless the User chooses one", async () => {
     const core = startCore(await createTempDataFolder());
-    // Every colour is on a preset, orange on two: the earliest in the palette of the fewest.
+    // Every colour is on a preset, orange and teal on two: the earliest in the palette of the fewest.
     expect((await core.createTag({ name: "Urgent" })).colour).toBe("red");
     expect((await core.createTag({ name: "Later" })).colour).toBe("yellow");
     expect((await core.createTag({ name: "Travel", colour: "green" })).colour).toBe("green");
-    expect((await core.createTag({ name: "Ideas" })).colour).toBe("teal");
+    expect((await core.createTag({ name: "Ideas" })).colour).toBe("blue");
     await expect(core.createTag({ name: "Odd", colour: "magenta" as never })).rejects.toThrow(
       InvalidInputError,
     );

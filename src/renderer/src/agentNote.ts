@@ -1,22 +1,12 @@
 /**
- * What Get started needs to know of the User's own AI (#3362): the agent connected last, and the
- * newest Note an agent connected now wrote, with its check as Home reads it. Both come from what
- * is there, the pairings and the Notes' own record of who wrote them, so nothing new is kept.
+ * What the app needs to know of the User's own AI (#3362): the agents connected, as their
+ * pairings say, and the apps they can be set up in.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentClient, AgentPairing } from "../../core/api";
-import { isListedMind } from "../../shared/listedMinds";
 import { core } from "./core";
-import { createAgentNoteCache } from "./homeNoteStates";
-import type { NoteState } from "./noteState";
 import { useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
-
-/** A Note an agent wrote, and how its check stands; null `state` before anything was checked. */
-export interface AgentNote {
-  mindId: string;
-  state: NoteState | null;
-}
 
 // The last read of each, so a step that shows them has them as it opens and its focus lands on
 // its first choice, not on whatever was there before they came.
@@ -78,67 +68,6 @@ export function useAgentAlone(): boolean {
   const pairings = useAgentPairings();
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
   return (pairings?.length ?? 0) > 0 && !modelReady;
-}
-
-/** At most this many of the newest Notes are read for the one an agent wrote. */
-const NEWEST = 20;
-/** A Note being written is read again at most this often. */
-const SAVED_MS = 500;
-
-/** The newest Note one of `pairings` wrote, read again as Notes are made and saved. */
-export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | null {
-  const minds = useAppStore((state) => state.minds);
-  const documents = useAppStore((state) => state.documents);
-  const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
-  const library = useAppStore((state) => state.library);
-  const [note, setNote] = useState<AgentNote | null>(null);
-  const [dirtyVersion, setDirtyVersion] = useState(0);
-  const cacheRef = useRef<ReturnType<typeof createAgentNoteCache> | null>(null);
-  useEffect(() => {
-    const cache = createAgentNoteCache({
-      readMindContents: (mindIds) => core.readMindContents(mindIds),
-    });
-    cacheRef.current = cache;
-    let pause: ReturnType<typeof setTimeout> | undefined;
-    const stop = core.on("mind.update", ({ mindId }) => {
-      cache.markDirty(mindId);
-      clearTimeout(pause);
-      pause = setTimeout(() => setDirtyVersion((count) => count + 1), SAVED_MS);
-    });
-    return () => {
-      clearTimeout(pause);
-      stop();
-      cache.dispose();
-      cacheRef.current = null;
-    };
-  }, []);
-  const ids = new Set(pairings.map((pairing) => pairing.id));
-  const since = pairings.map((pairing) => pairing.createdAt).sort()[0];
-  // No Note an agent wrote is older than the agent's connection.
-  const candidates =
-    since === undefined
-      ? []
-      : minds
-          .filter((mind) => mind.createdAt >= since && isListedMind(mind))
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-          .slice(0, NEWEST);
-  const wanted = `${[...ids].join(",")}|${candidates.map((mind) => `${mind.id}:${mind.folderId ?? ""}`).join(",")}`;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the pairings, Notes and Folders.
-  useEffect(() => {
-    const cache = cacheRef.current;
-    if (!cache) return;
-    let current = true;
-    void cache
-      .read(candidates, ids, { documents, keptCitationTexts, library })
-      .then((found) => {
-        if (current) setNote(found);
-      })
-      .catch(useAppStore.getState().reportError);
-    return () => {
-      current = false;
-    };
-  }, [wanted, documents, keptCitationTexts, library, dirtyVersion]);
-  return note;
 }
 
 /** Marks that need no look: what the page shows only with every result shown, or still going. */

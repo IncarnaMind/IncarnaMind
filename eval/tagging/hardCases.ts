@@ -62,6 +62,157 @@ const documents = {
 const businessNames = {
   hard: { en: "Repair shop", "zh-CN": "修理铺" },
   publisher: { en: "Print studio", "zh-CN": "印刷工坊" },
+  extended: { en: "Dental clinic", "zh-CN": "牙科诊所" },
+} as const;
+
+const extendedDocuments = {
+  en: [
+    [
+      "Series A pitch",
+      "Our dental clinic serves 1,900 active patients across two suburbs. We are raising a $1.4M seed-plus round to open a third location. These slides outline our fundraising target, equity terms, and 24-month runway.",
+    ],
+    [
+      "Patient data notice",
+      "This privacy notice from our dental clinic explains which patient contact records we store, how long we retain email addresses, and how to withdraw consent or request deletion.",
+    ],
+    [
+      "Community room note",
+      "The neighborhood book club meets Thursday evening at seven. Our dental clinic lent us its upstairs waiting room for the discussion. Please finish chapters six through nine beforehand.",
+    ],
+    [
+      "Chair roster",
+      "Next week's dental clinic operations: assign Dr. Park to Hygiene Bay 2, order composite resin cartridges, and sterilize the handpiece trays before the Tuesday crown bookings.",
+    ],
+    [
+      "Monthly clinic review",
+      "Our dental clinic completed 214 routine cleanings and 38 root-canal procedures in April. Chair 3 lost half a day waiting for a suction valve replacement. We are revising appointment blocks to cut wait times.",
+    ],
+    [
+      "Roof array quote",
+      "The rooftop solar installation needs fourteen 440W monocrystalline panels, aluminum rail mounts, and a hybrid inverter. The installer budgeted two days to wire the combiner box into the main breaker.",
+    ],
+    [
+      "Inverter sign-off",
+      "For our home solar installation we approved the south-slope array layout and battery wall placement. Next Friday the electrician inspects the conduit run and registers grid export.",
+    ],
+    [
+      "Trail club bulletin",
+      "Saturday hikers leave the trailhead at eight sharp. On the drive up, Elena joked about her neighbor's rooftop solar installation. Pack two litres of water and rain shells for the ridge.",
+    ],
+  ],
+  "zh-CN": [
+    [
+      "投资人路演稿",
+      "本牙科诊所已在两个城区服务一千九百余名复诊患者。本轮计划融资八百万元用于拓展第三家门诊，演示稿详述拟出让股权比例、资金用途及未来两年现金流安排。",
+    ],
+    [
+      "个人信息保护声明",
+      "本牙科诊所的隐私声明告知就诊人：我们收集哪些姓名与联系方式、电子档案保存多久，以及如何撤回授权或申请删除个人资料。",
+    ],
+    [
+      "读书会场地通知",
+      "社区读书会周四晚七点讨论第六至第九章。牙科诊所借给我们二楼候诊间作为聚会场地。请大家自带水杯准时到场。",
+    ],
+    [
+      "下周诊室排班",
+      "牙科诊所下周运营安排：林医生值守二号牙椅，补充光固化树脂耗材，周二上午烤瓷冠预约前完成全部手机头高温灭菌。",
+    ],
+    [
+      "四月门诊运营小结",
+      "本牙科诊所四月共完成二百一十四例洁牙和三十八例根管治疗。三号椅位因负压阀配件缺货停用半天，下月起调整复诊时段以缩短候诊时间。",
+    ],
+    [
+      "屋顶并网报价",
+      "家庭屋顶光伏安装方案包含十四块四百四十瓦单晶组件、铝合金导轨与一台混合逆变器。施工队预计两天完成汇流箱接线并接入配电箱。",
+    ],
+    [
+      "逆变器验收单",
+      "屋顶太阳能光伏安装今天敲定了南坡组件排布与储能电池挂墙位置，下周五电工验收穿线管路并提交并网发电申请。",
+    ],
+    [
+      "徒步队周末通知",
+      "周六早八点在山口准时集合。路上陈队随口聊起隔壁村屋顶装光伏的事。山脊风大，请各位带足两升饮用水与防风外套。",
+    ],
+  ],
+} as const;
+
+export const singletonDocuments = {
+  en: [
+    {
+      name: "Seed_Round_Overview",
+      kind: "pptx" as const,
+      role: "pitch" as const,
+      text: "Slide 1: Clearloom Robotics — Seed Fundraising Presentation. Slide 2: Warehouse sorting bottlenecks. Slide 3: Raising $2.5M at $12M cap; 18-month runway to commercial deployment.",
+    },
+    {
+      name: "Investor_Memo_SeriesA",
+      kind: "pdf" as const,
+      role: "pitch" as const,
+      text: "HARBORFLOW ENERGY — SERIES A INVESTOR BUSINESS PLAN. Seeking $9M Series A equity financing to expand grid-scale thermal storage deployments. Includes valuation summary, use of proceeds, and 3-year projections.",
+    },
+    {
+      name: "Product_Sales_Deck",
+      kind: "pptx" as const,
+      role: "sales" as const,
+      text: "Slide 1: Clearloom Enterprise Overview for Logistics Buyers. Slide 2: Cut pick-and-pack labor by 35%. Slide 3: Pricing tiers and 60-day pilot rollout. Slide 4: Customer testimonials.",
+    },
+    {
+      name: "Q4_Marketing_Deck",
+      kind: "pptx" as const,
+      role: "sales" as const,
+      text: "Slide 1: Q4 Demand Generation Review. Slide 2: Paid search and webinar conversion rates. Slide 3: Partner co-marketing calendar for winter campaigns. Slide 4: Next quarter lead goals.",
+    },
+    {
+      name: "Lemon_Tart_Recipe",
+      kind: "text" as const,
+      role: "none" as const,
+      text: "Meyer lemon tart recipe. Pastry: 200 g plain flour, 100 g cold butter, 60 g icing sugar, one egg yolk. Blind bake 15 minutes at 180 °C, fill with lemon curd, bake 20 minutes until just set.",
+    },
+    {
+      name: "Parcel_Packing_Slip",
+      kind: "text" as const,
+      role: "none" as const,
+      text: "Packing slip — Shipment #PK-9041. Carton 1 of 1. Contents: 6 × ceramic mugs (blue), 2 × linen tea towels. Checked by warehouse clerk J. Morales. No prices shown.",
+    },
+  ],
+  "zh-CN": [
+    {
+      name: "天使轮融资介绍",
+      kind: "pptx" as const,
+      role: "pitch" as const,
+      text: "第 1 页：清织机器人——天使轮融资路演稿。第 2 页：仓储分拣人力瓶颈。第 3 页：本轮拟融资 1,500 万元，投前估值 8,000 万元，资金用于量产样机与华东客户试点，支持 18 个月现金流。",
+    },
+    {
+      name: "A轮融资计划书",
+      kind: "pdf" as const,
+      role: "pitch" as const,
+      text: "海流储能——A 轮投资人商业计划书。计划募集人民币 4,000 万元股权融资用于扩大工业储热设备产能。附市场规模测算、股权结构、募资用途与三年财务预测。",
+    },
+    {
+      name: "企业客户产品宣讲",
+      kind: "pptx" as const,
+      role: "sales" as const,
+      text: "第 1 页：清织分拣方案客户推介。第 2 页：帮助物流仓降低 35% 拣货工时。第 3 页：标准版与旗舰版采购方案及 60 天试用流程。第 4 页：已上线客户案例。",
+    },
+    {
+      name: "四季度市场活动回顾",
+      kind: "pptx" as const,
+      role: "sales" as const,
+      text: "第 1 页：四季度市场获客工作复盘。第 2 页：信息流投放与线上研讨会线索转化率。第 3 页：冬季渠道联合推广排期。第 4 页：下季度线索目标。",
+    },
+    {
+      name: "糖醋排骨做法",
+      kind: "text" as const,
+      role: "none" as const,
+      text: "家常糖醋排骨菜谱：猪肋排 500 克冷水焯水去沫，冰糖炒出枣红色糖色后下排骨翻炒，加生抽两勺、陈醋三勺、料酒一勺和热水没过排骨，小火焖四十分钟大火收汁撒白芝麻。",
+    },
+    {
+      name: "包裹装箱明细",
+      kind: "text" as const,
+      role: "none" as const,
+      text: "发货装箱单（件号 PK-9041，共 1 箱）。箱内物品：蓝色陶瓷杯 6 只、亚麻茶巾 2 条。复核员：周敏。本单仅作收货清点，不含价格。",
+    },
+  ],
 } as const;
 
 const publisherDocuments = {
@@ -114,7 +265,8 @@ function accepts(
 export async function hardCases(
   model: ChatLanguageModel,
   language: Language,
-  panel: "hard" | "publisher" = "hard",
+  panel: "hard" | "publisher" | "extended" = "hard",
+  options: { dropPitchDeckKind?: boolean } = {},
 ) {
   if (
     [[], [{ kind: null, tagId: "other" }], [{ kind: null, tagId: null }]].some((tags) =>
@@ -126,33 +278,53 @@ export async function hardCases(
   const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
   try {
     await core.updateSettings({ user: { language } });
+    if (options.dropPitchDeckKind) {
+      const pitch = (await core.listTags()).find((tag) => tag.kind === "pitch-deck");
+      if (pitch) await core.deleteTag(pitch.id);
+    }
     const provider = await core.saveChatProvider({ kind: "ollama", modelId: "eval" });
     await core.saveLibrarySettings({
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "eval" } },
       automatic: false,
     });
     const en = language === "en";
-    const kitchen = await core.createTag({ name: en ? "厨房装修" : "Kitchen renovation" });
+    const subjectName =
+      panel === "extended"
+        ? en
+          ? "光伏安装"
+          : "Solar installation"
+        : en
+          ? "厨房装修"
+          : "Kitchen renovation";
+    const subjectAnchor =
+      panel === "extended"
+        ? en
+          ? "屋顶光伏安装，确定组件排布与逆变器接线方案。"
+          : "Rooftop solar installation. Mount panels and wire the hybrid inverter."
+        : en
+          ? "厨房装修，更新橱柜与水槽，确定台面材料。"
+          : "Kitchen renovation. Replace the cabinets, counters and sink.";
+    const subject = await core.createTag({ name: subjectName });
     const fundraising = await core.createTag({ name: en ? "Fundraising" : "融资" });
     const business = await core.createTag({ name: businessNames[panel][language] });
     const source = await createSourceFolder();
     const write = (name: string, body: string) => writeSourceFile(source, `${name}.txt`, body);
-    const [member] = await addAndProcess(core, [
-      await write(
-        "A0",
-        en
-          ? "厨房装修，更新橱柜与水槽，确定台面材料。"
-          : "Kitchen renovation. Replace the cabinets, counters and sink.",
-      ),
-    ]);
+    const [member] = await addAndProcess(core, [await write("A0", subjectAnchor)]);
     if (!member) throw new Error("Missing anchor Document");
-    await core.addDocumentTag(member.id, kitchen.id);
-    const cases = panel === "hard" ? documents[language] : publisherDocuments[language];
+    await core.addDocumentTag(member.id, subject.id);
+    const cases =
+      panel === "hard"
+        ? documents[language]
+        : panel === "publisher"
+          ? publisherDocuments[language]
+          : extendedDocuments[language];
     const paths = await Promise.all(cases.map(([name, body]) => write(name, body)));
     const wants =
       panel === "hard"
-        ? [fundraising.id, null, kitchen.id, kitchen.id, null, null]
-        : [null, null, business.id, business.id];
+        ? [fundraising.id, null, subject.id, subject.id, null, null]
+        : panel === "publisher"
+          ? [null, null, business.id, business.id]
+          : [fundraising.id, null, null, business.id, business.id, subject.id, subject.id, null];
     const expected = new Map(paths.map((path, i) => [basename(path).normalize(), wants[i]]));
     const docs = await addAndProcess(core, paths);
     if (docs.length !== paths.length) throw new Error("Missing hard-case Document");
@@ -170,9 +342,11 @@ export async function hardCases(
         name: doc.name,
         tags: tags.map((tag) => tag.name),
         expectedBusiness: wanted === business.id,
+        expectedFundraising: wanted === fundraising.id,
+        expectedSubject: wanted === subject.id,
         business: ids.includes(business.id),
         fundraising: ids.includes(fundraising.id),
-        renovation: ids.includes(kitchen.id),
+        renovation: ids.includes(subject.id),
         pass: accepts(tags, wanted),
       };
     });
