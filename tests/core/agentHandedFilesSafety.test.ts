@@ -50,8 +50,10 @@ import { buildPdf } from "../helpers/pdf";
 import { plainDeck } from "../helpers/pptx";
 import { paragraph, table, wordFile } from "../helpers/word";
 
-// Each file the core opens to read, by its path: what a start reads of the handed files.
+// Each file the core opens to read, and each it writes whole (by its rename into place), by its
+// path: what a start reads and writes of the handed files.
 const opened = vi.hoisted(() => [] as string[]);
+const written = vi.hoisted(() => [] as string[]);
 vi.mock("node:fs", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs")>();
   const createReadStream = ((...args: Parameters<typeof real.createReadStream>) => {
@@ -66,7 +68,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     opened.push(String(args[0]));
     return real.readFile(...args);
   }) as typeof real.readFile;
-  return { ...real, readFile };
+  const rename = ((...args: Parameters<typeof real.rename>) => {
+    written.push(String(args[1]));
+    return real.rename(...args);
+  }) as typeof real.rename;
+  return { ...real, readFile, rename };
 });
 
 const en = translate.bind(null, "en") as (
@@ -518,6 +524,115 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
     expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v2"]);
     expect(notFinished(log.lines)).toEqual([expect.stringContaining('"why":"copy-missing"')]);
+    reopened.close();
+  });
+
+  // protects=a take-back a quit cut short whose version before's copy no longer holds that version's bytes is left as it is at the next start: those bytes are never written into the Document (#3751); fails_when=the start writes whatever the copy holds into the User's file
+  it("leaves a take-back a quit cut short as it is when the version before's copy holds other bytes", async () => {
+    const cut = await cutAfterRecords();
+    const { document, folder, before, restart, log } = cut;
+    await writeFile(
+      join(folder, "v1", "Harbour review.pptx"),
+      plainDeck([{ title: "Harbour review" }, { lines: [SOUTH] }]),
+    );
+
+    const reopened = await restart();
+    await afterTheStart(reopened, cut, before, 1);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+    expect(notFinished(log.lines)).toEqual([expect.stringContaining('"why":"copy-changed"')]);
+    reopened.close();
+  });
+
+  // protects=a take-back a quit cut short whose Document's file can't be read at the next start is left as it is, and its log line carries the error, so a permissions fault reads apart from a missing file (#3751); fails_when=the start takes a file it couldn't read as one it may finish, or logs no cause
+  it("leaves a take-back a quit cut short as it is when its Document's file can't be read, and says why", async () => {
+    const cut = await cutAfterRecords();
+    const { document, folder, before, restart, log } = cut;
+    await chmod(document.path, 0o000);
+    try {
+      const reopened = await restart();
+      await afterTheStart(reopened, cut, before, 1);
+      reopened.close();
+    } finally {
+      await chmod(document.path, 0o644);
+    }
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+    expect(notFinished(log.lines)).toEqual([
+      expect.stringMatching(/"why":"file-unreadable","message":"EACCES/),
+    ]);
+  });
+
+  // protects=a take-back a quit cut short after the version before was written back, before it was read, is only read at the next start: the Document's text and the item agree on the version before, nothing is written, and the refused version's copy goes (#3751); fails_when=the start gives the take-back up because the file no longer holds the refused bytes, keeping that copy, or writes the file again
+  it("only reads again at the next start a take-back a quit cut short after its write", async () => {
+    const cut = await cutAfterRecords();
+    const { core, document, first, folder, before, restart } = cut;
+    core.close();
+    await writeFile(document.path, before);
+    written.length = 0;
+
+    const reopened = await restart();
+    await afterTheStart(reopened, cut, before, 1);
+    expect(written.filter((path) => path === document.path)).toEqual([]);
+    const now = (await reopened.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.contentHash).toBe(hashBytes(before));
+    const text = await reopened.readDocumentText(document.id);
+    expect(text.contentHash).toBe(hashBytes(before));
+    const words = text.pages.map((each) => each.text).join("\n");
+    expect(words).toContain(NORTH);
+    expect(words).not.toContain(SOUTH);
+    const item = await reopened.handedFileOf(first.mindId ?? "");
+    expect(item?.versions.map((each) => [each.number, each.contentHash])).toEqual([
+      [1, hashBytes(before)],
+    ]);
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1"]);
+    reopened.close();
+  });
+
+  // protects=a core closed while its start finishes a take-back a quit cut short writes nothing after the close, and its start's clean-up removes no copy (#3751); fails_when=the start writes the version before into the User's file once the core has closed, or the clean-up runs
+  it("closed as it starts, writes no take-back a quit cut short and keeps its copies", async () => {
+    const cut = await cutAfterRecords();
+    const { document, folder, restart, log } = cut;
+    const logged = log.lines.length;
+    written.length = 0;
+
+    (await restart()).close();
+    await vi.waitFor(() =>
+      expect(notFinished(log.lines.slice(logged))).toEqual([
+        expect.stringContaining('"why":"closed"'),
+      ]),
+    );
+    for (let hop = 0; hop < 100; hop++) await stat(folder);
+    expect(written.filter((path) => path === document.path)).toEqual([]);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+  });
+
+  // protects=a core closed while its start would read again a take-back a quit cut short after its write reads nothing closed and logs no failure, and the next start reads it (#3751); fails_when=the start reads the closed Library, logs that as a failure and says the take-back finished
+  it("closed as it starts, reads nothing closed for a take-back a quit cut short after its write", async () => {
+    const cut = await cutAfterRecords();
+    const { core, document, folder, before, restart, log } = cut;
+    core.close();
+    await writeFile(document.path, before);
+    const logged = log.lines.length;
+
+    (await restart()).close();
+    await vi.waitFor(() =>
+      expect(notFinished(log.lines.slice(logged))).toEqual([
+        expect.stringContaining('"why":"closed"'),
+      ]),
+    );
+    for (let hop = 0; hop < 100; hop++) await stat(folder);
+    expect(log.lines.slice(logged).filter((line) => line.includes("handedFile.takeBack."))).toEqual(
+      notFinished(log.lines.slice(logged)),
+    );
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+
+    const reopened = await restart();
+    await afterTheStart(reopened, cut, before, 1);
+    const now = (await reopened.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.contentHash).toBe(hashBytes(before));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1"]);
     reopened.close();
   });
 

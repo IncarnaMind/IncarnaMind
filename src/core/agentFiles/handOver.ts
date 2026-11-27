@@ -142,6 +142,12 @@ interface CutShort {
   taken: StoredHandedVersion;
 }
 
+/** Why a start left a take-back a quit cut short as it was; `message`: the error of a failed read. */
+interface NotFinished {
+  why: string;
+  message?: string;
+}
+
 /** A check started on a version's Note, with what it was given, to start it again. */
 interface CheckRun {
   done: Promise<UnaskedCheck>;
@@ -635,23 +641,23 @@ export function createHandOver(deps: HandOverDeps) {
     const keep: string[] = [];
     for (const each of cut) {
       if (deps.signal.aborted) break;
-      let why: string | null;
+      let left: NotFinished | null;
       try {
-        why = await finishTakeBack(each);
+        left = await finishTakeBack(each);
       } catch (error) {
-        why = "failed";
+        left = { why: "failed" };
         deps.log.error("handedFile.takeBack.finishFailed", {
           fileId: each.file.id,
           message: error instanceof Error ? error.message : String(error),
         });
       }
-      if (why === null) continue;
+      if (left === null) continue;
       // Its copy stays with the version's row, for a later start or the User to finish it from.
       keep.push(dirname(join(deps.dataDir, each.taken.file)));
       deps.log.warn("handedFile.takeBack.notFinished", {
         fileId: each.file.id,
         version: each.taken.number,
-        why,
+        ...left,
       });
     }
     return keep;
@@ -660,35 +666,40 @@ export function createHandOver(deps: HandOverDeps) {
   /**
    * Writes the item's newest version back into its Document, as the take-back would have: only
    * while the file holds just the version taken back and that version's copy holds just its own
-   * bytes, read again before the write. Null once done; otherwise why it wrote nothing.
+   * bytes, read again before the write. Null once done; otherwise why it wrote nothing more.
    */
   async function finishTakeBack({
     file,
     documentId,
     standing,
     taken,
-  }: CutShort): Promise<string | null> {
+  }: CutShort): Promise<NotFinished | null> {
     const document = deps.document(documentId);
     let onDisk: string;
     try {
       onDisk = (await hashFile(document.path)).contentHash;
-    } catch {
-      return "file-unreadable";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { why: "file-unreadable", message };
     }
     // Holding the version before already (a quit after the write, before the read), it is only read.
     if (onDisk !== standing.contentHash) {
-      if (onDisk !== taken.contentHash) return "file-changed";
+      if (onDisk !== taken.contentHash) return { why: "file-changed" };
       let before: Uint8Array;
       try {
         before = await deps.readKept(join(deps.dataDir, standing.file));
       } catch (error) {
-        return isGone(error) ? "copy-missing" : "copy-unreadable";
+        const message = error instanceof Error ? error.message : String(error);
+        return { why: isGone(error) ? "copy-missing" : "copy-unreadable", message };
       }
-      if (hashBytes(before) !== standing.contentHash) return "copy-changed";
-      if (!(await holds(document.path, taken.contentHash))) return "file-changed";
-      if (deps.signal.aborted) return "closed";
+      if (hashBytes(before) !== standing.contentHash) return { why: "copy-changed" };
+      if (!(await holds(document.path, taken.contentHash))) return { why: "file-changed" };
+      if (deps.signal.aborted) return { why: "closed" };
       await writeWholeFile(document.path, before, deps.now());
     }
+    // A closed Library reads nothing: the next start finds the version before in the file, and
+    // only reads it.
+    if (deps.signal.aborted) return { why: "closed" };
     try {
       await deps.readAgain(document.path);
       const read = await versionRead(documentId, standing.contentHash, document);
@@ -698,6 +709,7 @@ export function createHandOver(deps: HandOverDeps) {
       // The records gave the item its title before back; the hand-over named its Document by it.
       if (deps.document(documentId).name !== file.title) deps.rename(documentId, file.title);
     } catch (error) {
+      if (deps.signal.aborted) return { why: "closed" };
       deps.log.error("handedFile.takeBack.failed", {
         fileId: file.id,
         version: taken.number,
