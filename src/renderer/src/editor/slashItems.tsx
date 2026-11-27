@@ -3,7 +3,7 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { ReactNode } from "react";
 import { QUESTION_BLOCK, type Skill } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
-import { ImageLineIcon, SkillIcon, TableIcon } from "../components/icons";
+import { ImageLineIcon, SkillIcon, TableLineIcon } from "../components/icons";
 import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
 import { openDocumentPicker } from "./documentPicker";
@@ -128,7 +128,7 @@ export const noteSlashItems: readonly SlashItem[] = [
     id: "table",
     label: "editor.slash.table",
     keywords: ["grid", "columns", "rows"],
-    icon: <TableIcon />,
+    icon: <TableLineIcon />,
     run(editor, range) {
       const pos = insertBlock(editor, range, emptyTable());
       // Into its first cell, to start typing the first heading.
@@ -221,7 +221,7 @@ export function compareSlashItem(onCompare: (afterBlockId: string | null) => voi
     id: "compare",
     label: "command.compareDocuments",
     keywords: ["comparison", "table", "documents"],
-    icon: <TableIcon />,
+    icon: <TableLineIcon />,
     run(editor, range) {
       editor.chain().focus().deleteRange(range).run();
       const { $from } = editor.state.selection;

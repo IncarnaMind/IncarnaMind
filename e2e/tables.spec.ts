@@ -87,6 +87,22 @@ const tableText = (table: Locator) =>
 /** How many columns the table's first row has. */
 const columnsOf = (table: Locator) => table.locator("tr").first().locator("th, td").count();
 
+/**
+ * Where the Add row bar sits: its gap from the table's bottom edge above and from the Block below
+ * the table, each at least 0 when it covers neither.
+ */
+const addRowClearance = (table: Locator) =>
+  table.evaluate((element) => {
+    let block: Element = element;
+    while (block.parentElement && !block.parentElement.classList.contains("ProseMirror"))
+      block = block.parentElement;
+    const next = block.nextElementSibling?.getBoundingClientRect();
+    const bar = document.querySelector('[data-testid="table-add-row"]')?.getBoundingClientRect();
+    const box = element.getBoundingClientRect();
+    if (!bar || !next) return null;
+    return { belowTable: bar.top - box.bottom, aboveNext: next.top - bar.bottom };
+  });
+
 /** Whether `inner`'s box lies inside `outer`'s, give or take a pixel. */
 async function inside(inner: Locator, outer: Locator): Promise<boolean> {
   const a = await inner.boundingBox();
@@ -277,7 +293,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await second.app.close();
   });
 
-  test(`a table's hover handles: a row's handle selects it and opens the table's menu, Add row adds one at the end, and the cell bar formats and deletes the selected row (${language})`, async () => {
+  test(`a table's hover handles: a row's handle selects it and opens the table's menu, Add row adds one at the end and moves to the new edge, and the cell bar formats and deletes the selected row or column, not cells dragged across (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
@@ -314,10 +330,16 @@ for (const language of ["en", "zh-CN"] as const) {
       Math.abs(handleBox.y + handleBox.height / 2 - (rowBox.y + rowBox.height / 2)),
     ).toBeLessThanOrEqual(2);
     await screenshot(window, `table-handles-${language}`);
+    // Add row lies in the gap under the table, over neither its last row nor the line below.
+    const clear = (gap: { belowTable: number; aboveNext: number } | null) =>
+      gap !== null && gap.belowTable >= 0 && gap.aboveNext >= 0;
+    expect(clear(await addRowClearance(table))).toBe(true);
 
-    // Add row: a new last row, the cursor in it; ⌘Z takes it back.
+    // Add row: a new last row, the cursor in it, and the bar under the new edge; ⌘Z takes it back.
     await pointAndClick(window, addRow);
     await expect(table.locator("tr")).toHaveCount(4);
+    await expect.poll(async () => clear(await addRowClearance(table))).toBe(true);
+    await screenshot(window, `table-add-row-after-${language}`);
     await expect
       .poll(() =>
         window.evaluate(() => {
@@ -346,9 +368,40 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, bar.getByRole("button", { name: words.bold }));
     await expect(table.locator("tr").nth(1).locator("strong")).toHaveCount(3);
     await screenshot(window, `table-cell-bar-${language}`);
-    await pointAndClick(window, bar.getByTestId("table-bar-table.deleteRow"));
+    const deleteRow = bar.getByTestId("table-bar-table.deleteRow");
+    await expect(deleteRow).toHaveAccessibleName(words.deleteRow);
+    await pointAndClick(window, deleteRow);
     await expect(table.locator("tr")).toHaveCount(2);
     expect((await tableText(table))[1]).toEqual(["", "", ""]);
+
+    // Two cells dragged across are neither whole rows nor whole columns: the bar has no Delete.
+    const cells = table.locator("tr").nth(1).locator("td");
+    await pointAndClick(window, cells.nth(0));
+    await pointAndClick(window, cells.nth(1), { modifiers: ["Shift"] });
+    await expect(table.locator("td.selectedCell")).toHaveCount(2);
+    await expect(bar).toBeVisible();
+    await expect(bar.locator(".table-bar-delete")).toHaveCount(0);
+
+    // A column's handle: the bar sits above the column, over none of its cells, and deletes it.
+    // A click first puts the cursor back, so the two cells' bar is gone from over the handle.
+    await pointAndClick(window, cells.nth(1));
+    await expect(bar).toBeHidden();
+    await cells.nth(1).hover();
+    await pointAndClick(window, columnHandle);
+    await expect(menu).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(table.locator(".selectedCell")).toHaveCount(2);
+    const deleteColumn = bar.getByTestId("table-bar-table.deleteColumn");
+    await expect(deleteColumn).toHaveAccessibleName(words.deleteColumn);
+    await expect(bar.getByTestId("table-bar-table.deleteRow")).toHaveCount(0);
+    const barBox = await bar.boundingBox();
+    const topCell = await table.locator(".selectedCell").first().boundingBox();
+    if (!barBox || !topCell) throw new Error("Missing boxes");
+    expect(barBox.y + barBox.height).toBeLessThanOrEqual(topCell.y + 1);
+    await screenshot(window, `table-column-bar-${language}`);
+    await pointAndClick(window, deleteColumn);
+    expect(await columnsOf(table)).toBe(2);
     await app.close();
   });
 

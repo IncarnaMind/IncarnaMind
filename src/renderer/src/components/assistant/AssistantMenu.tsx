@@ -11,9 +11,7 @@ import {
   DockBottomLineIcon,
   DockLeftLineIcon,
   DockRightLineIcon,
-  EraseIcon,
   FloatLineIcon,
-  MindLineIcon,
   MoreLineIcon,
 } from "../icons";
 import { MenuItemParts } from "../MenuItemParts";
@@ -31,11 +29,6 @@ const ICONS = {
   left: DockLeftLineIcon,
   bottom: DockBottomLineIcon,
   float: FloatLineIcon,
-} as const;
-
-const CONVERSATION_ICONS = {
-  "assistant.writeNote": MindLineIcon,
-  "assistant.clear": EraseIcon,
 } as const;
 
 /**
@@ -172,7 +165,7 @@ function ConversationItem({
       }}
       className={`${menuItemClass} ${enabled === true ? "" : menuItemUnavailableClass} pl-2${isDestructive(command) ? ` ${dangerItemClass}` : ""}`}
     >
-      <MenuItemParts icon={commandIcon(command) ?? CONVERSATION_ICONS[id]} label={label} />
+      <MenuItemParts icon={commandIcon(command)} label={label} />
     </button>
   );
 }

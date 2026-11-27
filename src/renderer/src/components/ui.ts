@@ -137,8 +137,8 @@ export const choiceTextClass = "text-ui leading-5 text-ink-secondary";
 export const navRowClass = (selected: boolean) =>
   `flex h-7 w-full shrink-0 items-center rounded-md px-2 text-left text-ui focus-visible:-outline-offset-2 ${
     selected
-      ? "bg-sheet text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
-      : "text-ink-secondary hover:bg-hover"
+      ? "bg-sheet text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
+      : "text-ink-secondary hover:bg-row-hover"
   }`;
 
 /** The paragraph that opens a Settings page. */

@@ -34,7 +34,7 @@ import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
 import { useResolvedScope } from "../../useResolvedScope";
-import { PlanLineIcon, SearchIcon, SearchLineIcon, SparkLineIcon } from "../icons";
+import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../icons";
 import { AddToMindPicker } from "./AddToMindPicker";
 import { WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
@@ -212,7 +212,7 @@ export function ConversationThread({
                 title={reads}
                 className={readsWaiting ? "assistant-reads invisible" : "assistant-reads"}
               >
-                <SearchIcon aria-hidden="true" className="assistant-reads-icon" />
+                <SearchLineIcon aria-hidden="true" className="assistant-reads-icon" />
                 <span className="assistant-reads-text">{reads}</span>
               </p>
             </div>

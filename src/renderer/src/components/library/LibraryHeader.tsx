@@ -3,7 +3,7 @@ import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
 import { typesText } from "../../undo";
 import { AddDocumentsMenu } from "../AddDocumentsMenu";
-import { CloseLineIcon, SearchIcon } from "../icons";
+import { CloseLineIcon, SearchLineIcon } from "../icons";
 import { buttonStyle } from "../ui";
 import { OrganizeButton } from "./OrganizeButton";
 
@@ -105,7 +105,7 @@ export function LibraryHeader({
         title={t("library.search.hint")}
         className="mt-3 flex h-10 min-w-0 cursor-text items-center gap-2.5 rounded-md border border-rule-strong bg-sheet px-3 focus-within:border-accent"
       >
-        <SearchIcon className="shrink-0 text-ink-meta" />
+        <SearchLineIcon className="shrink-0 text-ink-meta" />
         <input
           ref={field}
           data-testid="library-search"

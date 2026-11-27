@@ -27,7 +27,7 @@ import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { addsOnly, type ChangeKind, countChanged, onlyRemoves } from "../../../shared/proposals";
 import { paragraphsRemoved } from "../../../shared/sentenceChanges";
 import { type ChangeCounts, changeFact, removedFact } from "../changeFacts";
-import { iconMarkup, SparkLineIcon } from "../components/icons";
+import { iconMarkup } from "../components/icons";
 import type { EstimateLine } from "../cost";
 import { anchorOf } from "./arrivedChanges";
 import {
@@ -253,7 +253,7 @@ function lineElement(testId: string, className: string, parts: (Node | string)[]
 
 function sparkle(): Element {
   const holder = document.createElement("span");
-  holder.innerHTML = iconMarkup(SparkLineIcon, "proposals-bar-icon");
+  holder.innerHTML = iconMarkup("spark", "proposals-bar-icon");
   return holder.firstElementChild ?? holder;
 }
 

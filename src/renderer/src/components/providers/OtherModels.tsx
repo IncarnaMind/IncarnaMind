@@ -3,7 +3,7 @@ import type { ChatModelGroup, OtherModel } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { modelName } from "../../../../shared/modelName";
 import { useT } from "../../i18n";
-import { ChevronDownSmallIcon, ChevronRightSmallIcon } from "../icons";
+import { ChevronDownLineIcon, ChevronRightLineIcon } from "../icons";
 import {
   SettingsGroup,
   SettingsRow,
@@ -51,7 +51,7 @@ export function OtherModels({
   const panelId = useId();
   const rows = otherRowsOf(group);
   if (rows.length === 0) return null;
-  const Chevron = open ? ChevronDownSmallIcon : ChevronRightSmallIcon;
+  const Chevron = open ? ChevronDownLineIcon : ChevronRightLineIcon;
   return (
     <section data-testid="other-models-settings">
       <button

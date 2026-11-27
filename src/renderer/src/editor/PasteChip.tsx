@@ -1,4 +1,4 @@
-import { ChevronDownSmallIcon, DocumentLineIcon, RemoveIcon } from "../components/icons";
+import { ChevronDownLineIcon, DocumentLineIcon, RemoveIcon } from "../components/icons";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { linesOf, type Paste } from "../composer";
 import { useT } from "../i18n";
@@ -52,7 +52,7 @@ export function PasteChip({
       >
         <DocumentLineIcon kind="text" className="paste-chip-icon" />
         <span className="truncate">{label}</span>
-        <ChevronDownSmallIcon className="composer-model-chevron" />
+        <ChevronDownLineIcon className="composer-model-chevron" />
       </button>
       <button
         type="button"

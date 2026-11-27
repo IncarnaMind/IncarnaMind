@@ -39,7 +39,8 @@ const FIND_SOURCES: readonly CommandId[] = ["check.findSources"];
 /**
  * The card's one ⋯ (#2869): every action that isn't a button, in the card's order, Open the page
  * first, then the check's own commands, Find sources… among them, as the right-click menu lists
- * them, then About this check: where it looked, with what model and when, as the record keeps it.
+ * them; then what takes something away, in red, last (DESIGN.md, Menus); then About this check:
+ * where it looked, with what model and when, as the record keeps it.
  */
 export function CardMenu({
   id,
@@ -58,6 +59,27 @@ export function CardMenu({
   const here: Partial<Record<CommandId, () => void>> | undefined = findSources
     ? { "check.findSources": findSources }
     : undefined;
+  const item = (action: CardAction, close: () => void) => (
+    <button
+      key={action.key}
+      type="button"
+      {...(action.checked === undefined
+        ? { role: "menuitem" }
+        : { role: "menuitemcheckbox", "aria-checked": action.checked })}
+      data-testid={action.testId}
+      aria-disabled={action.disabled || undefined}
+      className={`${menuItemClass} ${menuItemUnavailableClass} pl-2${action.danger ? ` ${dangerItemClass}` : ""}`}
+      onClick={() => {
+        if (action.disabled) return;
+        close();
+        action.onClick();
+      }}
+    >
+      <MenuItemParts icon={action.icon} label={action.label} checked={action.checked} />
+    </button>
+  );
+  const kept = actions.filter((action) => !action.danger);
+  const red = actions.filter((action) => action.danger);
   return (
     <ObjectMenu
       target={{ kind: "check", id }}
@@ -67,30 +89,8 @@ export function CardMenu({
       here={here}
       // The command's own test reads the sentence at the caret, which needn't be this card's.
       without={findSources ? undefined : FIND_SOURCES}
-      first={
-        actions.length > 0
-          ? (close) =>
-              actions.map((action) => (
-                <button
-                  key={action.key}
-                  type="button"
-                  {...(action.checked === undefined
-                    ? { role: "menuitem" }
-                    : { role: "menuitemcheckbox", "aria-checked": action.checked })}
-                  data-testid={action.testId}
-                  aria-disabled={action.disabled || undefined}
-                  className={`${menuItemClass} ${menuItemUnavailableClass} pl-2${action.danger ? ` ${dangerItemClass}` : ""}`}
-                  onClick={() => {
-                    if (action.disabled) return;
-                    close();
-                    action.onClick();
-                  }}
-                >
-                  <MenuItemParts icon={action.icon} label={action.label} checked={action.checked} />
-                </button>
-              ))
-          : undefined
-      }
+      first={kept.length > 0 ? (close) => kept.map((action) => item(action, close)) : undefined}
+      more={red.length > 0 ? (close) => red.map((action) => item(action, close)) : undefined}
       foot={about.length > 0 ? <AboutThisCheck lines={about} /> : undefined}
     />
   );

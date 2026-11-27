@@ -231,10 +231,6 @@
   background: var(--color-tab-hover);
   color: var(--color-ink);
 }
-.figure-expand svg {
-  width: 12px;
-  height: 12px;
-}
 .figure-expand[aria-expanded="true"] svg {
   transform: rotate(90deg);
 }

@@ -11,7 +11,7 @@ import { DOMParser } from "linkedom";
 import { afterEach, beforeAll, expect, test } from "vitest";
 import { INCLUDE_IN_CONTEXT_ATTRIBUTE, QUESTION_BLOCK } from "../../src/core/api";
 import { readMindHandle } from "../../src/renderer/src/commands/handles";
-import { buildMenu, isMenuItem, menuIds } from "../../src/renderer/src/commands/menus";
+import { buildMenu, isMenuItem, menuLeavesOut } from "../../src/renderer/src/commands/menus";
 import "../../src/renderer/src/commands/objectMenus";
 import { isInTable } from "@tiptap/pm/tables";
 import {
@@ -164,11 +164,10 @@ test("a table's ⋯ menu is for editing it: rows and columns, the heading row, t
   const table = { ...emptyTable(2, 2), attrs: { id: "t" } };
   const editor = await editorWith([paragraph("a", "First"), table]);
   editor.commands.setTextSelection(editor.state.doc.child(0).nodeSize + 4);
-  // As the ⋯ button's menu leaves out every item of the Block menu but the table's own.
+  // As the ⋯ button's menu (TableMenu) offers `only` the table's own, through ObjectMenu's filter.
   const { TABLE_MENU } = await import("../../src/renderer/src/commands/tables");
-  const leftOut = menuIds("block").filter((id) => !TABLE_MENU.includes(id));
-  const ids = buildMenu("block", menuOf("t"), leftOut).map((entry) =>
-    isMenuItem(entry) ? entry.command.id : "—",
+  const ids = buildMenu("block", menuOf("t"), menuLeavesOut("block", [], TABLE_MENU)).map(
+    (entry) => (isMenuItem(entry) ? entry.command.id : "—"),
   );
   expect(ids).toEqual([
     "table.rowAbove",

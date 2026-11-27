@@ -45,18 +45,22 @@
   height: 14px;
 }
 
+/*
+ * Under the table, 14px high in the 16px between it and the next Block, so it covers neither
+ * the last row nor the line below.
+ */
 .table-add-row {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  height: 24px;
+  height: 14px;
   border: 1px dashed var(--color-rule);
   border-radius: 4px;
   background: var(--color-sheet);
   color: var(--color-ink-meta);
-  font-size: var(--text-ui);
-  line-height: var(--text-ui--line-height);
+  font-size: var(--text-small);
+  line-height: 12px;
 
   &:hover {
     background: var(--color-hover);

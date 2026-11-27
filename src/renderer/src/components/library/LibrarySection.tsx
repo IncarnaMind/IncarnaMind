@@ -510,7 +510,7 @@ function FolderHead({
                 · {t("library.inSubfolders", { count: formatCount(inSubfolders, language) })}
               </span>
             )}
-            {bound && <BoundMark path={bound.path} size="size-4" />}
+            {bound && <BoundMark path={bound.path} />}
             {status && (
               <span
                 data-testid="folder-status"

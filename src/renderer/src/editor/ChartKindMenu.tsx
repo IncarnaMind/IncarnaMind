@@ -4,7 +4,7 @@ import {
   type ChartKind,
   drawnSeries,
 } from "../../../shared/charts";
-import { CheckLineIcon, ChevronDownSmallIcon, SwapIcon } from "../components/icons";
+import { CheckLineIcon, ChevronDownLineIcon, SwapIcon } from "../components/icons";
 import {
   menuClass,
   menuItemClass,
@@ -58,7 +58,7 @@ export function ChartKindMenu({
         className="chart-head-button"
       >
         <span>{t(`chart.kind.${chart.kind}`)}</span>
-        <ChevronDownSmallIcon />
+        <ChevronDownLineIcon />
       </button>
       <div
         {...menu.menuProps}

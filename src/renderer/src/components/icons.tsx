@@ -4,15 +4,16 @@ import {
   ArrowDownToLine,
   ArrowLeft,
   ArrowLeftRight,
-  ArrowLeftToLine,
   ArrowRight,
-  ArrowRightToLine,
   ArrowUp,
   ArrowUpDown,
-  ArrowUpToLine,
   AtSign,
   AudioLines,
   Ban,
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
+  BetweenVerticalEnd,
+  BetweenVerticalStart,
   Bold,
   Bookmark,
   BookmarkCheck,
@@ -58,7 +59,6 @@ import {
   Files,
   FileText,
   FileType,
-  FileX,
   Folder,
   FolderInput,
   FolderOpen,
@@ -89,11 +89,12 @@ import {
   Lock,
   LockOpen,
   type LucideIcon,
+  type LucideIconData,
+  type LucideIconNode,
   type LucideProps,
   Maximize2,
   Merge,
   MessageSquare,
-  MessageSquarePlus,
   MessageSquareText,
   Mic,
   MicOff,
@@ -153,15 +154,19 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
+import * as lockFile from "lucide-react/icons/lock";
+import * as chatFile from "lucide-react/icons/message-square";
+import * as sparkFile from "lucide-react/icons/sparkle";
+import * as noteFile from "lucide-react/icons/sticky-note";
 import type { JSX, SVGProps } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import type { CitationCheck, DocumentKind } from "../../../core/api";
 
 /**
  * Every icon in the app (#3766): one set, Lucide (ISC), imported here and nowhere else. An icon is
  * 16px in a row or a menu and 18px in a toolbar (`.title-bar`, `data-toolbar`) or with
  * `data-size="18"`, with one 1.5px line at both sizes; styles.css sets both, so a size a component
- * still writes loses to them.
+ * still writes loses to them. The few 12px icons (a step's chevron, a chip's ×, a note mark) are
+ * named there too.
  */
 export type IconProps = Omit<LucideProps, "ref">;
 export type Icon = (props: IconProps) => JSX.Element;
@@ -181,12 +186,42 @@ function line(Glyph: LucideIcon, fill = false): Icon {
   };
 }
 
-/** An icon as markup, for a widget the editor draws outside React. */
-export function iconMarkup(Glyph: Icon, className?: string): string {
-  return renderToStaticMarkup(<Glyph {...(className && { className })} />);
+/** An icon file's drawing: Lucide exports it as `__iconData`, which its published types leave out. */
+function drawingOf(file: object): LucideIconData {
+  const data = "__iconData" in file ? file.__iconData : null;
+  if (typeof data !== "object" || data === null || !("node" in data) || !Array.isArray(data.node)) {
+    throw new Error("A Lucide icon file has no drawing: its __iconData export has moved.");
+  }
+  return { node: data.node };
 }
 
-export const ActivityIcon = line(Activity);
+/** The icons a widget the editor draws outside React shows (a Word atom, a proposal's bar, a note mark). */
+const WIDGET_ICONS = {
+  chat: drawingOf(chatFile),
+  lock: drawingOf(lockFile),
+  note: drawingOf(noteFile),
+  spark: drawingOf(sparkFile),
+};
+export type WidgetIcon = keyof typeof WIDGET_ICONS;
+
+function nodeMarkup([tag, attributes, children = []]: LucideIconNode): string {
+  const named = Object.entries(attributes)
+    .filter(([name]) => name !== "key")
+    .map(([name, value]) => ` ${name}="${String(value)}"`)
+    .join("");
+  return `<${tag}${named}>${children.map(nodeMarkup).join("")}</${tag}>`;
+}
+
+/**
+ * An icon of the set as markup, from Lucide's own drawing of it, for a widget outside React: the
+ * same element its component draws, without React's server renderer in the app.
+ */
+export function iconMarkup(icon: WidgetIcon, className?: string): string {
+  const classes = className ? `app-icon ${className}` : "app-icon";
+  const children = WIDGET_ICONS[icon].node.map(nodeMarkup).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="${classes}">${children}</svg>`;
+}
+
 export const AlignCenterIcon = line(TextAlignCenter);
 export const AlignJustifyIcon = line(TextAlignJustify);
 export const AlignLeftIcon = line(TextAlignStart);
@@ -199,21 +234,17 @@ export const BookmarkLineIcon = line(Bookmark);
 export const CalculatorLineIcon = line(Calculator);
 export const CalendarLineIcon = line(Calendar);
 export const ChatLineIcon = line(MessageSquare);
-export const CheckIcon = line(Check);
 export const CheckLineIcon = line(Check);
 export const ChevronDownLineIcon = line(ChevronDown);
-export const ChevronDownSmallIcon = line(ChevronDown);
 /** Points right; rotate it 90° to point down. */
 export const ChevronIcon = line(ChevronRight);
 export const ChevronLeftLineIcon = line(ChevronLeft);
 export const ChevronRightLineIcon = line(ChevronRight);
-export const ChevronRightSmallIcon = line(ChevronRight);
 export const ChevronUpDownLineIcon = line(ChevronsUpDown);
 export const ChevronUpLineIcon = line(ChevronUp);
 export const CloseLineIcon = line(X);
 export const CloudLineIcon = line(Cloud);
 export const CollapseIcon = line(Minimize2);
-export const CommentIcon = line(MessageSquareText);
 export const CommentLineIcon = line(MessageSquareText);
 export const ComputerLineIcon = line(Laptop);
 export const ConversationLineIcon = line(MessageSquare);
@@ -275,7 +306,6 @@ export const ResumeLineIcon = line(Play, true);
 export const RetryLineIcon = line(RotateCw);
 export const ScreenLineIcon = line(Monitor);
 export const ScriptIcon = line(SquareTerminal);
-export const SearchIcon = line(Search);
 export const SearchLineIcon = line(Search);
 export const SettingsLineIcon = line(Settings);
 export const ShieldLineIcon = line(Shield);
@@ -284,22 +314,19 @@ export const SkillIcon = line(Sparkle);
 export const SortLineIcon = line(ArrowUpDown);
 export const SparkLineIcon = line(Sparkle);
 export const SplitLineIcon = line(Columns2);
-export const StopIcon = line(Square, true);
 export const StopLineIcon = line(Square, true);
 export const SubscriptIcon = line(Subscript);
 export const SuperscriptIcon = line(Superscript);
-export const TableIcon = line(Table);
 export const TableLineIcon = line(Table);
 export const TagLineIcon = line(Tag);
-export const TrashIcon = line(Trash2);
 export const TrashLineIcon = line(Trash2);
 export const UploadLineIcon = line(Upload);
 export const VerifyLineIcon = line(FileCheck);
 export const WarningLineIcon = line(TriangleAlert);
-export const AddColumnLeftIcon = line(ArrowLeftToLine);
-export const AddColumnRightIcon = line(ArrowRightToLine);
-export const AddRowAboveIcon = line(ArrowUpToLine);
-export const AddRowBelowIcon = line(ArrowDownToLine);
+export const AddColumnLeftIcon = line(BetweenVerticalStart);
+export const AddColumnRightIcon = line(BetweenVerticalEnd);
+export const AddRowAboveIcon = line(BetweenHorizontalStart);
+export const AddRowBelowIcon = line(BetweenHorizontalEnd);
 export const BanLineIcon = line(Ban);
 export const BookLineIcon = line(BookOpen);
 export const ChartBarIcon = line(ChartColumn);
@@ -316,7 +343,6 @@ export const DuplicateIcon = line(CopyPlus);
 export const EraseIcon = line(Eraser);
 export const EyeLineIcon = line(Eye);
 export const FilePlusIcon = line(FilePlus);
-export const FileRemoveIcon = line(FileX);
 export const FolderOpenIcon = line(FolderOpen);
 export const HashLineIcon = line(Hash);
 export const HeaderRowIcon = line(PanelTop);
@@ -338,7 +364,6 @@ export const TemplateIcon = line(LayoutTemplate);
 export const TextIcon = line(Type);
 export const UnlinkIcon = line(Unlink);
 export const UnlockIcon = line(LockOpen);
-export const AddCommentIcon = line(MessageSquarePlus);
 export const BoldIcon = line(Bold);
 export const ItalicIcon = line(Italic);
 export const CodeIcon = line(Code);
@@ -480,18 +505,6 @@ const MARKS: Record<CitationCheck, (props: MarkProps) => JSX.Element> = {
 export function CheckMarkIcon({ check, ...props }: MarkProps & { check: CitationCheck }) {
   const Mark = MARKS[check];
   return <Mark {...props} />;
-}
-
-/**
- * A Citation's mark: its check's, or a grey ring for a shared screen's whose
- * screen was deleted with its Meeting (ADR-0031), with nothing left to check.
- */
-export function CitationMarkIcon({
-  check,
-  gone,
-  ...props
-}: MarkProps & { check: CitationCheck; gone: boolean }) {
-  return gone ? <Ring {...props} /> : <CheckMarkIcon check={check} {...props} />;
 }
 
 /** The same states in a circle, for the state line of the Citation card; `gone`: the ring alone. */

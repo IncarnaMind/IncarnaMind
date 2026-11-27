@@ -14,7 +14,7 @@ import {
   searchScopeOf,
 } from "../../../shared/searchScope";
 import { useAnswers } from "../answers";
-import { ChevronDownSmallIcon, RemoveIcon, SkillIcon, SparkLineIcon } from "../components/icons";
+import { ChevronDownLineIcon, RemoveIcon, SkillIcon, SparkLineIcon } from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { folderWallOf } from "../folders";
@@ -100,7 +100,7 @@ export function QuestionView({ node, editor, updateAttributes }: ReactNodeViewPr
         }}
         className="question-fold"
       >
-        <ChevronDownSmallIcon className="question-fold-chevron" />
+        <ChevronDownLineIcon className="question-fold-chevron" />
       </button>
       <SparkLineIcon aria-hidden="true" className="question-spark" />
       <div className="question-row">

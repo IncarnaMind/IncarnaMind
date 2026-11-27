@@ -16,7 +16,7 @@ import {
   MoreLineIcon,
   PlusLineIcon,
   RecordingLineIcon,
-  TableIcon,
+  TableLineIcon,
   VerifyLineIcon,
 } from "./icons";
 import { MenuItemParts } from "./MenuItemParts";
@@ -54,7 +54,7 @@ const NEW_ITEMS: readonly NewItem[] = [
 
 const MORE_ITEMS: readonly NewItem[] = [
   { id: "word.import", testId: "plus-import-word", icon: WordIcon },
-  { id: "comparison.start", testId: "plus-compare-documents", icon: TableIcon },
+  { id: "comparison.start", testId: "plus-compare-documents", icon: TableLineIcon },
   { id: "verify.document", testId: "plus-verify-document", icon: VerifyLineIcon },
   {
     id: "folder.starters",

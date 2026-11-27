@@ -152,8 +152,10 @@
 
   /*
    * The type scale (DESIGN.md, Typography): the only sizes of the app's own interface (#3766). A
-   * Document's drawing (slides, office pages, PDF, print) keeps its own.
+   * Document's drawing (slides, office pages, PDF, print) keeps its own. Tailwind's own sizes
+   * (text-xs to text-9xl) are cleared, so a class of theirs draws nothing.
    */
+  --text-*: initial;
   --text-title: 32px;
   --text-title--line-height: 40px;
   --text-heading: 22px;
@@ -215,6 +217,11 @@
   --color-control-knob: light-dark(#ffffff, #d5d8dd);
   /* A chosen row in a list of choices, and its hover. */
   --color-wash: light-dark(#f7f8fa, #232529);
+  /*
+   * A sidebar or Settings row under the pointer: half way from the frame to the sheet a selected
+   * row is on, so it reads as a step towards selected and never stronger than it.
+   */
+  --color-row-hover: color-mix(in srgb, var(--color-frame), var(--color-sheet) 50%);
   /* Behind a dialog. */
   --color-scrim: light-dark(rgb(23 25 28 / 0.32), rgb(0 0 0 / 0.5));
 }
@@ -938,13 +945,8 @@
     display: flex;
     flex-shrink: 0;
     justify-content: center;
-    width: 14px;
+    width: 16px;
     color: var(--color-ink-meta);
-
-    > svg {
-      width: 14px;
-      height: 14px;
-    }
   }
   .tab-dot {
     width: 6px;
@@ -4246,8 +4248,6 @@
     }
   }
   .paste-chip-icon {
-    width: 12px;
-    height: 12px;
     flex-shrink: 0;
     color: var(--color-ink-meta);
   }
@@ -4486,8 +4486,6 @@
   }
   .meeting-screen-icon {
     flex-shrink: 0;
-    width: 12px;
-    height: 12px;
     margin-top: 2px;
     color: var(--color-ink-meta);
   }
@@ -4499,10 +4497,6 @@
     box-shadow: var(--shadow-popover);
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);
-  }
-  .meeting-foot-over .meeting-screen-icon {
-    width: 16px;
-    height: 16px;
   }
   .meeting-sheet-lines .meeting-line {
     padding: 0;
@@ -4887,8 +4881,6 @@
     flex-shrink: 0;
   }
   .composer-chip-icon {
-    width: 12px;
-    height: 12px;
     flex-shrink: 0;
   }
   /*
@@ -5840,8 +5832,6 @@
     user-select: none;
   }
   .question-skill-icon {
-    width: 12px;
-    height: 12px;
     flex-shrink: 0;
     color: var(--color-ink-meta);
   }
@@ -5910,8 +5900,6 @@
     }
   }
   .scope-chip-icon {
-    width: 12px;
-    height: 12px;
     flex-shrink: 0;
     color: var(--color-ink-meta);
   }
@@ -6211,8 +6199,6 @@
     color: inherit;
   }
   .answer-call-icon {
-    width: 12px;
-    height: 12px;
     flex-shrink: 0;
     color: var(--color-ink-meta);
   }
@@ -6910,8 +6896,6 @@
     min-width: 0;
   }
   .proposals-bar-icon {
-    width: 14px;
-    height: 14px;
     flex-shrink: 0;
     color: var(--color-accent);
   }
@@ -8826,8 +8810,6 @@
     color: var(--color-ink-meta);
   }
   .citation-screen-icon {
-    width: 14px;
-    height: 14px;
     flex-shrink: 0;
   }
   /* As large as the picture, so the quote's boxes, in fractions of it, sit on its lines. */
@@ -10506,8 +10488,6 @@
     color: var(--color-ink-meta);
   }
   .assistant-reads-icon {
-    width: 14px;
-    height: 14px;
     flex-shrink: 0;
   }
   .assistant-reads-text {
@@ -12054,10 +12034,6 @@
       gap: 10px;
       margin-left: 0;
       padding: 0;
-    }
-    .answer-call-icon {
-      width: 16px;
-      height: 16px;
     }
     .answer-call-details,
     .answer-call-files {
@@ -15071,6 +15047,17 @@ svg.app-icon[data-size="18"] {
 }
 /* The answer's step line keeps its 12px chevron: at the default 320px assistant, the wait joins the step's words only with that room (#2531). */
 svg.app-icon.answer-steps-chevron {
+  width: 12px;
+  height: 12px;
+}
+/*
+ * A chip's × keeps a 12px icon beside the chip's 12px words, in a chip 20px high; a highlight's note
+ * mark keeps one in its 16px box in a Document's line; a table's Add row bar is 14px high, in the gap
+ * under the table. A 16px icon outgrows all three.
+ */
+.scope-chip-remove > svg.app-icon,
+.annotation-note-mark > svg.app-icon,
+.table-add-row > svg.app-icon {
   width: 12px;
   height: 12px;
 }

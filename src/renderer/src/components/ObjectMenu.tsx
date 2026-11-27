@@ -19,7 +19,7 @@ import {
   isMoreEntry,
   type MenuEntry,
   type MenuItem,
-  menuIds,
+  menuLeavesOut,
 } from "../commands/menus";
 import {
   type CommandContext,
@@ -245,9 +245,7 @@ export function ObjectMenu({
 }) {
   const t = useT();
   const { kind, id } = target;
-  const without = only
-    ? [...leftOut, ...menuIds(kind).filter((each) => !only.includes(each))]
-    : leftOut;
+  const without = menuLeavesOut(kind, leftOut, only);
   // The first item, though a switch at its foot is checked.
   const menu = usePopoverMenu({ focus: "first", ...(align && { align }) });
   const fold = useSubmenu();
@@ -396,7 +394,7 @@ export function ObjectMenu({
         {entries.slice(0, dangerAt).map((entry, index) => itemOf(entry, index))}
         {menu.open && more && (
           <>
-            <div className={menuRuleClass} />
+            {(first || dangerAt > 0) && <div className={menuRuleClass} />}
             {more(menu.close)}
           </>
         )}

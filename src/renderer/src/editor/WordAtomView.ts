@@ -4,7 +4,7 @@ import type { Decoration } from "@tiptap/pm/view";
 import type { WordAtomAttributes, WordAtomKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { BREAK_WORD_ATOMS, INVISIBLE_WORD_ATOMS, readWordAtom } from "../../../shared/wordFiles";
-import { ChatLineIcon, iconMarkup, LockLineIcon } from "../components/icons";
+import { iconMarkup } from "../components/icons";
 import { languageNow, translateNow } from "../i18n";
 import { pageDate } from "../webPages";
 import { footnoteNumberOf } from "./citationNumbers";
@@ -51,9 +51,9 @@ function describe(atom: WordAtomAttributes): string {
     .join("\n");
 }
 
-const LOCK = iconMarkup(LockLineIcon);
+const LOCK = iconMarkup("lock");
 
-const COMMENT = iconMarkup(ChatLineIcon);
+const COMMENT = iconMarkup("chat");
 
 /** The label a box shows on hover and when reached by keyboard: a lock, and what it is. */
 function boxLabel(atom: WordAtomAttributes): HTMLElement {

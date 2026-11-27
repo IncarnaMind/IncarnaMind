@@ -101,7 +101,7 @@ describe("the type a Mind is written in", () => {
     });
   });
 
-  test("keeps the title 34/42 and the headings 22/30 at the default size", () => {
+  test("keeps the title 32/40 and the headings 22/30 at the default size", () => {
     const type = writingType(DEFAULT_MIND_STYLE, true);
     expect(type.title).toEqual({ size: 32, leading: 40 });
     expect(type.heading).toEqual({ size: 22, leading: 30 });

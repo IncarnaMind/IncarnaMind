@@ -23,10 +23,10 @@ const rowTones: Record<RowTone, string> = {
 export const draggedRowClass = "opacity-45";
 
 /**
- * A row's container. Pointed at it's washed, and one step more while pressed;
- * selected it's on the sheet with an inset rule and weight 600, or, one of
- * several selected, on the accent's wash; one a drag carries is quieter and
- * not washed. Its actions
+ * A row's container. Pointed at it's half way to the sheet, and a step darker
+ * while pressed; selected it's on the sheet with a strong inset rule, which
+ * always reads above the pointer's fill, or, one of several selected, on the
+ * accent's wash; one a drag carries is quieter and not washed. Its actions
  * (`rowActionsClass`) sit on its right end and take its
  * background. Names of Documents and Folders are a shade darker than the
  * app's own rows. A row's words can't be selected, so a right-click never
@@ -45,10 +45,10 @@ export const rowClass = (
     selected && oneOfMany
       ? "bg-accent-wash text-ink [--row-bg:var(--color-accent-wash)]"
       : selected
-        ? "bg-sheet text-ink shadow-[inset_0_0_0_1px_var(--color-rule)] [--row-bg:var(--color-sheet)]"
+        ? "bg-sheet text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)] [--row-bg:var(--color-sheet)]"
         : dragged
           ? rowTones[tone]
-          : `${rowTones[tone]} hover:bg-hover has-[:focus-visible]:bg-hover has-[.row-main:active]:hover:bg-press`
+          : `${rowTones[tone]} hover:bg-row-hover has-[:focus-visible]:bg-row-hover has-[.row-main:active]:hover:bg-press`
   } ${dragged ? draggedRowClass : ""}`;
 
 export const dropIntoClass = "bg-accent-wash shadow-[inset_0_0_0_2px_var(--color-accent)]";
@@ -85,7 +85,7 @@ export const clearsActions = {
 
 /** A row's 16px icon: muted unless the row is selected. */
 export const rowIconClass = (selected: boolean) =>
-  `size-4 shrink-0 ${selected ? "text-ink" : "text-ink-meta"}`;
+  `shrink-0 ${selected ? "text-ink" : "text-ink-meta"}`;
 
 /**
  * A row's actions, over its right end: shown while it is pointed at, is

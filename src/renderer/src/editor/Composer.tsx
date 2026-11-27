@@ -32,11 +32,10 @@ import {
   CollapseIcon,
   ExpandIcon,
   RemoveIcon,
-  SearchIcon,
   SearchLineIcon,
   SparkLineIcon,
-  StopIcon,
-  TableIcon,
+  StopLineIcon,
+  TableLineIcon,
 } from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { SkippedFilesLine } from "../components/SkippedFilesLine";
@@ -1092,7 +1091,7 @@ export function Composer({
             title={t("analysis.chip.hint")}
             className="question-skill"
           >
-            <TableIcon className="question-skill-icon" />
+            <TableLineIcon className="question-skill-icon" />
             <span className="truncate">{t("analysis.chip")}</span>
             <button
               type="button"
@@ -1182,7 +1181,7 @@ export function Composer({
               aria-hidden="true"
               className="composer-chip composer-scope-waiting"
             >
-              <SearchIcon className="composer-chip-icon" />
+              <SearchLineIcon className="composer-chip-icon" />
               <span className="truncate">{allLabel}</span>
             </span>
           ) : hasSearchScope(resolvedScope) ? (
@@ -1222,7 +1221,7 @@ export function Composer({
               onClick={openScopePicker}
               className="composer-chip composer-scope-all"
             >
-              <SearchIcon className="composer-chip-icon" />
+              <SearchLineIcon className="composer-chip-icon" />
               <span className="truncate">{allLabel}</span>
             </button>
           )}
@@ -1240,7 +1239,7 @@ export function Composer({
               }}
               className="composer-ask"
             >
-              <StopIcon />
+              <StopLineIcon />
             </button>
           ) : (
             <button

@@ -497,14 +497,16 @@
     }
 
     code {
-      @apply rounded-sm bg-chip px-1 font-mono text-[0.8em];
+      @apply rounded-sm bg-chip px-1 font-mono;
+      font-size: 0.8em;
     }
 
     pre {
       @apply overflow-x-auto rounded-md bg-frame px-4 py-3 font-mono text-ui leading-5 whitespace-pre;
 
       code {
-        @apply bg-transparent p-0 text-[1em];
+        @apply bg-transparent p-0;
+        font-size: 1em;
       }
 
       /* Syntax highlighting (lowlight), as in the Mind's code blocks: weight and tone, not colour. */

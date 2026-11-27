@@ -26,7 +26,7 @@ import { useSelectedOn } from "../selection";
 import { useAppStore } from "../store";
 import { ComparisonDocumentList } from "./ComparisonDocumentList";
 import { EstimateTip, PricingLink, useEstimateSource } from "./EstimateSource";
-import { ChevronDownLineIcon, PlusLineIcon, RemoveIcon, TableIcon } from "./icons";
+import { ChevronDownLineIcon, PlusLineIcon, RemoveIcon, TableLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine, readinessAction } from "./providers/ChatReadinessNotice";
 import { NeedsModelCard } from "./providers/NeedsModelCard";
@@ -451,7 +451,7 @@ export function CompareSheet({
           {estimated?.line && <SheetEstimate line={estimated.line} hidden={blocked} />}
           <div className="compare-sheet-foot">
             <span className="compare-sheet-chip">
-              <TableIcon />
+              <TableLineIcon />
               {t("comparison.sheet.region")}
               <button
                 type="button"

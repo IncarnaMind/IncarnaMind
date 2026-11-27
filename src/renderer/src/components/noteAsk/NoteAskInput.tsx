@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type ReactNode, type RefObject, useLayoutEffect, useRef } from "react";
 import { clearFieldUndoPending, markFieldUndoPending } from "../../commands/edit";
 import { useT } from "../../i18n";
-import { AskArrowIcon, RemoveIcon, StopIcon } from "../icons";
+import { AskArrowIcon, RemoveIcon, StopLineIcon } from "../icons";
 import { TypingTextarea } from "../TypingTextarea";
 import { NoteModeChoice } from "./NoteModeChoice";
 import { NoteModelChoice } from "./NoteModelChoice";
@@ -163,7 +163,7 @@ export function NoteAskInput({
             onClick={onStop}
             className="note-ask-round"
           >
-            <StopIcon />
+            <StopLineIcon />
           </button>
         ) : (
           <button

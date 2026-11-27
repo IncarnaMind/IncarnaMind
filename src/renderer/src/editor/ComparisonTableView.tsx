@@ -33,7 +33,7 @@ import {
   ExpandIcon,
   ExportLineIcon,
   PlusLineIcon,
-  TableIcon,
+  TableLineIcon,
 } from "../components/icons";
 import { useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
@@ -388,7 +388,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
         }}
         className="comparison-head"
       >
-        {expanded && <TableIcon className="shrink-0 text-ink-meta" />}
+        {expanded && <TableLineIcon className="shrink-0 text-ink-meta" />}
         <span data-testid="comparison-title" className="comparison-title" title={title}>
           {renaming ? (
             <TableNameField

@@ -33,7 +33,7 @@ import { iconButtonClass } from "../components/ui";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { type Align, formatState, setAlign } from "./formatCommands";
-import { runTableAction, TABLE_ACTIONS, type TableSpot } from "./tableCommands";
+import { runTableAction, TABLE_ACTIONS, type TableSpot, wholeLines } from "./tableCommands";
 import { withKeys } from "./withShortcut";
 import "./tableHandles.css";
 
@@ -89,7 +89,24 @@ function useHoveredCell(editor: Editor, handles: RefObject<HTMLElement | null>) 
   return cell?.isConnected ? cell : null;
 }
 
-/** Places each part against the hovered cell and the cell bar's cell, in `frame`'s coordinates. */
+/** The room the Add row bar leaves between it and the table above, and the Block below (#3761). */
+const ADD_ROW_INSET = 1;
+
+/** The box around the cells selected in `cell`'s table, or the cell's own while none are drawn. */
+function selectedBox(cell: HTMLElement): { left: number; right: number; top: number } {
+  const selected = Array.from(
+    cell.closest("table")?.querySelectorAll(".selectedCell") ?? [],
+    (each) => each.getBoundingClientRect(),
+  );
+  const boxes = selected.length > 0 ? selected : [cell.getBoundingClientRect()];
+  return {
+    left: Math.min(...boxes.map((box) => box.left)),
+    right: Math.max(...boxes.map((box) => box.right)),
+    top: Math.min(...boxes.map((box) => box.top)),
+  };
+}
+
+/** Places each part against the hovered cell and the selected cells, in `frame`'s coordinates. */
 function place(
   frame: HTMLElement,
   parts: { row: HTMLElement; column: HTMLElement; add: HTMLElement; bar: HTMLElement },
@@ -112,12 +129,14 @@ function place(
       parts.column.style.top = `${table.top - origin.top}px`;
       parts.add.style.left = `${left - origin.left}px`;
       parts.add.style.width = `${right - left}px`;
-      parts.add.style.top = `${table.bottom - origin.top}px`;
+      // In the gap under the table, clear of the Block below it: over no one's words.
+      parts.add.style.top = `${table.bottom + ADD_ROW_INSET - origin.top}px`;
     }
   }
   if (barCell) {
-    const box = barCell.getBoundingClientRect();
-    parts.bar.style.left = `${box.left + box.width / 2 - origin.left}px`;
+    // Above every selected cell, so it covers none of them, as a column's would its bottom cell.
+    const box = selectedBox(barCell);
+    parts.bar.style.left = `${(box.left + box.right) / 2 - origin.left}px`;
     parts.bar.style.top = `${box.top - origin.top}px`;
   }
 }
@@ -126,8 +145,9 @@ function place(
  * A table's everyday edits by pointer (#3761): a handle at the left of the row under the pointer
  * and at the top of its column, which selects that row or column and opens the table's menu on
  * it; a bar under the table that adds a row at its end; and a small bar over selected cells that
- * formats them, adds a row or a column beside them, or deletes their rows or columns. Each does
- * what the table's menu and its keys do, which stay the keyboard's way (⌘/ and the menu's keys).
+ * formats them, adds a row or a column beside them, or deletes the rows or columns they hold whole.
+ * Each does what the table's menu and its keys do, which stay the keyboard's way (⌘/ and the
+ * menu's keys).
  */
 export function TableHandles({
   editor,
@@ -157,10 +177,7 @@ export function TableHandles({
     editor,
     selector: ({ editor: current }) => ({
       cells: current.state.selection instanceof CellSelection,
-      columns:
-        current.state.selection instanceof CellSelection &&
-        current.state.selection.isColSelection() &&
-        !current.state.selection.isRowSelection(),
+      lines: wholeLines(current.state.selection),
       bold: current.isActive("bold"),
       italic: current.isActive("italic"),
       code: current.isActive("code"),
@@ -184,11 +201,17 @@ export function TableHandles({
       bar.current,
     ];
     if (!container || !frame || !row || !column || !add || !cellBar) return;
-    const reference = hovered ?? barCell;
-    if (!reference) return;
-    return autoUpdate(reference, container, () =>
-      place(frame, { row, column, add, bar: cellBar }, hovered, barCell),
+    // The tables too: a row added at the end grows the table and moves none of its cells.
+    const references = new Set(
+      [hovered, hovered?.closest("table"), barCell, barCell?.closest("table")].filter(
+        (each): each is HTMLElement => each instanceof HTMLElement,
+      ),
     );
+    const update = () => place(frame, { row, column, add, bar: cellBar }, hovered, barCell);
+    const stops = Array.from(references, (reference) => autoUpdate(reference, container, update));
+    return () => {
+      for (const stop of stops) stop();
+    };
   }, [hovered, barCell]);
 
   const ctx = (): CommandContext => ({
@@ -349,12 +372,13 @@ export function TableHandles({
         <span className="table-bar-rule" />
         {commandButton("table.rowBelow", AddRowBelowIcon)}
         {commandButton("table.columnRight", AddColumnRightIcon)}
-        <span className="table-bar-rule" />
-        {commandButton(
-          state.columns ? "table.deleteColumn" : "table.deleteRow",
-          TrashLineIcon,
-          true,
-        )}
+        {state.lines !== null && <span className="table-bar-rule" />}
+        {state.lines !== null &&
+          commandButton(
+            state.lines === "columns" ? "table.deleteColumn" : "table.deleteRow",
+            TrashLineIcon,
+            true,
+          )}
       </div>
     </div>
   );

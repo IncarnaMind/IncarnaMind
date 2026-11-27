@@ -76,7 +76,7 @@ import {
   DocumentLineIcon,
   MindLineIcon,
   RegenerateSmallIcon,
-  SearchIcon,
+  SearchLineIcon,
   SparkLineIcon,
 } from "../icons";
 import { LineAction, ProblemLine } from "../ProblemLine";
@@ -641,7 +641,7 @@ function FoldedToggle({
     ) : line.kind === "answered" ? (
       <SparkLineIcon className="answer-steps-icon" />
     ) : (
-      <SearchIcon className="answer-steps-icon" />
+      <SearchLineIcon className="answer-steps-icon" />
     );
   const parts =
     step && !step.mind.deleted
@@ -828,7 +828,7 @@ function StepItem({
       return <SearchStep row={row} scope={scope} />;
     case "stopped-search":
       return (
-        <Step kind={row.kind} icon={<SearchIcon />}>
+        <Step kind={row.kind} icon={<SearchLineIcon />}>
           <p className="answer-step-title">
             {t("steps.search.stopped", { scope, query: field(row.call, "query") })}
           </p>
@@ -981,7 +981,7 @@ function SearchStep({ row, scope }: { row: Extract<StepRow, { kind: "search" }>;
   const queries = searches.map((call) => field(call, "query"));
   const current = row.calls.at(-1);
   return (
-    <Step kind={row.kind} icon={<SearchIcon />} running={row.running}>
+    <Step kind={row.kind} icon={<SearchLineIcon />} running={row.running}>
       <p className="answer-step-title">
         {row.running
           ? current?.tool === "read_document"

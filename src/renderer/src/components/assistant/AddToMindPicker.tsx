@@ -5,7 +5,7 @@ import { type AddTarget, noteChoices } from "../../addToNote";
 import { Popover } from "../../editor/Popover";
 import { useT } from "../../i18n";
 import { exampleMindIds, useAppStore } from "../../store";
-import { MindLineIcon, PlusLineIcon, SearchIcon } from "../icons";
+import { MindLineIcon, PlusLineIcon, SearchLineIcon } from "../icons";
 
 /** Under "Recent", this many Minds; a search shows up to this many. */
 const RECENT = 4;
@@ -163,7 +163,7 @@ export function AddToMindPicker({
     >
       <div className="add-to-search">
         <label className="add-to-field">
-          <SearchIcon className="shrink-0" />
+          <SearchLineIcon className="shrink-0" />
           <span className="sr-only">{t("answer.addTo.find")}</span>
           <input
             ref={field}

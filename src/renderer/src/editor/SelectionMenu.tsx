@@ -17,7 +17,7 @@ import { keysHere, shortcutLabel } from "../commands/keymap";
 import {
   ChevronIcon,
   ClearFormatIcon,
-  CommentIcon,
+  CommentLineIcon,
   LinkLineIcon,
   PageBreakLineIcon,
   SumIcon,
@@ -749,7 +749,7 @@ export function SelectionMenu({
                 }}
                 className="selection-format"
               >
-                <CommentIcon />
+                <CommentLineIcon />
               </button>
             )}
           </div>

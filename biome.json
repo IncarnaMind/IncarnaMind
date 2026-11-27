@@ -101,7 +101,39 @@
       "plugins": ["./biome/noRawFontSizeCss.grit", "./biome/noRawFontSizeJs.grit"]
     },
     {
-      "includes": ["src/renderer/**", "!src/renderer/src/components/icons.tsx"],
+      "includes": [
+        "src/renderer/**",
+        "!src/renderer/src/components/icons.tsx",
+        "!src/renderer/src/motion.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "motion": "Animate through src/renderer/src/motion.ts: its tokens, helpers and reduced motion (DESIGN.md, Motion).",
+                  "motion/mini": "Animate through src/renderer/src/motion.ts: its tokens, helpers and reduced motion (DESIGN.md, Motion).",
+                  "motion/react": "Animate through src/renderer/src/motion.ts: its tokens, helpers and reduced motion (DESIGN.md, Motion).",
+                  "framer-motion": "Animate through src/renderer/src/motion.ts: its tokens, helpers and reduced motion (DESIGN.md, Motion).",
+                  "motion-dom": "Animate through src/renderer/src/motion.ts: its tokens, helpers and reduced motion (DESIGN.md, Motion).",
+                  "lucide-react": "Import icons from components/icons.tsx: one set, one line width, two sizes (DESIGN.md, Icons; #3766)."
+                },
+                "patterns": [
+                  {
+                    "group": ["lucide-react/*"],
+                    "message": "Import icons from components/icons.tsx: one set, one line width, two sizes (DESIGN.md, Icons; #3766)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/renderer/src/motion.ts"],
       "linter": {
         "rules": {
           "style": {
@@ -126,8 +158,7 @@
         "!src/renderer/src/viewer/slides/SlideCanvas.tsx",
         "!src/renderer/src/viewer/slides/ChartView.tsx",
         "!src/renderer/src/editor/ChartPlot.tsx",
-        "!src/renderer/src/editor/citationScan.tsx",
-        "!src/renderer/src/components/TypingTextarea.tsx"
+        "!src/renderer/src/editor/citationScan.tsx"
       ],
       "linter": {
         "rules": {
@@ -137,6 +168,23 @@
               "options": {
                 "elements": {
                   "textarea": "Use TypingTextarea (components/TypingTextarea.tsx): a plain controlled <textarea> makes Undo take typing back one character at a time.",
+                  "svg": "Use an icon from components/icons.tsx: one set, one line width, two sizes (DESIGN.md, Icons; #3766). A drawing of a Document's own (a chart, a slide, a scan) lives in its drawing file."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/renderer/src/components/TypingTextarea.tsx"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noRestrictedElements": {
+              "level": "error",
+              "options": {
+                "elements": {
                   "svg": "Use an icon from components/icons.tsx: one set, one line width, two sizes (DESIGN.md, Icons; #3766). A drawing of a Document's own (a chart, a slide, a scan) lives in its drawing file."
                 }
               }

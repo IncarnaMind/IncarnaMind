@@ -8,7 +8,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { sameModel } from "../../../shared/mindModel";
 import { shortModelName } from "../../../shared/modelName";
 import { useAnswers } from "../answers";
-import { CheckLineIcon, ChevronDownSmallIcon } from "../components/icons";
+import { CheckLineIcon, ChevronDownLineIcon } from "../components/icons";
 import { OnThisComputer } from "../components/OnThisComputer";
 import { ChatGptMark } from "../components/providers/ChatGptMark";
 import {
@@ -239,7 +239,7 @@ export function ModelChip({
       >
         {/* A stand-in's words carry the reset time, so they wrap rather than being cut (#400). */}
         <span className={answering?.until ? "min-w-0 break-words" : "truncate"}>{chipText}</span>
-        <ChevronDownSmallIcon className="composer-model-chevron" />
+        <ChevronDownLineIcon className="composer-model-chevron" />
       </button>
       <div
         {...menu.menuProps}

@@ -8,7 +8,7 @@
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentPairing, Document } from "../../../../core/api";
 import { useViewerHandle } from "../../commands/handles";
-import { AskArrowIcon, RemoveIcon, StopIcon } from "../../components/icons";
+import { AskArrowIcon, RemoveIcon, StopLineIcon } from "../../components/icons";
 import { TypingTextarea } from "../../components/TypingTextarea";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
@@ -373,7 +373,7 @@ export function DeckAskBox({
               onClick={() => setWorking(null)}
               className="note-ask-round"
             >
-              <StopIcon />
+              <StopLineIcon />
             </button>
           ) : (
             <button

@@ -8,7 +8,7 @@ import {
   SearchLineIcon,
   SettingsLineIcon,
   SparkLineIcon,
-  TableIcon,
+  TableLineIcon,
   UploadLineIcon,
 } from "../components/icons";
 import { menuClass, menuItemClass, menuRuleClass, menuTitleClass } from "../components/ui";
@@ -96,7 +96,7 @@ export function ComposerPlus({
       case "compare":
         return {
           label: compare ? labelOf(compare, WINDOW, t) : "",
-          icon: <TableIcon className={iconClass} />,
+          icon: <TableLineIcon className={iconClass} />,
           run: () => void commands.run(COMPARE, WINDOW).catch(useAppStore.getState().reportError),
         };
     }

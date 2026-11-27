@@ -27,7 +27,7 @@ export function HomeHeader({ now }: { now: Date }) {
       <div className="min-w-0 flex-1">
         <h1
           data-testid="home-greeting"
-          className="text-title leading-[42px] font-semibold tracking-[-0.01em] text-ink"
+          className="text-title font-semibold tracking-[-0.01em] text-ink"
         >
           {t(`home.greeting.${partOfDay(now)}`)}
         </h1>
