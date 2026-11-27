@@ -23,6 +23,19 @@ type LibraryLocation = Extract<CitationLocation, { kind: "library" }>;
 /** The Document id a Citation of the Library's facts carries: the facts are no Document's. */
 export const LIBRARY_FACTS = "library-facts";
 
+/** Live Document versions with the Library lists' version beside them, for any reader of checks (#2525). */
+export function versionsWithLibrary(
+  documents: readonly { id: string; contentHash: string }[] | ReadonlyMap<string, string>,
+  libraryVersion: string | null | undefined,
+): Map<string, string> {
+  const versions =
+    "get" in documents
+      ? new Map(documents)
+      : new Map(documents.map((document) => [document.id, document.contentHash] as const));
+  if (libraryVersion != null) versions.set(LIBRARY_FACTS, libraryVersion);
+  return versions;
+}
+
 const VERSION = `${LIBRARY_FACTS}:`;
 
 export const isLibraryCitation = (citation: Pick<CitationAttributes, "location">): boolean =>

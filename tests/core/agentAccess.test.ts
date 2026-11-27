@@ -32,8 +32,9 @@ import {
 } from "../../src/core/api";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
 import type { WindowedPassage } from "../../src/core/documents/search";
-import { libraryLists } from "../../src/core/library/lists";
+import { libraryLists, libraryVersion } from "../../src/core/library/lists";
 import { translate } from "../../src/shared/i18n";
+import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { recordNoteWriter } from "../../src/shared/noteWriter";
 
 const AT = "2026-11-01T00:00:00.000Z";
@@ -1162,6 +1163,197 @@ describe("a call that waits while what the agent reaches changes (#3458 review)"
     expect(reads).toEqual([["tides"], ["harbour"]]);
     expect(checked).toMatchObject({ needLook: 0, claims: [] });
     expect(JSON.stringify(checked)).not.toContain("Tides says");
+  });
+
+  // protects=checkedNote formats matching scoped Library evidence with sourceWords/libraryRow and strips any Library evidence whose version mismatches the current grant or whose source is not scoped (#2525); fails_when=the version or source guard on LIBRARY_FACTS evidence is removed or raw "library-facts" leaks
+  it("formats matching scoped Library evidence and strips mismatched or non-scoped Library evidence", async () => {
+    const lists = libraryLists({
+      source: { kind: "scope", name: "Coast", more: 0 },
+      documents: [],
+      folders: [{ id: "coast", name: "Coast", parentId: null }],
+      folderOf: new Map(),
+      tagNames: new Map(),
+      notes: [],
+    });
+    const version = libraryVersion(lists);
+    const makeSentence = (
+      text: string,
+      contentHash: string,
+      source:
+        | { kind: "scope"; name: string; more: number }
+        | { kind: "library" }
+        | { kind: "left-out"; folders: number },
+    ) => ({
+      kind: "sentence" as const,
+      text,
+      origin: "other" as const,
+      result: "contradicted" as const,
+      reason: null,
+      row: "look" as const,
+      says: `Explanation for ${text}`,
+      evidence: {
+        name: LIBRARY_FACTS,
+        file: null,
+        deleted: true,
+        size: null,
+        sha256: contentHash,
+        location: "Your Library",
+        quote: null,
+      },
+      judgedOn: {
+        passageId: null,
+        documentId: LIBRARY_FACTS,
+        documentName: LIBRARY_FACTS,
+        contentHash,
+        pageFrom: null,
+        pageTo: null,
+        location: {
+          kind: "library" as const,
+          source,
+          fact: { kind: "documents" as const, count: 1 },
+        },
+        quote: "",
+      },
+      toCite: null,
+      check: { model: null, at: AT, scope: { folderId: "coast", widened: false } },
+      scope: { folderId: "coast", widened: false },
+    });
+
+    const access = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        libraryLists: () => lists,
+        checkRecord: async () => ({
+          models: [],
+          sentences: [
+            makeSentence("Scoped current.", version, { kind: "scope", name: "Coast", more: 0 }),
+            makeSentence("Scoped stale.", "different-version", {
+              kind: "scope",
+              name: "Coast",
+              more: 0,
+            }),
+            makeSentence("Whole library.", version, { kind: "library" }),
+            makeSentence("Left-out wall.", version, { kind: "left-out", folders: 1 }),
+          ],
+        }),
+      },
+    );
+
+    const checked = await access.checkMind({ mindId: "note" });
+    expect(checked.claims).toEqual([
+      {
+        sentence: "Scoped current.",
+        group: "needLook",
+        result: "contradicted",
+        reason: null,
+        says: "Explanation for Scoped current.",
+        document: "“Coast”",
+        location: "“Coast”: 1 Document",
+        quote: null,
+        cite: null,
+      },
+      {
+        sentence: "Scoped stale.",
+        group: "needLook",
+        result: "contradicted",
+        reason: null,
+        says: null,
+        document: null,
+        location: null,
+        quote: null,
+        cite: null,
+      },
+      {
+        sentence: "Whole library.",
+        group: "needLook",
+        result: "contradicted",
+        reason: null,
+        says: null,
+        document: null,
+        location: null,
+        quote: null,
+        cite: null,
+      },
+      {
+        sentence: "Left-out wall.",
+        group: "needLook",
+        result: "contradicted",
+        reason: null,
+        says: null,
+        document: null,
+        location: null,
+        quote: null,
+        cite: null,
+      },
+    ]);
+  });
+
+  // protects=checkedNote re-reads the check record when the agent's Library lists version changes mid-read even while document reach (`checkReach`) stays identical (#2525); fails_when=the `nowLib === libVersion` loop condition is removed
+  it("reads the check's record again when Library lists change while document reach stays the same", async () => {
+    const listsA = libraryLists({
+      source: { kind: "scope", name: "Coast", more: 0 },
+      documents: [],
+      folders: [{ id: "coast", name: "Coast", parentId: null }],
+      folderOf: new Map(),
+      tagNames: new Map(),
+      notes: [{ name: "Before", folderId: "coast" }],
+    });
+    const listsB = libraryLists({
+      source: { kind: "scope", name: "Coast", more: 0 },
+      documents: [],
+      folders: [{ id: "coast", name: "Coast", parentId: null }],
+      folderOf: new Map(),
+      tagNames: new Map(),
+      notes: [{ name: "After", folderId: "coast" }],
+    });
+    const versionA = libraryVersion(listsA);
+    const versionB = libraryVersion(listsB);
+    expect(versionA).not.toBe(versionB);
+
+    let current = listsA;
+    const seenLibVersions: (string | null | undefined)[] = [];
+    const access = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        // Document reach stays identical across every read.
+        documentsIn: () => ["tides"],
+        libraryLists: () => current,
+        checkRecord: async (_mindId, _reach, libVersion) => {
+          seenLibVersions.push(libVersion);
+          // Mutate only the granted Library lists during the first read; document reach never changes.
+          const firstRead = current === listsA;
+          current = listsB;
+          return {
+            models: [],
+            sentences: firstRead
+              ? [
+                  {
+                    kind: "sentence" as const,
+                    text: "There is 1 other Note.",
+                    origin: "other" as const,
+                    result: "contradicted" as const,
+                    reason: null,
+                    row: "look" as const,
+                    says: "Old count from Before.",
+                    evidence: null,
+                    judgedOn: null,
+                    toCite: null,
+                    check: { model: null, at: AT, scope: { folderId: "coast", widened: false } },
+                    scope: { folderId: "coast", widened: false },
+                  },
+                ]
+              : [],
+          };
+        },
+      },
+    );
+
+    const checked = await access.checkMind({ mindId: "note" });
+    expect(seenLibVersions).toEqual([versionA, versionB]);
+    expect(checked).toMatchObject({ needLook: 0, claims: [] });
+    expect(JSON.stringify(checked)).not.toContain("Old count from Before");
   });
 });
 

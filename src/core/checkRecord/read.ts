@@ -19,13 +19,14 @@ import { partToCite } from "../../shared/citedNow";
 import {
   checkedSentence,
   checkJudges,
+  isUserLibraryCheck,
   type SentenceResult,
   sentenceResultOf,
 } from "../../shared/claimChecks";
 import { restsOnPassage } from "../../shared/claimParts";
 import { keptBinding } from "../../shared/figureRuns";
 import { withoutInertBrackets } from "../../shared/inertBrackets";
-import { LIBRARY_FACTS } from "../../shared/libraryFacts";
+import { versionsWithLibrary } from "../../shared/libraryFacts";
 import type { Translate } from "../../shared/locations";
 import { mindCheckOf, sentenceKey } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -130,6 +131,8 @@ export type SentenceItem = RecordItemFields & {
     | null;
   /** Where the check that marked it searched: kept for a sentence that reads Not checked too, which has no `check` (#3453). */
   scope: ClaimCheckScope;
+  /** Whether the mark rests on the User's own Library lists (whole-Library or walled count), never an outside grant's (#2525). */
+  userLibrary?: true;
 };
 
 /**
@@ -304,8 +307,7 @@ export function readRecord(sources: RecordSources): {
 } {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
-  const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
-  if (sources.libraryVersion != null) versions.set(LIBRARY_FACTS, sources.libraryVersion);
+  const versions = versionsWithLibrary(documents, sources.libraryVersion);
   const footing = noteFooting(fragment, { versions, folderId, scope });
   const reading = readingOf(fragment, {
     versions,
@@ -370,6 +372,7 @@ export function readRecord(sources: RecordSources): {
       result,
       reason: shown.state === "not-checked" ? shown.reason : null,
       scope: check.scope,
+      ...(isUserLibraryCheck(check) && { userLibrary: true as const }),
       row,
       toCite:
         !staleForReach && toCite

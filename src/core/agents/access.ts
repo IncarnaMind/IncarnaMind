@@ -44,7 +44,7 @@ import {
 import { CHANGE_CHARS, givenChange } from "../../shared/claimChange";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
-import { LIBRARY_FACTS } from "../../shared/libraryFacts";
+import { LIBRARY_FACTS, libraryRow, sourceWords } from "../../shared/libraryFacts";
 import { isListedMind } from "../../shared/listedMinds";
 import { mindName } from "../../shared/naming";
 import type { CheckRow } from "../../shared/noteHealth";
@@ -2849,9 +2849,9 @@ export function createAgentAccess(
       record = await deps.checkRecord(mindId, inScope, libVersion);
     }
     const read = new Set<string>();
-    // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
+    // A mark the User's wider or whole-Library check left says what Documents beyond the agent's Folders hold.
     const beyond = (item: (typeof record.sentences)[number]) =>
-      item.scope.widened || item.scope.chosen != null;
+      item.scope.widened || item.scope.chosen != null || item.userLibrary === true;
     // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
     const rowOf = (item: (typeof record.sentences)[number]) =>
       beyond(item) ? "toCheck" : item.row;
@@ -2892,11 +2892,12 @@ export function createAgentAccess(
         ) {
           return { ...claim, ...unsaid };
         }
+        const language = deps.language();
         return {
           ...claim,
           says: passage.says,
-          document: passage.evidence.name,
-          location: passage.evidence.location,
+          document: sourceWords(judgedOn.location.source, t, language),
+          location: libraryRow(judgedOn.location, t, language),
           quote: null,
           cite: null,
         };

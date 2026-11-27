@@ -4,6 +4,8 @@
  * Documents on the User's model, the Note carries the marks, and the agent gets back each claim
  * that needs a look with what the Document says.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import {
@@ -20,8 +22,12 @@ import { citationState } from "../../src/shared/citations";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingPart } from "../../src/shared/claimParts";
 import { installFigureRuns, keptBinding, retainFigureAnalysis } from "../../src/shared/figureRuns";
+import { versionsWithLibrary } from "../../src/shared/libraryFacts";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import { sortReply } from "../helpers/claimSentences";
+import { createTempDataFolder } from "../helpers/core";
+import { recordRows } from "../helpers/csv";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
@@ -176,9 +182,9 @@ describe("an outside agent has its Note checked (#3317)", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=an outside agent's check_mind counts only the Library lists its own grant covers (#2525): Documents outside the grant, in ungranted Folders, in walled Folders (top-level or nested), soft-deleted items and Not cited workings leave the count unchanged; a grant change invalidates and re-counts; the User's own wider check never leaks; and no name outside the grant ever appears in any request the model receives; fails_when=check_mind counts anything outside the grant, keeps a stale count after a grant change, leaks the User's Library verdict, or sends any ungranted name to the model.
+  // protects=an outside agent's check_mind counts only the Library lists its own grant covers (#2525): Documents outside the grant, in ungranted Folders, in walled Folders (top-level or nested) and soft-deleted items leave the count unchanged, while Not cited workings in granted Folders stay counted like the User's lists; a grant change invalidates and re-counts; a User-made whole-Library mark is never overwritten and reads as not-checked / beyond-reach; and no name outside the grant ever appears in any request the model receives; fails_when=check_mind counts anything outside the grant, misfiles under an empty parent Folder, drops a Not cited working, keeps a stale count after a grant change, overwrites or leaks the User's Library verdict, or sends any ungranted name to the model.
   it("counts only the Library lists its own grant covers, and updates when the grant changes", async () => {
-    const CLAIM = "Your Library holds 3 Documents across 4 Folders and 2 other Notes.";
+    const CLAIM = "Your Library holds 4 Documents across 4 Folders and 2 other Notes.";
     const CODE =
       'result("documents", len(inputs["files"]))\nresult("folders", len(inputs["folders"]))\nresult("notes", len(inputs["notes"]))';
     const calls: ModelCall[] = [];
@@ -239,16 +245,16 @@ describe("an outside agent has its Note checked (#3317)", () => {
         const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
         const folders = Number(/- folders:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
         const notes = Number(/- notes:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
-        if (docs === 3 && folders === 4 && notes === 2) {
+        if (docs === 4 && folders === 4 && notes === 2) {
           return {
-            text: "Verdict: supported\nExplanation: The lists show 3 Documents across 4 Folders and 2 other Notes.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.",
+            text: "Verdict: supported\nExplanation: The lists show 4 Documents across 4 Folders and 2 other Notes.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.",
           };
         }
         return {
-          text: `Verdict: contradicted\nExplanation: The lists show ${docs} Documents across ${folders} Folders and ${notes} other Notes, not 3, 4 and 2.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.`,
+          text: `Verdict: contradicted\nExplanation: The lists show ${docs} Documents across ${folders} Folders and ${notes} other Notes, not 4, 4 and 2.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.`,
         };
       },
-      { generate: () => ({ text: JSON.stringify({ claims: [CLAIM] }) }) },
+      { generate: (call) => ({ text: sortReply(call.prompt) }) },
     );
     const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
     const saved = await core.saveChatProvider({
@@ -276,7 +282,8 @@ describe("an outside agent has its Note checked (#3317)", () => {
       return doc;
     };
 
-    // Granted folders: Coast (with subfolder Coves) and Harbour (empty parent holding subfolder Docks).
+    // Granted folders: Coast (with subfolder Coves) and Harbour (empty parent holding subfolder
+    // Wharf, which sorts after Harbour so ancestry—not a size tie—must assign Quays to Wharf).
     const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
     const coves = await core.createLibraryGroup({
       name: "Coves",
@@ -284,8 +291,8 @@ describe("an outside agent has its Note checked (#3317)", () => {
       parentId: coast.id,
     });
     const harbour = await core.createLibraryGroup({ name: "Harbour", description: "" });
-    const docks = await core.createLibraryGroup({
-      name: "Docks",
+    const wharf = await core.createLibraryGroup({
+      name: "Wharf",
       description: "",
       parentId: harbour.id,
     });
@@ -315,8 +322,8 @@ describe("an outside agent has its Note checked (#3317)", () => {
 
     await core.assignDocumentGroup(byName("Tides").id, coast.id);
     await core.assignDocumentGroup(byName("Chart").id, coves.id);
-    // Quays sits only in child Docks (Harbour has 0 direct Documents): ancestry must assign it to Docks.
-    await core.assignDocumentGroup(byName("Quays").id, docks.id);
+    // Quays sits only in child Wharf (Harbour has 0 direct Documents): ancestry must assign it to Wharf.
+    await core.assignDocumentGroup(byName("Quays").id, wharf.id);
     await core.assignDocumentGroup(byName("Rivers").id, inland.id);
     await core.assignDocumentGroup(byName("VaultLedger").id, vault.id);
     await core.assignDocumentGroup(byName("InnerSecret").id, innerWall.id);
@@ -331,7 +338,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
     await core.createMind({ title: "InnerMemo", folderId: innerWall.id });
     const removedNote = await core.createMind({ title: "RemovedNote", folderId: coast.id });
 
-    // Soft-delete doc, folder and note, and mark OwnWorking as Not cited.
+    // Soft-delete doc, folder and note, and mark OwnWorking as Not cited (still counted in Coast).
     await core.deleteDocument(byName("RemovedDoc").id);
     await core.deleteLibraryGroup(removedFolder.id);
     await core.deleteMind(removedNote.id);
@@ -351,7 +358,6 @@ describe("an outside agent has its Note checked (#3317)", () => {
       "RemovedDoc",
       "RemovedFolder",
       "RemovedNote",
-      "OwnWorking",
     ];
     const assertNoLeak = (
       seenCalls: readonly ModelCall[],
@@ -381,7 +387,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       }),
     );
 
-    // 1. Grant [Coast, Harbour]: counts only granted Documents (3), Folders (4) and Notes (2).
+    // 1. Grant [Coast, Harbour]: counts granted Documents (4, including Not cited OwnWorking), Folders (4) and Notes (2).
     calls.length = 0;
     const first = structured<Checked>(await check(agent, mindId));
     expect(first).toMatchObject({ status: "checked", supported: 1, needLook: 0, notChecked: 0 });
@@ -393,16 +399,17 @@ describe("an outside agent has its Note checked (#3317)", () => {
         rows: expect.arrayContaining([
           ["Tides", "markdown", "Coast", "Coast", ""],
           ["Chart", "markdown", "Coves", "Coast / Coves", ""],
-          ["Quays", "markdown", "Docks", "Harbour / Docks", ""],
+          ["Quays", "markdown", "Wharf", "Harbour / Wharf", ""],
+          ["OwnWorking", "markdown", "Coast", "Coast", ""],
         ]),
       },
       {
         name: "folders",
         rows: expect.arrayContaining([
-          ["Coast", "", "Coast", 2],
+          ["Coast", "", "Coast", 3],
           ["Coves", "Coast", "Coast / Coves", 1],
           ["Harbour", "", "Harbour", 1],
-          ["Docks", "Harbour", "Harbour / Docks", 1],
+          ["Wharf", "Harbour", "Harbour / Wharf", 1],
         ]),
       },
       {
@@ -414,7 +421,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       },
     ]);
     expect(job1?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1))).toEqual([
-      3, 4, 2,
+      4, 4, 2,
     ]);
     assertNoLeak(calls, first);
 
@@ -432,47 +439,293 @@ describe("an outside agent has its Note checked (#3317)", () => {
     expect(runtime.jobs).toHaveLength(2);
     const job2 = runtime.jobs[1];
     expect(job2?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1))).toEqual([
-      2, 2, 1,
+      3, 2, 1,
     ]);
     expect(narrowed).toMatchObject({ status: "checked", supported: 0, needLook: 1, notChecked: 0 });
     expect(narrowed.claims[0]).toMatchObject({
       sentence: CLAIM,
       group: "needLook",
       result: "contradicted",
+      document: "“Coast”",
+      location: "“Coast”: 3 Documents",
       quote: null,
       cite: null,
     });
-    expect(narrowed.claims[0]?.says).toContain("2 Documents across 2 Folders and 1 other Notes");
-    assertNoLeak(calls, narrowed, ["Harbour", "Docks", "Quays", "Harbour log"]);
+    expect(narrowed.claims[0]?.says).toContain("3 Documents across 2 Folders and 1 other Notes");
+    assertNoLeak(calls, narrowed, ["Harbour", "Wharf", "Quays", "Harbour log"]);
 
-    // 3. The User runs their own Check (seeing full non-walled Library + left-out wall count),
-    // then the narrowed agent checks again: it re-checks within [Coast] and never inherits the User's verdict.
-    const own = await core.checkMind({ requestId: "own-full-check", mindId, mode: "all" });
-    expect(own.kind).toBe("checked");
-    expect(runtime.jobs).toHaveLength(3);
-    calls.length = 0;
-    const afterOwn = structured<Checked>(await check(agent, mindId));
-    expect(runtime.jobs).toHaveLength(4);
-    expect(
-      runtime.jobs[3]?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1)),
-    ).toEqual([2, 2, 1]);
-    expect(afterOwn).toMatchObject({ status: "checked", supported: 0, needLook: 1 });
-    assertNoLeak(calls, afterOwn, ["Harbour", "Docks", "Quays", "Harbour log"]);
-
-    // 4. Grant expanded back to [Coast, Harbour]: updates the count back to Supported.
+    // 3. Grant expanded back to [Coast, Harbour]: updates the count back to Supported.
     await core.updateAgent(pairing.id, { folderIds: [coast.id, harbour.id] });
     calls.length = 0;
     const expanded = structured<Checked>(await check(agent, mindId));
-    expect(runtime.jobs).toHaveLength(5);
+    expect(runtime.jobs).toHaveLength(3);
     expect(expanded).toMatchObject({ status: "checked", supported: 1, needLook: 0 });
     assertNoLeak(calls, expanded);
+
+    // 4. The User runs their own Check (seeing full non-walled Library + left-out wall count),
+    // then the narrowed agent checks again: it never overwrites the User's mark and reports beyond-reach.
+    await core.updateAgent(pairing.id, { folderIds: [coast.id] });
+    const own = await core.checkMind({ requestId: "own-full-check", mindId, mode: "all" });
+    expect(own.kind).toBe("checked");
+    expect(runtime.jobs).toHaveLength(4);
+    calls.length = 0;
+    const afterOwn = structured<Checked>(await check(agent, mindId));
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(4);
+    expect(afterOwn).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 0,
+      notChecked: 1,
+      claims: [
+        {
+          sentence: CLAIM,
+          group: "notChecked",
+          result: "not-checked",
+          reason: "beyond-reach",
+          says: null,
+          document: null,
+          location: null,
+          quote: null,
+          cite: null,
+        },
+      ],
+    });
+    assertNoLeak(calls, afterOwn, ["Harbour", "Wharf", "Quays", "Harbour log"]);
+
+    // The User's own verdict still stands untouched in the Note.
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const userVersions = versionsWithLibrary(
+      await core.listDocuments(),
+      await core.libraryListsVersion(mindId),
+    );
+    expect(
+      claimSpans(readMind(client)).map((span) =>
+        claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions: userVersions,
+          folderId: coast.id,
+          scope: null,
+        }),
+      ),
+    ).toEqual([{ state: "contradicted" }]);
+
+    // Once the Library changes outside the agent's grant so the User's Library check goes stale,
+    // the agent still may not overwrite it: check_mind is refused beyond-reach and sends nothing.
+    const [extraInland] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Estuary.md", "# Estuary\n\nAnother inland document.\n"),
+    ]);
+    if (!extraInland) throw new Error("Missing Estuary");
+    await core.assignDocumentGroup(extraInland.id, inland.id);
+    calls.length = 0;
+    expect(refusal(await check(agent, mindId))).toContain("outside the Folders");
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(4);
 
     // 5. Revoking all Folders leaves no grant: check_mind is refused and sends nothing.
     await core.updateAgent(pairing.id, { folderIds: [] });
     calls.length = 0;
     expect(refusal(await check(agent, mindId))).toContain("No such passage");
     expect(calls).toEqual([]);
-    expect(runtime.jobs).toHaveLength(5);
+    expect(runtime.jobs).toHaveLength(4);
+  });
+
+  // protects=every User-side reader (editor, Word export, check record, AI use statement) reads an agent's grant-only Library check as needs-recheck when the User's Library differs, Not cited workings are counted alike by User and agent, and check_mind names the granted source with sourceWords and libraryRow rather than "library-facts" or "Your Library" (#2525); fails_when=export/check-record/AI-use-statement show an agent's grant-only Library check as Supported, agent and User disagree on Not cited workings, or check_mind leaks "library-facts" or "Your Library".
+  it("flags an agent's grant-only Library check as needs-recheck across User views, counts Not cited workings alike, and names the granted source", async () => {
+    const TWO = "Your Library holds 2 Documents.";
+    const NINE = "Your Library holds 9 Documents.";
+    const CODE = 'result("documents", len(inputs["files"]))';
+    const runtime = createFakeAnalysisRuntime({
+      answer: (job) => {
+        const table = job.inputs.find((each) => each.kind === "table" && each.name === "files");
+        const count = table && table.kind === "table" ? table.rows.length : 0;
+        return {
+          output: {
+            results: [
+              { kind: "figure", name: "documents", label: "documents", unit: null, value: count },
+            ],
+            printed: "",
+          },
+        };
+      },
+    });
+    const model = scriptedModel(
+      (call) => {
+        if (!isCheckRun(call)) {
+          const text = JSON.stringify(call);
+          return { text: JSON.stringify({ claims: [text.includes(NINE) ? NINE : TWO] }) };
+        }
+        const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+        if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+          return {
+            calls: [
+              {
+                tool: ANALYSIS_TOOLS.run,
+                input: {
+                  title: "Count Documents",
+                  inputs: [{ name: "files", library: "documents" }],
+                  code: CODE,
+                },
+              },
+            ],
+          };
+        }
+        const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        const claimed = JSON.stringify(call).includes(NINE) ? 9 : 2;
+        return {
+          text:
+            docs === claimed
+              ? `Verdict: supported\nExplanation: The list has ${docs} Documents.\nEvidence: []\nWorking: Counted the Documents list.`
+              : `Verdict: contradicted\nExplanation: The list has ${docs} Documents, not ${claimed}.\nEvidence: []\nWorking: Counted the Documents list.`,
+        };
+      },
+      { generate: (call) => ({ text: sortReply(call.prompt) }) },
+    );
+    const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+    const sources = await createSourceFolder();
+    const [tides, quays, rivers] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides.\n"),
+      await writeSourceFile(sources, "Quays.md", "# Quays\n\nStone quays.\n"),
+      await writeSourceFile(sources, "Rivers.md", "# Rivers\n\nInland rivers.\n"),
+    ]);
+    if (!tides || !quays || !rivers) throw new Error("Missing fixture Documents.");
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
+    const harbour = await core.createLibraryGroup({ name: "Harbour", description: "" });
+    await core.assignDocumentGroup(tides.id, coast.id);
+    await core.assignDocumentGroup(quays.id, coast.id);
+    await core.assignDocumentGroup(rivers.id, harbour.id);
+    await core.setNotCited(quays.id, true);
+
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+
+    // 1. Agent checks "2 Documents" on [Coast] (Tides + Not cited Quays = 2): Supported for agent,
+    //    but Needs re-check across EVERY User-side view because ungranted Harbour holds Rivers.
+    const { mindId: supportedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Coast count", folderId: coast.id, markdown: TWO },
+      }),
+    );
+    expect(structured<Checked>(await check(agent, supportedNote))).toMatchObject({
+      status: "checked",
+      supported: 1,
+      needLook: 0,
+    });
+
+    // Editor view:
+    const editorClient = await connectToMind(core, supportedNote);
+    await editorClient.settled();
+    const userVersions = versionsWithLibrary(
+      await core.listDocuments(),
+      await core.libraryListsVersion(supportedNote),
+    );
+    expect(
+      claimSpans(readMind(editorClient)).map((span) =>
+        claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions: userVersions,
+          folderId: coast.id,
+          scope: null,
+        }),
+      ),
+    ).toEqual([{ state: "needs-recheck", why: "library" }]);
+
+    // Word export view:
+    const exported = await core.exportMind(supportedNote, {
+      format: "docx",
+      commentFailedChecks: true,
+    });
+    expect(exported.sentenceChecks.needsRecheck).toBe(1);
+
+    // Check record CSV view:
+    const outDir = await createTempDataFolder();
+    await core.setOutputLocation(outDir);
+    const savedRecord = await core.saveCheckRecord(supportedNote);
+    if (savedRecord.status !== "saved") throw new Error(`Not saved: ${savedRecord.status}`);
+    const csvPath = join(outDir, savedRecord.file.name.replace(/\.(pdf|csv)$/, ".csv"));
+    expect(
+      recordRows(readFileSync(csvPath, "utf8"))
+        .filter((row) => row.Kind === "Sentence")
+        .map((row) => row.Result),
+    ).toEqual(["Needs re-check"]);
+
+    // AI use statement view:
+    const statement = await core.createAiUseStatement(supportedNote);
+    const statementClient = await connectToMind(core, statement.id);
+    await statementClient.settled();
+    const statementText = readMind(statementClient).textContent;
+    expect(statementText).toContain("Needs re-check");
+    expect(statementText).not.toContain("Supported: 1");
+
+    // 2. Agent check_mind reply names the granted source with sourceWords and libraryRow (EN + zh-CN).
+    const { mindId: contradictedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Wrong count", folderId: coast.id, markdown: NINE },
+      }),
+    );
+    const contradictedEn = structured<Checked>(await check(agent, contradictedNote));
+    expect(contradictedEn.claims[0]).toMatchObject({
+      result: "contradicted",
+      document: "“Coast”",
+      location: "“Coast”: 2 Documents",
+      quote: null,
+      cite: null,
+    });
+    expect(contradictedEn.claims[0]?.document).not.toContain("library-facts");
+    expect(contradictedEn.claims[0]?.document).not.toContain("Your Library");
+    expect(contradictedEn.claims[0]?.location).not.toContain("Your Library");
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const contradictedZh = structured<Checked>(await check(agent, contradictedNote));
+    expect(contradictedZh.claims[0]).toMatchObject({
+      result: "contradicted",
+      document: "“Coast”",
+      location: "“Coast”：2 个文档",
+      quote: null,
+      cite: null,
+    });
+    await core.updateSettings({ user: { language: "en" } });
+
+    // 3. When Coast is the whole Library (Harbour & Rivers removed), User and agent agree on Not cited Quays (2 Documents).
+    await core.deleteDocument(rivers.id);
+    await core.deleteLibraryGroup(harbour.id);
+    const { mindId: agreedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Agreed count", folderId: coast.id, markdown: TWO },
+      }),
+    );
+    const userRun = await core.checkMind({
+      requestId: "user-agrees-not-cited",
+      mindId: agreedNote,
+      mode: "all",
+    });
+    expect(userRun.kind).toBe("checked");
+    const savedAgreed = await core.saveCheckRecord(agreedNote);
+    if (savedAgreed.status !== "saved") throw new Error(`Not saved: ${savedAgreed.status}`);
+    const agreedCsvPath = join(outDir, savedAgreed.file.name.replace(/\.(pdf|csv)$/, ".csv"));
+    expect(
+      recordRows(readFileSync(agreedCsvPath, "utf8"))
+        .filter((row) => row.Kind === "Sentence")
+        .map((row) => row.Result),
+    ).toEqual(["Supported"]);
   });
 
   // protects=an agent learns which of the claims it wrote the User's Documents don't support, and the User sees the same marks in the Note; fails_when=the Tool checks only Citations, returns nothing of what the Document says, or leaves the Note unmarked

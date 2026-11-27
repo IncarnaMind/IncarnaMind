@@ -13,8 +13,11 @@ import {
   PROPOSAL_ATTRIBUTE,
   type RecordCiteResult,
 } from "../../src/core";
+import { translatorFor } from "../../src/core/checkRecord/labels";
+import { readRecord } from "../../src/core/checkRecord/read";
 import { setProposal } from "../../src/core/proposals/write";
 import { pendingPart } from "../../src/shared/claimParts";
+import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { addSignOff, citationSignOffBasis } from "../../src/shared/signOffs";
 import { setTextOrigin } from "../../src/shared/textOrigins";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -1340,4 +1343,80 @@ describe("A sentence whose parts were judged on different models", () => {
       expect(body.indexOf(first)).toBeLessThan(body.indexOf(second));
     },
   );
+});
+
+// protects=readRecord strips says, evidence, judgedOn and toCite whenever a mark is stale for an outside reader (`reach != null`), even when the deciding evidence is an in-scope Document (#2525); fails_when=staleForReach stops clearing prior explanation or evidence for an agent reader
+test("readRecord strips prior explanation and evidence when a check is stale for an outside reader", async () => {
+  const setup = await setUp();
+  const { client, tides, localModel } = setup;
+  const sentence = "Spring tides come at new moon across 2 Documents.";
+  const evidence = {
+    passageId: "passage-1",
+    documentId: tides.id,
+    documentName: "Tides",
+    contentHash: tides.contentHash,
+    pageFrom: 1,
+    pageTo: 1,
+    location: null,
+    quote: QUOTE,
+    check: "found" as const,
+    checkReason: null,
+  };
+  const mark: ClaimCheckAttributes = {
+    ...checked(tides, sentence, "supported", localModel),
+    says: "Tides says spring tides come at new moon, and the Library holds 2 Documents.",
+    evidence,
+    versions: [
+      { documentId: tides.id, contentHash: tides.contentHash },
+      { documentId: LIBRARY_FACTS, contentHash: "old-library-version" },
+    ],
+    parts: [
+      {
+        ...pendingPart({ span: { start: 0, end: sentence.length }, kind: "fact" }),
+        verdict: "supported",
+        says: "Tides says spring tides come at new moon.",
+        evidence: [evidence],
+        decidingEvidence: 0,
+        versions: [
+          { documentId: tides.id, contentHash: tides.contentHash },
+          { documentId: LIBRARY_FACTS, contentHash: "old-library-version" },
+        ],
+      },
+    ],
+  };
+  writeMind(client, [paragraph(randomUUID(), text(sentence, { type: "claimCheck", attrs: mark }))]);
+  await client.settled();
+
+  const docs = await setup.core.listDocuments();
+  const read = (reach: ReadonlySet<string> | null, libraryVersion: string | null) =>
+    readRecord({
+      fragment: client.blocks,
+      language: "en",
+      documents: docs,
+      kept: [],
+      folderId: setup.folderId,
+      t: translatorFor("en"),
+      model: () => null,
+      readQuote: (attrs) => attrs.quote ?? null,
+      personId: null,
+      reach,
+      libraryVersion,
+    });
+
+  // For an outside reader whose Library version moved on (or is absent), explanation and evidence are stripped.
+  for (const version of ["new-library-version", null]) {
+    const [item] = read(new Set([tides.id]), version).sentences;
+    expect(item).toMatchObject({
+      result: "needsRecheck",
+      says: null,
+      evidence: null,
+      judgedOn: null,
+      toCite: null,
+    });
+  }
+
+  // For the User (`reach: null`), the same version mismatch still flags needsRecheck while keeping the record's prior evidence.
+  const [forUser] = read(null, "new-library-version").sentences;
+  expect(forUser?.result).toBe("needsRecheck");
+  expect(forUser?.says).toContain("Tides says");
 });

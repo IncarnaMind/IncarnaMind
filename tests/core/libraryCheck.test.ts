@@ -13,8 +13,11 @@ import { claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingPart } from "../../src/shared/claimParts";
 import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { isCheckRun } from "../helpers/checks";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 const CODE = 'result("documents", len(inputs["files"]))';
@@ -422,4 +425,91 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
       ]),
     }),
   ).toEqual({ state: "needs-recheck", why: "reach" });
+});
+
+// protects=User's Check this Note in "changed" mode compares stored Library marks against the User's current Library lists version (`userVersions` in mindCheck.ts), so adding a Document re-checks stale Library marks while unchanged Libraries send nothing (#2525); fails_when=userVersions omits LIBRARY_FACTS and checkMind({ mode: "changed" }) skips stale Library checks.
+test("User checkMind in changed mode re-checks a Library claim once a Document is added", async () => {
+  const runtime = createFakeAnalysisRuntime({
+    answer: (job) => {
+      const table = job.inputs.find((each) => each.kind === "table" && each.name === "files");
+      const count = table && table.kind === "table" ? table.rows.length : 0;
+      return {
+        output: {
+          results: [figure("documents", count)],
+          printed: "",
+        },
+      };
+    },
+  });
+  const model = scriptedModel(
+    (call) => {
+      if (!isCheckRun(call)) return { text: JSON.stringify({ claims: [CLAIM] }) };
+      const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+      if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+        return {
+          calls: [
+            {
+              tool: ANALYSIS_TOOLS.run,
+              input: {
+                title: "Documents",
+                inputs: [{ name: "files", library: "documents" }],
+                code: CODE,
+              },
+            },
+          ],
+        };
+      }
+      const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+      return {
+        text:
+          docs === 2
+            ? SUPPORTED
+            : `Verdict: contradicted\nExplanation: The Library now holds ${docs} Documents.\nEvidence: []\nWorking: Counted ${docs} rows.`,
+      };
+    },
+    { generate: (call) => ({ text: sortReply(call.prompt) }) },
+  );
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    analysisRuntime: runtime,
+  });
+  onTestFinished(() => core.close());
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: "claude-haiku-5-5",
+  });
+  if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [
+    await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides.\n"),
+    await writeSourceFile(sources, "Office.md", "# Office\n\nOpens at nine.\n"),
+  ]);
+  const mind = await core.createMind({ title: "Library check", folderId: null });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [note(CLAIM)]);
+  await client.settled();
+
+  const first = await core.checkMind({ requestId: "lib-r1", mindId: mind.id, mode: "changed" });
+  expect(first.kind).toBe("checked");
+  expect(runtime.jobs).toHaveLength(1);
+
+  // Unchanged Library: plan says unchanged and changed mode sends nothing.
+  expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({ kind: "unchanged" });
+  const second = await core.checkMind({ requestId: "lib-r2", mindId: mind.id, mode: "changed" });
+  expect(second).toEqual({ kind: "nothing" });
+  expect(runtime.jobs).toHaveLength(1);
+
+  // Adding a third Document changes the Library version: changed mode must re-check it.
+  await addAndProcess(core, [
+    await writeSourceFile(sources, "Quays.md", "# Quays\n\nTwo stone quays.\n"),
+  ]);
+  expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({
+    kind: "ready",
+    sentences: 1,
+  });
+  const third = await core.checkMind({ requestId: "lib-r3", mindId: mind.id, mode: "changed" });
+  expect(third.kind).toBe("checked");
+  expect(runtime.jobs).toHaveLength(2);
 });

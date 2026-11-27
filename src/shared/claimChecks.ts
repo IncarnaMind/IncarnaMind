@@ -913,6 +913,25 @@ function reliedOn(check: ClaimCheckAttributes): string[] {
 }
 
 /**
+ * Whether a stored result rests on the User's own Library lists (whole-Library or walled `left-out`
+ * count, never a scoped grant's), so an outside agent may neither read nor overwrite it (#2525).
+ */
+export function isUserLibraryCheck(check: ClaimCheckAttributes): boolean {
+  const userCitation = restsOn(check).some(
+    (each) =>
+      each.documentId === LIBRARY_FACTS &&
+      each.location?.kind === "library" &&
+      each.location.source.kind !== "scope",
+  );
+  if (userCitation) return true;
+  return [...resultsIn(check)].some((each) =>
+    (each.parts ?? []).some(
+      (part) => part.working?.library != null && part.working.library.source.kind !== "scope",
+    ),
+  );
+}
+
+/**
  * Whether a result's reliance on the Library's own lists stands for a reader with `reach` (#2525):
  * only when the reader has a scoped version of those lists, every Library Citation matches that
  * version, and each carries a scoped source (never a User check's whole-Library or `left-out`
@@ -923,8 +942,8 @@ function libraryInReach(
   now: Pick<ClaimCheckNow, "versions">,
 ): boolean {
   const current = now.versions?.get(LIBRARY_FACTS);
-  if (current === undefined) return false;
-  const citationsOk = restsOn(check)
+  if (current === undefined || isUserLibraryCheck(check)) return false;
+  return restsOn(check)
     .filter((each) => each.documentId === LIBRARY_FACTS)
     .every(
       (each) =>
@@ -932,11 +951,6 @@ function libraryInReach(
         each.location?.kind === "library" &&
         each.location.source.kind === "scope",
     );
-  const workingsOk = [...resultsIn(check)]
-    .flatMap((each) => (each.parts ?? []).map((part) => part.working?.library))
-    .filter((each) => each != null)
-    .every((each) => each.source.kind === "scope");
-  return citationsOk && workingsOk;
 }
 
 /**

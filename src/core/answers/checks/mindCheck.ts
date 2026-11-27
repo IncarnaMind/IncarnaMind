@@ -24,10 +24,10 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citedCases } from "../../../shared/caseCitations";
-import { addedCouldChange, checkedSentence } from "../../../shared/claimChecks";
+import { addedCouldChange, checkedSentence, isUserLibraryCheck } from "../../../shared/claimChecks";
 import { partsToCheck } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
-import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
+import { versionsWithLibrary } from "../../../shared/libraryFacts";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -227,6 +227,8 @@ interface Sending {
   skipped: Set<string>;
   /** In "added" mode, the checks to make again in every Document, as they were made. */
   widened: Set<SelectedSentence>;
+  /** For an outside agent's Check, sentences marked by the User's own Library check that it may not overwrite (#2525). */
+  userOwned: Set<SelectedSentence>;
   /** In "changed" mode, when each check that still holds was made. */
   held: string[];
 }
@@ -370,7 +372,10 @@ export function createMindCheck(options: MindCheckOptions) {
   }
 
   function addedSince(mindId: string): Map<string, string[]> {
-    const versions = options.documentVersions();
+    const versions = versionsWithLibrary(
+      options.documentVersions(),
+      options.libraryLists ? libraryVersion(options.libraryLists(mindId)) : null,
+    );
     const folderId = options.mindFolder(mindId);
     const scope = content.readSettings(mindId, mindScopeIn);
     const changeable = content.read(mindId, (blocks) => {
@@ -488,13 +493,14 @@ export function createMindCheck(options: MindCheckOptions) {
   ): Sending {
     const skipped = new Set(content.readSettings(mindId, readMindCheck)?.skipped ?? []);
     const versions = options.documentVersions();
-    const userVersions = options.libraryLists
-      ? new Map([...versions, [LIBRARY_FACTS, libraryVersion(options.libraryLists(mindId))]])
-      : versions;
-    const agentVersions =
-      reach && outsideLists
-        ? new Map([...versions, [LIBRARY_FACTS, libraryVersion(outsideLists)]])
-        : versions;
+    const userVersions = versionsWithLibrary(
+      versions,
+      options.libraryLists ? libraryVersion(options.libraryLists(mindId)) : null,
+    );
+    const agentVersions = versionsWithLibrary(
+      versions,
+      reach && outsideLists ? libraryVersion(outsideLists) : null,
+    );
     const folderId = options.mindFolder(mindId);
     const scope = content.readSettings(mindId, mindScopeIn);
     const added = mode === "added" ? addedSince(mindId) : null;
@@ -503,11 +509,10 @@ export function createMindCheck(options: MindCheckOptions) {
       const theAgents = reach
         ? readingOf(blocks, { versions: agentVersions, folderId, scope, reach })
         : theUsers;
+      const userMade = (check: ClaimCheckAttributes) =>
+        check.scope.widened || check.scope.chosen != null || isUserLibraryCheck(check);
       const shownOf = (sentence: SelectedSentence, check: ClaimCheckAttributes) =>
-        (check.scope.widened || check.scope.chosen ? theUsers : theAgents).ofSentence(
-          sentence,
-          check,
-        );
+        (userMade(check) ? theUsers : theAgents).ofSentence(sentence, check);
       // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
       const every = everySentence(blocks);
       // A write's Check reads only that write's Blocks; the rest of the Note is the Note's own Check's.
@@ -532,6 +537,7 @@ export function createMindCheck(options: MindCheckOptions) {
           .map((sentence) => sentenceKey(sentence.text)),
       );
       const widened = new Set<SelectedSentence>();
+      const userOwned = new Set<SelectedSentence>();
       const marks = markedSentences(blocks);
       const markOf = (sentence: SelectedSentence) =>
         marks.find(
@@ -550,6 +556,7 @@ export function createMindCheck(options: MindCheckOptions) {
           keys,
           skipped,
           widened,
+          userOwned,
           held: [],
         };
       }
@@ -571,9 +578,10 @@ export function createMindCheck(options: MindCheckOptions) {
           if (mark && (mark.check.text === sentence.text || !isClaim(sentence.text))) {
             again.push(sentence);
             if (mark.check.scope.widened) widened.add(sentence);
+            if (reach && isUserLibraryCheck(mark.check)) userOwned.add(sentence);
           } else fresh.push(sentence);
         }
-        return { fresh, again, keys, skipped, widened, held: [] };
+        return { fresh, again, keys, skipped, widened, userOwned, held: [] };
       }
       const fresh: SelectedSentence[] = [];
       const again: SelectedSentence[] = [];
@@ -584,6 +592,7 @@ export function createMindCheck(options: MindCheckOptions) {
           if (!mark || !added.has(mark.check.id)) continue;
           again.push(sentence);
           if (mark.check.scope.widened) widened.add(sentence);
+          if (reach && isUserLibraryCheck(mark.check)) userOwned.add(sentence);
           continue;
         }
         const shown = mark ? shownOf(sentence, mark.check) : null;
@@ -615,13 +624,14 @@ export function createMindCheck(options: MindCheckOptions) {
           else {
             again.push(sentence);
             if (mark?.check.scope.widened) widened.add(sentence);
+            if (reach && mark && isUserLibraryCheck(mark.check)) userOwned.add(sentence);
           }
           continue;
         }
         if (state.kind !== "covered" || !mark) continue;
         held.push(mark.check.checkedAt);
       }
-      return { fresh, again, keys, skipped, widened, held };
+      return { fresh, again, keys, skipped, widened, userOwned, held };
     });
   }
 
@@ -699,7 +709,7 @@ export function createMindCheck(options: MindCheckOptions) {
       reach ?? null,
       outsideLists ?? null,
     );
-    const { fresh, again, keys, skipped, widened } = sent;
+    const { fresh, again, keys, skipped, widened, userOwned } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     await options.evidenceReady(signal, mindId);
     if (signal.aborted) return { kind: "cancelled" };
@@ -707,8 +717,9 @@ export function createMindCheck(options: MindCheckOptions) {
     if (empty) return empty;
     let scope = found;
     if (reach) {
-      // A wider check is the User's to run: an agent would learn from it what it may not read.
-      if (found.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
+      // A wider or whole-Library check is the User's to run: an agent would learn from it what it may not read.
+      if (found.marked.chosen || widened.size > 0 || userOwned.size > 0)
+        throw new NotAsked("beyond-reach");
       // A Folder with no Document searches every Document.
       if (found.marked.widened) throw new NotAsked("no-documents");
       const admitted = readsWithin(found.scope, reach, options.searched);
