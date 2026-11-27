@@ -305,12 +305,74 @@ function styledByClient(words: Words): Buffer {
   });
 }
 
-/** A list whose numbers show `label`, and a line that says `labelled`. */
-function numberedWith(label: string, labelled: string): Buffer {
+/** The list Chinese contracts number their clauses with, 第一条 and on. */
+const CLAUSES =
+  '<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="chineseCounting"/><w:lvlText w:val="第%1条"/></w:lvl></w:abstractNum>';
+
+/** Clauses numbered 第%1条, whose text never says 条, and a list nothing uses whose numbers show `unused`. */
+function numberedClauses(words: Words, unused: string): Buffer {
   return wordFile({
-    numbering: `<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="${escapeXml(label)}"/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>`,
-    body: `${paragraph(run(labelled))}${paragraph(run("1200"), { numId: 1, ilvl: 0 })}`,
+    numbering: `${CLAUSES}<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="${escapeXml(unused)} %1"/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>`,
+    body: [words.street, words.webText]
+      .map((text) => paragraph(run(text), { numId: 1, ilvl: 0 }))
+      .join(""),
   });
+}
+
+/** A date control whose picture shows words the Note doesn't hold. */
+function datePictured(words: Words): Buffer {
+  return wordFile({
+    body: `${paragraph(run(words.kept))}<w:sdt><w:sdtPr><w:id w:val="12"/><w:date w:fullDate="2026-10-02T00:00:00Z"><w:dateFormat w:val="'${escapeXml(words.dateNote)}' d/M/yyyy"/><w:lid w:val="en-GB"/><w:storeMappedDataAs w:val="dateTime"/><w:calendar w:val="gregorian"/></w:date></w:sdtPr><w:sdtContent>${paragraph(run("2/10/2026"))}</w:sdtContent></w:sdt>`,
+  });
+}
+
+/** A setting tied to an address that is no schema's: someone's own. */
+function settingAddressed(words: Words): Buffer {
+  return wordFile({
+    body: paragraph(run(words.kept)),
+    settings: `<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="${escapeXml(words.privateUri)}" w:val="15"/></w:compat>`,
+  });
+}
+
+const DIAGRAM = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+const DRAWING_ML = "application/vnd.openxmlformats-officedocument.drawingml";
+/** A SmartArt diagram whose layout has a title and a description the Note doesn't hold. */
+function diagramTitled(words: Words): Buffer {
+  const part = (root: string, inside = "") =>
+    `${DECLARATION}<dgm:${root} xmlns:dgm="${DIAGRAM}" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${inside}</dgm:${root}>`;
+  return withParts(
+    wordFile({
+      body: `${paragraph(run(words.kept))}<w:p><w:r><w:drawing><wp:inline><wp:extent cx="3000000" cy="2000000"/><wp:docPr id="60" name=""/><a:graphic><a:graphicData uri="${DIAGRAM}"><dgm:relIds xmlns:dgm="${DIAGRAM}" r:dm="rIdDm" r:lo="rIdLo" r:qs="rIdQs" r:cs="rIdCs"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`,
+      rels: [
+        "Dm diagramData data",
+        "Lo diagramLayout layout",
+        "Qs diagramQuickStyle quickStyle",
+        "Cs diagramColors colors",
+      ]
+        .map((each) => each.split(" "))
+        .map(
+          ([id, kind, name]) =>
+            `<Relationship Id="rId${id}" Type="${REL}/${kind}" Target="diagrams/${name}1.xml"/>`,
+        )
+        .join(""),
+    }),
+    {
+      "word/diagrams/data1.xml": part("dataModel", "<dgm:ptLst/><dgm:cxnLst/>"),
+      "word/diagrams/layout1.xml": part(
+        "layoutDef",
+        `<dgm:title val="${escapeXml(words.diagramTitle)}"/><dgm:desc val="${escapeXml(words.diagramDesc)}"/><dgm:layoutNode name="diagram"/>`,
+      ),
+      "word/diagrams/quickStyle1.xml": part("styleDef"),
+      "word/diagrams/colors1.xml": part("colorsDef"),
+    },
+    ["data diagramData", "layout diagramLayout", "quickStyle diagramStyle", "colors diagramColors"]
+      .map((each) => each.split(" "))
+      .map(
+        ([name, type]) =>
+          `<Override PartName="/word/diagrams/${name}1.xml" ContentType="${DRAWING_ML}.${type}+xml"/>`,
+      )
+      .join(""),
+  );
 }
 
 /** A chart whose numbers are shown with words the Note doesn't hold. */
@@ -466,18 +528,43 @@ describe.each(LANGUAGES)(
       ]);
     });
 
-    // protects=the words a list's numbers show on every item are checked against what the agent was given: kept when the Note holds them, the file written new when it doesn't (#3751); fails_when=a list whose numbers show words the Note doesn't hold is in the agent's file, or one whose words it holds is written new
-    it("checks the words a list's numbers show", async () => {
-      const given = await savedFor(language, numberedWith(words.label, words.labelled));
-      expect(part(given.files, "word/styles.xml")).toBe(part(given.original, "word/styles.xml"));
-      expect(part(given.files, "word/numbering.xml")).toBe(
-        part(given.original, "word/numbering.xml"),
+    // protects=a list's number words, such as 第…条, are how its numbers look, as its font is: a file numbered 第%1条 whose text never says 条 is written into the original with its numbering, and a list nothing uses goes with the words its numbers show (#3751); fails_when=the file is written new, its used list changes, or the unused list's words are in the agent's file
+    it("keeps 第%1条 numbering as it is, and drops a list nothing uses", async () => {
+      const saved = await savedFor(language, numberedClauses(words, words.unusedLabel));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      const numbering = part(saved.files, "word/numbering.xml");
+      expect(numbering).toContain(
+        `${CLAUSES}<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>`,
       );
-      const unseen = await savedFor(language, numberedWith(`${words.unusedLabel} %1`, words.kept));
-      expect(part(unseen.files, "word/styles.xml")).not.toBe(
-        part(unseen.original, "word/styles.xml"),
+      expect(numbering).not.toContain('w:numId="2"');
+      expectNoneOf(saved.files, [words.unusedLabel]);
+    });
+
+    // protects=the check reads the words a date control's picture shows, so ones the Note doesn't hold make the agent's file be written new (#3751); fails_when=the picture's words are in the agent's file
+    it("writes the file new when a date's picture shows words the agent wasn't given", async () => {
+      const saved = await savedFor(language, datePictured(words));
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
       );
-      expectNoneOf(unseen.files, [words.unusedLabel]);
+      expectNoneOf(saved.files, [words.dateNote]);
+    });
+
+    // protects=the check reads an address that is no schema's as words, so one the Note doesn't hold makes the agent's file be written new (#3751); fails_when=the address is in the agent's file
+    it("writes the file new when a setting names an address the agent wasn't given", async () => {
+      const saved = await savedFor(language, settingAddressed(words));
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
+      );
+      expectNoneOf(saved.files, [words.privateUri]);
+    });
+
+    // protects=the check reads a diagram layout's title and description, so ones the Note doesn't hold make the agent's file be written new (#3751); fails_when=the title or description is in the agent's file
+    it("writes the file new when a diagram's layout is titled with words the agent wasn't given", async () => {
+      const saved = await savedFor(language, diagramTitled(words));
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
+      );
+      expectNoneOf(saved.files, [words.diagramTitle, words.diagramDesc]);
     });
 
     // protects=the check reads a chart's number format, so words it shows that the Note doesn't hold make the agent's file be written new (#3751); fails_when=the format's words are in the agent's file

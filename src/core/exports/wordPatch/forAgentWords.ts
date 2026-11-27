@@ -85,7 +85,8 @@ const NON_WORD = new Set(
  */
 const VALUED = new Set(
   [
-    "w:numFmt w:lvlJc w:suff w:multiLevelType w:nsid w:tmpl w:jc w:highlight w:u w:shd",
+    // A list's number words, such as 第…条 or Article, are how its numbers look, as its font is.
+    "w:lvlText w:numFmt w:lvlJc w:suff w:multiLevelType w:nsid w:tmpl w:jc w:highlight w:u w:shd",
     "w:vertAlign w:em w:effect w:textDirection w:textAlignment w:vAlign w:vMerge w:hMerge w:type",
     "w:color w:lang w:lid w:calendar w:storeMappedDataAs w:docPartGallery",
     "w:gallery w:behavior w:family w:pitch w:charset w:panose1 w:altName",
@@ -181,14 +182,6 @@ function dateWords(picture: string): string {
   return [...literal, rest].join(" ");
 }
 
-/** A list level's number as words: its text without the numbers it shows, unless it is a bullet. */
-function levelWords(level: XmlElement | undefined, text: string): string {
-  const format = level?.children.find(
-    (each): each is XmlElement => typeof each !== "string" && each.name === "w:numFmt",
-  );
-  return format?.attrs["w:val"] === "bullet" ? "" : text.replace(/%\d/g, " ");
-}
-
 /**
  * What of an attribute is anyone's words, by its name, its element's and its parent's; null when
  * none. A value with no letter in it is a number or a measure, and a bookmark Word names itself,
@@ -222,7 +215,6 @@ function attributeWords(
     if (element.name === "w:name" && parent?.name === "w:style") {
       return isKnownStyleName(value) ? null : value;
     }
-    if (element.name === "w:lvlText") return levelWords(parent, value);
     if (element.name === "w:dateFormat") return dateWords(value);
   }
   return isWorded(element, name, relationships) ? value : null;
