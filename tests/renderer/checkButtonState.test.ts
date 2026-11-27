@@ -158,7 +158,9 @@ for (const language of ["en", "zh-CN"] as const) {
         language,
       );
       expect(view).toMatchObject({ kind: "check", count: "1" });
-      expect(view?.title).toContain(words.look);
+      expect(view?.title).toBe(
+        `${translate(language, "health.toCheck.one", { count: "1" })} · ${words.look}`,
+      );
     });
 
     // protects=#3840: once a whole check has run, a sentence edited or added since leaves its verdict on the button, never the filled Check; the tooltip names what waits; fails_when=the button turns back into Check N over what needs a look
