@@ -670,11 +670,16 @@ export function editRequest(mindId: string, words: string): void {
   }));
 }
 
-/** Keeps words the User wrote for a message that has gone, in the input after what it holds. */
+/**
+ * Keeps words the User wrote for a message that has gone, in the input after what it holds, and
+ * after any kept before that the input hasn't taken yet.
+ */
 export function keepInInput(mindId: string, words: string): void {
-  useEditedRequests.setState((state) => ({
-    byMind: { ...state.byMind, [mindId]: { words, after: true } },
-  }));
+  useEditedRequests.setState((state) => {
+    const waiting = state.byMind[mindId];
+    const kept = waiting?.after ? `${waiting.words}\n${words}` : words;
+    return { byMind: { ...state.byMind, [mindId]: { words: kept, after: true } } };
+  });
 }
 
 /** What the input holds once it takes words given back: `typed`, then those on a line of their own. */

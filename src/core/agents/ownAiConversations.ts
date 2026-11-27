@@ -356,13 +356,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   };
   /**
    * No run can take the Note's held messages now: each is kept as never sent. Whether there was one,
-   * which the windows must then hear of.
+   * which the windows must then hear of. If that can't be written, they stay held, and none goes
+   * by itself: Send now, Edit and Discard still reach each.
    */
-  const heldUnsent = (mindId: string, also: Held[] = []): boolean => {
-    const ids = [...also, ...(held.get(mindId) ?? [])].map((each) => each.turnId);
-    held.delete(mindId);
+  const heldUnsent = (mindId: string): boolean => {
+    const list = held.get(mindId) ?? [];
+    const ids = list.map((each) => each.turnId);
     if (ids.length === 0) return false;
-    if (options.lifetime.aborted) return true;
+    // Quitting, the database may be closed; the next start keeps them as never sent.
+    if (options.lifetime.aborted) {
+      held.delete(mindId);
+      return true;
+    }
     try {
       db.run(
         `UPDATE own_ai_turns SET outcome = 'unsent', updated_at = ?
@@ -371,9 +376,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       );
     } catch (error) {
       options.log.warn("agents.ownAiConversation.unsentNotKept", {
+        turnIds: ids.join(","),
         error: error instanceof Error ? error.name : "unknown",
+        message: error instanceof Error ? error.message : String(error),
       });
+      for (const each of list) each.stays = true;
+      return false;
     }
+    held.delete(mindId);
     return true;
   };
   /** By Note, the end of its last request every window was told, while none runs. */
@@ -745,8 +755,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   }
 
   /**
-   * Sends a message still held as a request of its own, in a run begun now. False if that couldn't
-   * be written: the message stays held, as it was.
+   * Sends a message still held as a request of its own, in a run begun now; when no run can take
+   * it, the Note's held messages are kept as never sent. False if either couldn't be written: the
+   * message stays held, as it was.
    */
   function startHeld(mindId: string, message: Held): boolean {
     const conversation = conversationOf(mindId, message.pairing.id);
@@ -755,8 +766,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       options.lifetime.aborted ||
       options.heldBack(message.pairing, mindId) !== null
     ) {
-      unhold(mindId, message.turnId);
-      if (heldUnsent(mindId, [message])) toldHeld(mindId);
+      if (!heldUnsent(mindId)) return false;
+      toldHeld(mindId);
       return true;
     }
     try {
@@ -790,12 +801,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   /**
    * With none of the Note's requests running, its oldest held message goes; while that one is being
    * edited none goes, so they still go in the order sent. One whose start couldn't be written stays
-   * held, its Send now there to try again.
+   * held, its Send now there to try again; one that couldn't be kept as never sent waits for the User.
    */
   function nextHeld(mindId: string): void {
     if (running.has(mindId)) return;
     const [first] = held.get(mindId) ?? [];
-    if (first && first.editors.size === 0) startHeld(mindId, first);
+    if (first && first.editors.size === 0 && !first.stays) startHeld(mindId, first);
   }
 
   async function converse(turn: {
@@ -1973,6 +1984,8 @@ interface Held {
   model: string | undefined;
   /** The windows its editor is open in, by their own id: it isn't sent until each closes. */
   editors: Set<string>;
+  /** It couldn't be kept as never sent: it goes only when the User sends it. */
+  stays?: boolean;
 }
 
 /** A request of a run as its AI works on it, the first or one sent meanwhile and taken (#3765). */

@@ -3495,6 +3495,47 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       ]);
   });
 
+  // protects=held messages a failed run can't send, whose never-sent outcome can't be written, stay held rather than stuck as Waiting, go by themselves no more, and Send now still sends them (#3765); fails_when=they leave the held list and stay Waiting, or one is sent without the User
+  it("keeps held messages held, sent only by the User, when a failed run can't keep them as never sent", async () => {
+    const failing = gate();
+    const run = runner(async (_agent, request) => {
+      if (askedIn(request) !== "first")
+        return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
+      failing.reached();
+      await failing.shut;
+      return { kind: "failed", reason: "other" };
+    });
+    const { core, mindId, dataDir } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "first" });
+    await failing.at;
+    const a = idOf(await core.askInNote({ mindId, words: "held a" }));
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(`CREATE TRIGGER refuse_unsent BEFORE UPDATE ON own_ai_turns
+        WHEN OLD.id = '${a}' AND NEW.outcome = 'unsent'
+        BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`);
+      failing.open();
+      await expect
+        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .toEqual([
+          ["first", "", "failed", ""],
+          ["held a", "", "held", ""],
+        ]);
+      await pause(100);
+      expect(run.runs).toHaveLength(1);
+      db.run("DROP TRIGGER refuse_unsent");
+    } finally {
+      db.close();
+    }
+    await core.sendNowInNote(mindId, a);
+    await expect
+      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .toEqual([
+        ["first", "", "failed", ""],
+        ["held a", "", "landed", "Answered: held a"],
+      ]);
+  });
+
   // protects=a run that fails after its AI answered tells every window its held messages are never sent, not still held (#3765); fails_when=the last event still lists them as held
   it("tells every window held messages are never sent when the run fails after its answer", async () => {
     const failing = gate();

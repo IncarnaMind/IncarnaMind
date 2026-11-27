@@ -68,7 +68,12 @@ export function HeldMessage({
       if (!held && edit.kind === "save") keepInInput(mindId, edit.words);
       setDraft(null);
     } catch (error) {
-      if (shown.current.gone && edit.kind === "save") keepInInput(mindId, edit.words);
+      // Folded away meanwhile: the words go to the input, and the editor is closed in the core so
+      // the message doesn't wait for it.
+      if (shown.current.gone && edit.kind === "save") {
+        keepInInput(mindId, edit.words);
+        void editHeldInNote(mindId, turn.id, { kind: "cancel" }).catch(report);
+      }
       report(error);
     } finally {
       shown.current.closing = false;

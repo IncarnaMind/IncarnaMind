@@ -159,6 +159,21 @@ describe("a held message's editor", () => {
     expect(edits()).toEqual(["open", "cancel"]);
   });
 
+  // protects=a Save that fails after the conversation folded keeps its words for the input and closes the editor in the core, so the message and those after it go (#3765); fails_when=the words are lost, or the core keeps the editor open and the held messages wait for it
+  test("keeps the words and closes the editor in the core when Save fails after the fold", async () => {
+    await press("note-column-edit");
+    await type("and where");
+    const saving = later<boolean>();
+    calls.editHeldInNote.mockReturnValueOnce(saving.promise);
+    await press("note-column-edit-save");
+    await act(async () => root?.unmount());
+    root = null;
+    expect(edits()).toEqual(["open", "save"]);
+    await act(async () => saving.fail(new Error("refused")));
+    await vi.waitFor(() => expect(edits()).toEqual(["open", "save", "cancel"]));
+    expect(calls.keepInInput).toHaveBeenCalledWith("m1", "and where");
+  });
+
   // protects=an editor folded away before the core opened it doesn't hold the message there, so it still goes when the reply ends (#3765); fails_when=the core keeps the editor open and the message stays Waiting
   test("closes in the core an editor the conversation folded away before it opened", async () => {
     const opening = later<boolean>();

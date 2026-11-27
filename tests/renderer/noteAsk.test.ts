@@ -442,6 +442,7 @@ describe("what the User's own AI asks (#3653)", () => {
 describe("words given back to the input", () => {
   // protects=words a held message's editor kept, its message gone, go after what the input holds, on a line of their own; a sent request's Edit still fills only an empty input (#3765); fails_when=the kept words are dropped because the input holds text, or a sent request's Edit writes over what is typed
   test("keep what is typed, the kept words on a new line after it", () => {
+    useEditedRequests.setState({ byMind: {} });
     keepInInput("m1", "and where");
     const kept = useEditedRequests.getState().byMind.m1;
     expect(kept).toEqual({ words: "and where", after: true });
@@ -453,5 +454,16 @@ describe("words given back to the input", () => {
     if (!edited) throw new Error("Nothing given back");
     expect(withGivenBack("who builds it", edited)).toBe("who builds it");
     expect(withGivenBack("", edited)).toBe("what does the plan add");
+  });
+
+  // protects=words kept from two editors before the input takes them are both kept, in order (#3765); fails_when=the second replaces the first
+  test("keep both when two editors' words are kept before the input takes them", () => {
+    useEditedRequests.setState({ byMind: {} });
+    keepInInput("m1", "and where");
+    keepInInput("m1", "and who");
+    expect(useEditedRequests.getState().byMind.m1).toEqual({
+      words: "and where\nand who",
+      after: true,
+    });
   });
 });
