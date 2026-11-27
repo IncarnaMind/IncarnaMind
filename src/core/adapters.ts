@@ -1120,12 +1120,15 @@ export interface RoomSpeakerReviewer {
  * thread and at low priority: the desktop app runs it in a utility process of its own
  * (src/main/speakerSeparator.ts); tests pass a fake. `parts` are the source's WAV files
  * (16-bit PCM, mono, `MEETING_SAMPLE_RATE`), each with where it starts in the Meeting's time.
- * Rejects if the models can't load or the audio can't be read.
+ * `spans`, when given, are the separated side's Transcript line ranges in the Meeting's time so
+ * the pass can classify speech the segmentation model missed. Rejects if the models can't load
+ * or the audio can't be read.
  */
 export interface SpeakerSeparator {
   separate(request: {
     parts: readonly { path: string; offsetMs: number }[];
     model: SpeakerModelFiles;
+    spans?: readonly { startMs: number; endMs: number }[];
   }): Promise<VoiceTurn[]>;
 }
 

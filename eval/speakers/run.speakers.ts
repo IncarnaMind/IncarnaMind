@@ -229,18 +229,21 @@ describe.runIf(existsSync(CASES))("The speaker pass on the meeting audio set", (
         const call = each.mic !== null;
         const theirs = LINES ? await linesIn(LINES, each.id, call) : null;
         if (LINES && !theirs) continue;
-        const { folder, parts } = await partsOf(each.separate);
-        const load = loadavg()[0] ?? 0;
-        const started = performance.now();
-        const turns = separate({ parts, model: speakers });
-        const seconds = (performance.now() - started) / 1000;
-        await rm(folder, { recursive: true, force: true });
         const cues = (
           theirs ?? [
             ...(each.mic ? await linesOf(each.mic, vad, SPEAKER_ME) : []),
             ...(await linesOf(each.separate, vad, call ? SPEAKER_THEM : SPEAKER_UNKNOWN)),
           ]
         ).sort((a, b) => a.startMs - b.startMs);
+        const spans = cues
+          .filter((cue) => cue.speaker !== null && !(call && cue.speaker === SPEAKER_ME))
+          .map(({ startMs, endMs }) => ({ startMs, endMs }));
+        const { folder, parts } = await partsOf(each.separate);
+        const load = loadavg()[0] ?? 0;
+        const started = performance.now();
+        const turns = separate({ parts, model: speakers, spans });
+        const seconds = (performance.now() - started) / 1000;
+        await rm(folder, { recursive: true, force: true });
         const final = afterCallLines(cues, turns, call);
         const audio = each.separate.length / RATE;
         const hypothesis = {
