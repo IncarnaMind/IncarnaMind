@@ -152,6 +152,22 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
 
     versions,
 
+    /** The newest version numbered `number` that a take-back took back, holding these bytes. */
+    takenBack: (
+      fileId: string,
+      number: number,
+      contentHash: string,
+    ): StoredHandedVersion | null => {
+      const row = db.get<VersionRow>(
+        `SELECT id, number, content_hash, size, file, mind_id, unread, checked_at, agent, created_at
+         FROM agent_file_versions
+         WHERE file_id = ? AND number = ? AND content_hash = ? AND deleted_at IS NOT NULL
+         ORDER BY deleted_at DESC LIMIT 1`,
+        [fileId, BigInt(number), contentHash],
+      );
+      return row ? toVersion(row) : null;
+    },
+
     /** Every version's check Note, each item's in order of its versions. */
     versionNotes: (): { fileId: string; mindId: string }[] =>
       db
@@ -256,6 +272,76 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
         now(),
         fileId,
       ]);
+    },
+
+    /**
+     * What a refused hand-over recorded, taken back in one go (#3751): its version, whose number is
+     * free again; the item's Document and title as they were before; and the item itself, ended,
+     * when it made it or no version of it is left.
+     */
+    takeBack(
+      fileId: string,
+      input: {
+        versionId: string | null;
+        documentBefore?: string | null;
+        title?: string;
+        made: boolean;
+      },
+    ): void {
+      const at = now();
+      db.transaction(() => {
+        if (input.documentBefore !== undefined) {
+          db.run("UPDATE agent_files SET document_id = ?, updated_at = ? WHERE id = ?", [
+            input.documentBefore,
+            at,
+            fileId,
+          ]);
+        }
+        if (input.title !== undefined) {
+          db.run("UPDATE agent_files SET title = ?, updated_at = ? WHERE id = ?", [
+            input.title,
+            at,
+            fileId,
+          ]);
+        }
+        if (input.versionId !== null) {
+          db.run(
+            `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
+             WHERE id = ? AND deleted_at IS NULL`,
+            [at, at, input.versionId],
+          );
+        }
+        if (input.made || versions(fileId).length === 0) {
+          db.run(
+            `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
+             WHERE file_id = ? AND deleted_at IS NULL`,
+            [at, at, fileId],
+          );
+          db.run(
+            "UPDATE agent_files SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            [at, at, fileId],
+          );
+        }
+      });
+    },
+
+    /**
+     * A version `takeBack` took back from an item that goes on, standing again with the title it
+     * gave the item: the bytes before it couldn't be written back into the item's Document (#3751).
+     */
+    putBack(fileId: string, input: { versionId: string; title: string }): void {
+      const at = now();
+      db.transaction(() => {
+        db.run("UPDATE agent_file_versions SET deleted_at = NULL, updated_at = ? WHERE id = ?", [
+          at,
+          input.versionId,
+        ]);
+        db.run("UPDATE agent_files SET title = ?, updated_at = ? WHERE id = ?", [
+          input.title,
+          at,
+          fileId,
+        ]);
+      });
     },
 
     /** The Note a version's check is in. */

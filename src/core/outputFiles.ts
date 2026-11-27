@@ -16,7 +16,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, lstat, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { access, lstat, mkdir, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join } from "node:path";
 import type { Logger } from "./adapters";
 import type {
@@ -478,8 +478,8 @@ export function createOutputFiles(options: OutputFilesOptions) {
 
     /**
      * The file a save of `name` with exactly these bytes made in the Output location already, among
-     * the names a save takes ("Tides.docx", "Tides 2.docx"…), up to the first name not taken; null
-     * when none holds them. So the same bytes saved again are written once (#3751).
+     * the names a save takes ("Tides.docx", "Tides 2.docx"…) that the folder holds; null when none
+     * holds them. So the same bytes saved again are written once (#3751).
      */
     async alreadySaved(name: string, bytes: Uint8Array): Promise<SavedFile | null> {
       const chosen = location();
@@ -492,9 +492,23 @@ export function createOutputFiles(options: OutputFilesOptions) {
       }
       // As a save refuses it: a link put in the chosen Output location's place leads elsewhere.
       if (chosen !== null && !isInside(chosen, folder)) return null;
+      // The names the folder holds, so the look goes past one deleted since ("Tides.docx" gone,
+      // "Tides 2.docx" the file saved before) without trying every name a save could take. Matched
+      // as a folder that ignores case and composition matches them, as macOS and Windows do.
+      const key = (each: string) => each.normalize("NFC").toLowerCase();
+      let there: Map<string, string>;
+      try {
+        there = new Map((await readdir(folder)).map((each) => [key(each), each]));
+      } catch (error) {
+        // A folder it may not list holds no file it can tell is the one saved: the save says why.
+        options.log.warn("output.alreadySaved", { code: codeOf(error) ?? String(error) });
+        return null;
+      }
       const wanted = fingerprintOf(bytes);
       for (const candidate of nameCandidates(fileNameOf(name))) {
-        const path = join(folder, candidate);
+        const listed = there.get(key(candidate));
+        if (listed === undefined) continue;
+        const path = join(folder, listed);
         let held: Uint8Array;
         try {
           // A link or a folder under the name is a name taken, as a save takes it, never a file it saved.
@@ -503,7 +517,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
           if (found.size !== bytes.length) continue;
           held = new Uint8Array(await readFile(path));
         } catch (error) {
-          if (isGone(error)) return null;
+          if (isGone(error)) continue;
           // A file it may not read isn't the one it saved.
           options.log.warn("output.alreadySaved", { code: codeOf(error) ?? String(error) });
           continue;
@@ -511,7 +525,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         if (fingerprintOf(held) !== wanted) continue;
         const made = {
           path,
-          name: candidate,
+          name: listed,
           folder,
           defaulted: false,
           inDefaultFolder: await isDefaultFolder(folder),

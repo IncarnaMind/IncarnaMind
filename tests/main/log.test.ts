@@ -166,6 +166,32 @@ describe("what the log says", () => {
     );
   });
 
+  test("a field holding a file system error's message loses the file's path, outside the home folder too", async () => {
+    const { logger, text } = await startLogger();
+
+    logger.error("handedFile.takeBack.failed", {
+      step: "bytes before",
+      message:
+        "EACCES: permission denied, open '/Volumes/Survey Disk/Linked notes/Quay survey 2026.docx'",
+    });
+    logger.warn("handedFile.takeBack.unreadFile", {
+      message:
+        "ENOENT: no such file or directory, open 'D:\\Harbour office\\Quay survey 2026.docx'",
+    });
+
+    const logged = await text();
+    expect(logged).toBe(
+      [
+        `2026-10-07T09:30:00.000Z ERROR handedFile.takeBack.failed step="bytes before" message="EACCES: permission denied, open '[path]'"`,
+        `2026-10-07T09:30:00.000Z WARN  handedFile.takeBack.unreadFile message="ENOENT: no such file or directory, open '[path]'"`,
+        "",
+      ].join("\n"),
+    );
+    for (const secret of ["Survey Disk", "Linked notes", "Quay survey", "Harbour office"]) {
+      expect(logged).not.toContain(secret);
+    }
+  });
+
   test("what isn't an error or text is logged by its type alone", async () => {
     const { logger, text } = await startLogger();
 

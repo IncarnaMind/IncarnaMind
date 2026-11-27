@@ -51,9 +51,17 @@ export type WordSource =
 /** Why a file isn't kept: it would name a Document of a Folder not shared, one deleted, or the Library's facts. */
 export type WordUnreached = "unshared" | "deleted" | "library";
 
-/** The Word file written, or why it isn't: it would name what the agent can't read. */
+/**
+ * The Word file written, or why it isn't: it would name what the agent can't read. `unreached`
+ * asks that again of what the file names, for a reach read after a wait (#3751).
+ */
 export type WordMade =
-  | { kind: "made"; data: Uint8Array; fileName: string }
+  | {
+      kind: "made";
+      data: Uint8Array;
+      fileName: string;
+      unreached(reaches: (documentId: string) => boolean): WordUnreached | null;
+    }
   | { kind: "unreached"; why: WordUnreached };
 
 /** Where the file was saved for the User, or why it couldn't be, in plain words. */
@@ -184,6 +192,7 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
           kind: "made",
           data: exported.data,
           fileName: `${safeFileName(source.title, "Note")}.docx`,
+          unreached: (now) => unreached(named, now),
         };
       } finally {
         doc.destroy();

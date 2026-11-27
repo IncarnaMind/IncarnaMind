@@ -60,12 +60,12 @@ import {
 } from "../shared/mindStyle";
 import { missingNumberWords } from "../shared/missingNumbers";
 import { sameName } from "../shared/names";
-import { mindName } from "../shared/naming";
+import { mindName, numberedName } from "../shared/naming";
 import { noteWriterOf, recordNoteWriter } from "../shared/noteWriter";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readableQuoteText } from "../shared/readableQuote";
-import { isPaperOrBook } from "../shared/references";
+import { isPaperOrBook, referenceFieldOrder } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { folderScope, hasSearchScope, NO_SCOPE, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
@@ -77,6 +77,7 @@ import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles, type StoredHandedFile } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
+import { dropTakenBackCopies } from "./agentFiles/kept";
 import {
   agentSocketPath,
   createAgents,
@@ -95,7 +96,7 @@ import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import { createAgentSorting } from "./agents/sorting";
 import { withTabFences } from "./agents/tabs";
-import { wordItemOf } from "./agents/wordFiles";
+import { textTitleOf, wordItemOf } from "./agents/wordFiles";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -106,7 +107,7 @@ import { createChecks } from "./answers/checks";
 import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { containsTable } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
-import { checkedSentences } from "./answers/checks/sentences";
+import { checkedSentences, keepsAView } from "./answers/checks/sentences";
 import { judgedNow, readingOf } from "./answers/checks/standing";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
@@ -396,7 +397,14 @@ import {
   parseMindId,
   parseMindModel,
 } from "./minds";
-import { firstLineOf, NO_MARKS, readBlocks, textStart, theirChangesReading } from "./mindText";
+import {
+  contentWithoutChecks,
+  firstLineOf,
+  NO_MARKS,
+  readBlocks,
+  textStart,
+  theirChangesReading,
+} from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
@@ -3890,6 +3898,19 @@ export function createCore(adapters: CoreAdapters): Core {
     const folderId = file.folderId ?? NOT_IN_A_FOLDER_ID;
     if (item === null) return { kind: "path", path: file.path };
     if (item.kind === "text") return { kind: "text", folderId };
+    const note = minds.list().find((mind) => mind.id === item.mindId);
+    if (!note) {
+      // Saved under a title the agent's own text has there, the fix would be that file's next version.
+      const taken = handedFiles
+        .list()
+        .filter((each) => each.pairingId === file.pairingId)
+        .flatMap((each) => textTitleOf(each.path, file.folderId) ?? []);
+      return {
+        kind: "deletedNote",
+        folderId,
+        title: numberedName(file.title, taken) ?? file.title,
+      };
+    }
     const writer = content.read(item.mindId, (blocks) =>
       blocks.doc ? noteWriterOf(blocks.doc) : null,
     );
@@ -3898,13 +3919,12 @@ export function createCore(adapters: CoreAdapters): Core {
       (writer.mindId === undefined
         ? minds.duplicatedFrom(item.mindId) === null
         : writer.mindId === item.mindId);
-    // A plain save keeps a Note's file in the Note's own Folder.
-    const noteFolder = minds.list().find((mind) => mind.id === item.mindId)?.folderId ?? null;
     return {
       kind: "note",
       mindId: item.mindId,
       own,
-      folderId: noteFolder === file.folderId ? null : folderId,
+      // A plain save keeps a Note's file in the Note's own Folder.
+      folderId: note.folderId === file.folderId ? null : folderId,
     };
   };
   /**
@@ -4974,7 +4994,6 @@ export function createCore(adapters: CoreAdapters): Core {
     // The app still opens; what is due goes at the next start.
     console.error("Deleting what waited 30 days in Recently deleted failed.", error);
   }
-  documents.dropPurged().catch((error: unknown) => console.error(error));
   canvases
     .dropPurged()
     .catch((error: unknown) =>
@@ -6612,6 +6631,32 @@ export function createCore(adapters: CoreAdapters): Core {
     filedOnArrival: (path) => boundFolderAt(path),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
+    // What reading the file sets is left out: the Tags automatic tagging gives, the reference fields
+    // read from the file. Everything the User sets is in.
+    shapeOf: (documentId) => {
+      const document = documents.get(documentId);
+      const { reference } = document;
+      return {
+        name: document.name,
+        rest: JSON.stringify({
+          folderId: library.folderOfDocument(documentId),
+          tags: document.tags
+            .filter((tag) => tag.source === "user")
+            .map((tag) => tag.tagId)
+            .sort(),
+          notCited: document.notCited,
+          readHiddenSheets: document.readHiddenSheets,
+          reference: referenceFieldOrder
+            .filter((field) => (reference?.sources[field] ?? "file") !== "file")
+            .map((field) => [field, reference?.fields[field]]),
+          lookedUpAt: reference?.lookedUpAt ?? null,
+          // The User can change an annotation's colour and note, not where it is.
+          annotations: [...annotations.list(documentId)]
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map((each) => [each.id, each.colour, each.note]),
+        }),
+      };
+    },
     contentHashInUse: (hash, except, withExports) =>
       withExports
         ? documents.contentHashInUse(hash, except)
@@ -6624,12 +6669,52 @@ export function createCore(adapters: CoreAdapters): Core {
                 document.ownFile?.kind !== "export",
             ),
     dropPurged: () => documents.dropPurged(),
+    discard: async ({ documentIds, mindIds, copies }) => {
+      const at = now();
+      // One the User sent to Recently deleted meanwhile is there already, and goes for good too.
+      const liveDocuments = documentIds.filter((id) => liveDocument(id) !== undefined);
+      if (liveDocuments.length > 0) documents.delete(liveDocuments, at);
+      const liveMinds = new Set(minds.list().map((mind) => mind.id));
+      for (const mindId of mindIds) if (liveMinds.has(mindId)) removeMind(mindId, at);
+      const refs = [
+        ...documentIds.map((id) => ({ kind: "document", id })),
+        ...mindIds.map((id) => ({ kind: "mind", id })),
+      ];
+      if (refs.length > 0) recentlyDeleted.deletePermanently(refs);
+      // A Word file's check Note keeps the package it was read from, as an imported Note does.
+      await Promise.all([wordImports.dropPurged(), documents.dropPurged(copies)]);
+    },
+    readKept: async (path) => new Uint8Array(await readFile(path)),
+    // In the hand-overs' turn: a freed version number's copy and file are written there again.
+    startUp: async (keep) => {
+      await Promise.all([
+        documents.dropPurged().catch((error: unknown) => console.error(error)),
+        dropTakenBackCopies({
+          db,
+          dataDir,
+          keep,
+          signal: lifetime.signal,
+          reportError: (error) => console.error(error),
+        }),
+      ]);
+    },
+    signal: lifetime.signal,
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
     checkUnasked: (mindId, options) => inFlow("verify", () => checks.checkUnasked(mindId, options)),
     mindTitle: (mindId) => minds.get(mindId).title,
+    noteAt: (mindId) => {
+      const note = minds.list().find((each) => each.id === mindId);
+      if (!note) return null;
+      return {
+        title: note.title,
+        folderId: note.folderId,
+        content: hashBytes(new TextEncoder().encode(content.peek(mindId, contentWithoutChecks))),
+        kept: content.peek(mindId, keepsAView),
+      };
+    },
     nameMind: (mindId, title) => minds.rename(mindId, title),
     notesChanged: () => mindsChanged(),
     recordWriter: (mindId, writer) =>

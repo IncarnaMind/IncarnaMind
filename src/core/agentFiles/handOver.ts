@@ -7,14 +7,14 @@
  * only when nothing need be asked of the User, and one verify run goes at a time, so a check the
  * User is running is waited for.
  */
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type { Logger } from "../adapters";
 import type { FoundClaim, HandedCheck, HandOverDone } from "../agents/handedFiles";
 import { AgentRefusedError } from "../agents/refusals";
 import type { UnaskedCheck, UnaskedOptions } from "../answers/checks/verify";
 import type { Document, HandedFile, VerifyDocumentResult } from "../api";
-import { hashBytes } from "../documents/files";
+import { hashBytes, hashFile, isGone } from "../documents/files";
 import { type WrittenFile, writeWholeFile } from "../documents/writeWhole";
 import type { AgentFiles, StoredHandedFile, StoredHandedVersion } from "./index";
 
@@ -44,6 +44,15 @@ export interface HandedMarks {
   judged: number;
 }
 
+/**
+ * A Document as the User shapes it (`HandOverDeps.shapeOf`): its name, and as one text the rest of
+ * what they can set on it, from its Folder to its Tags.
+ */
+export interface DocumentShape {
+  name: string;
+  rest: string;
+}
+
 /** Where a handed-over file is, as the Library sees it (`HandOverDeps.placeOf`). */
 export interface Place {
   linkedFolderId: string | null;
@@ -71,6 +80,7 @@ export interface HandOverDeps {
   document(documentId: string): Document;
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
+  shapeOf(documentId: string): DocumentShape;
   /** Whether another Document holds these bytes; IncarnaMind's own export copies only `withExports`. */
   contentHashInUse(
     contentHash: string,
@@ -79,6 +89,13 @@ export interface HandOverDeps {
   ): boolean;
   /** Removes the copies of what was deleted for good, as `Documents.dropPurged` does. */
   dropPurged(): Promise<void>;
+  /**
+   * Deletes for good what a refused hand-over made (#3751): its Document and its check's Note,
+   * never shown as deleted, and its copies in "Handed files" that no Document holds.
+   */
+  discard(made: { documentIds: string[]; mindIds: string[]; copies: string[] }): Promise<void>;
+  /** A copy kept in "Handed files", as bytes. */
+  readKept(path: string): Promise<Uint8Array>;
   /** Someone else's file, checked: never the evidence for its own claims. */
   setNotCited(documentId: string): void;
   rename(documentId: string, name: string): void;
@@ -90,6 +107,22 @@ export interface HandOverDeps {
   }): Promise<VerifyDocumentResult>;
   checkUnasked(mindId: string, options: UnaskedOptions): Promise<UnaskedCheck>;
   mindTitle(mindId: string): string;
+  /**
+   * A Note's name, Folder and content as they are now (`content`: a hash of all of it but a check's
+   * results, so a check on it leaves it as it was; `kept`: whether the User kept a sentence of it
+   * as their own view, which is stored with a result); null once it is deleted.
+   */
+  noteAt(
+    mindId: string,
+  ): { title: string; folderId: string | null; content: string; kept: boolean } | null;
+  /**
+   * The start's removal of what the data folder keeps of what was deleted for good, and of the
+   * copies a take-back cut short left, but the version folders in `keep`: in the hand-overs' turn,
+   * before any hand-over writes one.
+   */
+  startUp(keep: readonly string[]): Promise<void>;
+  /** Aborted once the core closes: the start writes nothing after. */
+  signal: AbortSignal;
   nameMind(mindId: string, title: string): void;
   /** Tells the windows the Notes changed: which of them a later version's check now stands for. */
   notesChanged(): void;
@@ -102,6 +135,20 @@ export interface HandOverDeps {
   /** Whether what is written is checked as it lands (Settings › AI); off, a version waits for the User's Check. */
   checksWritten(): boolean;
   log: Logger;
+}
+
+/** A take-back a quit cut short: the item, its own Document, its newest version and the one taken back. */
+interface CutShort {
+  file: StoredHandedFile;
+  documentId: string;
+  standing: StoredHandedVersion;
+  taken: StoredHandedVersion;
+}
+
+/** Why a start left a take-back a quit cut short as it was; `message`: the error of a failed read. */
+interface NotFinished {
+  why: string;
+  message?: string;
 }
 
 /** A check started on a version's Note, with what it was given, to start it again. */
@@ -118,6 +165,64 @@ const SETTLED: ReadonlySet<UnaskedCheck["kind"]> = new Set(["checked", "nothing"
 
 /** A set of results by their ids, as one key. */
 const idsKey = (ids: readonly string[]): string => [...ids].sort().join(" ");
+
+/** A check Note as a hand-over left it, to tell whether the User has touched it since. */
+interface Left {
+  name: string;
+  folderId: string | null;
+  content: string;
+}
+
+/**
+ * What one hand-over made so far, so a refusal part way takes all of it back (#3751): a refused
+ * call keeps nothing, as one refused at its start does, and leaves nothing no one can see.
+ */
+interface Made {
+  /** The item, when this hand-over made it. */
+  item: boolean;
+  version: StoredHandedVersion | null;
+  /** What it wrote in "Handed files" that no Document holds: a version's folder, a file. */
+  copies: string[];
+  /** The Document it added for the version, as it left it, and the item's Document before it. */
+  added: { documentId: string; before: string | null; shape: DocumentShape } | null;
+  /**
+   * The item's own Document it wrote the version into, as it left it: the copy of the bytes it
+   * held before and their hash, and its name then.
+   */
+  rewrote: {
+    documentId: string;
+    copy: string;
+    contentHash: string;
+    name: string;
+    shape: DocumentShape;
+  } | null;
+  /**
+   * The Linked folder's Document the version is, the agent's own file there, as it was read for the
+   * version: never taken back, only looked at for what the User did to it since.
+   */
+  linked: { documentId: string; shape: DocumentShape } | null;
+  /** The check's Note it made, as it left it, and the Note before it with its name and the one given. */
+  checked: {
+    mindId: string;
+    left: Left;
+    renamed: { mindId: string; title: string; as: string } | null;
+  } | null;
+  /** The item's title before this version gave it its own. */
+  title: string | null;
+}
+
+const nothingMade = (item: boolean): Made => ({
+  item,
+  version: null,
+  copies: [],
+  added: null,
+  rewrote: null,
+  linked: null,
+  checked: null,
+  title: null,
+});
+
+const NOTHING_TO_UNDO = async (): Promise<void> => {};
 
 /**
  * How the item of a file IncarnaMind wrote for an agent is known, in place of a path (#3751): no
@@ -206,11 +311,29 @@ function fileNameOf(title: string, kind: HandedFile["kind"]): string {
   return `${plain || "file"}.${kind}`;
 }
 
+/**
+ * Where a version keeps the bytes the item's own Document held before it was written in, when
+ * they were no newest version's (#3751): beside the version's copy, in a folder no copy's name is.
+ */
+const beforeCopyOf = (dataDir: string, version: StoredHandedVersion, kind: HandedFile["kind"]) =>
+  join(dataDir, dirname(version.file), "before", `file.${kind}`);
+
 export function createHandOver(deps: HandOverDeps) {
   const { store } = deps;
   /** Each check started, by its Note, while this run of IncarnaMind lasts. */
   const runs = new Map<string, CheckRun>();
-  let queue: Promise<unknown> = Promise.resolve();
+  // The turn starts with the start, called now: it reads the tables before the core can close, and
+  // every hand-over and hand edit waits for it.
+  let queue: Promise<unknown> = start().catch((error: unknown) =>
+    deps.log.error("handedFile.startUp.failed", {
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = queue.then(run);
+    queue = next.catch(() => undefined);
+    return next;
+  };
 
   /**
    * Throws unless the item is still there: the User may delete its Document for good while a write
@@ -225,10 +348,11 @@ export function createHandOver(deps: HandOverDeps) {
     file: StoredHandedFile,
     path: string,
     bytes: Uint8Array,
+    options: { durable?: boolean } = {},
   ): Promise<WrittenFile> {
     let written: WrittenFile;
     try {
-      written = await writeWholeFile(path, bytes, deps.now());
+      written = await writeWholeFile(path, bytes, deps.now(), options);
     } catch (error) {
       stillThere(file);
       throw error;
@@ -319,12 +443,399 @@ export function createHandOver(deps: HandOverDeps) {
     }
   };
 
-  const doneOf = (file: StoredHandedFile, version: StoredHandedVersion): HandOverDone => ({
+  const doneOf = (
+    file: StoredHandedFile,
+    version: StoredHandedVersion,
+    undo: () => Promise<void> = NOTHING_TO_UNDO,
+  ): HandOverDone => ({
     file: store.get(file.id) ?? file,
     version: version.number,
     mindId: version.mindId,
     unread: version.unread,
+    undo,
   });
+
+  /** Whether the file holds these bytes now; one that can't be read can't be told to, so doesn't. */
+  async function holds(path: string, contentHash: string): Promise<boolean> {
+    try {
+      return (await hashFile(path)).contentHash === contentHash;
+    } catch (error) {
+      deps.log.warn("handedFile.takeBack.unreadFile", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Whether the version's Document is as the hand-over left it, by what the Library holds of it:
+   * there, holding the version, with the name and the rest the User sets as they were. Its file is
+   * read apart, before, as reading it is awaited.
+   */
+  const documentAsLeft = (
+    document: { documentId: string; shape: DocumentShape },
+    version: StoredHandedVersion,
+  ): boolean => {
+    if (!deps.liveDocument(document.documentId)) return false;
+    const shape = deps.shapeOf(document.documentId);
+    return (
+      deps.document(document.documentId).contentHash === version.contentHash &&
+      shape.name === document.shape.name &&
+      shape.rest === document.shape.rest
+    );
+  };
+
+  /**
+   * Whether the check Note is as the hand-over left it: its name, Folder and content, a check's
+   * results aside, and no sentence the User kept as their own view.
+   */
+  const noteAsLeft = (checked: NonNullable<Made["checked"]>): boolean => {
+    const now = deps.noteAt(checked.mindId);
+    return (
+      now !== null &&
+      !now.kept &&
+      now.title === checked.left.name &&
+      now.folderId === checked.left.folderId &&
+      now.content === checked.left.content
+    );
+  };
+
+  /**
+   * Whether anyone built on what a hand-over made since it made it: a later version of the item
+   * (a hand edit's, #149, or another call's), or its Document or check Note no longer as it left
+   * them (written, renamed, moved, tagged, annotated or deleted by the User). Then all of it is
+   * theirs, and stays. Nothing here is awaited, so what it reads stands until the step after it.
+   */
+  const builtOn = (file: StoredHandedFile, made: Made): boolean => {
+    const { version, checked } = made;
+    if (version === null) return false;
+    if (store.versions(file.id).some((each) => each.number > version.number)) return true;
+    const document = made.added ?? made.rewrote ?? made.linked;
+    if (document && !documentAsLeft(document, version)) return true;
+    return checked !== null && !noteAsLeft(checked);
+  };
+
+  /**
+   * Whether the Document's file holds the version's bytes now, as another app may have saved it
+   * since IncarnaMind last read it; true for a Document deleted, which `documentAsLeft` tells.
+   */
+  const fileHoldsVersion = async (
+    documentId: string,
+    version: StoredHandedVersion,
+  ): Promise<boolean> =>
+    !deps.liveDocument(documentId) ||
+    (await holds(deps.document(documentId).path, version.contentHash));
+
+  /**
+   * Takes back what a refused hand-over made and no one built on (#3751). What it writes back is
+   * read first, and the records go before anything is removed or written: a step up to there that
+   * fails keeps all of it, as the User would find a hand-over that was built on. Then the bytes it
+   * wrote into the item's Document, the earlier check Note's name, its check Note, the Document it
+   * added and its copies, each standing alone, in an order that keeps what a quit leaves part way
+   * something the User sees and can delete; bytes a quit left unwritten, the next start writes back.
+   * Each thing is looked at again just before it is written over or deleted, with nothing awaited
+   * between: one the User changed meanwhile is theirs, and stays.
+   */
+  async function takeBack(file: StoredHandedFile, made: Made): Promise<void> {
+    const { version, checked, added, rewrote } = made;
+    // The refusal is still the call's answer; what couldn't be taken back is named for the log.
+    const failed = (step: string, error: unknown) =>
+      deps.log.error("handedFile.takeBack.failed", {
+        fileId: file.id,
+        version: version?.number ?? null,
+        step,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    const kept = (what: string) =>
+      deps.log.info("handedFile.takeBack.kept", {
+        fileId: file.id,
+        version: version?.number ?? null,
+        what,
+      });
+    let before: Uint8Array | null = null;
+    try {
+      const document = made.added ?? made.rewrote ?? made.linked;
+      const fileHolds =
+        !document || !version || (await fileHoldsVersion(document.documentId, version));
+      if (rewrote) before = await deps.readKept(rewrote.copy);
+      if (!fileHolds || builtOn(file, made)) {
+        deps.log.info("handedFile.takeBack.builtOn", {
+          fileId: file.id,
+          version: version?.number ?? null,
+        });
+        return;
+      }
+      if (rewrote && before && hashBytes(before) !== rewrote.contentHash) {
+        throw new Error("The copy to write back holds other bytes than the Document held.");
+      }
+    } catch (error) {
+      failed("look", error);
+      return;
+    }
+    const title = store.get(file.id)?.title ?? file.title;
+    try {
+      store.takeBack(file.id, {
+        versionId: version?.id ?? null,
+        ...(added && !made.item && { documentBefore: added.before }),
+        ...(made.title !== null && { title: made.title }),
+        made: made.item,
+      });
+    } catch (error) {
+      failed("records", error);
+      return;
+    }
+    // Bytes of neither version in the file after a failed write: left unread, with the copies, for
+    // the next start, which tells such a file by the Document's last read and leaves it as it is.
+    let unsure = false;
+    if (rewrote && before && version) {
+      const { path } = deps.document(rewrote.documentId);
+      try {
+        if (!(await holds(path, version.contentHash))) {
+          throw new Error("The Document's file changed after the take-back looked at it.");
+        }
+        await writeWholeFile(path, before, deps.now());
+      } catch (error) {
+        failed("bytes before", error);
+        // A write can fail after its file is in place: what the file holds says which it was.
+        const holding = await hashFile(path).then(
+          (hashed) => hashed.contentHash,
+          () => null,
+        );
+        if (holding === version.contentHash) {
+          // Not written: the version stands again, so the item's newest version is what its
+          // Document holds.
+          try {
+            store.putBack(file.id, { versionId: version.id, title });
+          } catch (again) {
+            failed("records put back", again);
+          }
+          return;
+        }
+        if (holding !== rewrote.contentHash) {
+          unsure = true;
+          deps.log.warn("handedFile.takeBack.unsure", {
+            fileId: file.id,
+            version: version.number,
+          });
+        }
+      }
+    }
+    const step = async (name: string, run: () => unknown) => {
+      try {
+        await run();
+      } catch (error) {
+        failed(name, error);
+      }
+    };
+    if (rewrote && !unsure) {
+      await step("read again", async () => {
+        const was = deps.document(rewrote.documentId);
+        await deps.readAgain(was.path);
+        const read = await versionRead(rewrote.documentId, rewrote.contentHash, was);
+        if (read !== true) {
+          deps.log.warn("handedFile.takeBack.unread", { fileId: file.id, why: read });
+        }
+        if (
+          rewrote.shape.name !== rewrote.name &&
+          deps.document(rewrote.documentId).name === rewrote.shape.name
+        )
+          deps.rename(rewrote.documentId, rewrote.name);
+      });
+    }
+    const renamed = checked?.renamed;
+    if (renamed) {
+      await step("earlier note's name", () => {
+        if (deps.noteAt(renamed.mindId)?.title === renamed.as)
+          deps.nameMind(renamed.mindId, renamed.title);
+      });
+    }
+    if (checked) {
+      // One the User changed since is theirs, a Note no version is the check of.
+      if (noteAsLeft(checked)) {
+        await step("check note", () =>
+          deps.discard({ documentIds: [], mindIds: [checked.mindId], copies: [] }),
+        );
+      } else kept("check note");
+    }
+    if (added && version) {
+      // Its file read first, so nothing is awaited between how it is and its deletion.
+      const holdsIt = await fileHoldsVersion(added.documentId, version);
+      if (holdsIt && documentAsLeft(added, version)) {
+        await step("document", () =>
+          deps.discard({ documentIds: [added.documentId], mindIds: [], copies: [] }),
+        );
+      } else kept("document");
+    }
+    // A Document kept holds its file still, and its file stays.
+    if (!unsure) {
+      await step("copies", () =>
+        deps.discard({ documentIds: [], mindIds: [], copies: made.copies }),
+      );
+    }
+    deps.notesChanged();
+  }
+
+  /**
+   * The start: the take-backs a quit cut short finished, then the clean-up. The tables are read at
+   * once, so a core closed as it starts reads nothing closed and removes nothing.
+   */
+  function start(): Promise<void> {
+    let cut: CutShort[];
+    try {
+      cut = cutShortTakeBacks();
+    } catch (error) {
+      // Which copies a cut-short take-back still needs isn't known: the clean-up waits for a start
+      // that can tell.
+      return Promise.reject(error);
+    }
+    if (cut.length === 0) return deps.startUp([]);
+    return finishTakeBacks(cut).then((keep) =>
+      deps.signal.aborted ? undefined : deps.startUp(keep),
+    );
+  }
+
+  /**
+   * The take-backs a quit cut short after their records (#3751), told apart by what is kept: the
+   * item back on its newest version, its own Document still holding the version taken back, whose
+   * row has its bytes' hash. An item whose Document holds its newest version is passed by with no
+   * file read.
+   */
+  function cutShortTakeBacks(): CutShort[] {
+    return store.list().flatMap((file) => {
+      const { documentId } = file;
+      if (documentId === null || !deps.liveDocument(documentId)) return [];
+      const document = deps.document(documentId);
+      const standing = store.versions(file.id).at(-1);
+      if (
+        !standing ||
+        document.linkedFolderId !== null ||
+        document.contentHash === standing.contentHash
+      )
+        return [];
+      const taken = store.takenBack(file.id, standing.number + 1, document.contentHash);
+      return taken ? [{ file, documentId, standing, taken }] : [];
+    });
+  }
+
+  /** Finishes each take-back a quit cut short; returns the version folders of those left as they are. */
+  async function finishTakeBacks(cut: readonly CutShort[]): Promise<string[]> {
+    const keep: string[] = [];
+    for (const each of cut) {
+      if (deps.signal.aborted) break;
+      let left: NotFinished | null;
+      try {
+        left = await finishTakeBack(each);
+      } catch (error) {
+        left = { why: "failed" };
+        deps.log.error("handedFile.takeBack.finishFailed", {
+          fileId: each.file.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (left === null) continue;
+      // Its copy stays with the version's row, for a later start or the User to finish it from.
+      keep.push(dirname(join(deps.dataDir, each.taken.file)));
+      deps.log.warn("handedFile.takeBack.notFinished", {
+        fileId: each.file.id,
+        version: each.taken.number,
+        ...left,
+      });
+    }
+    return keep;
+  }
+
+  /**
+   * Writes back into the item's Document the bytes it held before the version taken back, as the
+   * take-back would have: the copy kept of them when they were no version's, or else the newest
+   * version's. Only while the file holds just the version taken back and that copy holds just
+   * those bytes, read again before the write. Null once done; otherwise why it wrote nothing more.
+   */
+  async function finishTakeBack({
+    file,
+    documentId,
+    standing,
+    taken,
+  }: CutShort): Promise<NotFinished | null> {
+    const document = deps.document(documentId);
+    let kept: Uint8Array | null = null;
+    try {
+      kept = await deps.readKept(beforeCopyOf(deps.dataDir, taken, file.kind));
+    } catch (error) {
+      if (!isGone(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { why: "copy-unreadable", message };
+      }
+    }
+    const target = kept === null ? standing.contentHash : hashBytes(kept);
+    let onDisk: string;
+    try {
+      onDisk = (await hashFile(document.path)).contentHash;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { why: "file-unreadable", message };
+    }
+    // Holding the bytes before already (a quit after the write, before the read), it is only read.
+    if (onDisk !== target) {
+      if (onDisk !== taken.contentHash) return { why: "file-changed" };
+      let before = kept;
+      if (before === null) {
+        try {
+          before = await deps.readKept(join(deps.dataDir, standing.file));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { why: isGone(error) ? "copy-missing" : "copy-unreadable", message };
+        }
+        if (hashBytes(before) !== standing.contentHash) return { why: "copy-changed" };
+      }
+      if (!(await holds(document.path, taken.contentHash))) return { why: "file-changed" };
+      if (deps.signal.aborted) return { why: "closed" };
+      await writeWholeFile(document.path, before, deps.now());
+    }
+    // A closed Library reads nothing: the next start finds the bytes before in the file, and only
+    // reads them.
+    if (deps.signal.aborted) return { why: "closed" };
+    try {
+      await deps.readAgain(document.path);
+      const read = await versionRead(documentId, target, document);
+      if (read !== true) {
+        deps.log.warn("handedFile.takeBack.unread", { fileId: file.id, why: read });
+      }
+      // The records gave the item its title before back; the hand-over named its Document by the
+      // version's, which its copy's name keeps. Any other name is one the User gave since.
+      const { name } = deps.document(documentId);
+      if (name !== file.title && fileNameOf(name, file.kind) === basename(taken.file))
+        deps.rename(documentId, file.title);
+    } catch (error) {
+      if (deps.signal.aborted) return { why: "closed" };
+      deps.log.error("handedFile.takeBack.failed", {
+        fileId: file.id,
+        version: taken.number,
+        step: "read again",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    deps.log.info("handedFile.takeBack.finished", { fileId: file.id, version: taken.number });
+    return null;
+  }
+
+  /**
+   * A hand-over's work from where it has made something: refused part way, it takes back what it
+   * made before the refusal is told; done, its `undo` does so for a refusal after it.
+   */
+  async function taking(
+    file: StoredHandedFile,
+    made: Made,
+    work: () => Promise<HandOverDone>,
+  ): Promise<HandOverDone> {
+    let done: HandOverDone;
+    try {
+      done = await work();
+    } catch (error) {
+      if (error instanceof AgentRefusedError) await takeBack(file, made);
+      throw error;
+    }
+    return { ...done, undo: () => inTurn(() => takeBack(file, made)) };
+  }
 
   /** This agent's item whose newest version IncarnaMind wrote with these bytes, its check begun (#3751). */
   const writtenWith = (pairingId: string, contentHash: string) => {
@@ -340,6 +851,100 @@ export function createHandOver(deps: HandOverDeps) {
   /** The item's Document, while the Library holds it: null when it has none, or the User deleted it. */
   const liveDocumentOf = (file: StoredHandedFile | null): string | null =>
     file?.documentId && deps.liveDocument(file.documentId) ? file.documentId : null;
+
+  /**
+   * What a try cut short made of the item's Document for `version` before it stopped: the Document
+   * it added for it, or the bytes it wrote into the item's own, whose version before is the copy.
+   */
+  const madeBefore = async (
+    file: StoredHandedFile,
+    version: StoredHandedVersion,
+  ): Promise<Pick<Made, "added" | "rewrote">> => {
+    const documentId = liveDocumentOf(file);
+    const document = documentId === null ? null : deps.document(documentId);
+    if (
+      !document ||
+      document.contentHash !== version.contentHash ||
+      document.linkedFolderId !== null
+    )
+      return { added: null, rewrote: null };
+    const shape = deps.shapeOf(document.id);
+    if (basename(document.path) === `file-${version.number}.${file.kind}`) {
+      return { added: { documentId: document.id, before: null, shape }, rewrote: null };
+    }
+    const before = await writtenOver(file, version);
+    return {
+      added: null,
+      rewrote: before && { documentId: document.id, ...before, name: document.name, shape },
+    };
+  };
+
+  /**
+   * The bytes the item's own Document held before `version` was written into it: the copy kept of
+   * them (`keptBefore`), or else the newest version's before it; null when there is none.
+   */
+  async function writtenOver(
+    file: StoredHandedFile,
+    version: StoredHandedVersion,
+  ): Promise<{ copy: string; contentHash: string } | null> {
+    const copy = beforeCopyOf(deps.dataDir, version, file.kind);
+    try {
+      return { copy, contentHash: hashBytes(await deps.readKept(copy)) };
+    } catch (error) {
+      if (!isGone(error)) throw error;
+    }
+    return newestBefore(file, version);
+  }
+
+  /** The newest version before `version` as what a refusal writes back: its copy and its hash. */
+  const newestBefore = (file: StoredHandedFile, version: StoredHandedVersion) => {
+    const newest = store
+      .versions(file.id)
+      .filter((each) => each.number < version.number)
+      .at(-1);
+    return newest
+      ? { copy: join(deps.dataDir, newest.file), contentHash: newest.contentHash }
+      : null;
+  };
+
+  /**
+   * Keeps what a refusal writes back before `version` is written into the item's own Document
+   * `was`: its file's bytes as they are, which the newest version before keeps already when they
+   * are its, or else a copy of them beside the version's (#3751). A file gone stands for the
+   * newest version while the Library last read that. Throws, before anything is written, when the
+   * bytes can't be read or kept.
+   */
+  async function keptBefore(
+    file: StoredHandedFile,
+    version: StoredHandedVersion,
+    was: Document,
+  ): Promise<{ copy: string; contentHash: string }> {
+    const ofNewest = newestBefore(file, version);
+    let bytes: Uint8Array;
+    try {
+      bytes = await deps.readKept(was.path);
+    } catch (error) {
+      if (isGone(error) && ofNewest?.contentHash === was.contentHash) return ofNewest;
+      throw error;
+    }
+    const contentHash = hashBytes(bytes);
+    const copy = beforeCopyOf(deps.dataDir, version, file.kind);
+    // A copy an earlier try of this version kept is what a refusal would write back: it is made
+    // to hold these bytes too.
+    if (ofNewest?.contentHash === contentHash && !(await keptAlready(copy))) return ofNewest;
+    // On the disk before the User's file is written over, as a deck kept for a hand edit is (#149).
+    await keep(file, copy, bytes, { durable: true });
+    return { copy, contentHash };
+  }
+
+  const keptAlready = (path: string): Promise<boolean> =>
+    deps.readKept(path).then(
+      () => true,
+      (error: unknown) => {
+        if (isGone(error)) return false;
+        throw error;
+      },
+    );
 
   /**
    * Refuses unless the agent reaches, as the User grants it now, the Folder the call named, the
@@ -398,7 +1003,7 @@ export function createHandOver(deps: HandOverDeps) {
   /**
    * Makes a kept version the item's Document's newest, and the Note of its check, from wherever
    * an earlier try stopped: a failure leaves the version kept, and the same bytes handed over again
-   * go on from there.
+   * go on from there. What it makes goes in `takes`, for a refusal to take back.
    */
   async function complete(
     file: StoredHandedFile,
@@ -406,6 +1011,7 @@ export function createHandOver(deps: HandOverDeps) {
     input: HandOverInput,
     contentHash: string,
     reach: ReadonlySet<string>,
+    takes: Made,
   ): Promise<HandOverDone> {
     let documentId = liveDocumentOf(file);
     if (documentId === null && requireReach(input, file).linkedFolderId !== null) {
@@ -420,27 +1026,36 @@ export function createHandOver(deps: HandOverDeps) {
         file.id,
         `file-${version.number}.${file.kind}`,
       );
+      takes.copies.push(path);
       const written = await keep(file, path, input.bytes);
       requireReach(input, file);
-      const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
-      documentId = document.id;
+      documentId = deps.addHanded(deps.newId(), input.title, written, file.kind).id;
       deps.setNotCited(documentId);
       if (file.folderId !== null) deps.assign(documentId, file.folderId);
       store.setDocument(file.id, documentId);
+      takes.added = { documentId, before: file.documentId, shape: deps.shapeOf(documentId) };
     } else if (deps.document(documentId).contentHash !== contentHash) {
       const was = deps.document(documentId);
       // A Linked folder's Document is the agent's file itself: it is read again, never written.
-      const own = was.linkedFolderId === null;
-      if (own) await keep(file, was.path, input.bytes);
+      if (was.linkedFolderId === null) {
+        const shape = deps.shapeOf(documentId);
+        const before = await keptBefore(file, version, was);
+        takes.rewrote = { documentId, ...before, name: was.name, shape };
+        await keep(file, was.path, input.bytes);
+      }
       await deps.readAgain(was.path);
-      if (own && deps.document(documentId).name !== input.title)
+      if (was.linkedFolderId === null && deps.document(documentId).name !== input.title)
         deps.rename(documentId, input.title);
+      if (takes.rewrote) takes.rewrote.shape = { ...takes.rewrote.shape, name: input.title };
       const read = await versionRead(documentId, contentHash, was);
       stillThere(file);
       if (read !== true) {
         store.setUnread(version.id, read);
         return doneOf(file, { ...version, unread: read });
       }
+    }
+    if (deps.document(documentId).linkedFolderId !== null) {
+      takes.linked = { documentId, shape: deps.shapeOf(documentId) };
     }
     requireReach(input, file);
     const made = await deps.verify({
@@ -455,21 +1070,31 @@ export function createHandOver(deps: HandOverDeps) {
       return doneOf(file, { ...version, unread: words });
     }
     store.setMind(version.id, made.mind.id);
+    const note = deps.noteAt(made.mind.id);
+    takes.checked = {
+      mindId: made.mind.id,
+      left: {
+        name: note?.title ?? "",
+        folderId: note?.folderId ?? file.folderId,
+        content: note?.content ?? "",
+      },
+      renamed: null,
+    };
     const before = store
       .versions(file.id)
       .filter((each) => each.number < version.number && each.mindId !== null)
       .at(-1);
     // The newest version's check is the file's one Note in the lists, named for the file; the one
     // before it, opened from its card, says its version, unless the User has named it (#3412).
+    const named = deps.say("verify.mindTitle", { name: file.title });
     if (
       before?.mindId &&
       input.reachesNote(before.mindId) &&
-      deps.mindTitle(before.mindId) === deps.say("verify.mindTitle", { name: file.title })
+      deps.mindTitle(before.mindId) === named
     ) {
-      deps.nameMind(
-        before.mindId,
-        deps.say("verify.handed.mindTitle", { name: file.title, version: before.number }),
-      );
+      const as = deps.say("verify.handed.mindTitle", { name: file.title, version: before.number });
+      deps.nameMind(before.mindId, as);
+      takes.checked.renamed = { mindId: before.mindId, title: named, as };
     }
     deps.notesChanged();
     deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
@@ -512,7 +1137,15 @@ export function createHandOver(deps: HandOverDeps) {
     const newest = known ? store.versions(known.id).at(-1) : undefined;
     if (known && newest && newest.contentHash === contentHash) {
       if (newest.mindId !== null || newest.unread !== null) return doneOf(known, newest);
-      return complete(known, newest, input, contentHash, reach);
+      // A version a failure cut short goes on here, and is this call's to take back if refused,
+      // with what the try before made of its Document.
+      const takes: Made = {
+        ...nothingMade(false),
+        version: newest,
+        copies: [dirname(join(deps.dataDir, newest.file))],
+        ...(await madeBefore(known, newest)),
+      };
+      return taking(known, takes, () => complete(known, newest, input, contentHash, reach, takes));
     }
     // A file IncarnaMind wrote for this agent, handed over again from where it saved it: that item.
     const written =
@@ -542,18 +1175,23 @@ export function createHandOver(deps: HandOverDeps) {
         agent: input.agent,
         ...(input.createdAt !== undefined && { createdAt: input.createdAt }),
       });
-    const name = fileNameOf(input.title, file.kind);
-    const relative = join(HANDED_FOLDER, file.id, `v${(file.version ?? 0) + 1}`, name);
-    await keep(file, join(deps.dataDir, relative), input.bytes);
-    requireReach(input, file);
-    const version = store.addVersion(file.id, {
-      contentHash,
-      size: input.bytes.byteLength,
-      file: relative,
-      agent: input.agent,
-      title: input.title,
+    const takes = nothingMade(known === null);
+    return taking(file, takes, async () => {
+      const name = fileNameOf(input.title, file.kind);
+      const relative = join(HANDED_FOLDER, file.id, `v${(file.version ?? 0) + 1}`, name);
+      takes.copies.push(dirname(join(deps.dataDir, relative)));
+      await keep(file, join(deps.dataDir, relative), input.bytes);
+      requireReach(input, file);
+      if (known) takes.title = known.title;
+      takes.version = store.addVersion(file.id, {
+        contentHash,
+        size: input.bytes.byteLength,
+        file: relative,
+        agent: input.agent,
+        title: input.title,
+      });
+      return complete(file, takes.version, input, contentHash, reach, takes);
     });
-    return complete(file, version, input, contentHash, reach);
   }
 
   const notChecked = (outcome: UnaskedCheck): string | null => {
@@ -585,18 +1223,10 @@ export function createHandOver(deps: HandOverDeps) {
   };
 
   return {
-    handOver(input: HandOverInput): Promise<HandOverDone> {
-      const next = queue.then(() => handOverNow(input));
-      queue = next.catch(() => undefined);
-      return next;
-    },
+    handOver: (input: HandOverInput): Promise<HandOverDone> => inTurn(() => handOverNow(input)),
 
     /** Runs a write of a handed file's Document in turn with hand-overs, never between two of theirs (#149). */
-    inTurn<T>(run: () => Promise<T>): Promise<T> {
-      const next = queue.then(run);
-      queue = next.catch(() => undefined);
-      return next;
-    },
+    inTurn,
 
     /**
      * How the check of the Note stands for an agent that reaches `reach`, waiting up to `waitMs`
