@@ -290,7 +290,7 @@ export function renderDocx(
         name: "word/styles.xml",
         data: styles(options.language, comments.length > 0, options.font, options.lineSpacing),
       },
-      { name: "word/settings.xml", data: settings(headings.length > 0, header !== null) },
+      { name: "word/settings.xml", data: settings(header !== null) },
       { name: "word/numbering.xml", data: numbering(target.lists) },
       { name: "word/footnotes.xml", data: footnotesPart(writer.footnotes) },
       ...(header !== null ? [{ name: "word/header1.xml", data: header }] : []),
@@ -685,8 +685,8 @@ export class DocxWriter {
 
   /**
    * Word's own table of contents (#1935): a TOC field whose cached entries are the Note's
-   * headings, each linking to its bookmark, so Word opens with it shown and updates it on a
-   * refresh. The package asks Word to update the fields on opening.
+   * headings, each linking to its bookmark, so Word opens with it shown without prompting to
+   * update fields and Update Table fills page numbers on demand.
    */
   private contents(): string {
     const entries = this.preparedContents.length
@@ -707,7 +707,7 @@ export class DocxWriter {
     if (entries.length === 0) return "";
     // As Word writes it: the field begins in the first entry's paragraph and ends in the last's.
     const begin =
-      '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>' +
+      '<w:r><w:fldChar w:fldCharType="begin"/></w:r>' +
       '<w:r><w:instrText xml:space="preserve"> TOC \\o "1-6" \\h \\z \\u </w:instrText></w:r>' +
       '<w:r><w:fldChar w:fldCharType="separate"/></w:r>';
     const end = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
@@ -1570,12 +1570,11 @@ function coreProperties({ title, created }: DocxOptions): string {
   );
 }
 
-/** The package's settings; a table of contents asks Word to update the fields as it opens. */
-const settings = (updateFields: boolean, watermark = false) =>
+/** The package's settings. */
+const settings = (watermark = false) =>
   `${XML_DECLARATION}<w:settings xmlns:w="${NS.w}">` +
   (watermark ? "<w:displayBackgroundShape/>" : "") +
   '<w:defaultTabStop w:val="720"/><w:characterSpacingControl w:val="doNotCompress"/>' +
-  (updateFields ? '<w:updateFields w:val="true"/>' : "") +
   '<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>' +
   '<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>' +
   "</w:settings>";

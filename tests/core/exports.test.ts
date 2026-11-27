@@ -201,7 +201,7 @@ function docxParts(exported: MindExport) {
 }
 
 describe("exporting a Mind", () => {
-  test("a table of contents is Word's own field, with cached entries and bookmarks, and Word updates it on opening (#1935)", async () => {
+  test("a table of contents is Word's own field, with cached entries and bookmarks, and asks Word to update nothing on opening (#1935)", async () => {
     const { core, mind, client } = await setUp();
     writeMind(client, [
       { type: "tableOfContents" },
@@ -215,9 +215,10 @@ describe("exporting a Mind", () => {
     const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
 
     expect(document).toContain("TOC \\o");
-    expect(document).toContain('<w:fldChar w:fldCharType="begin"');
+    expect(document).toContain('<w:fldChar w:fldCharType="begin"/>');
     expect(document).toContain('<w:fldChar w:fldCharType="separate"/>');
     expect(document).toContain('<w:fldChar w:fldCharType="end"/>');
+    expect(document).not.toContain("w:dirty");
     expect(document).toContain("Contents");
     // The cached entries, each a link to its heading's bookmark.
     expect(document).toContain("Spring tides");
@@ -226,7 +227,7 @@ describe("exporting a Mind", () => {
     expect(document).toContain('w:anchor="_Toc90000002"');
     expect(document).toContain('<w:bookmarkStart w:id="0" w:name="_Toc90000001"/>');
     expect(document).toContain('<w:bookmarkStart w:id="1" w:name="_Toc90000002"/>');
-    expect(part(files, "word/settings.xml")).toContain('<w:updateFields w:val="true"/>');
+    expect(part(files, "word/settings.xml")).not.toContain("w:updateFields");
 
     // The other exports draw it from the same headings.
     const markdown = new TextDecoder().decode(
@@ -242,6 +243,80 @@ describe("exporting a Mind", () => {
     expect(html).toContain("Spring tides");
     expect(html).toContain("Neap tides");
   });
+
+  // protects=a Note with headings and a contents list exports each heading's words and bookmark link in its entry with no w:dirty and no w:updateFields, so Word opens it without prompting or replacing page numbers with 1, while a Note with no headings is unchanged, in English and Chinese (#1935); fails_when=the TOC field carries w:dirty, word/settings.xml carries w:updateFields, a heading's entry or bookmark is missing, or a Note with no headings changes.
+  test.each([
+    {
+      language: "en" as const,
+      title: "Harbour briefing",
+      label: "Contents",
+      headings: [
+        [1, "Overview"],
+        [2, "Tide schedule"],
+        [2, "Winter berths"],
+      ] as const,
+      body: "Ferry crossings follow the seasonal timetable.",
+    },
+    {
+      language: "zh-CN" as const,
+      title: "港口简报",
+      label: "目录",
+      headings: [
+        [1, "概况"],
+        [2, "潮汐时刻"],
+        [2, "冬季泊位"],
+      ] as const,
+      body: "渡轮班次按季节时刻表运行。",
+    },
+  ])(
+    "a Note's own contents list writes each heading's entry with no w:dirty or w:updateFields, and a Note with no headings is unchanged ($language)",
+    async ({ language, title, label, headings: entries, body }) => {
+      const { core, mind, client } = await setUp(title);
+      await core.updateSettings({ user: { language } });
+      writeMind(client, [
+        { type: "tableOfContents" },
+        ...entries.flatMap(([level, words]) => [heading(level, words), paragraph(text(body))]),
+      ]);
+      await client.settled();
+
+      const { files, document } = docxParts(await core.exportMind(mind.id, { format: "docx" }));
+      expect(document).toContain('TOC \\o "1-6" \\h \\z \\u');
+      expect(document).toContain('<w:fldChar w:fldCharType="begin"/>');
+      expect(document).not.toContain("w:dirty");
+      expect(part(files, "word/settings.xml")).not.toContain("w:updateFields");
+      expect(document).toContain(label);
+      const fieldBody =
+        /<w:fldChar w:fldCharType="separate"\/>([\s\S]*?)<w:fldChar w:fldCharType="end"\/>/.exec(
+          document,
+        )?.[1] ?? "";
+      for (const [index, [, words]] of entries.entries()) {
+        const anchor = `_Toc9000000${index + 1}`;
+        expect(fieldBody).toContain(
+          `<w:hyperlink w:anchor="${anchor}" w:history="1"><w:r><w:t xml:space="preserve">${words}</w:t></w:r></w:hyperlink>`,
+        );
+        expect(document).toContain(`<w:bookmarkStart w:id="${index}" w:name="${anchor}"/>`);
+      }
+
+      // A Note with no headings is unchanged whether or not it holds a contents block.
+      const plain = await core.createMind({ title: `${title} plain` });
+      const plainClient = await connectToMind(core, plain.id);
+      writeMind(plainClient, [paragraph(text(body))]);
+      await plainClient.settled();
+      const withoutToc = docxParts(await core.exportMind(plain.id, { format: "docx" }));
+
+      writeMind(plainClient, [{ type: "tableOfContents" }, paragraph(text(body))]);
+      await plainClient.settled();
+      const withToc = docxParts(await core.exportMind(plain.id, { format: "docx" }));
+
+      expect(withToc.document).toBe(withoutToc.document);
+      expect(part(withToc.files, "word/settings.xml")).toBe(
+        part(withoutToc.files, "word/settings.xml"),
+      );
+      expect(withToc.document).not.toContain("TOC \\o");
+      expect(withToc.document).not.toContain("w:dirty");
+      expect(part(withToc.files, "word/settings.xml")).not.toContain("w:updateFields");
+    },
+  );
 
   test("a Note without a table of contents writes no field, and Word is asked to update nothing", async () => {
     const { core, mind, client } = await setUp();

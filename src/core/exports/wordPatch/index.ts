@@ -299,7 +299,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   );
   // The headings the file now holds, an added table of contents' entries. Each gets a bookmark
   // in its paragraph, with a name that can't take one the file already has; the field's links
-  // name those bookmarks, and Word is asked to update the field as it opens.
+  // name those bookmarks without asking Word to update fields on opening.
   const headingOf = (node: NodeJSON) => {
     if (node.type !== "heading") return null;
     const text = (node.content ?? [])
@@ -539,7 +539,6 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     if (refreshed !== text) writer.set(pkg.part, refreshed);
   }
   if (placedWatermark) await enableDisplayBackgroundShape(writer, pkg.part);
-  if (hasContents(current)) await enableUpdateFields(writer, pkg.part);
 
   const report: WordExportReport = {
     notKept: [
@@ -583,63 +582,6 @@ function spreadRowSentence(row: Token[]): void {
 const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 const WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-
-/**
- * The settings that come after `w:updateFields` in WordprocessingML's order (CT_Settings), where
- * Word reads it: the field request goes before them, never at the end of the part.
- */
-const SETTINGS_AFTER_UPDATE_FIELDS = [
-  "hdrShapeDefaults",
-  "footnotePr",
-  "endnotePr",
-  "compat",
-  "docVars",
-  "rsids",
-  "mathPr",
-  "attachedSchema",
-  "themeFontLang",
-  "clrSchemeMapping",
-  "doNotIncludeSubdocsInStats",
-  "doNotAutoCompressPictures",
-  "forceUpgrade",
-  "captions",
-  "readModeInkLockDown",
-  "smartTagType",
-  "schemaLibrary",
-  "shapeDefaults",
-  "doNotEmbedSmartTags",
-  "decimalSymbol",
-  "listSeparator",
-] as const;
-
-/** Asks Word to update the fields, so a table of contents' cached result is rebuilt as it opens. */
-async function enableUpdateFields(writer: PackageWriter, mainPart: string): Promise<void> {
-  const settings = await writer.part("word/settings.xml");
-  if (settings) {
-    // An older export may have put the request at the end: it is removed and written where it
-    // belongs, before the first setting the schema places after it.
-    const without = settings.text
-      .replace(/<w:updateFields\b[^>]*\/>/, "")
-      .replace(/<w:updateFields\b[^>]*>.*?<\/w:updateFields>/, "");
-    const before = new RegExp(`<(?:w|m):(?:${SETTINGS_AFTER_UPDATE_FIELDS.join("|")})\\b`);
-    const text = before.test(without)
-      ? without.replace(before, '<w:updateFields w:val="true"/>$&')
-      : without.replace(/<\/w:settings>/, '<w:updateFields w:val="true"/></w:settings>');
-    if (text !== settings.text) writer.set("word/settings.xml", text);
-    return;
-  }
-  writer.add(
-    "word/settings.xml",
-    `${XML_DECLARATION}<w:settings xmlns:w="${WORD_NS}"><w:updateFields w:val="true"/></w:settings>`,
-  );
-  const relationships = await writer.relationshipsOf(mainPart);
-  relationships.add(`${REL_NS}/settings`, "settings.xml");
-  relationships.flush();
-  await writer.addContentType(
-    "word/settings.xml",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml",
-  );
-}
 
 /**
  * The page numbers and watermark of an imported file that has none of its own (#1258): a footer
