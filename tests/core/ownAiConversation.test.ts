@@ -3356,8 +3356,11 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const [request] = run.runs;
     expect(request?.instructions).toMatch(/never call read_request/i);
     expect(request?.instructions).toMatch(/summary[\s\S]*propose_changes/i);
+    expect(request?.instructions).toContain("the note whose mindId the first line gives");
+    expect(request?.instructions).toContain("the Note the conversation is in");
+    expect(request?.instructions).not.toContain("the note this message names");
     expect(request?.instructions).toContain("¶0+");
-    expect(request?.instructions).toMatch(/plain question[\s\S]*without changing any note/i);
+    expect(request?.instructions).toMatch(/plain question[\s\S]*without changing any Note/i);
     expect(request?.prompt).toContain(`(mindId: ${empty.id}), the User's request: Summarise`);
     expect(request?.prompt).not.toContain("the User asks:");
 

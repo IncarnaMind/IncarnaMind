@@ -50,10 +50,10 @@ export const SERVER_INSTRUCTIONS = [
   "In Notes, Canvases and check drafts, after each claim put its [cite:…] from `cite`. Never invent one. A token verifies the quote at its Location, not the claim. In chat, name the checked Document and its Location if given.",
   "For an ordinary Library question, `search` first, never your memory. Use `read_passages` for neighbours if needed and `check_citations` on the draft before replying.",
   "`ask` gives IncarnaMind's whole Answer with checked Citations in one call (it can take a minute).",
-  "For a pasted handoff (no mindId: “About my note …”, “Check my note …”, open file, meeting, flagged sentence or scope), `read_request` first; pass the Note’s title.",
-  "To write/change a Note: `read_mind` (`named`), then `propose_changes` (`¶0+` if empty). Applies at once in your Notes (`yours`) or the open Note; waits elsewhere.",
+  "For a handoff (“About my note …”, “Check my note …”, open Document, meeting, flagged sentence or search scope), `read_request` first (pass title). Skip in a Note's conversation, whose message begins with the Note's mindId.",
+  "Write/change Note: `read_mind` (`named`), `propose_changes` (`¶0+` if empty). Applies at once only in `yours` or the Note the conversation is in; else waits.",
   "In a Note you wrote, leave the paragraphs `read_mind` marks as the User's as they are, unless they ask.",
-  "To write or summarize (report, meeting summary, draft), write to the open/named Note (`propose_changes`), else `create_mind`, not chat only; answer plain questions in chat. Page: `publish_canvas`; Word: `save_as_word`; file: `hand_over_file`, unasked.",
+  "To write/summarize (report, meeting summary, draft), `propose_changes` in the Note the conversation is in (or named), else `create_mind`, not chat only; plain questions in chat. Page: `publish_canvas`; Word: `save_as_word`; file on disk: `hand_over_file`, unasked.",
   "When the User asks for a check of a Note, or whether one you wrote is right, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
   "A figure no Passage states: `run_analysis` for rows or lists (report its id), else your own working.",
   "`check_mind` is IncarnaMind's own check, on an AI model set up in IncarnaMind: use it only when the User asks for it, never for a check in general.",
@@ -490,7 +490,7 @@ export function createAgentServer(
     {
       title: "Change a Note",
       description:
-        "Write or change a Note. Read with read_mind (named) first. ¶3 rewrites/removes, ¶3+ adds after, ¶+ continues, ¶0+ writes at top or empty Note. Markdown with [cite:…] tokens as in create_mind. Applies in your Notes or the open Note; waits elsewhere.",
+        "Write/change Note after read_mind (named). ¶3 rewrites/removes, ¶3+ after, ¶+ continues, ¶0+ top/empty. Markdown + [cite:…] as in create_mind. Applies at once only in yours or the Note the conversation is in; else waits.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
@@ -536,7 +536,7 @@ export function createAgentServer(
     {
       title: "Write a new Note",
       description:
-        'Write a new Note (report, meeting summary, draft), marked as yours; use for a new Note or to write/summarize with no Note open, not chat only. Format in Markdown: headings; compared figures in a table (labels in column 1, one figure + [cite:…] per cell); for a change over periods or figure against a limit, add a ```chart block right under it, {"kind": "bar", "title": "…"} (or "line"), with "leaveOut": ["Total"] to skip rows. Keep a short answer short. Cite each claim with its exact token. Picture: ![alt](full path or data: URL) on its own line. Tabs only if asked: ```tab block of its title. Returns Citation checks and uncited sentences. Refused unless allowed to write.',
+        'Write a new Note (report, meeting summary, draft), marked yours; use for a new Note or outside a Note\'s conversation with no Note named, not chat only. Markdown: headings; compared figures in a table (labels col 1, figure + [cite:…] per cell); for change over periods or against a limit, add a ```chart block right under it, {"kind": "bar", "title": "…"} (or "line"), "leaveOut": ["Total"] to skip rows. Keep short answers short. Cite each claim with its token. Picture: ![alt](full path or data: URL) on its own line. Tabs only if asked: ```tab block of title. Returns Citation checks and uncited sentences. Refused unless write allowed.',
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),
@@ -936,7 +936,7 @@ export function createAgentServer(
     {
       title: "Read the User's request",
       description:
-        "Read a pasted handoff (no mindId): named Note, file, meeting, flagged sentence or scope. Pass the Note’s title. Skip if mindId is given; for questions, search.",
+        "Read pending request when message names a Note, open Document, meeting, flagged sentence or search scope (pass title). Skip in a Note's conversation, whose message begins with the Note's mindId. Ordinary Library question: search.",
       inputSchema: z.object({
         note: z.string().optional().describe("The note's name, as the User wrote it."),
       }),
