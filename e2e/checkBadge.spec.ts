@@ -8,6 +8,7 @@ import {
   addToNote,
   askInAssistant,
   checkCard,
+  checkChanged,
   checkNote,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
@@ -83,7 +84,10 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await expect(button.locator(".note-check-count")).toHaveText("1");
   await expect(button).toHaveAttribute("title", "1 sentence not checked yet");
   const card = await checkCard(window);
-  await expect(card.getByTestId("health-toCheck")).toContainText("1 not checked yet");
+  // Before its first check the card's head says so, and its line counts the sentence once (#3840).
+  await expect(card.getByTestId("check-card-head")).toHaveText("Not checked yet");
+  await expect(card.getByTestId("check-card-line")).toContainText("1 sentence");
+  await expect(card.getByTestId("mind-health").getByTestId("health-toCheck")).toHaveCount(0);
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
   // No action of its own to check: the Note's button is the one way in, and Check for
   // contradictions is in ⌘K and the page menu.
@@ -95,10 +99,11 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await expect(card).toHaveCount(0);
 
   await checkNote(window);
-  // Every claim checked and none to look at: the green, with its time in full.
+  // Every claim checked and none to look at: the green, its time left to the card (#3840).
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
   await expect(button).toHaveAttribute("data-state", "checked");
-  await expect(button).toHaveAttribute("title", /^Checked /);
+  await expect(button).toHaveAttribute("data-tone", "success");
+  await expect(button).toHaveAttribute("title", "Checked");
   await expect(card).toHaveCount(0);
   // It sits with the Note's own controls in its tab strip (#3765), never past the Mind's pane.
   const pane = await window.getByTestId("mind-pane").boundingBox();
@@ -120,9 +125,11 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await editor.click();
   await window.keyboard.press("End");
   await window.keyboard.type(" The harbour is quiet in winter.");
-  // Another claim arrives with no check: the note waits for Check again.
-  await expect(button).toHaveAttribute("data-state", "check");
-  await expect(button).toHaveAttribute("title", /1 sentence not checked yet/);
+  // Another claim arrives with no check: the button keeps the check's verdict without its ✓, and
+  // its tooltip says one waits (#3840).
+  await expect(button).toHaveAttribute("data-state", "checked");
+  await expect(button).toHaveAttribute("data-tone", "neutral");
+  await expect(button).toHaveAttribute("title", "Checked · 1 not checked yet");
 
   // ⌘K reaches the card from anywhere, named Checks, and its old name still finds it; Esc from
   // inside it puts the focus back.
@@ -135,7 +142,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   );
   await expect(card).toBeVisible();
   await expect(card.getByTestId("health-found")).toHaveCount(0);
-  await expect(card.getByTestId("health-toCheck")).toBeVisible();
+  await expect(card.getByTestId("check-card-again")).toHaveText("Check 1 new");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await app.close();
@@ -361,7 +368,7 @@ test("each row's Next goes through its sentences in order and round to the first
   await editor.click();
   await window.keyboard.press("End");
   await window.keyboard.type(" Seals sleep on the rocks slowly. Gulls circle the pier slowly.");
-  await checkNote(window);
+  await checkChanged(window);
   const stop = window.getByTestId("note-check-stop");
   await expect(stop).toBeVisible();
   await expect(noteCheck(window).locator(".note-check-words")).toContainText("Checking");

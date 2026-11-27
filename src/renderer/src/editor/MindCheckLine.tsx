@@ -97,10 +97,12 @@ export function MindCheckAsk({ mindId }: { mindId: string }) {
   );
 }
 
-export function MindUnchanged({ mindId, since }: { mindId: string; since: string | null }) {
+/**
+ * Check again on a Note that hasn't changed since its check: it says so, without the time the
+ * card's head already gives, and offers to check every sentence anyway (#3840).
+ */
+export function MindUnchanged({ mindId }: { mindId: string }) {
   const t = useT();
-  const language = useLanguage();
-  const when = since === null ? "" : formatDateTime(since, language);
   return (
     <ProblemLine
       role="status"
@@ -112,7 +114,7 @@ export function MindUnchanged({ mindId, since }: { mindId: string; since: string
         onClick: () => void startMindCheck(mindId, "all"),
       }}
     >
-      {when === "" ? t("mindCheck.changed.none") : t("mindCheck.unchanged", { when })}
+      {t("mindCheck.changed.none")}
     </ProblemLine>
   );
 }
@@ -170,44 +172,6 @@ export function useRunningCheck(editor: Editor, mindId: string): RunningCheck | 
   if (total === 0) return { words: t("verify.finding"), done, total };
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   return { words: t("badge.checking", { done: format(done), total: format(total) }), done, total };
-}
-
-/**
- * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20" (#1682), and what the
- * state leaves that no row counts. With `supported`, every sentence the check needed to support
- * is, and the line says so before when; the rows count them (#3756).
- */
-export function CheckedWhen({
-  run,
-  supported = false,
-  caveat = null,
-}: {
-  run: MindCheckRun;
-  supported?: boolean;
-  caveat?: string | null;
-}) {
-  const t = useT();
-  const language = useLanguage();
-  const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  const when = formatDateTime(run.at, language);
-  return (
-    <MetaLine
-      data-testid="health-checked-all"
-      parts={[
-        supported ? (
-          <span key="said" className="check-card-checked">
-            {t("health.checkedAll.supported", { when })}
-          </span>
-        ) : (
-          t(run.sentences === 1 ? "health.checkedAll.one" : "health.checkedAll", {
-            count: format(run.sentences),
-            when,
-          })
-        ),
-        caveat,
-      ]}
-    />
-  );
 }
 
 /**

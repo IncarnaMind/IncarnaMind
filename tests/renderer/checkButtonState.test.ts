@@ -9,8 +9,9 @@ import { translate } from "../../src/shared/i18n";
 
 /*
  * The Note's Check button (#3794): the word Check and the sentences not checked yet while any
- * wait, one press checking; how far a run has got; then what the check found. Its words come from
- * the interface's own strings, in English and Chinese alike.
+ * wait for the Note's first whole check, one press checking; how far a run has got; then what the
+ * check found, which sentences added or edited after a whole check never take away (#3840). Its
+ * words come from the interface's own strings, in English and Chinese alike.
  */
 
 const NOT_CHECKED: NoteState = {
@@ -37,6 +38,7 @@ const input = (over: Partial<CheckButtonInput> = {}): CheckButtonInput => ({
   asked: null,
   waiting: false,
   justChecked: false,
+  wholeCheck: false,
   ...over,
 });
 
@@ -138,8 +140,8 @@ for (const language of ["en", "zh-CN"] as const) {
       );
     });
 
-    // protects=#3794: sentences waiting keep the button the one-press Check, so the next check is never two presses, while what needs a look stays in its tooltip; fails_when=what needs a look hides the Check
-    test("sentences waiting beside what needs a look: still Check", () => {
+    // protects=#3794: before any whole check, sentences waiting keep the button the one-press Check, so the first check is never two presses, while what needs a look stays in its tooltip; fails_when=what needs a look hides the Check
+    test("before a whole check, sentences waiting beside what needs a look: still Check", () => {
       const view = checkButtonOf(
         input({
           state: {
@@ -157,6 +159,122 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       expect(view).toMatchObject({ kind: "check", count: "1" });
       expect(view?.title).toContain(words.look);
+    });
+
+    // protects=#3840: once a whole check has run, a sentence edited or added since leaves its verdict on the button, never the filled Check; the tooltip names what waits; fails_when=the button turns back into Check N over what needs a look
+    test("after a whole check, sentences edited or added keep what needs a look", () => {
+      const view = checkButtonOf(
+        input({
+          wholeCheck: true,
+          state: {
+            ...NOT_CHECKED,
+            kind: "needs-look",
+            look: 2,
+            tone: "warning",
+            mark: "unsupported",
+            toCheck: 1,
+            notChecked: 1,
+          },
+        }),
+        t,
+        language,
+      );
+      expect(view).toMatchObject({ kind: "look", words: words.look, count: null, tone: "warning" });
+      expect(view?.title).toContain(
+        translate(language, "checks.row.notChecked.one", { count: "1" }),
+      );
+    });
+
+    // protects=#3840: a Note all supported by a whole check, with one sentence added or edited since, reads Checked without the ✓, never the filled Check; fails_when=it reads Check 1, or keeps the green ✓ over a sentence no check has read
+    test("after a whole check, a sentence added or edited to a clean Note: Checked, no ✓", () => {
+      for (const state of [
+        { ...NOT_CHECKED, toCheck: 1, notChecked: 1 },
+        {
+          ...NOT_CHECKED,
+          kind: "checked" as const,
+          tone: "success" as const,
+          mark: "checked" as const,
+          needsCheck: 1,
+          toCheck: 1,
+          notChecked: 1,
+        },
+      ]) {
+        const view = checkButtonOf(input({ wholeCheck: true, state }), t, language);
+        expect(view).toMatchObject({
+          kind: "checked",
+          words: words.checked,
+          count: null,
+          tone: "neutral",
+          mark: "notChecked",
+        });
+      }
+    });
+
+    // protects=#3840: the button and its tooltip never say the check's time or the sentences that can be cited, which the card says once; a Note left only with sentences to cite reads Checked with the margin's ring and "+"; fails_when=the tooltip repeats the time or the can-be-cited count, or the button's words are the can-be-cited count
+    test("no time and no can-be-cited count on the button or its tooltip", () => {
+      const canBeCited = translate(language, "health.state.canBeCited", { count: "2" });
+      const clean = checkButtonOf(
+        input({
+          state: {
+            ...NOT_CHECKED,
+            kind: "checked",
+            tone: "success",
+            mark: "checked",
+            checkedAt: "2026-10-22T09:00:00.000Z",
+            canBeCited: 2,
+            toCheck: 0,
+            notChecked: 0,
+          },
+        }),
+        t,
+        language,
+      );
+      expect(clean).toMatchObject({ kind: "checked", title: words.checked, tone: "success" });
+
+      const toCite = checkButtonOf(
+        input({
+          wholeCheck: true,
+          state: {
+            ...NOT_CHECKED,
+            kind: "not-yet-cited",
+            mark: "notYetCited",
+            checkedAt: "2026-10-22T09:00:00.000Z",
+            notYetCited: 2,
+            canBeCited: 2,
+            toCheck: 0,
+            notChecked: 0,
+          },
+        }),
+        t,
+        language,
+      );
+      expect(toCite).toMatchObject({
+        kind: "checked",
+        words: words.checked,
+        title: words.checked,
+        tone: "neutral",
+        mark: "notYetCited",
+      });
+
+      const look = checkButtonOf(
+        input({
+          state: {
+            ...NOT_CHECKED,
+            kind: "needs-look",
+            look: 2,
+            tone: "warning",
+            mark: "unsupported",
+            checkedAt: "2026-10-22T09:00:00.000Z",
+            canBeCited: 2,
+            toCheck: 0,
+            notChecked: 0,
+          },
+        }),
+        t,
+        language,
+      );
+      expect(look?.title).toBe(words.look);
+      expect(look?.title).not.toContain(canBeCited);
     });
 
     // protects=#3794: a Note with no sentence a check is for shows no button; fails_when=a Note with nothing to check reads Check

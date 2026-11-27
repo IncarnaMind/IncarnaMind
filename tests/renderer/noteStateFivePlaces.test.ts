@@ -1,19 +1,16 @@
 /**
  * How one Note's check state reads in the five places that say it, in English and Chinese
  * (#3212): the badge, the check card (its head and its rows), Home's row, the Export menu's line
- * and the Saved line. A Note that reads Checked with a caveat says the badge's line in the card's
- * head; a Note whose Citation's quote is found but whose sentence nobody checked says how many
+ * and the Saved line. A Note that reads Checked with a caveat has its card's head say Check done
+ * and when, never All supported (#3840); a Note whose Citation's quote is found but whose sentence
+ * nobody checked says how many
  * sentences wait; a table with two columns not recalculated counts both, in the badge and in the
  * card.
  */
 import { describe, expect, test } from "vitest";
+import { cardHeadWords, cardStageOf } from "../../src/renderer/src/editor/checkCardStage";
+import { checkRows, type NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import {
-  checkRows,
-  healthSummary,
-  type NoteHealth,
-} from "../../src/renderer/src/editor/healthCounts";
-import {
-  cardHead,
   exportStateLine,
   noteStateOf,
   noteStateParts,
@@ -61,14 +58,20 @@ function places(language: "en" | "zh-CN", note: NoteHealth, unread: number) {
     translate(language, key, params);
   const state = noteStateOf(note, unread);
   if (state === null) throw new Error("No state.");
-  const summary = healthSummary(note, { running: false, problem: false, unread: 0 });
+  const stage = cardStageOf({
+    progress: null,
+    state,
+    wholeCheck: false,
+    health: note,
+    problem: false,
+  });
   return {
     t,
     badge: noteStateParts(state, t, language, NOW),
     home: noteStateParts(state, t, language, NOW).join(" · "),
     saved: nothingLeft(state) ? [] : noteStateParts(state, t, language, NOW),
     exportLine: exportStateLine(state, note.toCheck.length, t, language),
-    head: summary?.kind === "all" ? cardHead(state, t, language) : null,
+    head: stage === null ? null : cardHeadWords(stage, t, language),
     rows: checkRows(note).map(({ row, places }) => [row, places.length] as const),
     time: formatDateTime(CHECKED_AT, language, { now: NOW }),
   };
@@ -77,8 +80,8 @@ function places(language: "en" | "zh-CN", note: NoteHealth, unread: number) {
 describe.each(["en", "zh-CN"] as const)(
   "One Note's check state in five places (%s)",
   (language) => {
-    // protects=a Note that reads Checked and names a caveat never has its card's head say "Everything checked"; the head says Checked and its time, and leaves the unread files to the card's own line, so they are said once (#3212, #3756); the Export menu says nothing for it, as for any Checked Note; fails_when=the head says Everything checked over a caveat the badge names, or counts the unread files a second time
-    test("a caveat under Checked: the card's head says Checked and its time, the Export menu says nothing", () => {
+    // protects=a Note that reads Checked and names a caveat never has its card's head say All supported; the head says Check done and its time, and leaves the unread files to the card's own line, so they are said once (#3212, #3756, #3840); the Export menu says nothing for it, as for any Checked Note; fails_when=the head says All supported over a caveat the badge names, or counts the unread files a second time
+    test("a caveat under Checked: the card's head says Check done and its time, the Export menu says nothing", () => {
       const seen = places(
         language,
         health({ checkable: 3, supported: 3, supportedAt: [1, 5, 9], checkedAt: CHECKED_AT }),
@@ -89,20 +92,26 @@ describe.each(["en", "zh-CN"] as const)(
 
       expect(seen.badge).toEqual([checked, caveat]);
       expect(seen.home).toBe(`${checked} · ${caveat}`);
-      expect(seen.head).toBe(checked);
-      expect(seen.head).not.toBe(seen.t("health.allChecked"));
+      expect(seen.head).toEqual({
+        words: seen.t("checks.head.done"),
+        aside: formatDateTime(CHECKED_AT, language),
+      });
       expect(seen.exportLine).toBeNull();
       expect(seen.saved).toEqual([checked, caveat]);
     });
 
-    test("with no caveat, the card's head stays Everything checked", () => {
+    // protects=a Note whose every sentence is supported, with nothing left, has its card's head say All supported and when, once (#3840); fails_when=the head says Check done over a clean Note, or loses its time
+    test("with no caveat, the card's head says All supported and its time", () => {
       const seen = places(
         language,
         health({ checkable: 3, supported: 3, supportedAt: [1, 5, 9], checkedAt: CHECKED_AT }),
         0,
       );
       expect(seen.badge).toEqual([seen.t("health.state.checked", { time: seen.time })]);
-      expect(seen.head).toBe(seen.t("health.allChecked"));
+      expect(seen.head).toEqual({
+        words: seen.t("health.allSupported"),
+        aside: formatDateTime(CHECKED_AT, language),
+      });
     });
 
     // protects=a hand-added Citation whose quote is found beside a sentence nobody checked reads as sentences waiting, in every place that says the state, never a bare "Not checked" (#3212); fails_when=a place says the bare words where there is a count

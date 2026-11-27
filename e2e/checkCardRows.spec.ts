@@ -11,6 +11,7 @@ import {
   launchApp,
   newMind,
   noteCheck,
+  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -19,10 +20,10 @@ import {
 
 /*
  * The check card counts a Note's sentences, each once, by its one state (#2831): while the User's
- * Check runs, the foot counts up and each sentence leaves "being checked" for its row as its
- * check ends, and the rows always add up to the sentences checked. The scripted model holds each
- * step of a sentence's check until the test releases it, and finds a sentence supported when it
- * shares three words with a line of a Document.
+ * Check runs, its head counts up (#3840) and each sentence lands in its row as its check ends, so
+ * the rows always add up to the sentences the head says are done, with no row repeating the head's
+ * count. The scripted model holds each step of a sentence's check until the test releases it, and
+ * finds a sentence supported when it shares three words with a line of a Document.
  */
 
 const TIDES = buildPdf([
@@ -40,18 +41,20 @@ const SENTENCES = [
 
 const WORDS = {
   en: {
-    notChecked: "4 not checked yet",
-    checking: "4 being checked",
+    notChecked: "4 sentences",
+    head: (done: number) => `${done} of 4`,
     foot: (done: number) => `Checking ${done} of 4`,
     canBeCited: "3 can be cited",
     look: "1 needs a look",
+    stop: "Stop",
   },
   "zh-CN": {
-    notChecked: "4 句未核对",
-    checking: "4 句正在核对",
+    notChecked: "共 4 句",
+    head: (done: number) => `${done}/4`,
     foot: (done: number) => `正在核对 ${done}/4`,
     canBeCited: "3 句可添加引用",
     look: "1 句需要留意",
+    stop: "停止",
   },
 } as const;
 
@@ -80,12 +83,10 @@ const countOf = async (card: Locator, row: string): Promise<number> => {
   return (await shown.count()) === 0 ? 0 : Number(await shown.getAttribute("data-count"));
 };
 
-/** The rows' counts together: each sentence once, the own-notes line under supported aside. */
+/** The result rows' counts together: each sentence once, the own-notes line under supported aside. */
 const rowsTogether = async (card: Locator): Promise<number> => {
   const counts = await Promise.all(
-    ["look", "supported", "notYetCited", "checking", "toCheck", "cantCheck"].map((row) =>
-      countOf(card, row),
-    ),
+    ["look", "supported", "notYetCited", "cantCheck"].map((row) => countOf(card, row)),
   );
   return counts.reduce((sum, count) => sum + count, 0);
 };
@@ -104,7 +105,7 @@ test.afterEach(async () => {
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`while Check runs, the foot counts up and each sentence moves from being checked to its row, the rows adding up to the sentences, in ${language}`, async () => {
+  test(`while Check runs, the head counts up and each sentence lands in its row, the rows adding up to what the head counts, in ${language}`, async () => {
     test.setTimeout(120_000);
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -120,39 +121,40 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor).toContainText(SENTENCES.at(-1) ?? "");
 
     const card = await checkCard(window);
-    await expect(card.getByTestId("health-toCheck")).toContainText(words.notChecked);
-    await expect.poll(() => rowsTogether(card)).toBe(4);
+    await expect(card.getByTestId("check-card-line")).toContainText(words.notChecked);
+    await expect(card.getByTestId("mind-health").getByTestId("health-toCheck")).toHaveCount(0);
 
     await holdChecks(app);
     await checkNote(window);
     await expect.poll(() => heldSteps(app)).toBeGreaterThan(0);
-    // The Check button says how far the run is; the card's foot keeps only its Stop (#3756).
+    // The Check button and the card's head say how far the run is; neither a row nor a second
+    // Stop repeats it: the button's square is the run's one Stop (#3840).
     const button = noteCheck(window);
+    const running = window.getByTestId("check-card");
+    if (!(await running.isVisible())) await pointAndClick(window, button);
+    const aside = running.getByTestId("check-card-head-aside");
     await expect(button).toHaveAttribute("data-state", "checking");
-    await expect(card.getByTestId("health-checking")).toContainText(words.checking);
-    await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
+    await expect(aside).toHaveText(words.head(0));
+    await expect(running.getByTestId("health-checking")).toHaveCount(0);
+    await expect(running.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(button).toHaveAttribute("title", words.foot(0));
-    await expect(card.getByTestId("card-foot-stop")).toBeVisible();
+    await expect(window.getByTestId("note-check-stop")).toBeVisible();
+    await expect(running.getByRole("button", { name: words.stop })).toHaveCount(0);
 
-    // One step at a time, until a sentence's check ends: it leaves "being checked" for its row.
-    while ((await countOf(card, "checking")) === 4) {
+    // One step at a time, until a sentence's check ends: it lands in its row.
+    while ((await rowsTogether(running)) === 0) {
       const held = await heldSteps(app);
       await releaseOneStep(app);
       await expect
-        .poll(async () => (await heldSteps(app)) === held || (await countOf(card, "checking")) < 4)
+        .poll(async () => (await heldSteps(app)) === held || (await rowsTogether(running)) > 0)
         .toBe(true);
     }
-    const left = await countOf(card, "checking");
-    expect(left).toBeGreaterThan(0);
-    await expect(button).toHaveAttribute("title", words.foot(4 - left));
-    await expect.poll(() => rowsTogether(card)).toBe(4);
-    expect(
-      (await countOf(card, "supported")) +
-        (await countOf(card, "notYetCited")) +
-        (await countOf(card, "look")),
-    ).toBe(4 - left);
+    const done = await rowsTogether(running);
+    expect(done).toBeLessThan(4);
+    await expect(aside).toHaveText(words.head(done));
+    await expect(button).toHaveAttribute("title", words.foot(done));
     // The rows say what moved: no line under them counts the landed sentences a second time.
-    await expect(card.locator(".check-card-note")).toHaveCount(0);
+    await expect(running.locator(".check-card-note")).toHaveCount(0);
 
     // From here, every frame: what the button says once the run is over (#3487).
     await window.evaluate(() => {
@@ -160,7 +162,7 @@ for (const language of ["en", "zh-CN"] as const) {
       (globalThis as unknown as { buttonFrames: typeof seen }).buttonFrames = seen;
       const frame = () => {
         seen.push({
-          running: document.querySelector('[data-testid="card-foot-stop"]') !== null,
+          running: document.querySelector('[data-testid="note-check-stop"]') !== null,
           state:
             document
               .querySelector('[data-testid="note-check-place"] [data-testid="note-check"]')
@@ -171,12 +173,12 @@ for (const language of ["en", "zh-CN"] as const) {
       frame();
     });
     await releaseChecks(app);
-    await expect(card.getByTestId("health-checking")).toHaveCount(0);
     await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
+    await expect(running.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
     // Supported, but citing nothing yet: the row of what can be cited holds them (#3358).
-    await expect(card.getByTestId("health-notYetCited")).toContainText(words.canBeCited);
-    await expect(card.getByTestId("health-look")).toContainText(words.look);
-    await expect.poll(() => rowsTogether(card)).toBe(4);
+    await expect(running.getByTestId("health-notYetCited")).toContainText(words.canBeCited);
+    await expect(running.getByTestId("health-look")).toContainText(words.look);
+    await expect.poll(() => rowsTogether(running)).toBe(4);
     // The button never said "Check 4" over a card that had its results: once the run ended its
     // state was the card's, in every frame.
     const ended = await window.evaluate(() =>

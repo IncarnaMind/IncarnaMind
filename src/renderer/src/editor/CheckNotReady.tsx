@@ -146,9 +146,9 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
   if (!asked || !noModelSetUp(readiness)) return null;
   const { agent, background, state } = asked.asked;
   const others = (agents ?? []).filter((each) => each.id !== agent.id);
-  // While it runs in the background, the one thing to do is stop it (#3606): the badge above says
-  // it is checking, and Stop takes Check's place in the card's foot, so the words here are only for
-  // a screen reader (#3756).
+  // While it runs in the background, the one thing to do is stop it (#3606): the Note's button says
+  // it is checking, with its Stop beside it (#3840), so the words here are only for a screen reader
+  // (#3756).
   if (background && state === "working") {
     return (
       <span role="status" data-testid="checks-asked" data-state={state} className="sr-only">

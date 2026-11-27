@@ -10,8 +10,12 @@ export const SETTLE_MS = 700;
 /** The longest it waits for that. */
 export const SETTLE_AT_MOST_MS = 3000;
 
-/** Whether the card's body holds only its title, so nothing in it could move yet (#2313). */
-export function bodyIsEmpty(body: HTMLElement): boolean {
+/**
+ * Whether nothing has landed in the card's body yet, so nothing in it could move (#2313): it holds
+ * only its title, or a line whose count is still on its way and would wrap it.
+ */
+export function nothingLanded(body: HTMLElement): boolean {
+  if (body.querySelector('[aria-busy="true"]')) return true;
   const title = body.querySelector(".check-card-title")?.textContent ?? "";
   return (body.textContent ?? "").trim() === title.trim();
 }
