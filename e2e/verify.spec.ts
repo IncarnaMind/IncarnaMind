@@ -318,8 +318,12 @@ test("Verify a Word file: its Note opens beside the file with their change waiti
   const result = window.getByTestId("export-result");
   await exportFromMenu(window, "docx");
   const part = result.getByTestId("export-comments");
+  const fileComments = result.getByTestId("export-file-comments");
   await expect(part).toHaveText("Check comments off");
-  await expect(result.getByTestId("export-done")).toContainText(/Check comments off\s*·\s*Change$/);
+  await expect(fileComments).toHaveText("Kept 1 comment from the Word file");
+  await expect(result.getByTestId("export-done")).toContainText(
+    /Check comments off\s*·\s*Kept 1 comment from the Word file\s*·\s*Change$/,
+  );
   await expect(result.getByTestId("export-unmarked")).toHaveCount(0);
   const saved = async () => {
     const [name] = await readdir(output);
@@ -334,6 +338,7 @@ test("Verify a Word file: its Note opens beside the file with their change waiti
   expect(plain.document).toContain('w:author="Priya Nair"');
   await setLanguage(window, "zh-CN");
   await expect(part).toHaveText("未添加核对批注");
+  await expect(fileComments).toHaveText("已保留原文件中的 1 条批注");
   await setLanguage(window, "en");
   await screenshot(window, "verify-word-saved-off-en");
 
