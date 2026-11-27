@@ -2488,12 +2488,34 @@ export function createAgentAccess(
    * token, to keep or cite again, and the others as handles that only keep them. `cited`
    * hears the Documents.
    */
-  const namedWords = (pairing: AdmittedPairing, inScope: ReadonlySet<string>, cited: string[]) => ({
+  const namedWords = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    cited: string[],
+    live: readonly LiveDocument[] = deps.liveDocuments(),
+  ) => ({
     citation: (attributes: Record<string, unknown>) => {
-      const documentId = typeof attributes.documentId === "string" ? attributes.documentId : "";
-      if (!inScope.has(documentId)) return null;
-      const citation = citationOf(attributes);
-      if (citation.check !== "found" || citation.passageId === "") return null;
+      const kept = citationOf(attributes);
+      // A Document deleted and added again is its Citations' source, as read_mind names it: the
+      // token is of its Passage that holds the quote.
+      const documentId = liveDocumentOf(kept, live)?.id ?? kept.documentId;
+      if (!inScope.has(documentId) || kept.check !== "found" || kept.passageId === "") return null;
+      const replacement =
+        documentId === kept.documentId
+          ? null
+          : deps
+              .passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER)
+              .find((passage) => kept.quote !== "" && passage.text.includes(kept.quote));
+      if (replacement === undefined) return null;
+      const citation = replacement
+        ? {
+            ...kept,
+            documentId,
+            passageId: replacement.passageId,
+            documentName: replacement.documentName,
+            contentHash: replacement.contentHash,
+          }
+        : kept;
       cited.push(documentId);
       return citeTag(mint(pairing, citation).token);
     },
@@ -3502,7 +3524,7 @@ export function createAgentAccess(
         if (input?.named === true) {
           const naming = namingOf(own);
           const note = deps.mindBlocks(mind.id, (blocks) =>
-            namedNote(blocks, namedWords(pairing, inScope, cited), naming),
+            namedNote(blocks, namedWords(pairing, inScope, cited, live), naming),
           );
           return {
             result: { ...page(mind, note.text, offset), version: note.version, next },

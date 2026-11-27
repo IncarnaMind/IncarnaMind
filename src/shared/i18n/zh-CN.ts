@@ -5519,7 +5519,6 @@ export const zhCN = {
   "export.word.copy.note": "脚注或尾注的副本将作为新脚注写入，不含文字",
   "export.word.edit": "无法写入修改“{text}”，此处保持原样",
   "export.word.signature": "文件内容改动后，数字签名将失效",
-  "export.word.author": "作者",
   "export.word.more.one": "还有 1 处",
   "export.word.more.other": "还有 {count} 处",
   "export.word.kept.header": "你删除的页眉仍保留在文件中",

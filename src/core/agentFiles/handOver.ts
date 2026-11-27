@@ -325,6 +325,11 @@ export function createHandOver(deps: HandOverDeps) {
   const { store } = deps;
   /** Each check started, by its Note, while this run of IncarnaMind lasts. */
   const runs = new Map<string, CheckRun>();
+  /**
+   * The Linked folders' Documents a hand-over made Not cited while this run lasts, rather than the
+   * User, for a refusal of a later try to take back. One a quit cut short is told by nothing stored.
+   */
+  const notCitedHere = new Set<string>();
   // The turn starts with the start, called now: it reads the tables before the core can close, and
   // every hand-over and hand edit waits for it.
   let queue: Promise<unknown> = start().catch((error: unknown) =>
@@ -542,6 +547,9 @@ export function createHandOver(deps: HandOverDeps) {
    */
   async function takeBack(file: StoredHandedFile, made: Made): Promise<void> {
     const { version, checked, added, rewrote } = made;
+    // A try before that failed set it, and this one, going on from there, found it set.
+    const own = store.get(file.id)?.documentId ?? null;
+    const notCited = made.notCited ?? (own !== null && notCitedHere.has(own) ? own : null);
     // The refusal is still the call's answer; what couldn't be taken back is named for the log.
     const failed = (step: string, error: unknown) =>
       deps.log.error("handedFile.takeBack.failed", {
@@ -661,7 +669,6 @@ export function createHandOver(deps: HandOverDeps) {
         );
       } else kept("check note");
     }
-    const { notCited } = made;
     // The file in its Linked folder stays; with no item it is no agent's file, and a source again.
     if (notCited !== null) {
       await step("not cited", () => {
@@ -669,8 +676,10 @@ export function createHandOver(deps: HandOverDeps) {
           store.holding(notCited).length === 0 &&
           deps.liveDocument(notCited) &&
           deps.document(notCited).notCited
-        )
+        ) {
           deps.setNotCited(notCited, false);
+          notCitedHere.delete(notCited);
+        }
       });
     }
     if (added && version) {
@@ -1011,7 +1020,10 @@ export function createHandOver(deps: HandOverDeps) {
       store.holding(documentId).length === 0 &&
       agentMadeIt(deps.document(documentId), input.connectedAt)
     ) {
-      if (!deps.document(documentId).notCited) takes.notCited = documentId;
+      if (!deps.document(documentId).notCited) {
+        takes.notCited = documentId;
+        notCitedHere.add(documentId);
+      }
       deps.setNotCited(documentId, true);
     }
     store.setDocument(file.id, documentId);

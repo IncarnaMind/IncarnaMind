@@ -60,6 +60,7 @@ import { connectToMind } from "../helpers/mindClient";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
+import { expectOnlyGiven } from "../helpers/plantedWordFile";
 import { reviewedContract } from "../helpers/reviewedContracts";
 import { escapeXml, paragraph, run } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
@@ -1602,12 +1603,15 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         return document;
       };
       const removed = await page(away.id);
+      const introduced =
+        "Tea was first introduced to Portuguese priests and merchants in China during the 16th century";
       const mind = await core.createMind({ title: "Tea notes", folderId: coast.id });
       const client = await connectToMind(core, mind.id);
       writeMind(client, [
         {
           type: "paragraph",
-          content: [text("Tea came to Europe"), citation(removed, "Tea came to Europe"), text(".")],
+          attrs: { id: "tea-1" },
+          content: [text("Tea came to Europe"), citation(removed, introduced), text(".")],
         },
       ]);
       await client.settled();
@@ -1624,6 +1628,18 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       const saved = structured<Saved>(await save(agent, { mindId: mind.id }));
       expect(partsOf(await savedFile(saved)).footnotes).toEqual([
         expect.stringContaining("https://encyclopedia.example/tea"),
+      ]);
+
+      const named = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+      );
+      const cite = named.markdown.match(/\[cite:[^\]]+\]/)?.[0];
+      if (!cite) throw new Error(`The named read gives no token: ${named.markdown}`);
+      const again = structured<Saved>(
+        await save(agent, { title: "Tea again", markdown: `Tea came to Europe ${cite}.` }),
+      );
+      expect(again.citations).toEqual([
+        expect.objectContaining({ cite, check: "found", document: replacement.name }),
       ]);
     },
   );
@@ -1781,15 +1797,20 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         folderId: coast.id,
       });
       const agent = await connectLegacyAgent(writer.launch);
+      const given = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId } }),
+      ).markdown;
 
       const saved = structured<Saved>(await save(agent, { mindId }));
       const files = unzip(await savedFile(saved));
+      expectOnlyGiven(files, given);
       const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
       // The file's look: its own styles, numbering and footer, its clauses' styles and numbers.
       for (const name of ["word/styles.xml", "word/numbering.xml", "word/footer1.xml"]) {
         expect(files.get(name)?.toString("utf8")).toBe(original.get(name)?.toString("utf8"));
       }
       const document = part(files, "word/document.xml");
+      const header = part(files, "word/header1.xml");
       for (const clause of part(original, "word/document.xml").match(/<w:p>.*?<\/w:p>/gs) ?? []) {
         if (/comment|w:ins |rPrChange|w:object/.test(clause)) continue;
         expect(document).toContain(clause);
@@ -1804,19 +1825,19 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       expect(chart).toContain(`<c:v>${contract.words.series[1]}</c:v>`);
       expect(chart).not.toContain("externalData");
       expect(part(files, "word/charts/_rels/chart1.xml.rels")).not.toContain("Relationship ");
-      // A content control keeps what it shows, without its tie to the custom XML or a building block.
-      const header = part(files, "word/header1.xml");
+      // A content control keeps what it shows, without its tie to the custom XML, a building block or its names.
       expect(header).toContain(
         `<w:sdtContent>${paragraph(run(contract.words.bound))}</w:sdtContent>`,
       );
-      expect(header).not.toMatch(/dataBinding|placeholder|docPart|altChunk|w:del /);
+      expect(header).not.toMatch(/dataBinding|placeholder|docPart|altChunk|w:alias|w:tag/);
       expect(document).toContain('TOC \\o "1-3" \\h \\z \\u');
       expect(document).toMatch(/REF _Ref[0-9]+ \\r \\h/);
       expect(part(files, "word/footer1.xml")).toContain("DOCPROPERTY Client");
-      // A tracked change kept as the file had it, by no one the agent was told of.
-      const neutral = `w:author="${translate(language, "export.word.author")}"`;
-      expect(part(files, "word/header1.xml")).toContain(`<w:ins w:id="40" ${neutral}`);
-      expect(document).toContain(`<w:rPrChange w:id="31" ${neutral}`);
+      // No tracked change of anyone's: a deletion stands, an insertion goes, a format is as it is.
+      expect(header).toContain(run(contract.words.header));
+      expect(header).not.toContain(escapeXml(contract.words.headerAdded));
+      expect(document).toContain('<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">');
+      expect(all).not.toMatch(/w:author=|<w:ins |<w:del |<w:moveFrom|<w:moveTo|Change /);
 
       // Nothing of anyone the agent was never given, in any part.
       // Nor any part of a kind not known for a Word file's look, or what points at one.
@@ -1876,6 +1897,9 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         folderId: coast.id,
       });
       const agent = await connectLegacyAgent(writer.launch);
+      const given = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId } }),
+      ).markdown;
 
       const saved = structured<Saved>(await save(agent, { mindId }));
       if (!saved.saved) throw new Error(`The Word file wasn't saved: ${saved.notSaved}`);
@@ -1883,12 +1907,13 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       // The package check looks for the document in word/ alone; every other check holds.
       expect((await inspectPackage(data)).problems).toEqual(["word/document.xml is missing"]);
       const files = unzip(data);
+      expectOnlyGiven(files, given);
       const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
       expect([...files.keys()].filter((name) => name.startsWith("word/"))).toEqual([]);
       expect(part(files, "content/document.xml")).toContain('TOC \\o "1-3" \\h \\z \\u');
       expect(part(files, "content/footer1.xml")).toBe(part(moved, "content/footer1.xml"));
-      const neutral = `w:author="${translate(language, "export.word.author")}"`;
-      expect(part(files, "content/header1.xml")).toContain(`<w:ins w:id="40" ${neutral}`);
+      expect(part(files, "content/header1.xml")).toContain(run(contract.words.header));
+      expect(all).not.toMatch(/w:author=|<w:ins |<w:del /);
       expect(
         [...files.keys()].filter((name) =>
           /comments|people|customXml|thumbnail|embeddings|reviewNotes|chunk/.test(name),

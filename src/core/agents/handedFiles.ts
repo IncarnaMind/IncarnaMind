@@ -104,6 +104,8 @@ export interface AgentHandedFile extends Omit<HandedCheck, "claims"> {
 export interface GivenFile {
   /** Where the file is, links followed: what a Linked folder knows it by. */
   place: string;
+  /** The file itself, the same by every path to it; its place where that can't be told. */
+  same?: string;
   title: string;
   kind: HandedFile["kind"];
   bytes: Uint8Array;
@@ -263,7 +265,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
       const createdAt = known?.createdAt ?? (tool === "save_as_word" ? newItemDate() : deps.now());
       const { file, documentIds } = await planned.give(folder, createdAt);
       // Whatever path it was named by and whichever agent named it, one file is one Document.
-      return deps.handOverTurns(`place\n${file.place}`, () =>
+      return deps.handOverTurns(`place\n${file.same ?? file.place}`, () =>
         keptOrTakenBack(planned, pairing, folder, file, documentIds, known ? null : createdAt),
       );
     };
@@ -403,7 +405,13 @@ export function createHandedFileTool(context: HandedFileToolContext) {
             // The file's own name is its title, as a Document's is.
             const title = titleOf(path) || t("agents.handOver.untitled");
             return {
-              file: { place: read.path, title, kind, bytes: read.bytes },
+              file: {
+                place: read.path,
+                ...(read.file !== undefined && { same: read.file }),
+                title,
+                kind,
+                bytes: read.bytes,
+              },
               documentIds: [],
             };
           },

@@ -5815,7 +5815,6 @@ export const en = {
     "Your copy of a footnote or endnote goes in as a new footnote, without its text",
   "export.word.edit": "Your edit “{text}” can’t be written: the original stays",
   "export.word.signature": "The file’s digital signature won’t match once it changes",
-  "export.word.author": "Author",
   "export.word.more.one": "1 more",
   "export.word.more.other": "{count} more",
   "export.word.kept.header": "The header you deleted stays in the file",
