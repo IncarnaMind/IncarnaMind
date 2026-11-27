@@ -32,11 +32,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import type { ProcessLauncher } from "../../src/core";
+import type { Executor, ProcessLauncher } from "../../src/core";
 import { createAnalysisRecorder } from "../../src/core/analysis/recorder";
 import type { AnswerAnalysis, CalculatedFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
-import { WORKING_FOLDER } from "../../src/core/execution";
+import { drainProcessGroup, WORKING_FOLDER } from "../../src/core/execution";
 import type { CodeDocument } from "../../src/core/runCode";
 import { runCodeTool } from "../../src/core/runCode/tool";
 import { createScriptRunner } from "../../src/core/skills/scripts";
@@ -99,15 +99,39 @@ let listener: NetServer | null = null;
 let loopbackPort = 0;
 let pythonPrepared = 0;
 
-/** The pid of each program the Executors here started, in order. */
+/** The pid of each program the Executors here started, in order, and any still in flight. */
 const launched: number[] = [];
-const recorded = (launcher: ProcessLauncher): ProcessLauncher => ({
+const activeGroups = new Set<number>();
+const recorded = (launcher: ProcessLauncher, inRun?: Set<number>): ProcessLauncher => ({
   async spawn(command, args, options) {
     const child = await launcher.spawn(command, args, options);
-    if (child.pid !== undefined) launched.push(child.pid);
+    if (child.pid !== undefined) {
+      launched.push(child.pid);
+      activeGroups.add(child.pid);
+      inRun?.add(child.pid);
+    }
     return child;
   },
 });
+
+/** Every process (including unreaped zombies) currently in POSIX process group `pgid`. */
+function groupPids(pgid: number): string[] {
+  if (process.platform === "win32" || pgid <= 1) return [];
+  return execFileSync("ps", ["-A", "-ww", "-o", "pid=,ppid=,pgid=,state=,command="], {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      const parts = line.split(/\s+/);
+      return Number(parts[2]) === pgid;
+    });
+}
+
+/** Live (non-zombie) processes currently in POSIX process group `pgid`. */
+function liveGroupPids(pgid: number): string[] {
+  return groupPids(pgid).filter((line) => !(line.split(/\s+/)[3] ?? "").startsWith("Z"));
+}
 
 /** A process of a run, as Linux's /proc shows it to the app. */
 interface RunProcess {
@@ -169,7 +193,7 @@ function executor(
   report: (error: unknown) => void = (error) => {
     throw error;
   },
-) {
+): Executor {
   if (!sandbox.available) throw new Error(sandbox.reason);
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -177,8 +201,12 @@ function executor(
     PLAIN_SETTING: "kept",
     ...login,
   };
-  return sandbox.createExecutor({
-    processes: recorded(createProcessLauncher(async () => env)),
+  const runGroups = new Set<number>();
+  const inner = sandbox.createExecutor({
+    processes: recorded(
+      createProcessLauncher(async () => env),
+      runGroups,
+    ),
     environment: async () => env,
     tempDir: where.temp,
     denyRead: readDeniedFolders({
@@ -190,8 +218,21 @@ function executor(
     }),
     reportError: report,
     runRecords: guard.records(join(where.data, "runs")),
-    sweep: { stopper: guard.stopper },
+    sweep: guard.sweep,
   });
+  return {
+    level: inner.level,
+    async run(request) {
+      const before = new Set(runGroups);
+      try {
+        return await inner.run(request);
+      } finally {
+        for (const pgid of runGroups) {
+          if (!before.has(pgid)) activeGroups.delete(pgid);
+        }
+      }
+    },
+  };
 }
 
 beforeAll(async () => {
@@ -247,13 +288,32 @@ beforeAll(async () => {
 }, 20 * 60_000);
 
 afterAll(async () => {
-  // Each pid a run's sweep signalled was a member of one of this file's own runs.
+  let remaining: number[] = [];
+  try {
+    // Only drain runs genuinely still in flight; on macOS go through the guarded group stopper so
+    // a free group id can never be signalled raw (#2644).
+    for (const pgid of [...activeGroups]) {
+      if (process.platform === "darwin") {
+        await guard.groupStopper(pgid, "SIGSTOP");
+        await guard.groupStopper(pgid, "SIGKILL");
+      } else {
+        await drainProcessGroup(pgid);
+      }
+      activeGroups.delete(pgid);
+    }
+    if (process.platform === "darwin" && root) {
+      remaining = await guard.sweepRemaining();
+    }
+  } finally {
+    python?.close();
+    await new Promise<void>((resolve) => (listener ? listener.close(() => resolve()) : resolve()));
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    if (tempCanary) await rm(tempCanary, { force: true });
+    if (root) await rm(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+  expect(remaining).toEqual([]);
+  // Each pid or group a run's sweep signalled was a member of one of this file's own runs.
   expect(guard.refused).toEqual([]);
-  python?.close();
-  await new Promise<void>((resolve) => (listener ? listener.close(() => resolve()) : resolve()));
-  await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
-  if (tempCanary) await rm(tempCanary, { force: true });
-  if (root) await rm(root, { recursive: true, force: true, maxRetries: 3 });
 });
 
 async function sales(text = SALES): Promise<CodeDocument> {
@@ -316,10 +376,15 @@ function tool(
     analysisOffered: true,
   });
   let calls = 0;
-  const call = (language: "python" | "bash", code: string, ids: string[] = []) =>
+  const call = (
+    language: "python" | "bash",
+    code: string,
+    ids: string[] = [],
+    signal = new AbortController().signal,
+  ) =>
     runCode.call(
       { title: "Probe", language, documents: ids, code },
-      { toolCallId: `call-${++calls}`, signal: new AbortController().signal },
+      { toolCallId: `call-${++calls}`, signal },
     );
   return { call, figures, analyses };
 }
@@ -537,10 +602,13 @@ describe.skipIf(unavailable !== undefined)(
       const { call, analyses } = tool({}, 4000);
       await call("bash", "head -c 120000000 /dev/zero > big.bin; echo exit=$?");
       expect(analyses[0]?.output.printed).toMatch(/File too large|exit=1|exit=153/);
+      const before = launched.length;
       await call("bash", "bomb() { bomb | bomb & }; bomb; sleep 200");
       expect(analyses[1]?.end).toEqual({ kind: "timed-out", limitMs: 4000 });
-      const { execFileSync } = await import("node:child_process");
+      const bombGroup = launched[before] ?? 0;
+      expect(liveGroupPids(bombGroup)).toEqual([]);
       // Killed processes leave the list as their parents collect them, a moment later.
+      await expect.poll(() => groupPids(bombGroup)).toEqual([]);
       await expect
         .poll(() =>
           execFileSync("ps", ["-A", "-ww", "-o", "command="], { encoding: "utf8" })
@@ -548,6 +616,7 @@ describe.skipIf(unavailable !== undefined)(
             .filter((line) => line.includes(join(root, "temp"))),
         )
         .toEqual([]);
+      expect(await readdir(join(data, "runs"))).toEqual([]);
     }, 60_000);
 
     test("a fork bomb that outlasts the 10 s a run's disk may stay unknown ends at its time limit, with no disk read it couldn't make", async () => {
@@ -555,10 +624,80 @@ describe.skipIf(unavailable !== undefined)(
       const { call, analyses } = tool({}, 14_000, undefined, (error) =>
         reports.push(String(error)),
       );
+      const before = launched.length;
       await call("bash", "bomb() { bomb | bomb & }; bomb; sleep 200");
       expect(analyses[0]?.end).toEqual({ kind: "timed-out", limitMs: 14_000 });
-      // On macOS the bomb can hold footprint past its 2 s, and resident memory counts that turn.
+      const bombGroup = launched[before] ?? 0;
+      // On macOS a 14 s bomb can hold footprint past UNKNOWN_DISK_MS; transient timeouts fall back
+      // to resident memory without reporting, while persistent ones report as ps timeouts do (#2644).
       expect(reports.filter((report) => !report.includes("/usr/bin/footprint "))).toEqual([]);
+      expect(liveGroupPids(bombGroup)).toEqual([]);
+      await expect.poll(() => groupPids(bombGroup)).toEqual([]);
+      await expect
+        .poll(() =>
+          execFileSync("ps", ["-A", "-ww", "-o", "command="], { encoding: "utf8" })
+            .split("\n")
+            .filter((line) => line.includes(join(root, "temp"))),
+        )
+        .toEqual([]);
+      expect(await readdir(join(data, "runs"))).toEqual([]);
+    }, 60_000);
+
+    test("a bounded forking stand-in leaves nothing running on cancel or after a setsid() timeout", async () => {
+      // Strictly bounded in-group forker cancelled mid-run via AbortSignal.
+      const cancelRun = tool({}, 20_000);
+      const beforeCancel = launched.length;
+      const stop = new AbortController();
+      const cancelPromise = cancelRun.call(
+        "bash",
+        [
+          "end=$((SECONDS + 10))",
+          "for i in $(seq 1 40); do",
+          '  [ "$SECONDS" -ge "$end" ] && break',
+          "  (sleep 0.25 & sleep 0.25 & wait) &",
+          "  sleep 0.1",
+          "done",
+          "wait",
+        ].join("\n"),
+        [],
+        stop.signal,
+      );
+      await expect.poll(() => launched.length).toBeGreaterThan(beforeCancel);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      stop.abort();
+      await cancelPromise.catch(() => undefined);
+      const cancelGroup = launched[beforeCancel] ?? 0;
+      expect(liveGroupPids(cancelGroup)).toEqual([]);
+      await expect.poll(() => groupPids(cancelGroup)).toEqual([]);
+
+      // Strictly bounded setsid()-escaped forker stopped at timeout.
+      const setsidRun = tool({}, 2500);
+      const beforeSetsid = launched.length;
+      await setsidRun.call(
+        "bash",
+        [
+          `perl -MPOSIX -e 'POSIX::setsid(); open(my $f, ">", "out/setsid-ready.txt") and print $f "ok\\n" and close($f); my $end = time() + 10; my $n = 0; while (time() < $end && $n++ < 40) { for (1..2) { my $p = fork(); if (defined $p && $p == 0) { exec("/bin/sleep", "0.25"); exit 0; } } select(undef, undef, undef, 0.1); } while (wait() > 0) {}' &`,
+          "sleep 20",
+        ].join("\n"),
+      );
+      expect(setsidRun.analyses[0]?.end).toEqual({ kind: "timed-out", limitMs: 2500 });
+      expect(setsidRun.analyses[0]?.outFiles?.files.map((file) => file.name)).toContain(
+        "setsid-ready.txt",
+      );
+      const setsidGroup = launched[beforeSetsid] ?? 0;
+      expect(liveGroupPids(setsidGroup)).toEqual([]);
+      await expect.poll(() => groupPids(setsidGroup)).toEqual([]);
+      await expect
+        .poll(() =>
+          execFileSync("ps", ["-A", "-ww", "-o", "command="], { encoding: "utf8" })
+            .split("\n")
+            .filter(
+              (line) =>
+                line.includes(join(root, "temp")) || line.includes("POSIX::setsid(); my $end"),
+            ),
+        )
+        .toEqual([]);
+      expect(await readdir(join(data, "runs"))).toEqual([]);
     }, 60_000);
 
     test("an ordinary run of 20 s, past the 10 s a run's disk may stay unknown, ends as it would", async () => {

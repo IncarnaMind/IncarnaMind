@@ -28,11 +28,8 @@
 import { execFile } from "node:child_process";
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { COMMAND_MS, type ListedProcess, runCommand } from "./programMeter";
 import { type SandboxQuestion, sandboxCheck } from "./sandboxCheck";
-
-const execFileAsync = promisify(execFile);
 
 /** The Mach service name only the profile of run `id` may look up. */
 export const runServiceName = (id: string) => `com.incarnamind.run.${id}`;
@@ -79,10 +76,12 @@ export type Verdict =
   | "the app or a parent of it"
   | "started before the run"
   | "not in the program's group"
+  | "gone before check"
   | "not this run's profile";
 
 export interface Classified {
   pid: number;
+  group: number;
   startedMs: number;
   command: string;
   verdict: Verdict;
@@ -137,6 +136,7 @@ export async function classify(
   run: RunRecord,
   context: SweepContext,
   check: ProfileCheck,
+  started?: (pids: readonly number[]) => Promise<Map<number, number>>,
 ): Promise<Classified[]> {
   const kept = appAndParents(rows, context.app);
   const startedSecond = Math.floor(run.startedMs / CLOCK_MS) * CLOCK_MS;
@@ -155,6 +155,7 @@ export async function classify(
     })();
     return {
       pid: row.pid,
+      group: row.group,
       startedMs: row.startedMs,
       command: row.command,
       verdict: verdict ?? "member",
@@ -169,11 +170,76 @@ export async function classify(
   asked.forEach((each, at) => {
     const own = answers.slice(at * MEMBER_ANSWERS.length, (at + 1) * MEMBER_ANSWERS.length);
     each.answers = own;
-    if (own.some((answer, index) => answer !== MEMBER_ANSWERS[index])) {
+    if (own.some((answer) => answer !== 0 && answer !== 1)) {
+      each.verdict = "gone before check";
+    } else if (own.some((answer, index) => answer !== MEMBER_ANSWERS[index])) {
       each.verdict = "not this run's profile";
     }
   });
+  // On macOS arm64, `sandbox_check` on a process that ended and was reaped (or turned zombie)
+  // answers `[1, 1, 1]` rather than `-1`; confirm non-members are still live with the same start
+  // time so vanished run members are never silently misread as outsiders (#2644).
+  if (started) {
+    const nonMembers = asked.filter((each) => each.verdict === "not this run's profile");
+    if (nonMembers.length > 0) {
+      const still = await started(nonMembers.map((each) => each.pid));
+      for (const each of nonMembers) {
+        if (still.get(each.pid) !== each.startedMs) each.verdict = "gone before check";
+      }
+    }
+  }
   return classified;
+}
+
+/** Unparsed non-empty lines from the `ps` snapshot that produced a `ProcessRow[]` listing. */
+const unparsedByRows = new WeakMap<readonly ProcessRow[], number>();
+
+/**
+ * The process groups a macOS sweep may signal as a group (`-pgid`, #2644): only groups where
+ * every process this snapshot sees in the group is a verified `"member"` of this run, and never
+ * PID 1, the app's group, any ancestor's group, or any group when the snapshot had unparsed lines
+ * or cannot show the app, its full ancestor chain, and valid group ids for every row.
+ */
+export function signallableGroups(
+  classified: readonly Classified[],
+  rows: readonly ProcessRow[],
+  context: Pick<SweepContext, "app"> & { unparsed?: number },
+): number[] {
+  if ((context.unparsed ?? unparsedByRows.get(rows) ?? 0) > 0) return [];
+  if (rows.length === 0 || classified.length !== rows.length) return [];
+  const byPid = new Map<number, ProcessRow>();
+  for (const row of rows) {
+    if (!Number.isSafeInteger(row.group) || row.group < 0) return [];
+    byPid.set(row.pid, row);
+  }
+  const forbidden = new Set<number>([0, 1, context.app]);
+  const seen = new Set<number>();
+  let cursor = context.app;
+  while (cursor > 1) {
+    if (seen.has(cursor)) return [];
+    seen.add(cursor);
+    const row = byPid.get(cursor);
+    if (!row) return [];
+    forbidden.add(row.pid);
+    forbidden.add(row.group);
+    cursor = row.ppid;
+  }
+  const byGroup = new Map<number, { total: number; members: number }>();
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const entry = classified[i];
+    if (!row || !entry || entry.pid !== row.pid) return [];
+    const counts = byGroup.get(row.group) ?? { total: 0, members: 0 };
+    counts.total += 1;
+    if (entry.verdict === "member") counts.members += 1;
+    byGroup.set(row.group, counts);
+  }
+  const safe: number[] = [];
+  for (const [pgid, counts] of byGroup) {
+    if (!signallable(pgid, context.app) || forbidden.has(pgid)) continue;
+    if (counts.members > 0 && counts.members === counts.total) safe.push(pgid);
+  }
+  return safe;
 }
 
 const C_LOCALE = { ...process.env, LC_ALL: "C" };
@@ -203,8 +269,60 @@ export function procRow(
 
 /** How ps prints when a process started, in the C locale. */
 const PS_START = String.raw`\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4}`;
-const PS_ROW = new RegExp(String.raw`^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(${PS_START}) (.*)$`);
-const PS_STARTED = new RegExp(String.raw`^\s*(\d+)\s+(${PS_START})\s*$`);
+const PS_ROW = new RegExp(
+  String.raw`^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(${PS_START})\s+(.*)$`,
+);
+const PS_STARTED = new RegExp(String.raw`^\s*(\d+)\s+(\S+)\s+(${PS_START})\s*$`);
+
+/**
+ * Parses `ps -A -o pid=,ppid=,pgid=,uid=,state=,lstart=,comm=` output, omitting this listing's own
+ * `ps` and zombies, and counting any non-empty line that could not be parsed so `signallableGroups`
+ * refuses group signals on an incomplete snapshot (#2644).
+ */
+export function parsePsListing(
+  stdout: string,
+  selfPs?: number,
+): { rows: ProcessRow[]; unparsed: number } {
+  const rows: ProcessRow[] = [];
+  let unparsed = 0;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (trimmed.trim() === "") continue;
+    const parts = PS_ROW.exec(trimmed);
+    if (!parts) {
+      unparsed += 1;
+      continue;
+    }
+    const pid = Number(parts[1]);
+    const ppid = Number(parts[2]);
+    const group = Number(parts[3]);
+    const uid = Number(parts[4]);
+    const startedMs = Date.parse(parts[6] ?? "");
+    if (
+      !Number.isSafeInteger(pid) ||
+      !Number.isSafeInteger(ppid) ||
+      !Number.isSafeInteger(group) ||
+      !Number.isSafeInteger(uid) ||
+      Number.isNaN(startedMs)
+    ) {
+      unparsed += 1;
+      continue;
+    }
+    // Omit this listing's own `ps` (exited before `classify` checks anyone) and zombies (already
+    // ended, waiting only for their parent to reap them, as `procRow` omits Z on Linux).
+    if (pid === selfPs || (parts[5] ?? "").startsWith("Z")) continue;
+    rows.push({
+      pid,
+      ppid,
+      group,
+      uid,
+      startedMs,
+      command: (parts[7] ?? "").trim(),
+    });
+  }
+  if (unparsed > 0) unparsedByRows.set(rows, unparsed);
+  return { rows, unparsed };
+}
 
 /** Every process of the computer and when each started; on Linux from /proc, elsewhere from ps. */
 export async function listProcesses(): Promise<ProcessRow[]> {
@@ -223,25 +341,20 @@ export async function listProcesses(): Promise<ProcessRow[]> {
     }
     return rows;
   }
-  const { stdout } = await execFileAsync(
-    "ps",
-    ["-A", "-o", "pid=,ppid=,pgid=,uid=,lstart=,comm="],
-    { env: C_LOCALE, maxBuffer: 16 * 1024 * 1024 },
+  const { stdout, pid: selfPs } = await new Promise<{ stdout: string; pid: number | undefined }>(
+    (resolve, reject) => {
+      const child = execFile(
+        "ps",
+        ["-A", "-o", "pid=,ppid=,pgid=,uid=,state=,lstart=,comm="],
+        { env: C_LOCALE, maxBuffer: 16 * 1024 * 1024 },
+        (error, out) => {
+          if (error) reject(error);
+          else resolve({ stdout: out, pid: child.pid });
+        },
+      );
+    },
   );
-  const rows: ProcessRow[] = [];
-  for (const line of stdout.split("\n")) {
-    const parts = PS_ROW.exec(line.trimEnd());
-    if (!parts) continue;
-    rows.push({
-      pid: Number(parts[1]),
-      ppid: Number(parts[2]),
-      group: Number(parts[3]),
-      uid: Number(parts[4]),
-      startedMs: Date.parse(parts[5] ?? ""),
-      command: (parts[6] ?? "").trim(),
-    });
-  }
-  return rows;
+  return parsePsListing(stdout, selfPs).rows;
 }
 
 /** Sends `signal` to one pid; false when it has gone. */
@@ -250,11 +363,17 @@ export type Stopper = (
   signal: "SIGSTOP" | "SIGKILL" | "SIGCONT",
 ) => boolean | Promise<boolean>;
 
-/** When each of `pids` started, from ps; one that has ended is left out. */
+/** Sends `signal` to a process group (`-pgid`); false when the group has gone (`ESRCH`). */
+export type GroupStopper = (
+  pgid: number,
+  signal: "SIGSTOP" | "SIGKILL" | "SIGCONT" | 0,
+) => boolean | Promise<boolean>;
+
+/** When each live non-zombie process in `pids` started, from ps; ended or zombie pids are left out. */
 export async function startTimes(pids: readonly number[]): Promise<Map<number, number>> {
   const started = new Map<number, number>();
   if (pids.length === 0) return started;
-  const stdout = await runCommand("ps", ["-o", "pid=,lstart=", "-p", pids.join(",")]).catch(
+  const stdout = await runCommand("ps", ["-o", "pid=,state=,lstart=", "-p", pids.join(",")]).catch(
     (error: { code?: unknown; stdout?: unknown }) => {
       // ps's exit status when a pid it was given has ended.
       if (error.code === 1 && typeof error.stdout === "string") return error.stdout;
@@ -262,8 +381,10 @@ export async function startTimes(pids: readonly number[]): Promise<Map<number, n
     },
   );
   for (const line of stdout.split("\n")) {
-    const parts = PS_STARTED.exec(line);
-    if (parts) started.set(Number(parts[1]), Date.parse(parts[2] ?? ""));
+    const parts = PS_STARTED.exec(line.trimEnd());
+    if (!parts || (parts[2] ?? "").startsWith("Z")) continue;
+    const ms = Date.parse(parts[3] ?? "");
+    if (!Number.isNaN(ms)) started.set(Number(parts[1]), ms);
   }
   return started;
 }
@@ -283,6 +404,21 @@ export const killProcess: Stopper = (pid, signal) => {
   }
 };
 
+/** The group stopper the app uses: signals `-pgid`, never 1 or less or the app itself. */
+export const killProcessGroup: GroupStopper = (pgid, signal) => {
+  if (!signallable(pgid, process.pid)) {
+    throw new Error(`The sweep was asked to signal group ${pgid}, which it never does.`);
+  }
+  try {
+    process.kill(-pgid, signal);
+    return true;
+  } catch (error) {
+    // Group ended since it was listed; anything else (EPERM) is not known to have stopped it.
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+};
+
 /** Told of each signal a sweep sends: its pid, the signal and why, never a command or text. */
 export type SignalLog = (fields: { pid: number; signal: string; reason: string }) => void;
 
@@ -293,66 +429,285 @@ export interface SweepDeps {
   started(pids: readonly number[]): Promise<Map<number, number>>;
   check: ProfileCheck;
   stopper: Stopper;
+  /** Signals a verified all-member process group (`killProcessGroup`); omitted to signal by pid only. */
+  groupStopper?: GroupStopper;
   log: SignalLog;
   platform: NodeJS.Platform;
   uid: number;
   app: number;
 }
 
-/** Stopping, finding what forked in between, and stopping again, at most this often. */
+/** Stopping, finding what forked in between, and stopping again, at most this often per pass. */
 const ROUNDS = 6;
+
+/** Full stop-and-kill passes when new unkilled members keep turning up during settle (#2644). */
+const PASSES = 4;
+
+/** Re-signalling a verified group until `ESRCH` (fork-during-SIGKILL race, #2644). */
+const GROUP_DRAIN_CHECKS = 25;
+const GROUP_DRAIN_MS = 20;
 
 /** How often, and how far apart, a sweep looks again for processes it killed to be gone. */
 const SETTLE_CHECKS = 20;
 const SETTLE_MS = 100;
 
-async function members(run: RunRecord, group: number, deps: SweepDeps): Promise<Classified[]> {
+interface Scan {
+  rows: ProcessRow[];
+  classified: Classified[];
+  members: Classified[];
+  gone: Classified[];
+  groups: number[];
+}
+
+/**
+ * Vanished candidates (`"gone before check"`) that are tied to this run in a snapshot: in the
+ * program's group, in a group where the sweep has seen a verified member, or with a member or
+ * another non-app vanished process as parent. Unrelated short-lived user processes and the app's
+ * own helper children (ps, osascript, footprint, other runs) are excluded (#2644).
+ */
+function tiedVanished(
+  classified: readonly Classified[],
+  rows: readonly ProcessRow[],
+  context: { app: number; group: number; knownGroups: ReadonlySet<number> },
+): Classified[] {
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  const memberPids = new Set<number>();
+  const runGroups = new Set<number>(context.knownGroups);
+  if (context.group > 1) runGroups.add(context.group);
+  for (const entry of classified) {
+    if (entry.verdict === "member") {
+      memberPids.add(entry.pid);
+      if (entry.group > 1) runGroups.add(entry.group);
+    }
+  }
+  const isAppHelper = (row: ProcessRow): boolean => {
+    const seen = new Set<number>();
+    let cursor = row;
+    while (cursor.ppid > 1 && !seen.has(cursor.pid)) {
+      seen.add(cursor.pid);
+      if (memberPids.has(cursor.pid) || runGroups.has(cursor.group)) return false;
+      if (cursor.ppid === context.app) return true;
+      const parent = byPid.get(cursor.ppid);
+      if (!parent) return false;
+      cursor = parent;
+    }
+    return false;
+  };
+  const candidates: { entry: Classified; row: ProcessRow }[] = [];
+  const gonePids = new Set<number>();
+  for (let i = 0; i < classified.length; i++) {
+    const entry = classified[i];
+    const row = rows[i];
+    if (!entry || !row || entry.verdict !== "gone before check") continue;
+    if (isAppHelper(row)) continue;
+    candidates.push({ entry, row });
+    gonePids.add(row.pid);
+  }
+  return candidates
+    .filter(
+      ({ row }) => runGroups.has(row.group) || memberPids.has(row.ppid) || gonePids.has(row.ppid),
+    )
+    .map(({ entry }) => entry);
+}
+
+async function scan(
+  run: RunRecord,
+  group: number,
+  deps: SweepDeps,
+  knownGroups: Set<number>,
+): Promise<Scan> {
   const context = { platform: deps.platform, uid: deps.uid, app: deps.app, group };
-  const classified = await classify(await deps.list(), run, context, deps.check);
-  return classified.filter((each) => each.verdict === "member");
+  const rows = await deps.list();
+  const classified = await classify(rows, run, context, deps.check, deps.started);
+  const members = classified.filter((each) => each.verdict === "member");
+  for (const each of members) {
+    if (each.group > 1) knownGroups.add(each.group);
+  }
+  return {
+    rows,
+    classified,
+    members,
+    gone: tiedVanished(classified, rows, { app: deps.app, group, knownGroups }),
+    groups: deps.platform === "darwin" ? signallableGroups(classified, rows, context) : [],
+  };
+}
+
+const isEperm = (error: unknown): boolean =>
+  (error as NodeJS.ErrnoException | null)?.code === "EPERM";
+
+async function drainVerifiedGroup(
+  pgid: number,
+  groupStopper: GroupStopper,
+  log: SignalLog,
+): Promise<boolean> {
+  const send = async (signal: "SIGSTOP" | "SIGKILL" | 0): Promise<"sent" | "gone" | "denied"> => {
+    try {
+      return (await groupStopper(pgid, signal)) ? "sent" : "gone";
+    } catch (error) {
+      // macOS XNU returns EPERM from killpg when only unreaped zombies remain in the group; stop
+      // signalling here and let the mandatory settle scan verify whether any live member remains (#2644).
+      if (isEperm(error)) return "denied";
+      throw error;
+    }
+  };
+  log({ pid: -pgid, signal: "SIGKILL", reason: "run's profile, group found again" });
+  const first = await send("SIGKILL");
+  if (first === "gone") return true;
+  if (first === "denied") return false;
+  for (let check = 0; check < GROUP_DRAIN_CHECKS; check++) {
+    await new Promise((resolve) => setTimeout(resolve, GROUP_DRAIN_MS));
+    const alive = await send(0);
+    if (alive === "gone") return true;
+    if (alive === "denied") return false;
+    const stopped = await send("SIGSTOP");
+    if (stopped === "gone") return true;
+    if (stopped === "denied") return false;
+    const killed = await send("SIGKILL");
+    if (killed === "gone") return true;
+    if (killed === "denied") return false;
+  }
+  return (await send(0)) === "gone";
 }
 
 /**
  * Stops every process of `run` still running; `group` is its program's process group. Every
- * signal goes to a member the same step found: each is stopped, so none can fork; once no new
- * one turns up, every member found again is killed. On Linux nothing is signalled. Resolves
- * with the pids still running after a bounded wait: none when the run is over.
+ * signal goes to a member (or verified all-member group via `signallableGroups`) the same step
+ * found: each is stopped, so none can fork; once no new one turns up, every member found again is
+ * killed, and any stopped process or group not drained is let go on with `SIGCONT`. On Linux
+ * nothing is signalled. Vanished candidates tied to the run never count as clean: the sweep
+ * resolves with `[]` only once a pass sees neither members nor tied vanished candidates.
  */
 export async function sweepRun(run: RunRecord, group: number, deps: SweepDeps): Promise<number[]> {
-  if (deps.platform === "darwin") {
+  const knownGroups = new Set<number>(group > 1 ? [group] : []);
+  if (deps.platform !== "darwin") {
+    let left: Classified[] = [];
+    for (let wait = 0; wait < SETTLE_CHECKS; wait++) {
+      left = (await scan(run, group, deps, knownGroups)).members;
+      if (left.length === 0) break;
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    }
+    return left.map((each) => each.pid);
+  }
+
+  const key = (each: Classified) => `${each.pid}@${each.startedMs}`;
+  const killed = new Set<string>();
+  let unresolved: Classified[] = [];
+
+  for (let pass = 0; pass < PASSES; pass++) {
     const stopped = new Set<string>();
-    const key = (each: Classified) => `${each.pid}@${each.startedMs}`;
+    const stoppedGroups = new Set<number>();
+    const covered = new Set<string>();
+    let lastScan: Scan | null = null;
+
     for (let round = 0; round < ROUNDS; round++) {
-      const found = (await members(run, group, deps)).filter((each) => !stopped.has(key(each)));
-      if (found.length === 0) break;
-      for (const each of found) {
+      const current = await scan(run, group, deps, knownGroups);
+      lastScan = current;
+      const safeGroups = new Set(deps.groupStopper ? current.groups : []);
+      let signalledAny = false;
+
+      if (deps.groupStopper) {
+        for (const pgid of safeGroups) {
+          const inGroup = current.members.filter((each) => each.group === pgid);
+          if (stoppedGroups.has(pgid) && inGroup.every((each) => covered.has(key(each)))) continue;
+          deps.log({ pid: -pgid, signal: "SIGSTOP", reason: "run's profile, group" });
+          try {
+            if (await deps.groupStopper(pgid, "SIGSTOP")) {
+              stoppedGroups.add(pgid);
+              for (const member of inGroup) covered.add(key(member));
+              signalledAny = true;
+            }
+          } catch (error) {
+            if (!isEperm(error)) throw error;
+          }
+        }
+      }
+
+      for (const each of current.members) {
+        if (covered.has(key(each))) continue;
         deps.log({ pid: each.pid, signal: "SIGSTOP", reason: "run's profile" });
-        if (await deps.stopper(each.pid, "SIGSTOP")) stopped.add(key(each));
+        if (await deps.stopper(each.pid, "SIGSTOP")) {
+          stopped.add(key(each));
+          covered.add(key(each));
+          signalledAny = true;
+        }
+      }
+
+      if (!signalledAny) break;
+    }
+
+    if (stopped.size === 0 && stoppedGroups.size === 0) {
+      if (lastScan !== null && lastScan.members.length === 0 && lastScan.gone.length === 0) {
+        return [];
+      }
+    } else {
+      const again = await scan(run, group, deps, knownGroups);
+      const killGroups = new Set(deps.groupStopper ? again.groups : []);
+      const killedThisPass = new Set<string>();
+
+      if (deps.groupStopper) {
+        for (const pgid of killGroups) {
+          const drained = await drainVerifiedGroup(pgid, deps.groupStopper, deps.log);
+          for (const each of again.members) {
+            if (each.group === pgid) {
+              killedThisPass.add(key(each));
+              // Only mark killed when the group reached ESRCH; an early EPERM or timeout leaves
+              // any still-live member eligible to trigger an immediate retry pass (#2644).
+              if (drained) killed.add(key(each));
+            }
+          }
+        }
+      }
+
+      for (const each of again.members) {
+        if (killGroups.has(each.group)) continue;
+        deps.log({ pid: each.pid, signal: "SIGKILL", reason: "run's profile, found again" });
+        await deps.stopper(each.pid, "SIGKILL");
+        killedThisPass.add(key(each));
+        killed.add(key(each));
+      }
+
+      // A member can end between its listing and its SIGSTOP, and its pid go to another process:
+      // one this sweep stopped that isn't found again is let go on.
+      for (const stoppedKey of stopped) {
+        if (killedThisPass.has(stoppedKey)) continue;
+        const pid = Number(stoppedKey.split("@")[0]);
+        deps.log({ pid, signal: "SIGCONT", reason: "stopped, not found again" });
+        await deps.stopper(pid, "SIGCONT");
+      }
+
+      // Same safeguard for groups stopped in the rounds that were not drained (recycled or mixed):
+      // every verified member in them was just sent SIGKILL individually, so SIGCONT releases only
+      // any outsider left stopped (#2644).
+      if (deps.groupStopper) {
+        for (const pgid of stoppedGroups) {
+          if (killGroups.has(pgid)) continue;
+          deps.log({ pid: -pgid, signal: "SIGCONT", reason: "stopped group, not drained" });
+          try {
+            await deps.groupStopper(pgid, "SIGCONT");
+          } catch (error) {
+            if (!isEperm(error)) throw error;
+          }
+        }
       }
     }
-    const again = await members(run, group, deps);
-    for (const each of again) {
-      deps.log({ pid: each.pid, signal: "SIGKILL", reason: "run's profile, found again" });
-      await deps.stopper(each.pid, "SIGKILL");
+
+    // SIGKILL ends a process soon after, not at once: wait for a clean scan with neither members
+    // nor tied vanished candidates. A new unkilled member starts the next pass at once.
+    let retry = false;
+    for (let wait = 0; wait < SETTLE_CHECKS; wait++) {
+      const left = await scan(run, group, deps, knownGroups);
+      unresolved = [...left.members, ...left.gone];
+      if (unresolved.length === 0) return [];
+      if (pass + 1 < PASSES && left.members.some((each) => !killed.has(key(each)))) {
+        retry = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
     }
-    // A member can end between its listing and its SIGSTOP, and its pid go to another process:
-    // one this sweep stopped that isn't found again is let go on.
-    const killed = new Set(again.map(key));
-    for (const stoppedKey of stopped) {
-      if (killed.has(stoppedKey)) continue;
-      const pid = Number(stoppedKey.split("@")[0]);
-      deps.log({ pid, signal: "SIGCONT", reason: "stopped, not found again" });
-      await deps.stopper(pid, "SIGCONT");
-    }
+    if (!retry) break;
   }
-  // SIGKILL ends a process soon after, not at once: wait for that, a bounded while.
-  let left: Classified[] = [];
-  for (let wait = 0; wait < SETTLE_CHECKS; wait++) {
-    left = await members(run, group, deps);
-    if (left.length === 0) break;
-    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
-  }
-  return left.map((each) => each.pid);
+
+  return unresolved.map((each) => each.pid);
 }
 
 /**
@@ -441,6 +796,8 @@ export interface RunSweeperOptions {
   log?: SignalLog;
   /** `killProcess` unless a test passes one that records instead. */
   stopper?: Stopper;
+  /** `killProcessGroup` when `stopper` is the real one, or a test's guarded group stopper. */
+  groupStopper?: GroupStopper;
   /** Where runs are recorded. */
   records: string;
   /** A test's listing, profile check and system; this computer's otherwise. */
@@ -472,11 +829,27 @@ function readRecord(text: string): RunRecord | null {
 export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
   const { report } = options;
   const uid = process.getuid?.();
+  const computer = options.computer;
+  const fallbackStarted: SweepDeps["started"] = computer
+    ? async (pids) => {
+        const wanted = new Set(pids);
+        const map = new Map<number, number>();
+        for (const each of await computer.list()) {
+          if (wanted.has(each.pid)) map.set(each.pid, each.startedMs);
+        }
+        return map;
+      }
+    : startTimes;
   const deps: SweepDeps = {
     list: options.computer?.list ?? listProcesses,
-    started: options.computer?.started ?? startTimes,
+    started: options.computer?.started ?? fallbackStarted,
     check: options.computer?.check ?? sandboxCheck,
     stopper: options.stopper ?? killProcess,
+    ...(options.groupStopper
+      ? { groupStopper: options.groupStopper }
+      : options.stopper
+        ? {}
+        : { groupStopper: killProcessGroup }),
     log: options.log ?? (() => {}),
     platform: options.computer?.platform ?? process.platform,
     uid: uid ?? -1,
