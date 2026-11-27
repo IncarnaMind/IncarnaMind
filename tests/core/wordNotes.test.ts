@@ -7,6 +7,8 @@
  * is opened.
  */
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
@@ -17,8 +19,10 @@ import {
   PAGE_BREAK_NODE,
   WORD_ATOM_NODE,
 } from "../../src/core";
+import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import {
   setWordSource,
+  wordFileOf,
   wordFingerprint,
   wordNoteNumberingOf,
   wordReportOf,
@@ -27,6 +31,7 @@ import {
 import { noteLabel } from "../../src/shared/wordNotes";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { unzip } from "../helpers/docx";
+import { recordingLog } from "../helpers/log";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
 import { fakePrinter } from "../helpers/printer";
@@ -986,6 +991,38 @@ describe("a Note imported before its notes were its own", () => {
     await opened.settled();
     const again = await exported(core, mindId);
     expect(changed(unzip(bytes), again.files)).toEqual(["word/endnotes.xml"]);
+  });
+
+  test("whose package breaks on the Document's own words opens as it was, and the log says why without them", async () => {
+    const dataDir = await createTempDataFolder();
+    const { log, entries } = recordingLog();
+    const core = startCore(dataDir, { log });
+    const { mindId, client } = await importWordBytes(
+      core,
+      await createTempDataFolder(),
+      wordFile(brief()),
+      { origin: "own" },
+    );
+    asImportedBefore(client);
+    await client.settled();
+    const sha256 = wordFileOf(client.doc)?.sha256;
+    await core.closeMind(mindId);
+    // A "<" the file left unescaped: the reader takes the words after it for a closing tag.
+    await writeFile(
+      join(dataDir, WORD_PACKAGES_FOLDER, `${sha256}.docx`),
+      wordFile({
+        body: "<w:p><w:r><w:t>Fees</Kestrel Fabrications pays 40,000 on signing></w:t></w:r></w:p>",
+      }),
+    );
+
+    const opened = await connectToMind(core, mindId);
+    expect(footnotesOf(opened)).toEqual([]);
+    expect(entries).toContainEqual({
+      level: "error",
+      event: "word.parts.failed",
+      fields: { mindId, error: "WordRefusedError", reason: "damaged" },
+    });
+    expect(JSON.stringify(entries)).not.toMatch(/Kestrel|40,000/);
   });
 
   test.each([

@@ -21,6 +21,7 @@ import {
 } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, sha256, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { refuseWrites } from "../helpers/failingStorage";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModels } from "../helpers/models";
@@ -148,14 +149,49 @@ describe("the original as a Document", () => {
     expect(await core.listDocuments()).toEqual([]);
     expect(errors).toContainEqual({
       event: "word.import.originalNotAdded",
-      fields: { file: "Supply agreement.docx", error: expect.stringMatching(/\S/) },
+      fields: expect.objectContaining({
+        mindId: result.mind.id,
+        error: expect.stringMatching(/\S/),
+      }),
     });
+    expect(JSON.stringify(errors)).not.toContain("Supply agreement");
 
     expect(await core.addWordOriginal(result.mind.id, path)).toBe(true);
     const client = await connectToMind(core, result.mind.id);
     const [document] = await core.listDocuments();
     expect(document?.importedAs).toBe(result.mind.id);
     expect(wordFileOf(client.doc)?.documentId).toBe(document?.id);
+  });
+
+  // protects=when the Library can't take the original and the Note can't be made either, the import fails and the Library's failure is still logged, without a Note to name or the file's name; fails_when=only the import's own failure is left, the Library's never logged; no_claim=what the User is told of the failed import.
+  test("that the Library can't take is said when the Note can't be made either", {
+    skip: process.platform === "win32" || process.getuid?.() === 0,
+  }, async () => {
+    const errors: { event: string; fields: unknown }[] = [];
+    const log = {
+      info: () => undefined,
+      warn: () => undefined,
+      error: (event: string, fields?: unknown) => errors.push({ event, fields }),
+    };
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { log });
+    const path = await saveContract(await createTempDataFolder());
+    expect((await core.checkWordFile(path)).refusal).toBeNull();
+    await chmod(path, 0o000);
+    const restore = refuseWrites(dataDir, { tables: ["word_packages"] });
+    await expect(core.importWordFile({ path, origin: "own", addOriginal: true })).rejects.toThrow();
+    restore();
+    await chmod(path, 0o644);
+
+    const notAdded = errors.filter((each) => each.event === "word.import.originalNotAdded");
+    expect(notAdded).toEqual([
+      {
+        event: "word.import.originalNotAdded",
+        fields: { error: expect.stringMatching(/\S/), message: expect.any(String) },
+      },
+    ]);
+    expect(JSON.stringify(notAdded)).not.toContain("Supply agreement");
+    expect(await core.listMinds()).toEqual([]);
   });
 
   test("left unticked, the Mind is imported alone", async () => {

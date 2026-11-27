@@ -317,3 +317,38 @@ function paragraphsIn(documentXml: string, view: View): string[] {
   flush();
   return lines;
 }
+
+/** A field of a part, complex or simple: its instruction, the result it shows, and whether Word is asked to refresh it. */
+export interface DocxField {
+  instruction: string;
+  result: string;
+  dirty: boolean;
+}
+
+/** Each field of a part, in order, the part written on one line or several. */
+export function fieldsOf(xml: string): DocxField[] {
+  const texts = (from: string, tag: string) =>
+    [...from.matchAll(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "g"))].map((m) => m[1]).join("");
+  const fields: (DocxField & { at: number })[] = [];
+  for (const found of xml.matchAll(
+    /<w:fldChar w:fldCharType="begin"([^>]*)\/>(.*?)<w:fldChar w:fldCharType="separate"\/>(.*?)<w:fldChar w:fldCharType="end"\/>/gs,
+  )) {
+    fields.push({
+      at: found.index,
+      instruction: texts(found[2] ?? "", "w:instrText").trim(),
+      result: texts(found[3] ?? "", "w:t"),
+      dirty: /w:dirty="(?:true|1)"/.test(found[1] ?? ""),
+    });
+  }
+  for (const found of xml.matchAll(
+    /<w:fldSimple w:instr="([^"]*)"([^>]*)>(.*?)<\/w:fldSimple>/gs,
+  )) {
+    fields.push({
+      at: found.index,
+      instruction: (found[1] ?? "").trim(),
+      result: texts(found[3] ?? "", "w:t"),
+      dirty: /w:dirty="(?:true|1)"/.test(found[2] ?? ""),
+    });
+  }
+  return fields.sort((a, b) => a.at - b.at).map(({ at: _at, ...each }) => each);
+}

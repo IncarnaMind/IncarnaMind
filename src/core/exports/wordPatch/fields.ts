@@ -2,24 +2,27 @@
  * The main document's TOC, REF and PAGEREF fields after an export changed it (#746). A field's
  * result is what Word last worked out. ECMA-376 (`w:dirty`) asks an application to work a field
  * marked dirty out again as it reads the file, and a viewer that doesn't shows the result as
- * saved. A field whose result the change can have altered is one:
+ * saved (LibreOffice and WPS are such).
+ *
+ * What the export can know it writes itself:
  *
  * - a REF, when its bookmark's paragraph number (`\r`, `\n`, `\w`) or its bookmark's text changed,
- *   or for `\r` the levels that number shares with where the REF stands in that numbering;
- * - a PAGEREF, when anything at or before its bookmark changed, which can move its page;
- * - a TOC, when the headings changed, or anything before the last of them.
+ *   or for `\r` the levels that number shares with where the REF stands in that numbering: the
+ *   file's result was its bookmark's number (or text) as the file had it, written in one of the
+ *   ways Word writes it, and that way gives one number now whether a paragraph deleted as a
+ *   tracked change counts or not;
+ * - a table of contents' entry whose heading was renamed: the heading's words, before its page.
  *
- * Its result is written again when it can be known, as a viewer that doesn't refresh fields shows
- * it (LibreOffice and WPS are such): the file's result was its bookmark's number (or text) as the
- * file had it, written in one of the ways Word writes it, and that way gives one number now
- * whether a paragraph deleted as a tracked change counts or not. With the User's edits tracked,
- * the new result is their tracked change, the old one deleted and the new inserted. Any other is
- * marked dirty and kept: a result that can't carry a tracked change (a simple field's, one of
- * several runs), a PAGEREF's page and a table of contents' entries, which need Word's layout.
- * Only those make Word ask whether to update the fields. Fields in headers, footers and notes, and
- * a field locked against updating, are left as they are.
+ * With the User's edits tracked, a REF's new result is their tracked change, the old one deleted
+ * and the new inserted. A REF whose new result can't be known or can't carry a tracked change (a
+ * simple field's, one of several runs) is marked dirty and keeps its result, and so is a REF or
+ * PAGEREF with `\p` ("above", "below") when it and its bookmark change places: only those make
+ * Word ask whether to update the fields. Page numbers, a PAGEREF's or a table of contents', need
+ * Word's layout, and Word works them out at opening before it has laid the pages out (Word for
+ * Mac gives every entry page 1): they keep the page the file saved, for the User to update in
+ * Word. Fields in headers, footers and notes, and a field locked against updating, are left as
+ * they are.
  */
-import { paragraphHeadingLevel } from "../../documents/formats/docx";
 import {
   levelText,
   type ParagraphNumber,
@@ -198,14 +201,16 @@ class Reading {
     }
   }
 
-  /** Where a bookmark ends in the part's text; null for one it hasn't. */
-  endOfBookmark(name: string): number | null {
-    const end = this.ends.get(name) ?? this.starts.get(name);
-    return end ? endOf(end) : null;
-  }
-
   parentOf(element: XmlElement): XmlElement | undefined {
     return this.parents.get(element);
+  }
+
+  /** The nearest element around this one with the name. */
+  ancestor(element: XmlElement, name: string): XmlElement | undefined {
+    for (let at = this.parents.get(element); at; at = this.parents.get(at)) {
+      if (at.name === name) return at;
+    }
+    return undefined;
   }
 
   /** Where a bookmark starts in the part's text; null for one it hasn't. */
@@ -222,10 +227,7 @@ class Reading {
   }
 
   private paragraphAround(element: XmlElement): XmlElement | null {
-    for (let at = this.parents.get(element); at; at = this.parents.get(at)) {
-      if (at.name === "w:p") return at;
-    }
-    return null;
+    return this.ancestor(element, "w:p") ?? null;
   }
 
   /** The paragraph a bookmark starts in, or the one after it when it starts between paragraphs. */
@@ -274,29 +276,30 @@ class Reading {
     if (!start || !end) return null;
     const from = endOf(start);
     const to = startOf(end);
-    if (this.paragraphs.some((p) => startOf(p) > from && startOf(p) < to)) return null;
+    const next = this.paragraphs[firstFrom(this.paragraphs, from + 1)];
+    if (next && startOf(next) < to) return null;
     this.texts ??= descendants(this.root, "w:t");
-    return this.texts
-      .filter((t) => startOf(t) >= from && endOf(t) <= to)
-      .map(textIn)
-      .join("");
-  }
-
-  /** The headings, by level and text, and where the last of them ends. */
-  headings(): { list: string[]; end: number } {
-    const list: string[] = [];
-    let end = 0;
-    for (const p of this.paragraphs) {
-      const pPr = child(p, "w:pPr");
-      const styleId =
-        (pPr && child(pPr, "w:pStyle")?.attrs["w:val"]) ?? this.part.styles.defaultOf("paragraph");
-      const level = paragraphHeadingLevel(this.part.styles, styleId, pPr);
-      if (level === null) continue;
-      list.push(`${level} ${descendants(p, "w:t").map(textIn).join("")}`);
-      end = endOf(p);
+    let words = "";
+    for (let at = firstFrom(this.texts, from); at < this.texts.length; at++) {
+      const t = this.texts[at];
+      if (!t || startOf(t) >= to) break;
+      if (endOf(t) <= to) words += textIn(t);
     }
-    return { list, end };
+    return words;
   }
+}
+
+/** The first of these elements, in the part's order, that starts at `at` or after it. */
+function firstFrom(elements: readonly XmlElement[], at: number): number {
+  let low = 0;
+  let high = elements.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    const element = elements[middle];
+    if (element && startOf(element) < at) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 }
 
 /** A paragraph's number in each way Word writes it in a cross-reference; null where one can't be written. */
@@ -362,7 +365,7 @@ function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): W
 /**
  * The main part after the change: each field whose result the change can have altered written
  * again where the new result can be known (as the User's tracked change when `track` is given,
- * since their edits are tracked), else marked dirty.
+ * since their edits are tracked), else, for a REF, marked dirty.
  */
 export function refreshFields(
   before: FieldsPart & { root: XmlElement },
@@ -370,13 +373,6 @@ export function refreshFields(
   track?: Track,
 ): string {
   if (before.text === after.text) return after.text;
-  let changedAt = 0;
-  const limit = Math.min(before.text.length, after.text.length);
-  while (
-    changedAt < limit &&
-    before.text.charCodeAt(changedAt) === after.text.charCodeAt(changedAt)
-  )
-    changedAt++;
   const root = parseXml(after.text);
   const fields = fieldsIn(root);
   if (fields.length === 0) return after.text;
@@ -388,40 +384,25 @@ export function refreshFields(
     return earlierMap;
   };
 
-  let headings: boolean | null = null;
-  const headingsChanged = () => {
-    if (headings === null) {
-      const then = was.headings();
-      const list = now.headings().list;
-      headings =
-        changedAt < then.end ||
-        list.length !== then.list.length ||
-        list.some((each, at) => each !== then.list[at]);
-    }
-    return headings;
-  };
-
   const decided: { field: Field; dirty: boolean; written: string | null }[] = [];
   for (const field of fields) {
     const shown = field.result.map(textIn).join("");
     let dirty = false;
     let written: string | null = null;
-    if (field.type === "TOC") dirty = headingsChanged();
-    else if (field.bookmark === null) continue;
-    else if (field.type === "PAGEREF") {
-      const end = was.endOfBookmark(field.bookmark);
-      dirty = end === null || now.endOfBookmark(field.bookmark) === null || changedAt < end;
-    } else if (NUMBER_SWITCHES.some((each) => field.switches.has(each))) {
-      const from = field.switches.has("r") ? (earlier().get(field)?.begin ?? null) : undefined;
-      ({ dirty, written } = numberResult(field, was, now, from));
-    } else {
-      const then = was.textOf(field.bookmark);
-      const next = now.textOf(field.bookmark);
-      dirty = then === null || next === null || then !== next;
-      if (dirty && then !== null && next !== null && shown === then) written = next;
-    }
-    if (field.bookmark !== null && field.switches.has("p")) {
-      // A REF's or PAGEREF's `\p` says "above" or "below": it changes when the field and its bookmark change places.
+    if (field.bookmark === null) continue;
+    if (field.type === "REF") {
+      if (NUMBER_SWITCHES.some((each) => field.switches.has(each))) {
+        const from = field.switches.has("r") ? (earlier().get(field)?.begin ?? null) : undefined;
+        ({ dirty, written } = numberResult(field, was, now, from));
+      } else {
+        const then = was.textOf(field.bookmark);
+        const next = now.textOf(field.bookmark);
+        dirty = then === null || next === null || then !== next;
+        if (dirty && then !== null && next !== null && shown === then) written = next;
+      }
+    } else if (!field.switches.has("p")) continue;
+    if (field.switches.has("p")) {
+      // `\p` says "above" or "below": it changes when the field and its bookmark change places.
       const earlierField = earlier().get(field);
       const thenAt = was.startOfBookmark(field.bookmark);
       const nowAt = now.startOfBookmark(field.bookmark);
@@ -466,7 +447,89 @@ export function refreshFields(
     // that has one, and a result written here is already right.
     splices.push(...(rewrite.length > 0 ? rewrite : markDirty(after.text, field.begin)));
   }
+  const pages = new Map<XmlElement, Field>();
+  for (const field of fields) {
+    const entry = field.type === "PAGEREF" ? now.ancestor(field.begin, "w:p") : undefined;
+    if (entry && !pages.has(entry)) pages.set(entry, field);
+  }
+  for (const field of fields) {
+    if (field.type === "TOC") splices.push(...renamedEntries(after.text, field, pages, was, now));
+  }
   return splices.length > 0 ? applySplices(after.text, splices) : after.text;
+}
+
+/**
+ * A table of contents' entries whose headings were renamed, given the headings' words: Word shows
+ * an entry as the file saved it until the User updates the table, and WPS never updates it. An
+ * entry is the heading's words after anything before them (its number), then its page; one whose
+ * words don't end with its heading's as the file had them, or whose heading now has no words (it
+ * was deleted, or its words were), is left as it was. The words are written plain even with the
+ * User's edits tracked: the tracked change is the heading's, and WPS doesn't draw an insertion
+ * inside an entry.
+ */
+function renamedEntries(
+  text: string,
+  toc: Field,
+  pages: ReadonlyMap<XmlElement, Field>,
+  was: Reading,
+  now: Reading,
+): Splice[] {
+  const entries = new Map<XmlElement, XmlElement[]>();
+  for (const t of toc.result) {
+    const entry = now.ancestor(t, "w:p");
+    if (entry) entries.set(entry, [...(entries.get(entry) ?? []), t]);
+  }
+  const splices: Splice[] = [];
+  for (const [entry, texts] of entries) {
+    const link = texts.map((t) => now.ancestor(t, "w:hyperlink")).find((each) => each);
+    const bookmark = link?.attrs["w:anchor"] ?? pages.get(entry)?.bookmark ?? null;
+    if (!bookmark) continue;
+    const then = was.textOf(bookmark);
+    const next = now.textOf(bookmark);
+    if (!then || !next || then === next) continue;
+    const shown = texts.map(textIn);
+    const words = shown.join("");
+    if (!words.endsWith(then)) continue;
+    splices.push(...renamedPart(text, texts, shown, words.length - then.length, then, next));
+  }
+  return splices;
+}
+
+/**
+ * An entry's texts once its heading's words, which start at `from` in them, go from `then` to
+ * `next`: only the part that changed is written, into the text it starts in, so whatever sits
+ * between the texts (a tab after a typed number, a line break, a field, a run of its own
+ * formatting) stays where it was. Words only added go into the text before them, or at the
+ * heading's start into the text after.
+ */
+function renamedPart(
+  text: string,
+  texts: readonly XmlElement[],
+  shown: readonly string[],
+  from: number,
+  then: string,
+  next: string,
+): Splice[] {
+  let start = 0;
+  while (start < then.length && start < next.length && then[start] === next[start]) start++;
+  let end = 0;
+  const most = Math.min(then.length, next.length) - start;
+  while (end < most && then[then.length - 1 - end] === next[next.length - 1 - end]) end++;
+  const cutFrom = from + start;
+  const cutTo = from + then.length - end;
+  const words = next.slice(start, next.length - end);
+  const into = cutTo > cutFrom || start === 0 ? cutFrom : cutFrom - 1;
+  let at = 0;
+  return texts.flatMap((t, index) => {
+    const own = shown[index] ?? "";
+    const begin = at;
+    at += own.length;
+    const takes = into >= begin && into < at;
+    if (!takes && !(cutFrom < at && cutTo > begin)) return [];
+    const local = (offset: number) => Math.min(Math.max(offset - begin, 0), own.length);
+    const written = own.slice(0, local(cutFrom)) + (takes ? words : "") + own.slice(local(cutTo));
+    return written === own ? [] : rewritten(text, [t], written);
+  });
 }
 
 /** How an export with the User's edits tracked writes their change: `xml` as a tracked insertion or deletion. */
