@@ -24,7 +24,9 @@ const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchem
 const { NoteUndoKeys } = await import("../../src/renderer/src/editor/noteUndoKeys");
 const { registerMindEditor } = await import("../../src/renderer/src/editor/openEditors");
 const { pressesShortcut } = await import("../../src/renderer/src/commands/keymap");
-const { editCommands, placeAt } = await import("../../src/renderer/src/commands/edit");
+const { clearFieldUndoPending, editCommands, markFieldUndoPending, placeAt } = await import(
+  "../../src/renderer/src/commands/edit"
+);
 const { commands } = await import("../../src/renderer/src/commands/registry");
 const { useUndo } = await import("../../src/renderer/src/undo");
 
@@ -173,6 +175,56 @@ describe("Undo and Redo keys in a Note's text", () => {
       input.value = "";
       input.setAttribute("data-composing", "");
       expect(placeAt(input)).toBe("field");
+      input.removeAttribute("data-composing");
+
+      // Redo belongs to whatever the last undo acted on (#3839).
+      const redoCommand = editCommands.find((command) => command.id === "edit.redo");
+      if (!redoCommand) throw new Error("Missing edit.redo command.");
+      const execCalls: string[] = [];
+      const previousExec = document.execCommand;
+      document.execCommand = ((command: string) => {
+        execCalls.push(command);
+        if (command === "undo" && input.value === "draft") input.value = "";
+        else if (command === "redo" && input.value === "") input.value = "draft";
+        return true;
+      }) as typeof document.execCommand;
+      try {
+        // Order A: Note has an undone edit; typing in input and undoing back to empty keeps Redo on the input.
+        undoCommand.run(context);
+        expect(editor.getText()).toBe("");
+        input.value = "draft";
+        expect(placeAt(input, "undo")).toBe("field");
+        undoCommand.run(context);
+        expect(input.value).toBe("");
+        expect(placeAt(input, "redo")).toBe("field");
+        redoCommand.run(context);
+        expect(input.value).toBe("draft");
+        expect(editor.getText()).toBe("");
+
+        // Order B: undo input back to empty, then undo again (acts on Note); Redo now belongs to the Note.
+        editor.commands.redo();
+        expect(editor.getText().trim()).toBe("Hello");
+        input.value = "draft";
+        undoCommand.run(context);
+        expect(input.value).toBe("");
+        expect(placeAt(input, "redo")).toBe("field");
+        undoCommand.run(context);
+        expect(editor.getText()).toBe("");
+        expect(placeAt(input, "redo")).toBe("note");
+        execCalls.length = 0;
+        redoCommand.run(context);
+        expect(editor.getText().trim()).toBe("Hello");
+        expect(input.value).toBe("");
+        expect(execCalls).toEqual([]);
+
+        // Clearing pending field undo (e.g. blur or non-undo input) returns Redo to the Note.
+        markFieldUndoPending(input);
+        expect(placeAt(input, "redo")).toBe("field");
+        clearFieldUndoPending(input);
+        expect(placeAt(input, "redo")).toBe("note");
+      } finally {
+        document.execCommand = previousExec;
+      }
     } finally {
       if (previousActive) Object.defineProperty(document, "activeElement", previousActive);
       else Reflect.deleteProperty(document, "activeElement");

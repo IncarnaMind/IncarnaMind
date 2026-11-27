@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import type { NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
+import { clearFieldUndoPending, hasFieldUndoPending } from "../../commands/edit";
 import { pressesShortcut } from "../../commands/keymap";
 import { core } from "../../core";
 import { redoInNote, undoInNote } from "../../editor/noteUndoKeys";
@@ -213,10 +214,14 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     ) {
       if (pressesShortcut("edit.undo", event.nativeEvent)) {
         event.preventDefault();
+        clearFieldUndoPending(event.currentTarget);
         void undoInNote(editor);
         return;
       }
-      if (pressesShortcut("edit.redo", event.nativeEvent)) {
+      if (
+        pressesShortcut("edit.redo", event.nativeEvent) &&
+        !hasFieldUndoPending(event.currentTarget)
+      ) {
         event.preventDefault();
         void redoInNote(editor);
         return;

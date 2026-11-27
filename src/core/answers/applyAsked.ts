@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { askedFor, waitsForUser } from "../../shared/askedChanges";
+import { askedFor, checkpointBeforeAccept, waitsForUser } from "../../shared/askedChanges";
 import { originMaps } from "../../shared/blockOrigins";
 import { fingerprintOfMind, transitionOfMind } from "../../shared/mindState";
 import {
@@ -139,7 +139,7 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
               held: true,
             };
           }
-          options.checkpoint?.(mindId);
+          if (checkpointBeforeAccept(doc, requests)) options.checkpoint?.(mindId);
           const reviewBefore = Y.encodeStateAsUpdate(doc);
           const scope = [blocks, ...originMaps(doc), doc.getMap(MIND_REVISIONS_FIELD)];
           const manager = new Y.UndoManager(scope, {

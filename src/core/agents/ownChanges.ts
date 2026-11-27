@@ -41,6 +41,7 @@ export function createOwnChanges(
   newId: () => string,
 ) {
   const notes = new Map<string, NoteSteps>();
+  const pendingClaims = new Map<string, boolean>();
 
   const docOf = (mindId: string): Y.Doc | null =>
     content.read(mindId, (blocks) => blocks.doc ?? null);
@@ -125,6 +126,7 @@ export function createOwnChanges(
         { captureTimeout: 0, trackedOrigins: new Set([origin]) },
       );
       const id = newId();
+      pendingClaims.set(id, false);
       let value: T;
       try {
         value = content.edit(mindId, change, origin, {
@@ -133,17 +135,45 @@ export function createOwnChanges(
           apply: true,
         });
       } catch (error) {
+        pendingClaims.delete(id);
         manager.destroy();
         throw error;
       }
+      const claimed = pendingClaims.get(id) === true;
+      pendingClaims.delete(id);
       if (manager.undoStack.length === 0) {
         manager.destroy();
         return { value, step: null };
       }
       forget(note.undone.splice(0));
+      if (claimed) {
+        manager.destroy();
+        return { value, step: id };
+      }
       note.done.push({ id, manager });
       forget(note.done.splice(0, Math.max(0, note.done.length - MAX_STEPS)));
       return { value, step: id };
+    },
+
+    /**
+     * Hands ownership of a step from core to one window's tab history (#3839). Returns true once,
+     * removing it from core's stack so no other window can claim or undo it again.
+     */
+    claim(stepId: string): boolean {
+      const pending = pendingClaims.get(stepId);
+      if (pending !== undefined) {
+        if (pending) return false;
+        pendingClaims.set(stepId, true);
+        return true;
+      }
+      for (const [mindId, note] of notes) {
+        const index = note.done.findIndex((each) => each.id === stepId);
+        if (index < 0) continue;
+        const [step] = note.done.splice(index, 1);
+        step?.manager.destroy();
+        return content.isLoaded(mindId) && docOf(mindId) === note.doc;
+      }
+      return false;
     },
 
     /** Takes a step back: only the Note's last one done, while its document is in memory. */

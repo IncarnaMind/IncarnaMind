@@ -22,7 +22,7 @@ import {
   MIND_CONTENT_FIELD,
   type ProposalRef,
 } from "../../core/api";
-import { waitsForUser } from "../../shared/askedChanges";
+import { checkpointBeforeAccept, waitsForUser } from "../../shared/askedChanges";
 import { originMaps } from "../../shared/blockOrigins";
 import { fingerprintOfMind } from "../../shared/mindState";
 import { mindName } from "../../shared/naming";
@@ -918,7 +918,9 @@ export function applyArrived(
     edit.followed = followCoreUndo(edit, application, current);
   } else {
     // Checkpoint before the change is sent: FIFO IPC runs it before applyMindUpdate (#3839).
-    core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+    if (holds && checkpointBeforeAccept(edit.doc, requests)) {
+      core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+    }
     planned = planChanges(editor.state, requests);
     let resolved: ReturnType<typeof writeAccepted> = [];
     asEditStep(edit, editor, () => {
@@ -1044,7 +1046,9 @@ export function applyArrivedInHistory(
   const stopTaken = onTakenOut(history, takenOut);
   latest.set(history, edit);
   // Checkpoint before the change is sent: FIFO IPC runs it before applyMindUpdate (#3839).
-  core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+  if (checkpointBeforeAccept(doc, requests)) {
+    core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+  }
   const schema = hiddenNoteSchema();
   const planned = planChanges(yXmlFragmentToProseMirrorRootNode(blocks, schema), requests);
   let resolved: ReturnType<typeof writeAccepted> = [];

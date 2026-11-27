@@ -1,8 +1,10 @@
 /**
- * An outside agent's immediate write to a Note it made (#3371, #3839): while a tab holds that
- * Note, the core's update lands on the tab's kept Undo stack as one step (bracketed by
- * `stopCapturing`), so ⌘Z in the Note runs newest first across the User's typing and the agent's
- * writes. If another copy writes over the step's Blocks, it leaves this tab's history.
+ * An outside agent's immediate write to a Note it made (#3371, #3839): while at least one tab
+ * holds that Note, one elected tab takes the core's update onto its kept Undo stack as one step
+ * (bracketed by `stopCapturing`) and atomically claims ownership from core (`claimAgentChange`),
+ * so ⌘Z runs newest first across the User's typing and the agent's writes without any second tab
+ * or window holding a duplicate step. If another copy writes over the step's Blocks, it leaves
+ * this tab's history.
  */
 import * as Y from "yjs";
 import {
@@ -12,6 +14,7 @@ import {
 } from "../../../core/api";
 import { agentOwnChangeRequestId } from "../../../shared/agentOwnChanges";
 import { originMaps } from "../../../shared/blockOrigins";
+import { core } from "../core";
 import type { WordsInLine } from "../lineNames";
 import { EDIT_FROM_CORE, FROM_CORE, takeEditUpdates } from "../mindCopies";
 import {
@@ -21,7 +24,14 @@ import {
   type UndoStack,
   type UndoStep,
 } from "./editorUndo";
+import { historyEditor } from "./keptHistories";
 import { stepsWrittenIn } from "./othersWords";
+
+interface CopyHandle {
+  mindId: string;
+  doc: Y.Doc;
+  history: UndoStack;
+}
 
 interface Captured {
   history: UndoStack;
@@ -29,13 +39,57 @@ interface Captured {
   steps: NoteSteps;
 }
 
-const capturedByStep = new Map<string, Set<Captured>>();
+const MAX_REMEMBERED_STEPS = 200;
+
+const copiesByMind = new Map<string, Set<CopyHandle>>();
+const electedByStep = new Map<string, CopyHandle>();
+const capturedByStep = new Map<string, Captured>();
+/** Steps this window handled (claimed or lost claim race), so `agentNotes` won't also offer core Undo. */
+const handledSteps = new Set<string>();
+
+function rememberElected(stepId: string, copy: CopyHandle): void {
+  electedByStep.set(stepId, copy);
+  while (electedByStep.size > MAX_REMEMBERED_STEPS) {
+    const oldest = electedByStep.keys().next().value;
+    if (oldest === undefined) break;
+    electedByStep.delete(oldest);
+  }
+}
+
+function rememberHandled(stepId: string): void {
+  handledSteps.add(stepId);
+  while (handledSteps.size > MAX_REMEMBERED_STEPS) {
+    const oldest = handledSteps.values().next().value;
+    if (oldest === undefined) break;
+    handledSteps.delete(oldest);
+  }
+}
+
+function electOwner(mindId: string, stepId: string): CopyHandle | null {
+  const copies = copiesByMind.get(mindId);
+  const existing = electedByStep.get(stepId);
+  if (existing && copies?.has(existing)) return existing;
+  if (!copies || copies.size === 0) return null;
+  let shown: CopyHandle | null = null;
+  let first: CopyHandle | null = null;
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  for (const copy of copies) {
+    first ??= copy;
+    const editor = historyEditor(copy.history);
+    if (!editor) continue;
+    shown ??= copy;
+    if (editor.isFocused || (active !== null && editor.view.dom.contains(active))) {
+      rememberElected(stepId, copy);
+      return copy;
+    }
+  }
+  const winner = shown ?? first;
+  if (winner) rememberElected(stepId, winner);
+  return winner;
+}
 
 function forgetCaptured(stepId: string, entry: Captured): void {
-  const set = capturedByStep.get(stepId);
-  if (!set) return;
-  set.delete(entry);
-  if (set.size === 0) capturedByStep.delete(stepId);
+  if (capturedByStep.get(stepId) === entry) capturedByStep.delete(stepId);
 }
 
 function textTouchedByStep(
@@ -53,10 +107,16 @@ function textTouchedByStep(
 }
 
 /**
- * Captures outside-agent immediate changes (`ownChanges`) for `mindId` onto the tab's kept
- * `history` as one step each, until the returned function is called.
+ * Registers a tab's kept `history` for outside-agent immediate changes (`ownChanges`) on `mindId`,
+ * until the returned function is called. At most one open tab in this window captures each step
+ * and claims it from core; all other open tabs apply the update as a plain core update.
  */
 export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoStack): () => void {
+  const copy: CopyHandle = { mindId, doc, history };
+  const copies = copiesByMind.get(mindId) ?? new Set<CopyHandle>();
+  copies.add(copy);
+  copiesByMind.set(mindId, copies);
+
   const tracked = new Set<{ stepId: string; entry: Captured; stop: () => void }>();
   const toDrop = new Set<NoteSteps>();
   const note = doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -84,6 +144,10 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
   doc.on("afterTransaction", settled);
 
   const stopTaking = takeEditUpdates(agentOwnChangeRequestId(mindId), doc, (update, cause) => {
+    if (electOwner(mindId, cause.request) !== copy) {
+      Y.applyUpdate(doc, update, FROM_CORE);
+      return;
+    }
     history.addTrackedOrigin(EDIT_FROM_CORE);
     history.addToScope([
       ...originMaps(doc),
@@ -116,9 +180,16 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
       if (!steps.held()) cleanup();
     });
     tracked.add(record);
-    const set = capturedByStep.get(cause.request) ?? new Set<Captured>();
-    set.add(entry);
-    capturedByStep.set(cause.request, set);
+    capturedByStep.set(cause.request, entry);
+    rememberHandled(cause.request);
+    Promise.resolve(core.claimAgentChange(cause.request)).then(
+      (claimed) => {
+        if (!claimed) steps.drop();
+      },
+      () => {
+        steps.drop();
+      },
+    );
   });
 
   return () => {
@@ -126,6 +197,11 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
     note.unobserveDeep(touched);
     doc.off("afterTransaction", settled);
     toDrop.clear();
+    copies.delete(copy);
+    if (copies.size === 0 && copiesByMind.get(mindId) === copies) copiesByMind.delete(mindId);
+    for (const [stepId, owner] of electedByStep) {
+      if (owner === copy) electedByStep.delete(stepId);
+    }
     for (const item of [...tracked]) {
       item.stop();
       forgetCaptured(item.stepId, item.entry);
@@ -135,21 +211,20 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
 }
 
 /**
- * Links an `agents.noteChanged` step to the tab history(s) that already captured it, offering
- * Undo on the app's stack for outside-text ⌘Z. Returns true when at least one tab owns the step.
+ * Links an `agents.noteChanged` step to the single tab history that captured it, offering
+ * Undo on the app's stack for outside-text ⌘Z. Returns true when this window already handled the
+ * step (either owns it or lost the cross-window claim race), so `agentNotes` does not also offer
+ * core Undo.
  */
 export function bindCapturedAgentStep(stepId: string, said: WordsInLine): boolean {
-  const entries = capturedByStep.get(stepId);
-  if (!entries || entries.size === 0) return false;
+  const entry = capturedByStep.get(stepId);
+  const handled = handledSteps.delete(stepId);
+  electedByStep.delete(stepId);
+  if (!entry) return handled;
   capturedByStep.delete(stepId);
-  let bound = false;
-  for (const entry of entries) {
-    if (entry.history.undoStack.at(-1) === entry.step) {
-      offerHistoryUndo(entry.history, said, undefined, undefined, undefined, { silent: true });
-      bound = true;
-    } else if (entry.steps.state() !== "gone") {
-      bound = true;
-    }
+  if (entry.history.undoStack.at(-1) === entry.step) {
+    offerHistoryUndo(entry.history, said, undefined, undefined, undefined, { silent: true });
+    return true;
   }
-  return bound;
+  return entry.steps.state() !== "gone" || handled;
 }

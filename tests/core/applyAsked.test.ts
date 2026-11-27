@@ -3,10 +3,14 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { ConversationAnswer, Core } from "../../src/core";
 import { topLevelBlocks } from "../../src/core/answers/blocks";
-import { MIND_CONTENT_FIELD } from "../../src/core/api";
+import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { plainText } from "../../src/core/mindText";
-import { outOfDateProposals, pendingProposals } from "../../src/shared/proposals";
+import {
+  outOfDateProposals,
+  pendingProposals,
+  recordProposalRequest,
+} from "../../src/shared/proposals";
 import { askAssistant, mindCalls } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
@@ -120,7 +124,8 @@ describe("Applying an assistant's changes in the core", () => {
     expect(application.held).toBe(false);
     expect(await core.listAiUse(mind.id)).toHaveLength(1);
     const { checkpoints } = await core.listCheckpoints(mind.id);
-    expect(checkpoints.some((each) => each.reason === "accept")).toBe(true);
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]?.reason).toBe("accept");
     const review = new Y.Doc();
     Y.applyUpdate(review, application.reviewBefore);
     expect(pendingProposals(review.getXmlFragment(MIND_CONTENT_FIELD)).length).toBeGreaterThan(0);
@@ -349,6 +354,83 @@ describe("Applying an assistant's changes in the core", () => {
     const undone = await readState(core, mind.id);
     expect(textOf(undone)).toBe("Hire a designer.");
     undone.destroy();
+  });
+
+  // protects=an outside-agent asked change applied in core (no prior tool Checkpoint) saves exactly one accept Checkpoint before accepting, while a burst of three assistant turns saves three History versions instead of six (#3839); fails_when=applyAsked skips the outside-agent Checkpoint or saves a duplicate Checkpoint after a tool's own
+  test("saves one pre-AI Checkpoint for an outside-agent change and avoids duplicates across a burst of assistant turns", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind({ title: "Outside target" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      note("Original line."),
+      {
+        type: "paragraph",
+        attrs: {
+          [PROPOSAL_ATTRIBUTE]: {
+            id: "outside-prop-1",
+            request: "outside-req-1",
+            kind: "insert",
+          },
+        },
+        content: [{ type: "text", text: "Agent line." }],
+      },
+    ]);
+    client.doc.transact(() => {
+      recordProposalRequest(client.doc, "outside-req-1", {
+        source: "outside-agent",
+        agent: "Claude Code",
+        pairingId: "pairing-1",
+        createdAt: "2026-11-27T00:00:00.000Z",
+        requested: "edit",
+      });
+    });
+    await client.settled();
+    client.doc.destroy();
+
+    expect((await core.listCheckpoints(mind.id)).checkpoints).toHaveLength(0);
+    const applied = await core.applyAskedChanges({
+      answerId: "turn-outside-1",
+      mindId: mind.id,
+      requests: ["outside-req-1"],
+    });
+    expect(applied?.held).toBe(false);
+    const { checkpoints: outsideCheckpoints } = await core.listCheckpoints(mind.id);
+    expect(outsideCheckpoints).toHaveLength(1);
+    expect(outsideCheckpoints[0]?.reason).toBe("accept");
+    await core.restoreCheckpoint(mind.id, outsideCheckpoints[0]?.id ?? "");
+    const restored = await readState(core, mind.id);
+    expect(textOf(restored)).toBe("Original line.");
+    restored.destroy();
+
+    // Burst of three assistant writes: one History version per write (3, not 6).
+    let turn = 0;
+    const burstModel = scriptedModel((call): ScriptedReply => {
+      if (call.results.length === 0) {
+        turn++;
+        return {
+          calls: [
+            {
+              tool: "add_to_mind",
+              input: { mind: "Project plan", content: `Burst decision ${turn}.` },
+            },
+          ],
+        };
+      }
+      return { text: `Added burst decision ${turn}.` };
+    });
+    const burst = await setUp(burstModel);
+    let conversationId: string | undefined;
+    for (let i = 1; i <= 3; i++) {
+      const answer = await askAssistant(burst.core, {
+        text: `Add burst decision ${i} to Project plan`,
+        ...(conversationId && { conversationId }),
+      });
+      conversationId = answer.conversationId;
+      await applyFor(burst.core, answer, burst.mind.id);
+    }
+    const { checkpoints: burstCheckpoints } = await burst.core.listCheckpoints(burst.mind.id);
+    expect(burstCheckpoints).toHaveLength(3);
+    expect(burstCheckpoints.every((each) => each.reason === "accept")).toBe(true);
   });
 });
 

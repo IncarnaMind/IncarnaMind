@@ -15,17 +15,41 @@ import { type Command, type CommandContext, fromMenu } from "./registry";
  * own to take back; a field's own in a field; and the app's changes everywhere
  * else. ⌘K runs them on what ⌘Z would there.
  */
-/** An empty Note input with no IME composition open delegates Undo and Redo to its Note (#3839). */
+/** Note inputs whose last undo emptied the field, so the next Redo belongs to the field (#3839). */
+const fieldUndoPending = new WeakSet<Element>();
+
+export function markFieldUndoPending(field: Element | null): void {
+  if (field) fieldUndoPending.add(field);
+}
+
+export function clearFieldUndoPending(field: Element | null): void {
+  if (field) fieldUndoPending.delete(field);
+}
+
+export function hasFieldUndoPending(field: Element | null): boolean {
+  return field !== null && fieldUndoPending.has(field);
+}
+
+/** An empty Note input with no IME composition open delegates Undo (and Redo when its last undo wasn't in the field) to its Note (#3839). */
 function emptyNoteAskMind(focus: Element | null): string | null {
-  if (!focus || focus.tagName !== "TEXTAREA") return null;
+  if (focus?.tagName !== "TEXTAREA") return null;
   const textarea = focus as HTMLTextAreaElement;
   const mindId = textarea.getAttribute("data-note-ask-input");
   if (!mindId || textarea.value !== "" || textarea.hasAttribute("data-composing")) return null;
   return mindId;
 }
 
-export function placeAt(focus: Element | null): EditMenuState["text"] {
-  if (emptyNoteAskMind(focus) !== null && noteHere(focus)) return "note";
+export function placeAt(
+  focus: Element | null,
+  step: "undo" | "redo" = "undo",
+): EditMenuState["text"] {
+  if (
+    emptyNoteAskMind(focus) !== null &&
+    (step === "undo" || !hasFieldUndoPending(focus)) &&
+    noteHere(focus)
+  ) {
+    return "note";
+  }
   const typing = typesText(focus);
   if (typing && !(focus instanceof HTMLElement && focus.isContentEditable)) return "field";
   // A chart's buttons and values (#436) are in the note, though not text: ⌘Z there takes back the note's change.
@@ -34,10 +58,10 @@ export function placeAt(focus: Element | null): EditMenuState["text"] {
   return typing ? "field" : null;
 }
 
-function placeOf(ctx: CommandContext): EditMenuState["text"] {
+function placeOf(ctx: CommandContext, step: "undo" | "redo" = "undo"): EditMenuState["text"] {
   // From ⌘K the focus is in its field: where the User was when it opened decides.
   if (ctx.surface === "palette") return ctx.place ?? null;
-  return placeAt(document.activeElement);
+  return placeAt(document.activeElement, step);
 }
 
 // A reviewing pane's note is the one in its own Mind tab (#697): the tab beside may show the same Mind.
@@ -75,16 +99,27 @@ export const editCommands: readonly Command[] = [
     group: "edit",
     reversible: true,
     enabled: (ctx) =>
-      placeOf(ctx) !== null || undoReady(useUndo.getState()) ? true : { reason: "undo.nothing" },
+      placeOf(ctx, "undo") !== null || undoReady(useUndo.getState())
+        ? true
+        : { reason: "undo.nothing" },
     run(ctx) {
-      const place = placeOf(ctx);
+      const place = placeOf(ctx, "undo");
+      const active = document.activeElement;
       if (place === "note") {
-        const note = noteHere(document.activeElement);
+        clearFieldUndoPending(active);
+        const note = noteHere(active);
         return note ? undoInNote(note) : useUndo.getState().undo();
       }
       // A field's own undo, the system Edit menu's editing command, which only execCommand reaches.
-      else if (place === "field") document.execCommand("undo");
-      else return useUndo.getState().undo();
+      if (place === "field") {
+        const noteAsk =
+          active?.tagName === "TEXTAREA" && active.hasAttribute("data-note-ask-input")
+            ? (active as HTMLTextAreaElement)
+            : null;
+        const hadText = noteAsk !== null && noteAsk.value !== "";
+        document.execCommand("undo");
+        if (hadText && noteAsk.value === "") markFieldUndoPending(noteAsk);
+      } else return useUndo.getState().undo();
     },
   },
   {
@@ -95,14 +130,20 @@ export const editCommands: readonly Command[] = [
     group: "edit",
     reversible: true,
     enabled: (ctx) =>
-      placeOf(ctx) !== null || nextToRedo(useUndo.getState()) ? true : { reason: "redo.nothing" },
+      placeOf(ctx, "redo") !== null || nextToRedo(useUndo.getState())
+        ? true
+        : { reason: "redo.nothing" },
     run(ctx) {
-      const place = placeOf(ctx);
+      const place = placeOf(ctx, "redo");
+      const active = document.activeElement;
       if (place === "note") {
-        const note = noteHere(document.activeElement);
+        const note = noteHere(active);
         return note ? redoInNote(note) : useUndo.getState().redo();
-      } else if (place === "field") document.execCommand("redo");
-      else return useUndo.getState().redo();
+      }
+      if (place === "field") {
+        clearFieldUndoPending(active);
+        document.execCommand("redo");
+      } else return useUndo.getState().redo();
     },
   },
 ];

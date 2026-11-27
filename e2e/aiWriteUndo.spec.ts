@@ -232,6 +232,35 @@ test.describe("Note-input and AI-owned Note Cmd+Z (#3839)", () => {
         await expect(input).toHaveValue("");
         await expect(frontMind(window)).toContainText(copy.aiText);
 
+        // Redo right after undoing the input back to empty belongs to the input even when the Note
+        // has an undone step ready to redo; once a further undo acts on the Note, Redo returns to
+        // the Note (#3839).
+        await undoKey(window);
+        await expect(frontMind(window)).not.toContainText(copy.aiText);
+        await window.keyboard.type(copy.promptDraft);
+        await expect(input).toHaveValue(copy.promptDraft);
+        for (let step = 0; step < copy.promptDraft.length; step++) {
+          const beforeClear = await input.inputValue();
+          if (beforeClear === "") break;
+          await clickEditItem(app, "edit.undo");
+          await expect.poll(() => input.inputValue()).not.toBe(beforeClear);
+        }
+        await expect(input).toHaveValue("");
+        await redoKey(window);
+        if ((await input.inputValue()) === "") await clickEditItem(app, "edit.redo");
+        await expect.poll(() => input.inputValue()).not.toBe("");
+        await expect(frontMind(window)).not.toContainText(copy.aiText);
+        await undoKey(window);
+        if ((await input.inputValue()) !== "") await clickEditItem(app, "edit.undo");
+        await expect(input).toHaveValue("");
+        await undoKey(window);
+        await expect(frontMind(window)).not.toContainText(copy.before);
+        await redoKey(window);
+        await expect(frontMind(window)).toContainText(copy.before);
+        await expect(input).toHaveValue("");
+        await redoKey(window);
+        await expect(frontMind(window)).toContainText(copy.aiText);
+
         // Open IME composition in the empty input is never interrupted and never undoes the Note.
         await input.evaluate((el) => {
           el.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));

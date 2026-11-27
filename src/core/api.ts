@@ -14506,6 +14506,11 @@ export interface CoreApi {
   /** Does an agent's change taken back again: only the Note's last one, before its next change. */
   redoAgentChange(step: string): Promise<AgentChangeStep>;
   /**
+   * Hands an outside agent's own-Note change step from core to one window's tab history (#3839).
+   * Returns true once, removing it from core's stack; false if another window already claimed it.
+   */
+  claimAgentChange(step: string): Promise<boolean>;
+  /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
    * checked again against its Document, with a link back to the Answer. As
@@ -17010,6 +17015,7 @@ const methods: Record<CoreApiMethod, true> = {
   releaseAskedChanges: true,
   undoAgentChange: true,
   redoAgentChange: true,
+  claimAgentChange: true,
   undoAddToNote: true,
   listNoteConversations: true,
   getSettings: true,
