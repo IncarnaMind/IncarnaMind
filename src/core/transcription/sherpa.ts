@@ -14,7 +14,14 @@ import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
 import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
 import { type LiveReading, quietestCut, type SpeechEngine, type VoiceDetector } from "./speech";
-import { onlyPromptWord, resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
+import {
+  onlyPromptWord,
+  repeatedTail,
+  resultOf,
+  textOfResult,
+  untilEndOfText,
+  wordsOnly,
+} from "./speechText";
 import {
   borrowedInto,
   shareAWord,
@@ -66,12 +73,14 @@ const LANGUAGE_FROM_MS = 4000;
 const AGREEING = 2;
 const LATEST = 3;
 /**
- * A stretch read untold (`>= TOLD_LANGUAGE_UNDER_MS`) that writes only another script at under
- * this many units per second (e.g., "提纲" for 14 s of English speech) collapsed rather than
- * switched languages (#1031). Real speech in another language runs around 2 to 5 units a second,
- * so it is not re-read.
+ * A stretch read untold (`>= TOLD_LANGUAGE_UNDER_MS`) that writes under this many units per second
+ * (e.g., "提纲" for 14 s of English speech, "提纲：" / "提出修改意见" for 7-8 s of Chinese, or an
+ * invalid UTF-8 replacement character "\uFFFD") collapsed rather than captured real speech (#1031).
+ * Real speech runs around 2 to 5 units a second, and slow speech is kept unless retrying recovers
+ * at least twice as many units.
  */
 const COLLAPSED_UNITS_PER_SECOND = 1;
+const replacementOnly = (text: string) => text.includes("\uFFFD") && spokenUnits(text) === 0;
 /**
  * What a long reading in Latin letters shows when its words name no language: nothing against
  * English, the one language named here that is written in them, and that it is no other. One
@@ -410,31 +419,31 @@ export async function createSherpaEngine(
       : undefined;
 
   /**
-   * Whether an untold long reading collapsed into another script (too sparse to be real speech in
-   * that language, #1031).
+   * Whether an untold long reading collapsed into a sparse prompt/header misfire or "\uFFFD"
+   * (too sparse to be real speech, #1031). Empty stretches and borrowed words are not retried.
    */
-  function collapsedOutside(text: string, samples: Float32Array, streamLanguage: string): boolean {
-    if (!writtenOutside(text, streamLanguage) || borrowedInto(text, streamLanguage)) return false;
+  function collapsed(text: string, samples: Float32Array, streamLanguage: string): boolean {
+    if (!text.trim() || borrowedInto(text, streamLanguage)) return false;
     const seconds = samples.length / MEETING_SAMPLE_RATE;
     return seconds > 0 && spokenUnits(text) / seconds < COLLAPSED_UNITS_PER_SECOND;
   }
 
   /**
    * A stretch read plainly, as long as it is: told its stream's language when short, learned from
-   * when long, left out when its words are doubted. `inParts`: a reading that reaches a limit is
-   * read again in two parts, each read plainly as a stretch of its length is, and their words are
-   * kept in its place; a part isn't read in parts again (#1031).
+   * when long, left out when its words are doubted. `inParts`: a reading that reaches a limit or
+   * truncates a repetition loop is read again in two parts, each read plainly as a stretch of its
+   * length is, and their words are kept in its place; a part isn't read in parts again (#1031).
    */
   async function plainly(samples: Float32Array, stream: string, inParts: boolean): Promise<string> {
     const language = toldLanguage(samples, stream);
     const first = await reading(samples, [], language);
-    if (inParts && first.atLimit) {
+    if (inParts && (first.atLimit || repeatedTail(first.text))) {
       const parts = await partsOf(samples, stream);
       if (parts !== null) return parts;
     }
     let plain = first.text;
     const streamLanguage = languageOf(stream);
-    if (!language && streamLanguage && collapsedOutside(plain, samples, streamLanguage)) {
+    if (!language && streamLanguage && collapsed(plain, samples, streamLanguage)) {
       let retried: { text: string; atLimit: boolean } | null = null;
       try {
         retried = await reading(samples, [], streamLanguage);
@@ -445,7 +454,7 @@ export async function createSherpaEngine(
         );
       }
       if (retried) {
-        if (inParts && retried.atLimit) {
+        if (inParts && (retried.atLimit || repeatedTail(retried.text))) {
           const parts = await partsOf(samples, stream);
           if (parts !== null) return parts;
         }
@@ -453,16 +462,22 @@ export async function createSherpaEngine(
           !writtenOutside(retried.text, streamLanguage) &&
           spokenUnits(retried.text) >= Math.max(2, spokenUnits(plain) * 2)
         ) {
-          console.warn(
-            "A stretch that collapsed into another script was read again in its call's language.",
-            {
-              language: streamLanguage,
-              seconds: Math.round((samples.length / MEETING_SAMPLE_RATE) * 10) / 10,
-            },
-          );
+          console.warn("A collapsed stretch was read again in its call's language.", {
+            language: streamLanguage,
+            seconds: Math.round((samples.length / MEETING_SAMPLE_RATE) * 10) / 10,
+          });
           plain = retried.text;
         }
       }
+    }
+    if (
+      !language &&
+      inParts &&
+      samples.length >= (TOLD_LANGUAGE_UNDER_MS * MEETING_SAMPLE_RATE) / 1000 &&
+      replacementOnly(plain)
+    ) {
+      const parts = await partsOf(samples, stream);
+      if (parts !== null) return parts;
     }
     // A stream not yet known to be English counts as not English: a word left out is the
     // smaller harm than one written that nobody said (#1031).
