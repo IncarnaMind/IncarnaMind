@@ -22,6 +22,8 @@ const { pressEnter } = await import("../helpers/editor");
 
 const START = "w:bookmarkStart#0";
 const END = "w:bookmarkEnd#0";
+const START_NEXT = "w:bookmarkStart#1";
+const END_NEXT = "w:bookmarkEnd#1";
 
 const marker = (source: string): JSONContent => ({
   type: WORD_ATOM_NODE,
@@ -132,6 +134,123 @@ describe("Enter beside a bookmark in a Word file's clause", () => {
       [START, "Confidential"],
       [" Information means all information disclosed.", END],
     ]);
+    editor.destroy();
+  });
+
+  // protects=Enter before an unseen bookmark START at a clause's start leaves the new line empty above, keeps START with the clause below, and puts the cursor past START in front of the clause's words; fails_when=START moves to the line above or the cursor stays before START.
+  test("before a START at a clause's start, START stays with the clause below", () => {
+    const clause = CLAUSES[0] as string;
+    const { editor, start } = contract(clause);
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, start)),
+    );
+    pressEnter(editor);
+    expect(lines(editor)).toEqual([["Scope."], [], [START, clause, END]]);
+    const { $head } = editor.state.selection;
+    expect([$head.parent.textContent, $head.parentOffset]).toEqual([clause, 1]);
+    editor.destroy();
+  });
+
+  // protects=when an earlier bookmark ends at the start of the next paragraph, Enter after its END marker keeps END on the new paragraph above rather than pulling the new paragraph inside the earlier bookmark, and splits between END and a following START when both meet there; fails_when=Enter moves the split before END so END drops onto the paragraph below.
+  test("after an END at a paragraph's start, END stays above and a following START stays below", () => {
+    const clause = CLAUSES[0] as string;
+    const build = (second: JSONContent[]) => {
+      const editor = new Editor({
+        element: document.createElement("div"),
+        extensions: [...noteExtensions(), WordMarkerKeys],
+        content: {
+          type: "doc",
+          content: [
+            {
+              type: "orderedList",
+              content: [item([marker(START), { type: "text", text: "Scope." }]), item(second)],
+            },
+          ],
+        },
+      });
+      editor.view.updateState(
+        editor.state.reconfigure({ plugins: editor.extensionManager.plugins }),
+      );
+      let start = -1;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "paragraph" && node.textContent === clause) start = pos + 1;
+      });
+      return { editor, start };
+    };
+
+    // Only END at the start of the next paragraph.
+    const endOnly = build([marker(END), { type: "text", text: clause }]);
+    endOnly.editor.view.dispatch(
+      endOnly.editor.state.tr.setSelection(
+        TextSelection.create(endOnly.editor.state.doc, endOnly.start + 1),
+      ),
+    );
+    pressEnter(endOnly.editor);
+    expect(lines(endOnly.editor)).toEqual([[START, "Scope."], [END], [clause]]);
+    expect([
+      endOnly.editor.state.selection.$head.parent.textContent,
+      endOnly.editor.state.selection.$head.parentOffset,
+    ]).toEqual([clause, 0]);
+    endOnly.editor.destroy();
+
+    // Earlier bookmark END followed immediately by the next clause's START.
+    const both = build([
+      marker(END),
+      marker(START_NEXT),
+      { type: "text", text: clause },
+      marker(END_NEXT),
+    ]);
+    both.editor.view.dispatch(
+      both.editor.state.tr.setSelection(
+        TextSelection.create(both.editor.state.doc, both.start + 2),
+      ),
+    );
+    pressEnter(both.editor);
+    expect(lines(both.editor)).toEqual([[START, "Scope."], [END], [START_NEXT, clause, END_NEXT]]);
+    expect([
+      both.editor.state.selection.$head.parent.textContent,
+      both.editor.state.selection.$head.parentOffset,
+    ]).toEqual([clause, 1]);
+    both.editor.destroy();
+  });
+
+  // protects=when a paragraph ends with a closing marker followed by the next bookmark's START, Enter at the end of its words splits between END and START so the new paragraph stays outside the later bookmark; fails_when=Enter moves past START and pulls the new line inside the later bookmark.
+  test("at a paragraph's end with END then START, Enter splits between them", () => {
+    const clause = CLAUSES[0] as string;
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: [...noteExtensions(), WordMarkerKeys],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "orderedList",
+            content: [
+              item([
+                marker(START),
+                { type: "text", text: "Scope." },
+                marker(END),
+                marker(START_NEXT),
+              ]),
+              item([{ type: "text", text: clause }, marker(END_NEXT)]),
+            ],
+          },
+        ],
+      },
+    });
+    editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+    let firstStart = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "paragraph" && node.textContent === "Scope.") firstStart = pos + 1;
+    });
+    editor.view.dispatch(
+      editor.state.tr.setSelection(
+        TextSelection.create(editor.state.doc, firstStart + 1 + "Scope.".length),
+      ),
+    );
+    pressEnter(editor);
+    expect(lines(editor)).toEqual([[START, "Scope.", END], [START_NEXT], [clause, END_NEXT]]);
+    expect(editor.state.selection.$head.parentOffset).toBe(0);
     editor.destroy();
   });
 });

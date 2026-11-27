@@ -24,6 +24,20 @@ const unseen = (node: ProseMirrorNode) =>
 /** Whether a marker ends what it marks ("w:bookmarkEnd#3"), rather than starting it. */
 const ends = (node: ProseMirrorNode) => /End(?:#|$)/.test(readWordAtom(node.attrs).source ?? "");
 
+/**
+ * Where Enter splits inside a run of unseen markers `[from, to)`: after any closing markers
+ * (`w:bookmarkEnd`, range ends) so they stay on the paragraph above, and before any opening ones
+ * so they move onto the paragraph below with the words they mark (#746).
+ */
+function markerBoundary(line: ProseMirrorNode, from: number, to: number): number {
+  let split = from;
+  line.forEach((child, offset) => {
+    if (offset < from || offset >= to) return;
+    if (offset === split && unseen(child) && ends(child)) split += child.nodeSize;
+  });
+  return split;
+}
+
 /** A line Enter splits after words added before all of its own from the Word file. */
 interface FileWordsSplit {
   id: string;
@@ -164,18 +178,28 @@ export const WordMarkerKeys = Extension.create<object, WordMarkerKeysStorage>({
         const { $from, $to } = selection;
         const line = $from.parent;
         if (!line.isTextblock) return false;
-        let shownBefore = false;
-        let shownAfter = false;
+        let firstShown = line.content.size;
+        let lastShownEnd = 0;
         line.forEach((child, offset) => {
           if (unseen(child)) return;
-          if (offset < $from.parentOffset) shownBefore = true;
-          if (offset + child.nodeSize > $to.parentOffset) shownAfter = true;
+          if (offset < firstShown) firstShown = offset;
+          lastShownEnd = offset + child.nodeSize;
         });
+        const shownBefore = firstShown < $from.parentOffset;
+        const shownAfter = lastShownEnd > $to.parentOffset;
         let at: number | null = null;
-        if (!shownBefore && (marker || $from.parentOffset > 0)) at = $from.start();
-        else if (!shownAfter && (marker || $to.parentOffset < line.content.size)) at = $from.end();
-        else if (marker) at = ends(marker) ? $to.pos : $from.pos;
-        if (at === null) {
+        let beforeLeadingOpen = false;
+        if (!shownBefore && firstShown > 0) {
+          const split = markerBoundary(line, 0, firstShown);
+          if (marker || $from.parentOffset !== split) at = $from.start() + split;
+          beforeLeadingOpen = split < firstShown;
+        } else if (!shownAfter && lastShownEnd < line.content.size) {
+          const split = markerBoundary(line, lastShownEnd, line.content.size);
+          if (marker || $to.parentOffset !== split) at = $from.start() + split;
+        } else if (marker) {
+          at = ends(marker) ? $to.pos : $from.pos;
+        }
+        if (at === null && !beforeLeadingOpen) {
           storage.fileWords = shownBefore && shownAfter ? fileWordsSplit(state, $from) : null;
           if (storage.fileWords) {
             // The split comes in this same key press, or not at all.
@@ -185,8 +209,10 @@ export const WordMarkerKeys = Extension.create<object, WordMarkerKeysStorage>({
           }
           return false;
         }
-        view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, at)));
-        if (at === $from.start()) {
+        if (at !== null) {
+          view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, at)));
+        }
+        if (beforeLeadingOpen) {
           storage.movedToStart = true;
           queueMicrotask(() => {
             storage.movedToStart = false;
