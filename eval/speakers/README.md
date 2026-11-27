@@ -98,6 +98,37 @@ A separate run transcribed the full paired conversations with Qwen3-ASR 0.6B int
 
 In R8007_M8010, the live Transcript missed 653.4 speaker-seconds. Of those, 638.4 fell in intervals where the reference has simultaneous speakers. With the live lines' timing, the missed speech alone contributes 42.4 percentage points of DER. In two 90-second windows selected for high and low overlap, all 1,128 final tokens matched between the service response and the app's stream adapter in text and start time. The real-time and asynchronous Soniox runs both reported two people in the full four-person recording.
 
+## Solo voiceprints, solid-first joining and cue-span refinement (2026-11-27)
+
+Three failure modes drove the remaining speaker confusion on the Chinese meetings (#138):
+
+1. **Overlapping speech inside voiceprints.** `voiceprintsOf` previously fed each cluster's raw segments into CAM++, including simultaneous speech. On R8007_M8010 (37.6% simultaneous speech), that inflated cross-speaker cosine similarity up to 0.74–0.84; stripping other clusters' intervals (`soloIntervalsOf`) drops cross-speaker similarity to 0.20–0.42 while within-speaker similarity stays 0.83–0.97.
+2. **Rough-fragment bridging in `joinedVoices`.** Scaling the merge threshold by a cluster's single longest stretch (`10 s`) treated speakers with many 2–7 s turns as rough and let short fragments shift solid voiceprints and bridge distinct people (collapsing R8007_M8011 from 3 to 2 remote voices and R8007_M8010 from 4 to 2). Solidity now uses total solo speech (`5 s`), `SAME_PERSON` is `0.65` on the cleaner solo voiceprints, solid voices merge first, rough fragments attach without moving solid voiceprints, and zero-solo overlap fragments absorb as stray.
+3. **Speech missed by pyannote segmentation-3.0.** On R8003_M8001, pyannote missed ~402 s of speech (covering one of the four speakers for only 33% of their turns), leaving `speakerPass` to fall back to the nearest voice. Passing the separated side's Transcript line ranges (`spans`) lets `diarization.ts` classify uncovered gaps (`≥ 400 ms`) and short non-handoff lines (`350–4500 ms`) with CAM++ against the kept solo voiceprints, guarded by the same 50% coverage floor and preserving clean consecutive handoffs for word-aligned splits.
+
+Measured on 2026-11-27 (0.25 s collar, overlap scored, final app labels; `0.7 / 0.65` against the prior `0.7 / 0.6` baseline on the same recordings):
+
+| Cell / Case | Silero VAD lines (before → after) | Local Qwen3-ASR lines (before → after) | Soniox `stt-rt-v6` room lines (before → after) |
+|---|---|---|---|
+| **en/online** (target ≤ 20%) | **18.4% → 18.3%** | **15.8% → 15.6%** | — |
+| `en-online-EN2002a` | 29.1% (42 s) → 29.0% (40 s), 3/3 | 24.4% → 24.3% (68 s), 3/3 | — |
+| `en-online-IS1009b` | 7.8% (32 s) → 7.8% (31 s), 3/3 | 6.9% → 6.9% (30 s), 3/3 | — |
+| **en/room** (target ≤ 30%) | **25.9% → 26.0%** | **20.6% → 20.6%** | **17.1% → 16.7%** |
+| `en-room-ES2004b` | 23.1% (93 s) → 23.1% (93 s), 4/4 | 21.1% → 21.2% (117 s), 4/4 | 17.4% (29 s) → 16.7% (15 s), 4/4 |
+| `en-room-TS3003b` | 29.2% (38 s) → 29.3% (38 s), 4/4 | 20.0% → 19.9% (40 s), 4/4 | 16.7% (22 s) → 16.8% (24 s), 4/4 |
+| **zh/online** (target ≤ 20%) | **18.9% → 16.4%** | **16.4% → 13.7%** | — |
+| `zh-online-R8007_M8011` | 23.6% (223 s, 2/3) → 18.1% (141 s, 3/3) | 22.8% (233 s, 2/3) → 17.1% (146 s, 3/3) | — |
+| `zh-online-R8008_M8013` | 14.8% (52 s) → 14.8% (52 s), 2/2 | 10.8% → 10.8% (64 s), 2/2 | — |
+| **zh/room** (target ≤ 30%) | **49.0% → 43.9%** | **48.1% → 43.1%** | **42.1% → 30.5%** |
+| `zh-room-R8003_M8001` | 34.9% (265 s) → 30.0% (189 s), 4/4 | 32.8% (265 s) → 27.9% (188 s), 4/4 | 23.6% (131 s) → 15.5% (5 s), 4/4 |
+| `zh-room-R8007_M8010` | 63.4% (379 s, 2/4) → 57.9% (295 s, 3/4) | 63.6% (381 s, 2/4) → 58.6% (303 s, 3/4) | 60.9% (281 s, 2/4) → 45.6% (46 s, 3/4) |
+| **mixed/conversation** | **7.9% → 8.0%** | — | — |
+| `mixed-conversation-s1-spk17-spk18` | 15.3% → 15.4% (51 s), 2/2 | — | — |
+| `mixed-conversation-s3-spk3-spk4` | 4.6% → 4.6% (11 s), 2/2 | — | — |
+
+- On `zh/room`, fixed-line single-speaker floors (with zero confusion on the given lines) are **28.8%** on the Soniox room lines (15.2% on R8003_M8001, 42.6% on R8007_M8010 due to 37.6% simultaneous speech) and **41.9%** on unsplit Silero VAD lines (R8007_M8010 averages 17 s per VAD line across multiple speakers). Total confusion on the two Chinese room Transcripts fell from 412 s to 51 s (−87.6%) on Soniox lines (5 s on R8003_M8001; 46 s on R8007_M8010, where pyannote detects the quietest of the four speakers for only 18.5 s / 1.3% of turns, below the 2% stray threshold).
+- All 12 one-person microphone tracks (1 min, 3 min, and full length across the four online cases) stayed 1 voice, all 4 short two-voice clips (24 s and 46 s, English and Chinese) found 2 voices, and real-time factor stayed at 0.07×–0.12×.
+
 ## The models' licences
 
 Checked for redistribution on 2026-10-21:
