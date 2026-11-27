@@ -69,4 +69,85 @@ describe("A User's Tag is offered only to a Document about it (#2339)", () => {
     ).toEqual([kitchen.tag]);
     expect(tagsAbout("Marathon training plan, week 6.", [kitchen], background)).toEqual([]);
   });
+
+  test("a Tag in another script is offered to the model in both directions so one Tag covers both languages", () => {
+    const zhKitchen = {
+      tag: { id: "zh-kitchen", name: "厨房装修", description: "" },
+      texts: ["厨房装修，更新橱柜与水槽，确定台面材料。"],
+    };
+    const enKitchen = {
+      tag: { id: "en-kitchen", name: "Kitchen renovation", description: "" },
+      texts: ["Kitchen renovation. Replace the cabinets, counters and sink."],
+    };
+
+    expect(
+      tagsAbout(
+        "The kitchen remodel needs new base cabinets and a longer worktop.",
+        [zhKitchen],
+        background,
+      ),
+    ).toEqual([zhKitchen.tag]);
+    expect(
+      tagsAbout(
+        "厨房要重新装修，拆除旧橱柜后重新铺设水槽管道，再安装定制台面。",
+        [enKitchen],
+        background,
+      ),
+    ).toEqual([enKitchen.tag]);
+  });
+
+  test("a cross-script Tag once confirmed on a same-script Document uses same-script members without dilution", () => {
+    const zhKitchen = {
+      tag: { id: "zh-kitchen", name: "厨房装修", description: "" },
+      texts: [
+        "厨房装修方案一：橱柜选白色烤漆门板。",
+        "厨房装修方案二：水电改管清单。",
+        "厨房装修方案三：石英石台面报价。",
+        "Kitchen remodel cabinets and sink replacement estimate for base cupboards.",
+      ],
+    };
+
+    expect(
+      tagsAbout(
+        "Kitchen remodel cabinet doors and sink fitting schedule for oak cupboards.",
+        [zhKitchen],
+        background,
+      ),
+    ).toEqual([zhKitchen.tag]);
+    expect(
+      tagsAbout(
+        "Quarterly board minutes approving the office move and annual hiring plan.",
+        [zhKitchen],
+        background,
+      ),
+    ).toEqual([]);
+  });
+
+  test("a cross-script Tag rejected on a similar same-script Document is withheld from another like it", () => {
+    const zhKitchen = {
+      tag: { id: "zh-kitchen", name: "厨房装修", description: "" },
+      texts: ["厨房装修，更新橱柜与水槽。"],
+      rejected: [
+        "Regional choir rehearsal schedule for Sunday chorus bars and tenor vocal warmup.",
+      ],
+    };
+    const rejectedTopics = new Map<string, string>();
+
+    expect(
+      tagsAbout(
+        "Choir rehearsal notes: Sunday chorus bars and tenor vocal warmup schedule.",
+        [zhKitchen],
+        background,
+        rejectedTopics,
+      ),
+    ).toEqual([]);
+    expect(rejectedTopics.get("厨房装修")).toBe("zh-kitchen");
+    expect(
+      tagsAbout(
+        "The kitchen remodel needs new base cabinets and a stone worktop.",
+        [zhKitchen],
+        background,
+      ),
+    ).toEqual([zhKitchen.tag]);
+  });
 });

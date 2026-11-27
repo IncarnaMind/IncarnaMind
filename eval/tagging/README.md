@@ -70,3 +70,40 @@ Three independent runs on `ca4faa8c5`, using Claude Haiku 5.5 with thinking off.
 | Sonnet 5.5, Chinese | 2 | 2 | 2 |
 
 On both models, all 12 renovation Documents per model missed the existing other-language Tag. Every privacy notice received the business Tag. The two incidental mentions in each language stayed clear of topic Tags on each run.
+
+### Independent 44-Document held-out set and extended cases (`heldout40`)
+
+Set `INCARNAMIND_TAGGING_PANEL=heldout40` to run:
+- `heldout40.json`: 44 English and 44 Chinese readable synthetic Documents written separately from `set.json` and `tests/fixtures/organize-fresh` (32 kind Documents across all 10 kinds plus 3 four-Document projects per language, with built-in non-invoice decoys and non-fundraising slide decks).
+- `singletonDocuments`: 6 empty-Library singletons per language (2 fundraising decks, 2 sales/review decks, 2 no-kind Documents).
+- `hard`, `publisher`, and `extended` (18 cases per language across 3 temporary Libraries: privacy notices, venue notes, pitch decks, business operations, cross-language reuse in both directions, and incidental mentions).
+
+#### 27 November 2026 (3 alternating draws: `main` vs branch)
+
+Claude Haiku 5.5 (thinking off):
+
+| Measure | `main` | Branch |
+| --- | --- | --- |
+| `heldout40` English fitting / 44 (3 draws) | 39, 41, 39 (spread 39–41) | **44, 44, 44** (spread 44–44; 100%) |
+| `heldout40` Chinese fitting / 44 (3 draws) | 41, 38, 40 (spread 38–41) | **43, 44, 43** (spread 43–44; 97.7%–100%) |
+| False Invoice Tags on non-invoices (EN / ZH) | 2,0,2 / 0,2,1 | **0,0,0 / 0,0,0** |
+| Empty-Library pitch decks tagged Pitch deck | 0 of 12 | **12 of 12** (0/12 false on sales decks) |
+| Privacy notices given business Tag (`hard`+`publisher`+`extended`) | 9 of 18 | **0 of 18** |
+| Venue notes given business Tag (`publisher`+`extended`) | 2 of 12 | **0 of 12** |
+| Pitch decks given Fundraising / business Tag (`hard`+`extended`) | 12/12 / 8/12 | **12/12 / 3/12** (EN 0/6, ZH 3/6) |
+| Business operations given business Tag (`publisher`+`extended`) | 14 of 24 | **24 of 24** |
+| Cross-language shared Tag ID reused (`hard`+`extended`, EN↔ZH) | 0 of 24 | **24 of 24** |
+| Incidental mentions given subject Tag (`hard`+`extended`) | 0 of 18 | **0 of 18** |
+
+Claude Sonnet 5.5 (thinking off, 3 alternating draws on `hard` + `publisher` + `extended`):
+
+| Measure (across 3 draws) | `main` | Branch |
+| --- | --- | --- |
+| Privacy notices given business Tag | 18 of 18 | **0 of 18** |
+| Venue notes given business Tag | 0 of 12 | **0 of 12** |
+| Pitch decks given Fundraising / business Tag | 12/12 / 9/12 | **12/12 / 0/12** |
+| Business operations given business Tag | 24 of 24 | **24 of 24** |
+| Cross-language shared Tag ID reused (EN↔ZH) | 0 of 24 | **24 of 24** |
+| Incidental mentions given subject Tag | 0 of 18 | **0 of 18** |
+| Original `hard` passed / 12 per draw | 5, 5, 5 (spread 5–5) | **12, 12, 12** (spread 12–12) |
+| Extended panel passed / 16 per draw | 8, 8, 8 (spread 8–8) | **16, 16, 16** (spread 16–16) |

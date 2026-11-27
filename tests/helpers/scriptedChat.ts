@@ -22,8 +22,9 @@ const reports = (text: string) => {
   return {
     tagged: (request.documents ?? []).map(({ ref }) => ({
       ref,
+      purpose: "",
       kind: "report",
-      tags: [],
+      tagJudgements: [],
       topic: { name: "", description: "" },
     })),
   };

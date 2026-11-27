@@ -474,8 +474,9 @@ function planAndTag({
     return {
       tagged: documents.map((doc) => ({
         ref: doc.ref,
+        purpose: "",
         kind: kindOf(doc.name),
-        tags: [],
+        tagJudgements: [],
         topic: { name: "", description: "" },
       })),
     };
@@ -775,8 +776,9 @@ describe("A tagging run that meets a refused key (#2339)", () => {
         return reply({
           tagged: data.documents.map((doc) => ({
             ref: doc.ref,
+            purpose: "",
             kind: "report",
-            tags: [],
+            tagJudgements: [],
             topic: { name: "", description: "" },
           })),
         });
@@ -799,5 +801,194 @@ describe("A tagging run that meets a refused key (#2339)", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(sent).toBe(3);
+  });
+});
+
+describe("Cross-language Tag identity, purpose judgements and Pitch deck kind (#2339)", () => {
+  // protects=a Document in English and a Document in Chinese on the same subject share one existing Tag ID rather than making a second Tag in the other language; fails_when=the cross-script Tag isn't offered to the model or a duplicate Tag is created instead of reusing the existing Tag ID; no_claim=how a real model scores meaning.
+  test.each([
+    {
+      label: "English Document reuses an existing Chinese Tag",
+      existingName: "花园改造",
+      anchorFile: "锚点.txt",
+      anchorText: "后院花园改造：重铺石板路、更换灌溉管线并种植耐寒灌木。",
+      incomingFile: "Patio estimate.txt",
+      incomingText:
+        "Garden remodel estimate: lay new stone pavers, replace drip irrigation lines, and plant hardy shrubs.",
+    },
+    {
+      label: "Chinese Document reuses an existing English Tag",
+      existingName: "Garden remodel",
+      anchorFile: "Anchor.txt",
+      anchorText:
+        "Backyard garden remodel: lay new stone pavers, replace drip irrigation lines, and plant hardy shrubs.",
+      incomingFile: "庭院报价.txt",
+      incomingText: "后院花园翻新报价：重铺石板路、更换滴灌管线并种植耐寒灌木。",
+    },
+  ])("$label", async ({ existingName, anchorFile, anchorText, incomingFile, incomingText }) => {
+    const offeredIds: string[][] = [];
+    const model = new MockLanguageModelV4({
+      doGenerate: async (call) => {
+        const data = JSON.parse(userText(call)) as {
+          documents?: { ref: string; tags?: string[] }[];
+        };
+        const docs = data.documents ?? [];
+        for (const doc of docs) offeredIds.push(doc.tags ?? []);
+        return reply({
+          tagged: docs.map((doc) => ({
+            ref: doc.ref,
+            purpose: "Estimate for renovating the garden",
+            kind: "none",
+            tagJudgements: (doc.tags ?? []).map((id) => ({ id, relation: "subject" })),
+            topic: { name: "", description: "" },
+          })),
+        });
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider(LOCAL);
+    const shared = await core.createTag({ name: existingName });
+    const sources = await createSourceFolder();
+    const [anchor] = await addAndProcess(core, [
+      await writeSourceFile(sources, anchorFile, anchorText),
+    ]);
+    if (!anchor) throw new Error("Missing anchor Document.");
+    await core.addDocumentTag(anchor.id, shared.id);
+    await waitForTagging(core, [anchor.id]);
+    offeredIds.length = 0;
+
+    const [incoming] = await addAndProcess(core, [
+      await writeSourceFile(sources, incomingFile, incomingText),
+    ]);
+    if (!incoming) throw new Error("Missing incoming Document.");
+    await waitForTagging(core, [incoming.id]);
+
+    expect(offeredIds.some((ids) => ids.includes(shared.id))).toBe(true);
+    const review = await core.getOrganizeReview();
+    const item = review.items.find((each) => each.documentId === incoming.id);
+    expect(item?.tags.map((tag) => tag.tagId)).toEqual([shared.id]);
+    await confirmAll(core);
+    expect((await core.listTags()).filter((tag) => tag.kind === null)).toHaveLength(1);
+    expect(await tagNamesOf(core, anchor.id)).toEqual([existingName]);
+    expect(await tagNamesOf(core, incoming.id)).toEqual([existingName]);
+  });
+
+  // protects=only Tags judged "subject" are proposed; Tags judged "issuer" or "mention" are excluded even if the model repeats the excluded Tag's name as a topic; fails_when=issuer or mention judgements leak onto a privacy notice, pitch deck or venue note; no_claim=what a real model judges.
+  test("tagJudgements keeps subject Tags and excludes issuer and mention judgements", async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: async (call) => {
+        const data = JSON.parse(userText(call)) as {
+          tags?: { id: string; name: string }[];
+          documents?: { ref: string; name: string; tags?: string[] }[];
+        };
+        const biz = data.tags?.find((t) => t.name === "Bakery");
+        const fund = data.tags?.find((t) => t.name === "Fundraising");
+        return reply({
+          tagged: (data.documents ?? []).map((doc) => {
+            if (doc.name === "Seed deck")
+              return {
+                ref: doc.ref,
+                purpose: "Pitch deck raising seed investment",
+                kind: "pitch-deck",
+                tagJudgements: [
+                  ...(biz ? [{ id: biz.id, relation: "issuer" }] : []),
+                  ...(fund ? [{ id: fund.id, relation: "subject" }] : []),
+                ],
+                topic: { name: "", description: "" },
+              };
+            if (doc.name === "Privacy policy")
+              return {
+                ref: doc.ref,
+                purpose: "Policy explaining customer contact retention",
+                kind: "none",
+                tagJudgements: biz ? [{ id: biz.id, relation: "issuer" }] : [],
+                // Even if topic echoes an issuer-excluded Tag's name, it must not leak back.
+                topic: { name: "Bakery", description: "Issuer echoed in topic." },
+              };
+            if (doc.name === "Poetry night")
+              return {
+                ref: doc.ref,
+                purpose: "Invitation to a local reading",
+                kind: "none",
+                tagJudgements: biz ? [{ id: biz.id, relation: "mention" }] : [],
+                topic: { name: "", description: "" },
+              };
+            return {
+              ref: doc.ref,
+              purpose: "Weekly baking production schedule",
+              kind: "none",
+              tagJudgements: biz ? [{ id: biz.id, relation: "subject" }] : [],
+              topic: { name: "", description: "" },
+            };
+          }),
+        });
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider(LOCAL);
+    const biz = await core.createTag({ name: "Bakery" });
+    const fund = await core.createTag({ name: "Fundraising" });
+    const sources = await createSourceFolder();
+    const docs = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Seed deck.txt",
+        "Our bakery is raising a $600k seed round for fundraising.",
+      ),
+      await writeSourceFile(
+        sources,
+        "Privacy policy.txt",
+        "Our bakery collects customer contact details and explains deletion.",
+      ),
+      await writeSourceFile(
+        sources,
+        "Poetry night.txt",
+        "Writers meet Wednesday; the bakery lent its patio.",
+      ),
+      await writeSourceFile(
+        sources,
+        "Bake plan.txt",
+        "Next week's bakery operations: assign bakers and order flour.",
+      ),
+    ]);
+    await waitForTagging(
+      core,
+      docs.map((doc) => doc.id),
+    );
+    const [pitch, privacy, venue, ops] = docs;
+    if (!pitch || !privacy || !venue || !ops) throw new Error("Missing Documents.");
+
+    const review = await core.getOrganizeReview();
+    const tagsOf = (id: string) =>
+      review.items.find((item) => item.documentId === id)?.tags.map((tag) => tag.tagId) ?? [];
+    const pitchKind = (await core.listTags()).find((tag) => tag.kind === "pitch-deck");
+    expect(pitchKind).toBeDefined();
+    expect(tagsOf(pitch.id)).toEqual([pitchKind?.id, fund.id]);
+    expect(tagsOf(privacy.id)).toEqual([]);
+    expect(tagsOf(venue.id)).toEqual([]);
+    expect(tagsOf(ops.id)).toEqual([biz.id]);
+  });
+
+  // protects=pitch-deck is a localized kind Tag across languages and follows Confirm and Undo cleanly; fails_when=pitch-deck isn't localized or doesn't round-trip through Confirm and Undo; no_claim=model accuracy.
+  test("pitch-deck kind localizes between English and Simplified Chinese and supports Undo", async () => {
+    const { core, add } = await start(["Pitch deck"]);
+    const deck = await add("Series A.txt", "Series A fundraising deck seeking $5M equity.");
+    await waitForTagging(core, [deck.id]);
+
+    expect(await proposedTagNamesOf(core, deck.id)).toEqual(["Pitch deck"]);
+    const confirmation = await confirmAll(core);
+    expect(await tagNamesOf(core, deck.id)).toEqual(["Pitch deck"]);
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await tagNamesOf(core, deck.id)).toEqual(["融资路演"]);
+
+    if (!confirmation) throw new Error("Nothing was confirmed.");
+    await core.undoOrganizeReviewConfirmation(confirmation.id);
+    expect(await tagNamesOf(core, deck.id)).toEqual([]);
+    expect(await proposedTagNamesOf(core, deck.id)).toEqual(["融资路演"]);
   });
 });

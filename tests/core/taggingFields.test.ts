@@ -55,8 +55,9 @@ function recording() {
   const answer = (sent: { documents?: { ref: string }[] }) => ({
     tagged: (sent.documents ?? []).map(({ ref }) => ({
       ref,
+      purpose: "",
       kind: "none",
-      tags: [],
+      tagJudgements: [],
       topic: { name: "", description: "" },
     })),
   });

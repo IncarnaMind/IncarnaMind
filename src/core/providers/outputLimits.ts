@@ -31,9 +31,9 @@ export const OUTPUT_LIMITS = {
   "meeting-brief": { most: 1536 },
   "meeting-summary": { most: 4_096 },
   "search-query": { most: 256 },
-  tags: { most: 512 },
+  tags: { most: 768 },
   // Several Documents tagged in one request, as Organize's run and Re-tag send them (#2339).
-  "tag-batch": { most: 2_400, each: 160 },
+  "tag-batch": { most: 3_600, each: 260 },
   organize: { most: 512 },
   folders: { most: 1_024 },
   // Organize's plan at any size (../library/plan): a sample sorted, a batch placed, subfolders named.

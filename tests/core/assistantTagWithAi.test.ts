@@ -33,8 +33,9 @@ function tagging(reply: string) {
           text: JSON.stringify({
             tagged: (data.documents ?? []).map((each) => ({
               ref: each.ref,
+              purpose: "",
               kind: each.name.startsWith("Lease") ? "contract" : "report",
-              tags: [],
+              tagJudgements: [],
               topic: { name: "", description: "" },
             })),
           }),
@@ -150,8 +151,9 @@ describe("Tag with AI with no Documents named takes only what the turn may see (
             text: JSON.stringify({
               tagged: (data.documents ?? []).map((each) => ({
                 ref: each.ref,
+                purpose: "",
                 kind: "contract",
-                tags: [],
+                tagJudgements: [],
                 topic: { name: "", description: "" },
               })),
             }),

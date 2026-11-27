@@ -20,6 +20,21 @@ const MEMBERS = 10;
 const BACKGROUND = 120;
 /** How much of each Document's text is read, in tokens. */
 const TEXT_TOKENS = 600;
+/** The most cross-script User Tags offered to one Document when local lexical overlap is blind. */
+const MAX_CROSS_SCRIPT = 25;
+
+const HAN_CHAR = /\p{Script=Han}/gu;
+const LATIN_CHAR = /\p{Script=Latin}/gu;
+
+type Script = "han" | "latin" | "other";
+
+/** Primary writing script of a text, so cross-script Tags are not dropped for zero lexical overlap. */
+export function primaryScript(text: string): Script {
+  const han = text.match(HAN_CHAR)?.length ?? 0;
+  const latin = text.match(LATIN_CHAR)?.length ?? 0;
+  if (han === 0 && latin === 0) return "other";
+  return han * 3 >= latin ? "han" : "latin";
+}
 
 type Weights = Map<string, number>;
 
@@ -48,6 +63,9 @@ export function tagsAbout(
   background: readonly string[],
   rejectedTopics?: Map<string, string>,
 ): TagDefinition[] {
+  const docScript = primaryScript(text);
+  const sameScript = (sample: string) =>
+    docScript === "other" || primaryScript(sample) === docScript;
   const corpus = [text, ...tags.flatMap((each) => each.texts), ...background].map(counts);
   const holding = new Map<string, number>();
   for (const count of corpus)
@@ -62,22 +80,42 @@ export function tagsAbout(
   };
   const subject = counts(text);
   const own = weigh(subject);
+  let crossScriptOffered = 0;
   return tags.flatMap(({ tag, texts, rejected = [] }) => {
+    const sameScriptTexts = texts.filter(sameScript);
+    const tagScript = primaryScript(`${tag.name} ${tag.description}`);
+    const crossScript =
+      docScript !== "other" &&
+      sameScriptTexts.length === 0 &&
+      tagScript !== "other" &&
+      tagScript !== docScript;
     if (rejected.length) {
-      // A correction competes with the nearest example the User kept, or the Tag's definition alone.
-      const support = [`${tag.name} ${tag.description}`, ...texts];
-      const closest = Math.max(...support.map((example) => cosine(own, weigh(counts(example)))));
-      if (
-        rejected.some((example) => {
-          const similarity = cosine(own, weigh(counts(example)));
-          return similarity > 0 && similarity >= closest;
-        })
-      ) {
-        rejectedTopics?.set(tagKey(tag.name), tag.id);
-        return [];
+      if (crossScript) {
+        if (rejected.some((example) => cosine(own, weigh(counts(example))) >= ABOUT)) {
+          rejectedTopics?.set(tagKey(tag.name), tag.id);
+          return [];
+        }
+      } else {
+        // A correction competes with the nearest example the User kept, or the Tag's definition alone.
+        const support = [`${tag.name} ${tag.description}`, ...sameScriptTexts];
+        const closest = Math.max(...support.map((example) => cosine(own, weigh(counts(example)))));
+        if (
+          rejected.some((example) => {
+            const similarity = cosine(own, weigh(counts(example)));
+            return similarity > 0 && similarity >= closest;
+          })
+        ) {
+          rejectedTopics?.set(tagKey(tag.name), tag.id);
+          return [];
+        }
       }
     }
-    if (texts.length === 0) {
+    if (crossScript) {
+      if (crossScriptOffered >= MAX_CROSS_SCRIPT) return [];
+      crossScriptOffered++;
+      return [tag];
+    }
+    if (sameScriptTexts.length === 0) {
       const named = termsOf(`${tag.name} ${tag.description}`);
       return termsOf(tag.name).some((term) => subject.has(term)) ||
         named.filter((term) => subject.has(term)).length >= 3
@@ -85,15 +123,15 @@ export function tagsAbout(
         : [];
     }
     const centre: Weights = new Map();
-    for (const member of texts)
+    for (const member of sameScriptTexts)
       for (const [term, weight] of weigh(counts(member)))
-        centre.set(term, (centre.get(term) ?? 0) + weight / texts.length);
+        centre.set(term, (centre.get(term) ?? 0) + weight / sameScriptTexts.length);
     const alike = cosine(own, centre);
     if (alike < ABOUT) return [];
     // A Document that only mentions the subject is closer to some other Document of the Library
     // than to the Tag's. One on the subject that no one tagged yet doesn't count against it.
     const rivals = background
-      .filter((other) => other !== text && !texts.includes(other))
+      .filter((other) => other !== text && !sameScriptTexts.includes(other) && sameScript(other))
       .map((other) => weigh(counts(other)))
       .filter((other) => cosine(other, centre) < ABOUT);
     return rivals.every((other) => cosine(own, other) < alike) ? [tag] : [];
