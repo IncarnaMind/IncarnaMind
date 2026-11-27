@@ -34,8 +34,7 @@ import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
 import { useResolvedScope } from "../../useResolvedScope";
-import { SearchIcon } from "../icons";
-import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../lineIcons";
+import { PlanLineIcon, SearchIcon, SearchLineIcon, SparkLineIcon } from "../icons";
 import { AddToMindPicker } from "./AddToMindPicker";
 import { WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
@@ -266,7 +265,7 @@ export function ConversationThread({
                   type="button"
                   data-testid="assistant-waiting-choose"
                   onClick={chooseModelInPlace}
-                  className="font-semibold text-accent underline-offset-2 hover:underline"
+                  className="text-accent underline-offset-2 hover:underline"
                 >
                   {t("status.choose")}
                 </button>

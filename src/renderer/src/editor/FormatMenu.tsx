@@ -1,14 +1,28 @@
 import type { VirtualElement } from "@floating-ui/dom";
 import { type Editor, useEditorState } from "@tiptap/react";
-import { type CSSProperties, type ReactNode, useRef, useState } from "react";
+import { type CSSProperties, useRef, useState } from "react";
 import { SUBSCRIPT_MARK, SUPERSCRIPT_MARK } from "../../../core/api";
 import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import { exportedFamily, FONT_PRESETS, type FontPreset } from "../../../shared/mindStyle";
 import { keysHere } from "../commands/keymap";
 import { commands } from "../commands/registry";
-import { ChevronIcon } from "../components/icons";
-import { CheckLineIcon } from "../components/lineIcons";
+import {
+  AlignCenterIcon,
+  AlignJustifyIcon,
+  AlignLeftIcon,
+  AlignRightIcon,
+  CheckLineIcon,
+  ChevronIcon,
+  FirstLineIndentIcon,
+  type Icon,
+  IndentDecreaseIcon,
+  IndentIncreaseIcon,
+  LineSpacingIcon,
+  NumberingIcon,
+  SubscriptIcon,
+  SuperscriptIcon,
+} from "../components/icons";
 import { InstalledFontPicker } from "../components/MindStyle";
 import { buttonStyle, fieldClass } from "../components/ui";
 import { useT } from "../i18n";
@@ -51,11 +65,11 @@ const ALIGN_COMMANDS = {
   justify: "format.justify",
 } as const;
 
-const ALIGN_LINES: Record<Align, string> = {
-  left: "M4 6h16M4 10h10M4 14h16M4 18h10",
-  center: "M4 6h16M7 10h10M4 14h16M7 18h10",
-  right: "M4 6h16M10 10h10M4 14h16M10 18h10",
-  justify: "M4 6h16M4 10h16M4 14h16M4 18h16",
+const ALIGN_ICONS: Record<Align, Icon> = {
+  left: AlignLeftIcon,
+  center: AlignCenterIcon,
+  right: AlignRightIcon,
+  justify: AlignJustifyIcon,
 };
 
 const PRESET_LABELS = {
@@ -79,24 +93,6 @@ export const spacingLabel = (multiple: number, t: ReturnType<typeof useT>) =>
     : multiple === 2
       ? t("format.lineSpacing.double")
       : String(multiple);
-
-function Glyph({ d, children }: { d?: string; children?: ReactNode }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="size-4 shrink-0"
-    >
-      {d && <path d={d} />}
-      {children}
-    </svg>
-  );
-}
 
 type Open = "spacing" | "font" | "size" | "custom" | "fonts" | "numbering" | null;
 
@@ -214,22 +210,25 @@ export function FormatMenu({
         </div>
         {/* biome-ignore lint/a11y/useSemanticElements: a menu's radio items are grouped by role; a fieldset is for a form's. */}
         <div role="group" aria-label={t("format.alignment")} className="format-menu-aligns">
-          {ALIGNS.map((align) => (
-            <button
-              key={align}
-              type="button"
-              role="menuitemradio"
-              aria-checked={state.align === align}
-              aria-label={t(ALIGN_LABELS[align])}
-              data-testid={`format-align-${align}`}
-              title={withKeys(t, t(ALIGN_LABELS[align]), keysOf(ALIGN_COMMANDS[align]))}
-              onMouseDown={keepSelection}
-              onClick={() => act(() => setAlign(editor, align))}
-              className="format-menu-align"
-            >
-              <Glyph d={ALIGN_LINES[align]} />
-            </button>
-          ))}
+          {ALIGNS.map((align) => {
+            const AlignIcon = ALIGN_ICONS[align];
+            return (
+              <button
+                key={align}
+                type="button"
+                role="menuitemradio"
+                aria-checked={state.align === align}
+                aria-label={t(ALIGN_LABELS[align])}
+                data-testid={`format-align-${align}`}
+                title={withKeys(t, t(ALIGN_LABELS[align]), keysOf(ALIGN_COMMANDS[align]))}
+                onMouseDown={keepSelection}
+                onClick={() => act(() => setAlign(editor, align))}
+                className="format-menu-align"
+              >
+                <AlignIcon className="shrink-0" />
+              </button>
+            );
+          })}
         </div>
         <hr className="selection-rule" />
         <button
@@ -242,27 +241,27 @@ export function FormatMenu({
           onClick={(event) => openBeside("spacing", event)}
           className="editor-menu-item format-menu-row"
         >
-          <Glyph d="M11 6h9M11 12h9M11 18h9M5.5 4v16m-2-14 2-2 2 2m-4 12 2 2 2-2" />
+          <LineSpacingIcon className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">{t("format.lineSpacing")}</span>
           <ChevronIcon className="size-3 shrink-0 text-ink-meta" />
         </button>
         <Row
           testId="format-indent-increase"
-          glyph="M4 5h16M11 10h9M11 14h9M4 19h16m0-9.5 3 2.5-3 2.5"
+          glyph={IndentIncreaseIcon}
           label={t("format.indent.increase")}
           keys={keysOf("format.indent")}
           onClick={() => act(() => changeIndent(editor, 1))}
         />
         <Row
           testId="format-indent-decrease"
-          glyph="M4 5h16M11 10h9M11 14h9M4 19h16M7 9.5 4 12l3 2.5"
+          glyph={IndentDecreaseIcon}
           label={t("format.indent.decrease")}
           keys={keysOf("format.outdent")}
           onClick={() => act(() => changeIndent(editor, -1))}
         />
         <Row
           testId="format-first-line"
-          glyph="M11 6h9M4 10.5h16M4 15h16M4 19.5h11M4 3.5 7 6 4 8.5"
+          glyph={FirstLineIndentIcon}
           label={t("format.firstLine")}
           checked={state.firstLineChars}
           onClick={() => act(() => toggleFirstLineIndent(editor))}
@@ -277,7 +276,7 @@ export function FormatMenu({
           onClick={(event) => openBeside("numbering", event)}
           className="editor-menu-item format-menu-row"
         >
-          <Glyph d="M10 6h10M10 12h10M10 18h10M4 4.5h1.5V9M4 9h3M4 14.2c.4-.9 2.6-.9 2.6.3 0 1-2.6 1.8-2.6 3.5h2.8" />
+          <NumberingIcon className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">{t("numbering.menu")}</span>
           <span className="editor-menu-shortcut truncate">
             {state.scheme ? t(SCHEME_NAMES[state.scheme]) : schemePreview("default")}
@@ -324,14 +323,14 @@ export function FormatMenu({
         <hr className="selection-rule" />
         <Row
           testId="format-superscript"
-          glyph={<RaisedGlyph raised />}
+          glyph={SuperscriptIcon}
           label={t("format.superscript")}
           checked={state.superscript}
           onClick={() => act(() => toggleRaise(editor, SUPERSCRIPT_MARK))}
         />
         <Row
           testId="format-subscript"
-          glyph={<RaisedGlyph raised={false} />}
+          glyph={SubscriptIcon}
           label={t("format.subscript")}
           checked={state.subscript}
           onClick={() => act(() => toggleRaise(editor, SUBSCRIPT_MARK))}
@@ -444,24 +443,16 @@ function keysOf(id: CommandId): string | undefined {
   return keys ? keysHere(keys) : undefined;
 }
 
-function RaisedGlyph({ raised }: { raised: boolean }) {
-  return (
-    <span aria-hidden="true" className="format-raise">
-      x{raised ? <sup>2</sup> : <sub>2</sub>}
-    </span>
-  );
-}
-
 function Row({
   testId,
-  glyph,
+  glyph: Glyph,
   label,
   keys,
   checked,
   onClick,
 }: {
   testId: string;
-  glyph: string | ReactNode;
+  glyph: Icon;
   label: string;
   keys?: string;
   checked?: boolean;
@@ -479,7 +470,7 @@ function Row({
       onClick={onClick}
       className="editor-menu-item format-menu-row"
     >
-      {typeof glyph === "string" ? <Glyph d={glyph} /> : glyph}
+      <Glyph className="shrink-0" />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {keys && <span className="editor-menu-shortcut">{keys}</span>}
       {checked && <CheckLineIcon className="size-3.5 shrink-0 text-ink-meta" />}
@@ -728,7 +719,7 @@ export function CustomSpacing({
         </div>
         <p
           id="format-spacing-hint"
-          className={invalid ? "text-[12px] leading-4 text-warning" : "math-hint"}
+          className={invalid ? "text-small leading-4 text-warning" : "math-hint"}
         >
           {t(invalid ? "format.lineSpacing.customInvalid" : "format.lineSpacing.customHint")}
         </p>

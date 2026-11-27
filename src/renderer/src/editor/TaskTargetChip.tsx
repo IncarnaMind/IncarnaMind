@@ -1,7 +1,7 @@
 import type { Task } from "../../../core/api";
+import { RemoveIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { taskName } from "../taskText";
-import { RemoveIcon } from "./icons";
 
 /** The composer's target (DESIGN.md, Composer › Target): "→ Research ✕", Enter sends to the Task. */
 export function TaskTargetChip({ task, onRemove }: { task: Task; onRemove(): void }) {

@@ -29,8 +29,8 @@ import { PEEK_WIDTH, placePeek } from "../peekPlace";
 import { scanningStatus } from "../scanStatus";
 import { refOfKey } from "../selectionModel";
 import { useAppStore } from "../store";
+import { ChevronDownLineIcon, DocumentLineIcon } from "./icons";
 import { KeyCap } from "./KeyCap";
-import { ChevronDownLineIcon, DocumentLineIcon } from "./lineIcons";
 import { MoveToPicker } from "./MoveToPicker";
 import { PathText } from "./PathText";
 import { PeekPage } from "./PeekPage";
@@ -263,7 +263,7 @@ function PeekCard({ target }: { target: PeekTarget }) {
         <p
           data-testid="peek-name"
           title={name}
-          className="min-w-0 flex-1 truncate text-ui font-semibold text-ink"
+          className="min-w-0 flex-1 truncate text-ui text-ink"
         >
           {name}
         </p>
@@ -274,7 +274,7 @@ function PeekCard({ target }: { target: PeekTarget }) {
       </div>
       <dl
         data-testid="peek-facts"
-        className="grid grid-cols-[76px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1 px-3.5 pt-2.5 text-[12px] leading-[18px]"
+        className="grid grid-cols-[76px_minmax(0,1fr)] items-center gap-x-2.5 gap-y-1 px-3.5 pt-2.5 text-small leading-[18px]"
       >
         <Fact label={t("peek.kind")} testId="peek-kind">
           <span className="block truncate">{documentSummary(document, units, t, language)}</span>

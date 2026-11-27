@@ -1,8 +1,7 @@
-import { DocumentLineIcon } from "../components/lineIcons";
+import { ChevronDownSmallIcon, DocumentLineIcon, RemoveIcon } from "../components/icons";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { linesOf, type Paste } from "../composer";
 import { useT } from "../i18n";
-import { ChevronDownSmallIcon, RemoveIcon } from "./icons";
 
 /** "Pasted text · 74 lines": by lines, or by characters for one long line. */
 export function usePasteLabel() {

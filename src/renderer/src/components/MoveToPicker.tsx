@@ -4,7 +4,7 @@ import { isInsideFolder } from "../folders";
 import { useT } from "../i18n";
 import { matchName, queryWords } from "../matcher";
 import { useAppStore } from "../store";
-import { FolderLineIcon, FolderPlusLineIcon } from "./lineIcons";
+import { FolderLineIcon, FolderPlusLineIcon } from "./icons";
 import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPicker";
 
 type Choice = string | null | { newFolder: string };

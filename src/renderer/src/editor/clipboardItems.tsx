@@ -2,6 +2,8 @@ import { isMacOS } from "@tiptap/core";
 import type { Editor } from "@tiptap/react";
 import type { MessageKey } from "../../../shared/i18n";
 import { keysHere } from "../commands/keymap";
+import { CopyLineIcon, CutIcon, type Icon, PasteIcon } from "../components/icons";
+import { MenuItemParts } from "../components/MenuItemParts";
 import { menuItemClass, menuItemUnavailableClass } from "../components/ui";
 import { files } from "../core";
 import { useT } from "../i18n";
@@ -13,19 +15,21 @@ export type ClipboardEdit = "cut" | "copy" | "paste";
 /** Cut, Copy and Paste, as a right-click in the Note's text offers them first: Cut and Copy need a selection. */
 export const clipboardEdits = (selected: boolean) =>
   [
-    { id: "cut", label: "menu.cut", keys: "CmdOrCtrl+X", on: selected },
+    { id: "cut", label: "menu.cut", keys: "CmdOrCtrl+X", on: selected, icon: CutIcon },
     {
       id: "copy",
       label: isMacOS() ? "menu.copy" : "menu.copy.other",
       keys: "CmdOrCtrl+C",
       on: selected,
+      icon: CopyLineIcon,
     },
-    { id: "paste", label: "menu.paste", keys: "CmdOrCtrl+V", on: true },
+    { id: "paste", label: "menu.paste", keys: "CmdOrCtrl+V", on: true, icon: PasteIcon },
   ] as const satisfies readonly {
     id: ClipboardEdit;
     label: MessageKey;
     keys: string;
     on: boolean;
+    icon: Icon;
   }[];
 
 /** Does `edit` at the Note's selection; a Cut or Copy the system refuses says so in `failed`. */
@@ -55,8 +59,7 @@ export function ClipboardMenuItems({ editor, close }: { editor: Editor; close: (
       }}
       className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
     >
-      <span className="flex-1">{t(edit.label)}</span>
-      <span className="pl-4 text-[13px] text-ink-meta">{keysHere(edit.keys)}</span>
+      <MenuItemParts icon={edit.icon} label={t(edit.label)} keys={keysHere(edit.keys)} />
     </button>
   ));
 }

@@ -144,7 +144,7 @@ export function RoleSelect({
         id={id}
         data-testid={`model-default-${job}`}
         aria-describedby={describedBy}
-        className="text-[13px] leading-5 text-ink-meta"
+        className="text-ui leading-5 text-ink-meta"
       >
         {t("models.defaults.noModel")}
       </span>

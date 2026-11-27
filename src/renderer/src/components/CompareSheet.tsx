@@ -18,7 +18,6 @@ import {
 } from "../comparisons";
 import { core } from "../core";
 import { type EstimateLine, estimateLine, joinMeta } from "../cost";
-import { RemoveIcon, TableIcon } from "../editor/icons";
 import { AskBlock } from "../editor/MindCheckLine";
 import { ModelChip } from "../editor/ModelChip";
 import { useLanguage, useT } from "../i18n";
@@ -27,7 +26,7 @@ import { useSelectedOn } from "../selection";
 import { useAppStore } from "../store";
 import { ComparisonDocumentList } from "./ComparisonDocumentList";
 import { EstimateTip, PricingLink, useEstimateSource } from "./EstimateSource";
-import { ChevronDownLineIcon, PlusLineIcon } from "./lineIcons";
+import { ChevronDownLineIcon, PlusLineIcon, RemoveIcon, TableIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine, readinessAction } from "./providers/ChatReadinessNotice";
 import { NeedsModelCard } from "./providers/NeedsModelCard";

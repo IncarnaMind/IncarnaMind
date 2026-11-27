@@ -2,7 +2,7 @@ import { useId } from "react";
 import type { CommandId } from "../../../shared/commands";
 import type { MindLook } from "../../../shared/wordLook";
 import { type CommandContext, commands } from "../commands/registry";
-import { CheckLineIcon } from "../components/lineIcons";
+import { CheckLineIcon } from "../components/icons";
 import { menuItemClass, menuTitleClass } from "../components/ui";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
@@ -61,7 +61,7 @@ export function LookMenuItems({ mindId, close }: { mindId: string; close(): void
         <p
           id={fontsId}
           data-testid="look-fonts"
-          className="px-2 py-0.5 text-[12px] leading-5 text-ink-meta"
+          className="px-2 py-0.5 text-small leading-5 text-ink-meta"
         >
           <span className="block">
             {missing.length === 1

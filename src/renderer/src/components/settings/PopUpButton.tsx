@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type Ref, type SelectHTMLAttributes, useId } from "react";
-import { CheckLineIcon, ChevronUpDownLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronUpDownLineIcon } from "../icons";
 import { menuFrameClass, menuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import { SettingsRow } from "./SettingsGroup";
@@ -10,7 +10,7 @@ export interface PopUpOption<Value extends string> {
 }
 
 const popUpLook =
-  "h-7 rounded-md border border-rule-strong bg-sheet text-[13px] leading-5 text-ink hover:bg-frame active:bg-hover disabled:opacity-50 disabled:hover:bg-sheet";
+  "h-7 rounded-md border border-rule-strong bg-sheet text-ui leading-5 text-ink hover:bg-frame active:bg-hover disabled:opacity-50 disabled:hover:bg-sheet";
 
 /**
  * A choice among a few options, as macOS draws one at a row's right end: a button that shows the

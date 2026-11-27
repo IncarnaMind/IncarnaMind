@@ -69,7 +69,7 @@ export function LockedPdf({ documentId, onUnlocked }: { documentId: string; onUn
       onSubmit={(event) => void unlock(event)}
       className="mx-auto flex w-full max-w-sm flex-col gap-3 px-6 py-10 text-ui"
     >
-      <h2 className="font-semibold text-ink">{t("viewer.locked.title")}</h2>
+      <h2 className="text-ink">{t("viewer.locked.title")}</h2>
       <p className="text-ink-secondary">{t("viewer.locked.body")}</p>
       <div className="flex gap-2">
         <input

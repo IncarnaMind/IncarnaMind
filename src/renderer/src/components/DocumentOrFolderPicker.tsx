@@ -14,7 +14,7 @@ import {
   LinkLineIcon,
   LockLineIcon,
   MindLineIcon,
-} from "./lineIcons";
+} from "./icons";
 import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPicker";
 
 export type { DocumentOrFolderChoice } from "./documentOrFolder";

@@ -2,7 +2,7 @@ import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../../../shared/i18n";
 import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
-import { OutlineToggleIcon } from "../viewer/icons";
+import { OutlineToggleIcon } from "./icons";
 
 /** One entry of an outline: a slide, or a heading of a Document or a Note. */
 export interface OutlineEntry {

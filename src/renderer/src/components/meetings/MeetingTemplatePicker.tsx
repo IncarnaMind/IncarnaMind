@@ -6,7 +6,7 @@ import type { SlashItem } from "../../editor/slashItems";
 import { useT } from "../../i18n";
 import { skillsInListOrder, skillTitle } from "../../skillText";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, ChevronDownLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronDownLineIcon } from "../icons";
 import { menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 

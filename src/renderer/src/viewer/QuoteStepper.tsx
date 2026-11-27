@@ -2,7 +2,7 @@ import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useMemo } from "react";
 import { useViewerHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
-import { ChevronDownLineIcon, ChevronUpLineIcon } from "../components/lineIcons";
+import { ChevronDownLineIcon, ChevronUpLineIcon } from "../components/icons";
 import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
 

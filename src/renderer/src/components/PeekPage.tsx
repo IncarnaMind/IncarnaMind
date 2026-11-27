@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import { fileStatusLabel } from "../linkedFolders";
 import { PEEK_PADDING, PEEK_WIDTH, peekDraws } from "../peekPlace";
 import { DocumentView } from "../viewer/DocumentView";
-import { DocumentLineIcon } from "./lineIcons";
+import { DocumentLineIcon } from "./icons";
 
 /** The well a peek draws the Document's first page in: the card's width less its padding, and the height the design has. */
 const WELL_PX = { width: PEEK_WIDTH - 2 * PEEK_PADDING, height: 150 } as const;
@@ -58,7 +58,7 @@ export function PeekPage({ document, settled }: { document: Document; settled: b
         <p
           data-testid="peek-file-state"
           title={t(fileState.full)}
-          className="absolute inset-0 flex items-center justify-center text-label font-semibold text-ink-meta"
+          className="absolute inset-0 flex items-center justify-center text-small text-ink-meta"
         >
           {t(fileState.short)}
         </p>

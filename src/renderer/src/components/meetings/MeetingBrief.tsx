@@ -109,7 +109,7 @@ export function MeetingBrief({ mindId }: { mindId: string }) {
     ));
   if (!any)
     return (
-      <div className="my-1 text-[13px]">
+      <div className="my-1 text-ui">
         {preparation.prepared ? (
           <span role="status">
             {t(preparation.route ? "meetings.brief.nothing" : "meetings.brief.chooseModel")}
@@ -123,7 +123,7 @@ export function MeetingBrief({ mindId }: { mindId: string }) {
     <section
       data-testid="meeting-brief"
       aria-label={t("meetings.brief.title")}
-      className="mt-2 space-y-2 rounded-md bg-hover px-3 py-2 text-[13px] text-ink"
+      className="mt-2 space-y-2 rounded-md bg-hover px-3 py-2 text-ui text-ink"
     >
       <div className="flex justify-end">
         <button
@@ -137,7 +137,7 @@ export function MeetingBrief({ mindId }: { mindId: string }) {
       </div>
       {!!history.length && (
         <div>
-          <h2 className="font-semibold">{t("meetings.brief.lastTime")}</h2>
+          <h2>{t("meetings.brief.lastTime")}</h2>
           <ul className="list-disc pl-4">
             {history.map((row) => (
               <li key={`${row.meetingId}:${row.itemId}`}>
@@ -149,7 +149,7 @@ export function MeetingBrief({ mindId }: { mindId: string }) {
       )}
       {!!preparation.invitation.length && (
         <div>
-          <h2 className="font-semibold">{t("meetings.brief.inInvite")}</h2>
+          <h2>{t("meetings.brief.inInvite")}</h2>
           <ul className="list-disc pl-4">
             {preparation.invitation.map((c) => (
               <li key={c.documentId}>{source(c, c.documentName)}</li>
@@ -159,7 +159,7 @@ export function MeetingBrief({ mindId }: { mindId: string }) {
       )}
       {!!preparation.questions.length && (
         <div data-testid="meeting-brief-questions">
-          <h2 className="font-semibold">{t("meetings.brief.questions")}</h2>
+          <h2>{t("meetings.brief.questions")}</h2>
           <ol className="list-decimal space-y-1 pl-4">
             {preparation.questions.map(({ question, citation }) => (
               <li key={question}>

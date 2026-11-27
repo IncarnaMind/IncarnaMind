@@ -9,6 +9,7 @@ import {
   useRef,
 } from "react";
 import type { CommandId } from "../../../shared/commands";
+import { commandIcon, isDestructive } from "../commands/commandIcons";
 import { showPlace } from "../commands/here";
 import { menuKeysLabel } from "../commands/keymap";
 import {
@@ -18,6 +19,7 @@ import {
   isMoreEntry,
   type MenuEntry,
   type MenuItem,
+  menuIds,
 } from "../commands/menus";
 import {
   type CommandContext,
@@ -30,9 +32,11 @@ import { useT } from "../i18n";
 import type { ObjectKind, ObjectRef } from "../objects";
 import { useSelection } from "../selection";
 import { useAppStore } from "../store";
-import { CheckLineIcon, ChevronRightLineIcon, MoreLineIcon } from "./lineIcons";
+import { ChevronRightLineIcon, MoreLineIcon } from "./icons";
+import { MenuItemParts } from "./MenuItemParts";
 import { rowActionButtonClass } from "./sidebarRows";
 import {
+  dangerItemClass,
   menuClass,
   menuItemClass,
   menuItemUnavailableClass,
@@ -188,7 +192,8 @@ export function ObjectMenu({
   tabIndex,
   testId,
   align,
-  without,
+  without: leftOut = [],
+  only,
   controls,
   first,
   more,
@@ -219,6 +224,8 @@ export function ObjectMenu({
   align?: "start" | "end";
   /** The kind's commands this menu offers its own way, in `more`. */
   without?: readonly CommandId[];
+  /** The only commands of the kind's this menu offers, as a table's offers its table's alone. */
+  only?: readonly CommandId[];
   /**
    * A command's place taken by a control drawn here instead of its item, such as a Tag's eight
    * colours. The command stays in the menu's order and in ⌘K; `close` closes the menu.
@@ -238,6 +245,9 @@ export function ObjectMenu({
 }) {
   const t = useT();
   const { kind, id } = target;
+  const without = only
+    ? [...leftOut, ...menuIds(kind).filter((each) => !only.includes(each))]
+    : leftOut;
   // The first item, though a switch at its foot is checked.
   const menu = usePopoverMenu({ focus: "first", ...(align && { align }) });
   const fold = useSubmenu();
@@ -304,6 +314,7 @@ export function ObjectMenu({
     const reason = enabled === true ? undefined : t(enabled.reason);
     const hint = command.hint ? t(command.hint) : undefined;
     const long = menuLabelOf(command, ctx, t).length > 40;
+    const red = isDestructive(command);
     return (
       // biome-ignore lint/a11y/useAriaPropsSupportedByRole: only a toggle's item takes aria-checked.
       <button
@@ -316,15 +327,14 @@ export function ObjectMenu({
         aria-description={hint}
         title={reason ?? hint}
         onClick={() => run(item)}
-        className={`${long ? tallMenuItemClass : menuItemClass} ${menuItemUnavailableClass} pl-2`}
+        className={`${long ? tallMenuItemClass : menuItemClass} ${menuItemUnavailableClass} pl-2${red ? ` ${dangerItemClass}` : ""}`}
       >
-        {checked !== undefined && (
-          <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
-            {checked && <CheckLineIcon className="size-4" />}
-          </span>
-        )}
-        <span className="flex-1">{menuLabelOf(command, ctx, t)}</span>
-        {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
+        <MenuItemParts
+          icon={commandIcon(command)}
+          label={menuLabelOf(command, ctx, t)}
+          keys={keys}
+          checked={checked}
+        />
       </button>
     );
   };
@@ -341,8 +351,9 @@ export function ObjectMenu({
           data-testid={`${prefix}-more`}
           className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
         >
+          <MoreLineIcon className="shrink-0" />
           <span className="flex-1">{t("menu.more")}</span>
-          <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+          <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
         </button>
       );
     }

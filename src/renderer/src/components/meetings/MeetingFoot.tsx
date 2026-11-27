@@ -42,10 +42,12 @@ import {
   PauseLineIcon,
   ResumeLineIcon,
   ScreenLineIcon,
+  SettingsLineIcon,
   StopLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { CallHelpToggle, MeetingLines } from "../MeetingBar";
 import { MeetingAudioLine, raiseMeetingDetails } from "../MeetingInMind";
+import { MenuItemParts } from "../MenuItemParts";
 import { ProblemLine } from "../ProblemLine";
 import { SharedScreenLine } from "../SharedScreenLine";
 import { TipPopover } from "../TipPopover";
@@ -769,9 +771,12 @@ function SheetMore({ meeting, onRefill }: { meeting: Meeting; onRefill?: () => v
                     menu.close();
                     useAppStore.getState().openSettings("meetings");
                   }}
-                  className={menuItemClass}
+                  className={`${menuItemClass} pl-2`}
                 >
-                  {t("meetings.foot.languageTip")}…
+                  <MenuItemParts
+                    icon={SettingsLineIcon}
+                    label={`${t("meetings.foot.languageTip")}…`}
+                  />
                 </button>
               </>
             )}

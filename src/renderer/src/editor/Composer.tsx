@@ -27,8 +27,17 @@ import { queueAsk } from "../askQueue";
 import { useAgentsToAsk, useReadAgentsToAsk } from "../askYourAi";
 import { composerHandle, useHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
-import { SearchIcon, StopIcon } from "../components/icons";
-import { SearchLineIcon, SparkLineIcon } from "../components/lineIcons";
+import {
+  AskArrowIcon,
+  CollapseIcon,
+  ExpandIcon,
+  RemoveIcon,
+  SearchIcon,
+  SearchLineIcon,
+  SparkLineIcon,
+  StopIcon,
+  TableIcon,
+} from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { SkippedFilesLine } from "../components/SkippedFilesLine";
 import { answerAskFrom } from "../components/TaskTray";
@@ -88,7 +97,6 @@ import { ComposerAskAgent } from "./ComposerAskAgent";
 import { ComposerPlus } from "./ComposerPlus";
 import { EditStatus } from "./EditStatus";
 import { ExplainQueued } from "./ExplainQueued";
-import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
 import { PasteChip, usePasteLabel } from "./PasteChip";

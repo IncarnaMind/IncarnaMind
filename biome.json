@@ -89,6 +89,63 @@
       }
     },
     {
+      "includes": [
+        "src/renderer/**",
+        "!src/renderer/print/**",
+        "!src/renderer/src/fonts.css",
+        "!src/renderer/src/viewer/officeFonts.css",
+        "!src/renderer/src/viewer/slides/SlideCanvas.tsx",
+        "!src/renderer/src/viewer/slides/ChartView.tsx",
+        "!src/renderer/src/editor/ChartPlot.tsx"
+      ],
+      "plugins": ["./biome/noRawFontSizeCss.grit", "./biome/noRawFontSizeJs.grit"]
+    },
+    {
+      "includes": ["src/renderer/**", "!src/renderer/src/components/icons.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "lucide-react": "Import icons from components/icons.tsx: one set, one line width, two sizes (DESIGN.md, Icons; #3766)."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/renderer/**",
+        "!src/renderer/src/components/icons.tsx",
+        "!src/renderer/src/components/providers/ProviderLogo.tsx",
+        "!src/renderer/src/components/providers/ChatGptMark.tsx",
+        "!src/renderer/src/viewer/slides/SlideCanvas.tsx",
+        "!src/renderer/src/viewer/slides/ChartView.tsx",
+        "!src/renderer/src/editor/ChartPlot.tsx",
+        "!src/renderer/src/editor/citationScan.tsx",
+        "!src/renderer/src/components/TypingTextarea.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noRestrictedElements": {
+              "level": "error",
+              "options": {
+                "elements": {
+                  "textarea": "Use TypingTextarea (components/TypingTextarea.tsx): a plain controlled <textarea> makes Undo take typing back one character at a time.",
+                  "svg": "Use an icon from components/icons.tsx: one set, one line width, two sizes (DESIGN.md, Icons; #3766). A drawing of a Document's own (a chart, a slide, a scan) lives in its drawing file."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["src/core/**"],
       "linter": {
         "rules": {

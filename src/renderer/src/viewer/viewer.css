@@ -24,7 +24,7 @@
     position: absolute;
     z-index: 21;
     transform: translateY(-100%);
-    @apply rounded-md bg-sheet px-2 py-1 text-[12px] font-medium text-ink-secondary;
+    @apply rounded-md bg-sheet px-2 py-1 text-small text-ink-secondary;
     pointer-events: none;
   }
   /* A figure a Citation points at, as its area chip opens it: a solid edge under the dashed pick. */
@@ -42,7 +42,7 @@
    * a preview, and its own app. Too narrow for its controls, it scrolls sideways.
    */
   .viewer-header {
-    @apply flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-rule bg-sheet pr-1.5 pl-2 text-[13px] leading-5 text-ink-secondary;
+    @apply flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-rule bg-sheet pr-1.5 pl-2 text-ui leading-5 text-ink-secondary;
     scrollbar-width: none;
   }
   /* Closer together at a narrow viewer, so the fifth control's room is taken from the gaps. */
@@ -64,11 +64,11 @@
     @apply flex min-w-[6.25rem] flex-1 basis-0 items-center gap-1;
   }
   .viewer-title {
-    @apply ml-1 min-w-16 shrink truncate text-[13px] font-semibold text-ink;
+    @apply ml-1 min-w-16 shrink truncate text-ui text-ink;
   }
   /* Keep open, on a preview: a small secondary button, as on the design. */
   .viewer-keep {
-    @apply mx-1 flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-sheet px-2 text-label font-semibold whitespace-nowrap text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-rule-strong)];
+    @apply mx-1 flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-sheet px-2 text-small whitespace-nowrap text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-rule-strong)];
 
     &:hover {
       @apply bg-frame text-ink;
@@ -106,13 +106,13 @@
   }
   /* A toggle with a word for its label (Markdown's "Source"), as an icon button is. */
   .viewer-text-button {
-    @apply flex h-7 shrink-0 items-center rounded-md px-2 text-[13px] leading-5 whitespace-nowrap text-ink-secondary;
+    @apply flex h-7 shrink-0 items-center rounded-md px-2 text-ui leading-5 whitespace-nowrap text-ink-secondary;
 
     &:hover {
       @apply bg-tab-hover text-ink;
     }
     &[aria-pressed="true"] {
-      @apply bg-chip font-semibold text-ink;
+      @apply bg-chip text-ink;
     }
     &:focus-visible {
       outline: 2px solid var(--color-accent);
@@ -124,7 +124,7 @@
   }
   /* What the header says of a web page: when it was fetched. Gives way in a narrow viewer. */
   .viewer-meta {
-    @apply shrink-0 px-1 text-[12px] leading-5 whitespace-nowrap text-ink-meta;
+    @apply shrink-0 px-1 text-small leading-5 whitespace-nowrap text-ink-meta;
   }
   @container viewer (width < 560px) {
     .viewer-meta {
@@ -188,7 +188,7 @@
    * is never look alike.
    */
   .pdf-outline {
-    @apply w-[200px] max-w-[45%] shrink-0 overflow-y-auto border-r border-rule bg-frame p-2 text-[13px] leading-5;
+    @apply w-[200px] max-w-[45%] shrink-0 overflow-y-auto border-r border-rule bg-frame p-2 text-ui leading-5;
   }
   .pdf-outline-row {
     @apply relative flex h-7 items-center rounded-md text-ink-meta;
@@ -281,13 +281,13 @@
     @apply mb-8 border-b border-rule pb-6;
   }
   .document-web-site {
-    @apply font-sans text-label font-semibold text-ink-meta;
+    @apply font-sans text-small text-ink-meta;
   }
   .document-web-title {
-    @apply mt-1 font-serif text-[28px] leading-9 font-semibold tracking-[-0.01em] break-words text-ink;
+    @apply mt-1 font-serif text-title leading-9 font-semibold tracking-[-0.01em] break-words text-ink;
   }
   .document-web-byline {
-    @apply mt-2 font-sans text-[13px] leading-5 text-ink-meta;
+    @apply mt-2 font-sans text-ui leading-5 text-ink-meta;
   }
 
   /*
@@ -311,24 +311,24 @@
     @apply border-b-0;
   }
   .transcript-time {
-    @apply text-[12px] leading-[22px] whitespace-nowrap text-ink-meta tabular-nums;
+    @apply text-small leading-[22px] whitespace-nowrap text-ink-meta tabular-nums;
   }
   .transcript-speaker {
-    @apply m-0 text-[12px] leading-[18px] font-semibold text-ink-secondary;
+    @apply m-0 text-small leading-[18px] text-ink-secondary;
   }
   /* On a saved Transcript the Speaker opens who speaks the line (#138): its words stay in place. */
   .transcript-speaker-button {
     @apply -ml-1 block max-w-full truncate rounded-sm px-1 text-left hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent;
   }
   .speaker-initials {
-    @apply inline-flex size-[22px] shrink-0 items-center justify-center rounded-full bg-chip text-[10px] leading-none font-semibold text-ink-secondary;
+    @apply inline-flex size-[22px] shrink-0 items-center justify-center rounded-full bg-chip text-small leading-none text-ink-secondary;
   }
   /* Drawn, not text: typing a Speaker's first letters in the menu jumps by their name alone. */
   .speaker-initials[data-initials]::before {
     content: attr(data-initials);
   }
   .transcript-text {
-    @apply m-0 text-[14px] leading-[22px] break-words text-ink;
+    @apply m-0 text-ui leading-[22px] break-words text-ink;
   }
   /* A turn's paragraphs, a line's height apart: one Speaker's words read on, as in a script. */
   .transcript-text + .transcript-text {
@@ -358,7 +358,7 @@
    * last line it would make the turn taller, and every line under it would move under the pointer.
    */
   .transcript-add {
-    @apply -mb-7 inline-flex h-7 items-center gap-1.5 self-start rounded-md border border-rule bg-sheet px-2 font-sans text-[12px] leading-5 font-semibold whitespace-nowrap text-ink-secondary opacity-0 shadow-sm hover:bg-hover hover:text-ink focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100;
+    @apply -mb-7 inline-flex h-7 items-center gap-1.5 self-start rounded-md border border-rule bg-sheet px-2 font-sans text-small leading-5 whitespace-nowrap text-ink-secondary opacity-0 shadow-sm hover:bg-hover hover:text-ink focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100;
   }
   .transcript-line-actions {
     @apply w-7 justify-center px-0;
@@ -384,24 +384,24 @@
     }
   }
   .transcript-gap {
-    @apply text-[13px] leading-5 text-ink-meta;
+    @apply text-ui leading-5 text-ink-meta;
   }
   .transcript-empty {
-    @apply m-0 font-sans text-[14px] leading-5 text-ink-meta;
+    @apply m-0 font-sans text-ui leading-5 text-ink-meta;
   }
   /* The app's own words over a Transcript (#1031): a selection of the Transcript never takes them. */
   .transcript-head {
-    @apply m-0 shrink-0 px-4 py-1 font-sans text-[12px] leading-5 text-ink-meta select-none;
+    @apply m-0 shrink-0 px-4 py-1 font-sans text-small leading-5 text-ink-meta select-none;
   }
   .transcript-live {
-    @apply inline-flex shrink-0 items-center gap-1.5 px-1 text-[12px] leading-5 whitespace-nowrap text-ink-secondary;
+    @apply inline-flex shrink-0 items-center gap-1.5 px-1 text-small leading-5 whitespace-nowrap text-ink-secondary;
   }
   /* First in the header of the Meeting's page: on the edge its count and the head line start on. */
   .transcript-live:first-child {
     @apply pl-0;
   }
   .transcript-follow {
-    @apply absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule bg-sheet px-3 py-1 font-sans text-[12px] leading-5 font-semibold text-ink-secondary shadow-sm hover:bg-hover hover:text-ink;
+    @apply absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule bg-sheet px-3 py-1 font-sans text-small leading-5 text-ink-secondary shadow-sm hover:bg-hover hover:text-ink;
   }
   /*
    * A saved Meeting's Transcript plays from a clicked word while its audio is kept (#138): the
@@ -424,7 +424,7 @@
     @apply pb-20;
   }
   .transcript-player {
-    @apply absolute bottom-5 left-1/2 z-10 m-0 flex h-11 w-[520px] max-w-[calc(100%-32px)] min-w-0 -translate-x-1/2 items-center gap-3 rounded-[10px] border-0 bg-sheet pr-2.5 pl-1.5 font-sans text-[13px] leading-5 text-ink-secondary;
+    @apply absolute bottom-5 left-1/2 z-10 m-0 flex h-11 w-[520px] max-w-[calc(100%-32px)] min-w-0 -translate-x-1/2 items-center gap-3 rounded-[10px] border-0 bg-sheet pr-2.5 pl-1.5 font-sans text-ui leading-5 text-ink-secondary;
     box-shadow: var(--shadow-popover);
   }
   .transcript-player-toggle {
@@ -442,7 +442,7 @@
   }
   /* Code, columns lined up with spaces, or a Markdown file's source: as an editor sets it. */
   .document-plain--code {
-    @apply font-mono text-[13px] leading-5;
+    @apply font-mono text-ui leading-5;
   }
 
   .document-markdown {
@@ -464,13 +464,13 @@
     }
 
     h1 {
-      @apply text-[28px] leading-9 font-semibold tracking-[-0.01em];
+      @apply text-title leading-9 font-semibold tracking-[-0.01em];
     }
     h2 {
       @apply text-heading font-semibold;
     }
     h3 {
-      @apply text-[19px] leading-7 font-semibold;
+      @apply text-heading leading-7 font-semibold;
     }
     h4,
     h5,
@@ -501,7 +501,7 @@
     }
 
     pre {
-      @apply overflow-x-auto rounded-md bg-frame px-4 py-3 font-mono text-[13px] leading-5 whitespace-pre;
+      @apply overflow-x-auto rounded-md bg-frame px-4 py-3 font-mono text-ui leading-5 whitespace-pre;
 
       code {
         @apply bg-transparent p-0 text-[1em];
@@ -597,7 +597,7 @@
       @apply truncate text-ink-secondary;
     }
     .document-image-placeholder-note {
-      @apply text-[12px] leading-4 text-ink-meta;
+      @apply text-small leading-4 text-ink-meta;
     }
   }
 
@@ -648,7 +648,7 @@
 
   /* The Citation's check mark, in the page's margin beside its quote: the Mind's 18px mark. */
   .quote-mark {
-    @apply pointer-events-auto absolute z-[1] flex h-[18px] items-center gap-0.5 rounded-sm pr-[5px] pl-[3px] font-sans text-[11px] leading-[18px] font-bold tabular-nums select-none;
+    @apply pointer-events-auto absolute z-[1] flex h-[18px] items-center gap-0.5 rounded-sm pr-[5px] pl-[3px] font-sans text-small leading-[18px] tabular-nums select-none;
   }
   .quote-mark--found {
     @apply bg-success-wash text-success;
@@ -665,7 +665,7 @@
   }
   /* Where the Citation points ("slide 4"), after its number. */
   .quote-mark-label {
-    @apply ml-[3px] border-l border-current/25 pl-[5px] font-semibold whitespace-nowrap;
+    @apply ml-[3px] border-l border-current/25 pl-[5px] whitespace-nowrap;
   }
   /* Not shown: there is no room for it beside the page's text. */
   .quote-mark-label--hidden {
@@ -693,13 +693,13 @@
     @apply bg-frame;
   }
   .viewer-slide-number {
-    @apply text-label text-ink-meta;
+    @apply text-small text-ink-meta;
   }
   .viewer-slide-title {
     @apply mt-1 font-serif text-heading font-semibold text-ink;
   }
   .viewer-slide-body {
-    @apply mt-3 font-serif text-[16px] leading-[26px] whitespace-pre-line text-ink;
+    @apply mt-3 font-serif text-body leading-[26px] whitespace-pre-line text-ink;
 
     > * + * {
       margin-top: 12px;
@@ -724,7 +724,7 @@
     @apply font-sans text-ui text-ink-secondary;
 
     figcaption {
-      @apply text-label text-ink-meta;
+      @apply text-small text-ink-meta;
     }
     p {
       @apply mt-1;
@@ -738,7 +738,7 @@
     @apply mt-5 border-t border-rule pt-3 font-sans text-ui whitespace-pre-line text-ink-secondary;
 
     h3 {
-      @apply mb-1 text-label text-ink-meta;
+      @apply mb-1 text-small text-ink-meta;
     }
     p + p {
       margin-top: 4px;
@@ -774,12 +774,12 @@
     outline-offset: -2px;
   }
   .viewer-grid {
-    @apply border-separate border-spacing-0 font-sans text-[13px] leading-5 text-ink;
+    @apply border-separate border-spacing-0 font-sans text-ui leading-5 text-ink;
     table-layout: fixed;
     width: var(--grid-width);
 
     th {
-      @apply sticky bg-frame px-1.5 text-label font-normal text-ink-meta tabular-nums;
+      @apply sticky bg-frame px-1.5 text-small font-normal text-ink-meta tabular-nums;
       box-shadow:
         inset -1px 0 0 var(--color-rule),
         inset 0 -1px 0 var(--color-rule);
@@ -853,14 +853,14 @@
     @apply absolute z-[1] max-w-none;
   }
   .viewer-sheet-shape {
-    @apply overflow-hidden border border-rule-strong bg-sheet p-2 font-sans text-[13px] leading-5 whitespace-pre-line text-ink;
+    @apply overflow-hidden border border-rule-strong bg-sheet p-2 font-sans text-ui leading-5 whitespace-pre-line text-ink;
   }
   .viewer-sheet-placeholder {
     @apply flex flex-col items-center justify-center gap-0.5 overflow-hidden bg-frame p-3 text-center font-sans;
     box-shadow: inset 0 0 0 1px var(--color-rule-strong);
   }
   .viewer-sheet-placeholder-kind {
-    @apply text-label text-ink-meta;
+    @apply text-small text-ink-meta;
   }
   .viewer-sheet-placeholder-title {
     @apply max-w-full truncate text-ui text-ink-secondary;
@@ -869,7 +869,7 @@
     @apply flex flex-1 items-center justify-center px-6 text-center text-ui text-ink-meta;
   }
   .viewer-sheet-notice {
-    @apply shrink-0 border-t border-rule bg-frame px-3 py-1.5 text-[12px] leading-5 text-ink-meta;
+    @apply shrink-0 border-t border-rule bg-frame px-3 py-1.5 text-small leading-5 text-ink-meta;
   }
   .viewer-sheet-tabs {
     @apply flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-t border-rule bg-frame px-2;
@@ -877,14 +877,14 @@
   }
   /* A sheet's own tab colour, if the workbook gives it one, is a bar along the tab's foot. */
   .viewer-sheet-tab {
-    @apply h-7 max-w-[200px] shrink-0 truncate rounded-md px-3 text-[13px] leading-5 text-ink-secondary;
+    @apply h-7 max-w-[200px] shrink-0 truncate rounded-md px-3 text-ui leading-5 text-ink-secondary;
     box-shadow: inset 0 -3px 0 var(--sheet-tab-color, transparent);
 
     &:hover {
       @apply bg-hover;
     }
     &[aria-selected="true"] {
-      @apply bg-sheet font-semibold text-ink;
+      @apply bg-sheet text-ink;
       box-shadow:
         inset 0 0 0 1px var(--color-rule),
         inset 0 -3px 0 var(--sheet-tab-color, transparent);
@@ -1037,7 +1037,7 @@
   background: var(--color-sheet);
   box-shadow: 0 0 0 1px var(--color-rule-strong);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--text-small);
   line-height: 16px;
   color: var(--color-ink);
 }
@@ -1051,7 +1051,7 @@
   font-weight: 600;
 }
 .docx-note-date {
-  font-size: 11px;
+  font-size: var(--text-small);
   color: var(--color-ink-meta);
 }
 .docx-note .docx-note-body p {
@@ -1191,29 +1191,29 @@
     box-shadow: 0 8px 24px var(--color-shadow);
   }
   .annotation-popover-head {
-    @apply flex items-center gap-2 text-[12px] text-ink-meta;
+    @apply flex items-center gap-2 text-small text-ink-meta;
   }
   .annotation-place {
     @apply min-w-0 truncate tabular-nums;
   }
   .annotation-file {
-    @apply ml-auto shrink-0 rounded-sm bg-chip px-1.5 py-0.5 text-[11px] font-semibold text-ink-secondary;
+    @apply ml-auto shrink-0 rounded-sm bg-chip px-1.5 py-0.5 text-small text-ink-secondary;
   }
   .annotation-quote {
-    @apply border-l-2 border-rule-strong pl-2 text-[13px] leading-5 text-ink-secondary;
+    @apply border-l-2 border-rule-strong pl-2 text-ui leading-5 text-ink-secondary;
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
   .annotation-missing {
-    @apply text-[12px] text-warning;
+    @apply text-small text-warning;
   }
   .annotation-note {
-    @apply cursor-text text-left text-[13px] leading-5 whitespace-pre-wrap text-ink;
+    @apply cursor-text text-left text-ui leading-5 whitespace-pre-wrap text-ink;
   }
   .annotation-note-field {
-    @apply w-full resize-y rounded-sm border border-rule bg-sheet px-2 py-1 text-[13px] leading-5 text-ink;
+    @apply w-full resize-y rounded-sm border border-rule bg-sheet px-2 py-1 text-ui leading-5 text-ink;
   }
   .annotation-edit {
     @apply flex flex-col gap-1;
@@ -1222,13 +1222,13 @@
     @apply flex justify-end gap-2;
   }
   .annotation-action {
-    @apply rounded-sm px-1.5 py-0.5 text-[12px] text-ink-secondary;
+    @apply rounded-sm px-1.5 py-0.5 text-small text-ink-secondary;
   }
   .annotation-action:hover {
     @apply bg-hover text-ink;
   }
   .annotation-action--primary {
-    @apply font-semibold text-accent;
+    @apply text-accent;
   }
   .annotation-popover-foot {
     @apply flex items-center justify-between gap-2 border-t border-rule pt-2;
@@ -1251,7 +1251,7 @@
 
   /* An export's Saved line over the page's foot, as a Mind's is (DESIGN.md, Export). */
   .annotation-export-line {
-    @apply absolute inset-x-0 bottom-4 z-[5] mx-auto flex w-fit max-w-[min(560px,92%)] flex-wrap items-center gap-x-4 gap-y-1 rounded-[8px] border border-rule bg-sheet px-3 py-1.5 text-[13px] leading-5 text-ink-meta;
+    @apply absolute inset-x-0 bottom-4 z-[5] mx-auto flex w-fit max-w-[min(560px,92%)] flex-wrap items-center gap-x-4 gap-y-1 rounded-[8px] border border-rule bg-sheet px-3 py-1.5 text-ui leading-5 text-ink-meta;
     box-shadow: var(--shadow-popover);
   }
   .annotations-panel-head {
@@ -1259,15 +1259,15 @@
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
   .annotations-panel-title {
-    @apply min-w-0 text-[13px] leading-4 font-semibold text-ink;
+    @apply min-w-0 text-ui leading-4 text-ink;
     grid-column: 1 / -1;
   }
   .annotations-panel-count {
-    @apply min-w-0 text-[12px] leading-4 text-ink-meta tabular-nums;
+    @apply min-w-0 text-small leading-4 text-ink-meta tabular-nums;
   }
   .annotations-panel-empty,
   .annotations-panel-problem {
-    @apply px-3 py-4 text-[13px] leading-5 text-ink-meta;
+    @apply px-3 py-4 text-ui leading-5 text-ink-meta;
   }
   .annotations-panel-problem {
     @apply text-warning;
@@ -1285,20 +1285,20 @@
     @apply outline-2 -outline-offset-2 outline-accent;
   }
   .annotation-row-head {
-    @apply flex items-center gap-2 text-[12px] text-ink-meta;
+    @apply flex items-center gap-2 text-small text-ink-meta;
   }
   .annotation-row-menu {
     @apply ml-auto shrink-0;
   }
   .annotation-row-quote {
-    @apply text-left text-[13px] leading-5 text-ink;
+    @apply text-left text-ui leading-5 text-ink;
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
   .annotation-row-note {
-    @apply text-[12px] leading-5 whitespace-pre-wrap text-ink-secondary;
+    @apply text-small leading-5 whitespace-pre-wrap text-ink-secondary;
   }
   .annotation-row-edit {
     @apply flex flex-col gap-1;

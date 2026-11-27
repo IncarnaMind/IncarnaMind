@@ -33,7 +33,7 @@ import {
   saveComment,
   useCommentsUi,
 } from "../comments";
-import { CommentLineIcon } from "../components/lineIcons";
+import { CommentLineIcon } from "../components/icons";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { useLanguage, useT } from "../i18n";
 import { COMMENTS_REDRAWN, commentRuns } from "./commentSchema";

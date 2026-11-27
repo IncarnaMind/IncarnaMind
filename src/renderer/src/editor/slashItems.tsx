@@ -3,13 +3,11 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { ReactNode } from "react";
 import { QUESTION_BLOCK, type Skill } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
-import { SkillIcon } from "../components/icons";
-import { ImageLineIcon } from "../components/lineIcons";
+import { ImageLineIcon, SkillIcon, TableIcon } from "../components/icons";
 import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
 import { openDocumentPicker } from "./documentPicker";
 import { insertFootnote } from "./footnoteSchema";
-import { TableIcon } from "./icons";
 import { insertBlock } from "./insertBlock";
 import { emptyTable } from "./tableCommands";
 

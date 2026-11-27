@@ -16,7 +16,7 @@ import {
   EyeOffLineIcon,
   MicOffLineIcon,
   MinusLineIcon,
-} from "../components/lineIcons";
+} from "../components/icons";
 import { LevelBars } from "../components/meetings/LevelBars";
 import { MicrophoneButton } from "../components/meetings/MicrophoneButton";
 import { ProblemLine } from "../components/ProblemLine";

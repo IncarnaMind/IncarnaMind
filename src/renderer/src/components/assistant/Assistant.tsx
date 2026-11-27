@@ -31,16 +31,16 @@ import { useAssistantWaiting } from "../../mindStatus";
 import { useSettingUp } from "../../modelSetup";
 import { useKeyAsksOwnAi } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
-import { GripIcon } from "../icons";
 import {
   ChatLineIcon,
   ChevronDownLineIcon,
   ChevronLeftLineIcon,
   ChevronRightLineIcon,
   ChevronUpLineIcon,
+  GripIcon,
   HistoryLineIcon,
   PlusLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { HelpStrip } from "../meetings/HelpStrip";
 import { ModelSetupCard } from "../providers/ModelSetupCard";
 import { TaskTray } from "../TaskTray";

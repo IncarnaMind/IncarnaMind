@@ -41,12 +41,12 @@ function SortingModel({ id }: { id: string }) {
     !current.unresolved;
   return (
     <div id={id} data-testid="setup-sorting-model" className="flex flex-col gap-2">
-      <p className="text-[13px] leading-5 text-ink-secondary">{t("setupPage.ai.sorting.about")}</p>
+      <p className="text-ui leading-5 text-ink-secondary">{t("setupPage.ai.sorting.about")}</p>
       {read.state !== "loading" && (
         <>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {picker.control && (
-              <label htmlFor={field} className="text-[12px] leading-[18px] text-ink-meta">
+              <label htmlFor={field} className="text-small leading-[18px] text-ink-meta">
                 {t("setupPage.ai.model")}
               </label>
             )}

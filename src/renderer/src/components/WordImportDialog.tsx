@@ -4,7 +4,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { useLanguage, useT } from "../i18n";
 import { saidInLine } from "../lineNames";
 import { refusalKey, useWordImport } from "../wordImport";
-import { DocumentLineIcon } from "./lineIcons";
+import { DocumentLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import {
   buttonClass,
@@ -27,7 +27,7 @@ const ORIGINS: readonly { value: WordOrigin; label: MessageKey; note: MessageKey
   { value: "someone-else", label: "wordImport.someoneElse", note: "wordImport.someoneElse.note" },
 ];
 
-const tickClass = "mt-3 flex items-start gap-2 text-[13px] leading-5 text-ink-secondary";
+const tickClass = "mt-3 flex items-start gap-2 text-ui leading-5 text-ink-secondary";
 const tickBoxClass = "mt-0.5 size-4 shrink-0 accent-ink";
 
 /** At most this many authors are named; the rest are counted. */
@@ -79,14 +79,14 @@ export function WordImportDialog() {
           <p
             data-testid="word-import-file"
             title={path ?? ""}
-            className="min-w-0 truncate text-ui font-semibold text-ink"
+            className="min-w-0 truncate text-ui text-ink"
           >
             {fileName}
           </p>
         </div>
 
         {check === null ? (
-          <p role="status" className="text-[13px] leading-5 text-ink-meta">
+          <p role="status" className="text-ui leading-5 text-ink-meta">
             {t("wordImport.reading", { name: fileName })}
           </p>
         ) : refusedSaid ? (
@@ -155,7 +155,7 @@ export function WordImportDialog() {
                 })}
               </p>
             )}
-            <p className="mt-3 text-[13px] leading-5 text-ink-meta">{t("wordImport.keeps")}</p>
+            <p className="mt-3 text-ui leading-5 text-ink-meta">{t("wordImport.keeps")}</p>
             {!converted && (
               <label className={tickClass}>
                 <input

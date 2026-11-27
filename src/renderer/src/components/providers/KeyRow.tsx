@@ -75,7 +75,7 @@ export function KeyRow({
       data-host={id}
       leading={<ProviderLogo id={logo} fallback={fallback} />}
       label={
-        <span className="block truncate font-semibold" title={name}>
+        <span className="block truncate" title={name}>
           {name}
         </span>
       }

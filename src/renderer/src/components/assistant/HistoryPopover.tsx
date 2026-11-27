@@ -6,7 +6,7 @@ import { focusComposer } from "../../commands/assistant";
 import { openConversation, useConversations } from "../../conversations";
 import { Popover } from "../../editor/Popover";
 import { useLanguage, useT } from "../../i18n";
-import { CloseLineIcon, HistoryLineIcon } from "../lineIcons";
+import { CloseLineIcon, HistoryLineIcon } from "../icons";
 import { iconButtonClass } from "../ui";
 
 /**

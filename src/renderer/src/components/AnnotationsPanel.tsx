@@ -12,11 +12,11 @@ import { formatLocation } from "../../../shared/locations";
 import { deleteAnnotation, editAnnotation, exportAnnotations } from "../annotationActions";
 import { useAnnotationDrafts } from "../annotationDrafts";
 import { useAnnotations, useDocumentAnnotations } from "../annotations";
-import { CloseLineIcon, ExportLineIcon, PencilLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
+import { CloseLineIcon, ExportLineIcon, PencilLineIcon } from "./icons";
 
 function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: Annotation): void }) {
   const t = useT();

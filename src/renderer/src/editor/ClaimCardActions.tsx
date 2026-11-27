@@ -1,9 +1,9 @@
 import { type ReactNode, useId } from "react";
 import type { CommandId } from "../../../shared/commands";
-import { CheckIcon } from "../components/icons";
+import { MenuItemParts } from "../components/MenuItemParts";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
-import { menuItemClass, menuItemUnavailableClass } from "../components/ui";
+import { dangerItemClass, menuItemClass, menuItemUnavailableClass } from "../components/ui";
 import { useT } from "../i18n";
 import type { CardAction } from "./cardActions";
 
@@ -55,8 +55,6 @@ export function CardMenu({
 }) {
   const t = useT();
   if (actions.length === 0 && about.length === 0 && !findSources) return null;
-  // Where a row ticks, every row keeps the tick's room, so their words start in one line.
-  const ticks = actions.some((action) => action.checked !== undefined);
   const here: Partial<Record<CommandId, () => void>> | undefined = findSources
     ? { "check.findSources": findSources }
     : undefined;
@@ -81,19 +79,14 @@ export function CardMenu({
                     : { role: "menuitemcheckbox", "aria-checked": action.checked })}
                   data-testid={action.testId}
                   aria-disabled={action.disabled || undefined}
-                  className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
+                  className={`${menuItemClass} ${menuItemUnavailableClass} pl-2${action.danger ? ` ${dangerItemClass}` : ""}`}
                   onClick={() => {
                     if (action.disabled) return;
                     close();
                     action.onClick();
                   }}
                 >
-                  {ticks && (
-                    <span className="claim-menu-tick" aria-hidden="true">
-                      {action.checked && <CheckIcon className="claim-menu-tick-icon" />}
-                    </span>
-                  )}
-                  <span className="flex-1">{action.label}</span>
+                  <MenuItemParts icon={action.icon} label={action.label} checked={action.checked} />
                 </button>
               ))
           : undefined

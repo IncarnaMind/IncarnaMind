@@ -2,7 +2,7 @@ import type { LayoutTab } from "../../../../core/api";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { focusTab } from "../../tabFocus";
-import { CheckLineIcon, ChevronDownLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronDownLineIcon } from "../icons";
 import { menuFrameClass, menuItemClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import { TabIcon, useTabTitle } from "./tabItems";

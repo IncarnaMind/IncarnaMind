@@ -20,7 +20,7 @@ export function OwnAiPill(pill: Pill) {
     <div
       data-testid="own-ai-pill"
       data-ask-pill=""
-      className="flex h-10 max-w-full items-center gap-1 rounded-full bg-sheet pr-2 font-sans text-[14px] text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong),0_4px_16px_var(--color-shadow-soft)]"
+      className="flex h-10 max-w-full items-center gap-1 rounded-full bg-sheet pr-2 font-sans text-ui text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong),0_4px_16px_var(--color-shadow-soft)]"
     >
       <button
         type="button"
@@ -29,7 +29,7 @@ export function OwnAiPill(pill: Pill) {
         className="flex h-full min-w-0 items-center gap-3 rounded-full pr-1 pl-5 hover:text-ink focus-visible:outline-offset-[-2px]"
       >
         <span className="truncate">{label(first.name)}</span>
-        <kbd className="rounded-sm bg-chip px-[5px] py-px font-sans text-[12px] text-ink-strong">
+        <kbd className="rounded-sm bg-chip px-[5px] py-px font-sans text-small text-ink-strong">
           {shortcutLabel("composer.focus")}
         </kbd>
       </button>

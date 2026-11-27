@@ -4,7 +4,7 @@ import {
   type ChartKind,
   drawnSeries,
 } from "../../../shared/charts";
-import { CheckLineIcon } from "../components/lineIcons";
+import { CheckLineIcon, ChevronDownSmallIcon, SwapIcon } from "../components/icons";
 import {
   menuClass,
   menuItemClass,
@@ -14,7 +14,6 @@ import {
 } from "../components/ui";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { useT } from "../i18n";
-import { ChevronDownSmallIcon } from "./icons";
 
 /** The kinds, then the columns drawn, turned on and off in place (#436). */
 export function ChartKindMenu({
@@ -113,7 +112,7 @@ export function ChartKindMenu({
                         className={`size-3.5 shrink-0 ${on ? "text-ink" : "invisible"}`}
                       />
                       <span className="min-w-0 flex-1 truncate">{seriesName(series)}</span>
-                      {axis && <span className="pl-4 text-[13px] text-ink-meta">{axis}</span>}
+                      {axis && <span className="pl-4 text-small text-ink-meta">{axis}</span>}
                     </>
                   );
                   const props = {
@@ -150,7 +149,7 @@ export function ChartKindMenu({
                   }}
                   className={`${menuItemClass} ${switchWhy ? menuItemUnavailableClass : ""} pl-2`}
                 >
-                  <CheckLineIcon className="invisible size-3.5 shrink-0" />
+                  <SwapIcon className="shrink-0" />
                   <span className="flex-1">{t("chart.switch")}</span>
                 </button>
               </>

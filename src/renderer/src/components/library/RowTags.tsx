@@ -4,7 +4,7 @@ import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { chipsOf, hiddenTagsLine } from "../../tagEditing";
 import { DocumentTagFooter } from "../DocumentTags";
-import { CloseLineIcon, PlusLineIcon } from "../lineIcons";
+import { CloseLineIcon, PlusLineIcon } from "../icons";
 import { tagChipColour } from "../TagColour";
 import { chipClass, pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "../TagPicker";
 
@@ -55,7 +55,7 @@ export function RowTags({ document }: { document: Document }) {
         <span
           data-testid="tag-chip-more"
           title={hiddenTagsLine(t, language, hidden)}
-          className="shrink-0 text-[12px] text-ink-meta"
+          className="shrink-0 text-small text-ink-meta"
         >
           +{hidden.length}
         </span>

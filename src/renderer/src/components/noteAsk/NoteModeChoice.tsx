@@ -5,7 +5,7 @@ import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useNoteAsks } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, ChevronRightLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronRightLineIcon } from "../icons";
 import { menuClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 

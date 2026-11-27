@@ -40,7 +40,7 @@ import { helpAsked, type PendingHelp, revealHelpSource } from "../../meetingHelp
 import { useKeptScreens } from "../../meetings";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
-import { DocumentLineIcon } from "../lineIcons";
+import { DocumentLineIcon } from "../icons";
 import { LineQuotes, MomentRoom, PlainMoment, QuoteLineRows, QuoteRows } from "./HelpQuotes";
 
 /**
@@ -693,12 +693,12 @@ export function HelpSuggestion({
     >
       <HelpHeading asked={help} heard={help.heard} />
       {answer.steps?.sent?.sharedScreen && (
-        <p className="text-xs text-ink-secondary">
+        <p className="text-small text-ink-secondary">
           {t(`meetings.screen.use.${answer.steps.sent.sharedScreen}`)}
         </p>
       )}
       {answer.steps?.meetingHelpAgent && answer.steps.sentAt && (
-        <p className="text-xs text-ink-secondary">
+        <p className="text-small text-ink-secondary">
           {t("meetings.help.agent.used", {
             agent: answer.steps.meetingHelpAgent.client === "codex" ? "Codex" : "Claude Code",
           })}

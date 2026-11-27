@@ -28,7 +28,13 @@ import {
   useComparisonTables,
 } from "../comparisonTableState";
 import { ComparisonAddDocuments } from "../components/ComparisonAddDocuments";
-import { ExportLineIcon, PlusLineIcon } from "../components/lineIcons";
+import {
+  CollapseIcon,
+  ExpandIcon,
+  ExportLineIcon,
+  PlusLineIcon,
+  TableIcon,
+} from "../components/icons";
 import { useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
@@ -47,7 +53,6 @@ import {
 } from "./ComparisonColumnHeading";
 import { ComparisonTableMenu } from "./ComparisonTableMenu";
 import { problemCounts, shownDocumentIds, shownRowCount } from "./comparisonRowCounts";
-import { CollapseIcon, ExpandIcon, TableIcon } from "./icons";
 import { useMindId } from "./mindContext";
 
 /**

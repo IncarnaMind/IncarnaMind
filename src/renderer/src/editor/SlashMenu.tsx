@@ -144,7 +144,7 @@ function SlashMenuList({ items, query, command, ref }: SlashMenuListProps) {
       {shown.map((item, index) => (
         <Fragment key={item.id}>
           {item.section && item.section !== shown[index - 1]?.section && (
-            <p role="presentation" className="px-2 pt-1 text-xs text-ink-meta">
+            <p role="presentation" className="px-2 pt-1 text-small text-ink-meta">
               {t(item.section)}
             </p>
           )}

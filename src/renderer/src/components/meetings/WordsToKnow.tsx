@@ -12,7 +12,7 @@ import type { ServicesView } from "../../transcriptionServices";
 import { useUndo } from "../../undo";
 import { useRename } from "../../useRename";
 import { InlineName } from "../InlineName";
-import { CloseLineIcon } from "../lineIcons";
+import { CloseLineIcon } from "../icons";
 import {
   SettingsGroup,
   SettingsHelp,

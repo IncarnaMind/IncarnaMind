@@ -12,7 +12,7 @@ import { useOwnDocuments } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { deleteTag, editTag, mergeTags } from "../tagChanges";
-import { MergeLineIcon, PencilLineIcon, TrashLineIcon } from "./lineIcons";
+import { MergeLineIcon, PencilLineIcon, TrashLineIcon } from "./icons";
 import { ProblemMark } from "./ProblemLine";
 import { TagColourPicker, tagChipColour } from "./TagColour";
 import { TypingTextarea } from "./TypingTextarea";
@@ -133,9 +133,9 @@ export function TagsDialog() {
               />
             )}
             {tags.length === 0 ? (
-              <p className="text-[13px] leading-5 text-ink-meta">{t("tags.dialog.empty")}</p>
+              <p className="text-ui leading-5 text-ink-meta">{t("tags.dialog.empty")}</p>
             ) : shown.length === 0 ? (
-              <p className="text-[13px] leading-5 text-ink-meta">{t("tags.dialog.noMatch")}</p>
+              <p className="text-ui leading-5 text-ink-meta">{t("tags.dialog.noMatch")}</p>
             ) : (
               <ul className={ruledListClass}>
                 {shown.map((tag) => (
@@ -274,7 +274,7 @@ function TagRow({
   return (
     <li data-testid="tag-row" data-tag-id={tag.id} className="flex items-start gap-2 py-2.5">
       <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-x-2 text-ui font-semibold break-words text-ink">
+        <p className="flex flex-wrap items-center gap-x-2 text-ui break-words text-ink">
           <span
             data-testid="tag-row-name"
             data-colour={tag.colour}
@@ -283,13 +283,11 @@ function TagRow({
             {tag.name}
           </span>
           {tag.preset && (
-            <span className="text-label font-semibold text-ink-meta">
-              {t("tags.dialog.preset")}
-            </span>
+            <span className="text-small text-ink-meta">{t("tags.dialog.preset")}</span>
           )}
         </p>
         {tag.description && (
-          <p className="text-[13px] leading-5 break-words text-ink-secondary">{tag.description}</p>
+          <p className="text-ui leading-5 break-words text-ink-secondary">{tag.description}</p>
         )}
       </div>
       <button
@@ -305,7 +303,7 @@ function TagRow({
           store.closeTagsDialog();
           store.openLibrary();
         }}
-        className="mt-1 shrink-0 rounded-sm px-1 text-right text-[12px] leading-5 text-ink-meta tabular-nums hover:text-ink hover:underline disabled:hover:no-underline"
+        className="mt-1 shrink-0 rounded-sm px-1 text-right text-small leading-5 text-ink-meta tabular-nums hover:text-ink hover:underline disabled:hover:no-underline"
       >
         {usage.count === 1
           ? t("tags.dialog.count.one")

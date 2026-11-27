@@ -5,8 +5,7 @@ import {
   type PermissionGuideBridge,
   type PermissionGuideState,
 } from "../../../shared/permissionGuide";
-import { CloseLineIcon } from "../components/lineIcons";
-import { CheckMarkIcon } from "../editor/icons";
+import { CheckMarkIcon, CloseLineIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { GuideRow, GuideSteps } from "./GuideSteps";
 
@@ -66,10 +65,10 @@ export function PermissionGuide() {
       data-source={source}
       data-status={status}
       style={{ width: GUIDE_WIDTH }}
-      className="guide-root flex flex-col gap-1.5 px-3.5 py-3 text-[13px] leading-5 text-ink-secondary"
+      className="guide-root flex flex-col gap-1.5 px-3.5 py-3 text-ui leading-5 text-ink-secondary"
     >
-      <div className="guide-drag flex items-center gap-2 text-[14px] text-ink">
-        <b className="grow font-semibold">{title}</b>
+      <div className="guide-drag flex items-center gap-2 text-ui text-ink">
+        <b className="grow">{title}</b>
         <button
           type="button"
           data-testid="permission-guide-close"
@@ -83,7 +82,7 @@ export function PermissionGuide() {
       </div>
       <GuideSteps source={source} status={status} />
       <GuideRow on={status === "granted"} />
-      <div className="flex items-center gap-2 text-[12px] text-ink-meta">
+      <div className="flex items-center gap-2 text-small text-ink-meta">
         {status === "granted" ? (
           <>
             <CheckMarkIcon check="found" className="size-3.5 shrink-0 text-success" />
@@ -95,7 +94,7 @@ export function PermissionGuide() {
                 type="button"
                 data-testid="permission-guide-restart"
                 onClick={() => bridge.restart()}
-                className="shrink-0 rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                className="shrink-0 rounded-sm text-accent underline-offset-2 hover:underline"
               >
                 {t("meetings.guide.restart")}
               </button>

@@ -5,7 +5,7 @@ import { formatNames } from "../../../shared/references";
 import { useLanguage, useT } from "../i18n";
 import { saidInLine } from "../lineNames";
 import { type ImportFailure, useReferenceImport } from "../referenceImport";
-import { CloseLineIcon } from "./lineIcons";
+import { CloseLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import { buttonStyle } from "./ui";
 
@@ -45,7 +45,7 @@ function Disclosure({
   return (
     <details data-testid={testId} className="mt-2">
       <summary className="cursor-pointer text-ink-secondary">{summary}</summary>
-      <ul className="mt-1 max-h-64 overflow-y-auto pl-4 text-[13px] leading-5">{children}</ul>
+      <ul className="mt-1 max-h-64 overflow-y-auto pl-4 text-ui leading-5">{children}</ul>
     </details>
   );
 }
@@ -58,7 +58,7 @@ function ExportHelp() {
       <summary className="cursor-pointer text-ink-secondary">
         {t("references.import.help.title")}
       </summary>
-      <ul className="mt-1 list-disc space-y-1 pl-4 text-[13px] leading-5 text-ink-secondary">
+      <ul className="mt-1 list-disc space-y-1 pl-4 text-ui leading-5 text-ink-secondary">
         <li>{t("references.import.help.zotero")}</li>
         <li>{t("references.import.help.endnote")}</li>
         <li>{t("references.import.help.mendeley")}</li>
@@ -99,7 +99,7 @@ export function ReferenceImportPanel() {
 
   if (phase === "running") {
     return (
-      <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-[13px]">
+      <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-ui">
         <p role="status" data-testid="import-progress" className="text-ink-secondary">
           {state.progress && state.progress.total > 0
             ? t("references.import.progress", state.progress)
@@ -113,7 +113,7 @@ export function ReferenceImportPanel() {
     const key = FAILURES[state.failure];
     const failed = saidInLine(t, (t) => t(key, { name }));
     return (
-      <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-[13px]">
+      <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-ui">
         <div className="flex items-start gap-2">
           <ProblemLine
             testId="import-failed"
@@ -153,7 +153,7 @@ export function ReferenceImportPanel() {
   );
 
   return (
-    <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-[13px]">
+    <div data-testid="reference-import" className="mb-5 border-y border-rule py-3 text-ui">
       <div className="flex items-start gap-2">
         <p
           role="status"
@@ -200,7 +200,7 @@ export function ReferenceImportPanel() {
                 type="button"
                 data-testid="import-add-pdf"
                 onClick={() => void state.addFileFor(entry.recordId)}
-                className="shrink-0 rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                className="shrink-0 rounded-sm text-accent underline-offset-2 hover:underline"
               >
                 {t("references.import.addPdf")}
               </button>

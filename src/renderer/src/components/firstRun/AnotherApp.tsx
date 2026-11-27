@@ -2,7 +2,7 @@ import type { AgentClient } from "../../../../core/api";
 import { useT } from "../../i18n";
 import { clientName } from "../agents/agentWords";
 import { ConnectAgentFields, useAgentConnection } from "../agents/ConnectAgentFields";
-import { ChevronRightLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon } from "../icons";
 import { buttonStyle } from "../ui";
 import { SetupPanel, type StepPlace } from "./SetupPanel";
 import { AppMark, type Choice, type Done } from "./yourAiParts";

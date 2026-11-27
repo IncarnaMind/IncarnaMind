@@ -1,5 +1,5 @@
 import { paddedClockTime } from "../../../shared/clock";
-import { CloseLineIcon, PauseLineIcon, ResumeLineIcon } from "../components/lineIcons";
+import { CloseLineIcon, PauseLineIcon, ResumeLineIcon } from "../components/icons";
 import { ProblemMark } from "../components/ProblemLine";
 import { describeError } from "../errors";
 import { useT } from "../i18n";
@@ -61,7 +61,7 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
               }}
             />
           </span>
-          <span className="text-[12px] whitespace-nowrap text-ink-meta">
+          <span className="text-small whitespace-nowrap text-ink-meta">
             {t("transcript.player.spaceToPause")}
           </span>
         </>

@@ -23,21 +23,21 @@ import {
 } from "../../../shared/quoteMatch";
 import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
-import { core } from "../core";
-import { translateNow, useT } from "../i18n";
-import { useAppStore, type ViewerTarget } from "../store";
-import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
-import { noteMarkElement } from "./annotationMarks";
-import { citedPlaceGone, quotesOf } from "./citedPlace";
 import {
-  ExpandIcon,
+  DisclosureIcon as ExpandIcon,
   FitWidthIcon,
   NextPageIcon,
   OutlineToggleIcon,
   PreviousPageIcon,
   ZoomInIcon,
   ZoomOutIcon,
-} from "./icons";
+} from "../components/icons";
+import { core } from "../core";
+import { translateNow, useT } from "../i18n";
+import { useAppStore, type ViewerTarget } from "../store";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { noteMarkElement } from "./annotationMarks";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { LockedPdf } from "./LockedPdf";
 import { loadOutline, type OutlineItem } from "./outline";
 import { isMissingDocumentError, isPasswordError, loadPdfJs, openPdf, type PdfJs } from "./pdfjs";

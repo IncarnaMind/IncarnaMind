@@ -17,7 +17,7 @@ import { useT } from "../../i18n";
 import type { WordsInLine } from "../../lineNames";
 import { useNoteEvent } from "../../noteEvents";
 import { type SpeakersStep, useAppStore } from "../../store";
-import { CheckLineIcon, PlusLineIcon } from "../lineIcons";
+import { CheckLineIcon, PlusLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import {
   menuFrameClass,
@@ -253,7 +253,7 @@ export function SpeakerMenu({
                     id={refusedId}
                     role="alert"
                     data-testid="speaker-name-refused"
-                    className="m-0 pt-1 text-[12px] leading-[18px] text-ink"
+                    className="m-0 pt-1 text-small leading-[18px] text-ink"
                   >
                     <ProblemMark />
                     {t("error.transcript.speakerNameIsLabel", { name: refused })}
@@ -284,8 +284,8 @@ export function SpeakerMenu({
               className={`${tallMenuItemClass} pl-2`}
             >
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold">{t("transcript.speaker.all")}</span>
-                <span className="block text-[12px] leading-[18px] text-ink-meta">
+                <span className="block">{t("transcript.speaker.all")}</span>
+                <span className="block text-small leading-[18px] text-ink-meta">
                   {t("transcript.speaker.allHint")}
                 </span>
               </span>

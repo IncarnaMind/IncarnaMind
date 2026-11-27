@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import { DEFAULT_SORT, SORT_KEYS, type Sort, type SortKey } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
 import { type SortRequest, useSortMenu } from "../sortMenu";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon } from "./icons";
 import { menuClass, menuItemClass, menuRuleClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 

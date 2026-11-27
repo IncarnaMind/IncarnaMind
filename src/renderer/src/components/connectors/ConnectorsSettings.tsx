@@ -11,7 +11,7 @@ import type { Language } from "../../../../core/language";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { PlusLineIcon } from "../lineIcons";
+import { PlusLineIcon } from "../icons";
 import { SearchField } from "../SearchField";
 import {
   SettingsGroup,
@@ -246,7 +246,7 @@ export function ConnectorsSettings() {
       {searching ? (
         <SettingsSection title={t("connectors.directory.browse")}>
           {browsed.length === 0 ? (
-            <p className="px-4 text-[13px] leading-5 text-ink-meta">
+            <p className="px-4 text-ui leading-5 text-ink-meta">
               {t("connectors.directory.noMatch", { query: query.trim() })}
             </p>
           ) : (

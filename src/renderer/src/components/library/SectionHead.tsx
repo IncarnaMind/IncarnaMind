@@ -2,7 +2,7 @@ import type { HTMLAttributes, ReactNode, Ref } from "react";
 import type { DropEffect, DropProps } from "../../dragDrop";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
-import { ChevronDownLineIcon } from "../lineIcons";
+import { ChevronDownLineIcon } from "../icons";
 import { dropIntoClass } from "../sidebarRows";
 
 /**
@@ -77,7 +77,7 @@ export function SectionHead({
       {name}
       <span
         data-testid="library-section-count"
-        className="shrink-0 text-[12px] tabular-nums text-ink-meta"
+        className="shrink-0 text-small tabular-nums text-ink-meta"
       >
         {formatCount(count, language)}
       </span>
@@ -90,4 +90,4 @@ export function SectionHead({
 
 /** A section's name, the button that folds it: bold, cut with "…" when long. */
 export const sectionNameClass =
-  "min-w-0 shrink truncate rounded-sm text-left text-[15px] leading-5 font-semibold text-ink";
+  "min-w-0 shrink truncate rounded-sm text-left text-ui leading-5 text-ink";

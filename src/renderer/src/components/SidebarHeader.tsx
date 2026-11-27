@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AppMark, PlusLineIcon } from "./lineIcons";
+import { AppMark, PlusLineIcon } from "./icons";
 import { iconButtonClass } from "./ui";
 
 /**

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
+import { RemoveIcon } from "../components/icons";
 import { menuFrameClass } from "../components/ui";
 import { usePopoverMenu } from "../components/usePopoverMenu";
-import { RemoveIcon } from "./icons";
 
 export interface ScopeCountRow {
   key: string;

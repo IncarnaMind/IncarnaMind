@@ -29,8 +29,8 @@ import {
   YourNoteLabel,
 } from "../DocumentsSection";
 import { InlineName } from "../InlineName";
+import { ChevronDownLineIcon, DocumentLineIcon, FolderLineIcon, NoteLineIcon } from "../icons";
 import { LibrarySelectBox } from "../LibrarySelection";
-import { ChevronDownLineIcon, DocumentLineIcon, FolderLineIcon, NoteLineIcon } from "../lineIcons";
 import { Marked } from "../Marked";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { draggedRowClass, rowActionButtonClass } from "../sidebarRows";
@@ -152,7 +152,7 @@ function RetryOrganize({
       data-testid={testId}
       aria-label={t("library.retryOrganize.label", { name: displayName(doc) })}
       onClick={() => void organizeDocuments([doc.id]).catch(useAppStore.getState().reportError)}
-      className="shrink-0 font-semibold text-accent underline-offset-2 hover:underline"
+      className="shrink-0 text-accent underline-offset-2 hover:underline"
     >
       {t("answer.error.retry")}
     </button>
@@ -317,7 +317,7 @@ export const LibraryRow = memo(function LibraryRow({
                       <span
                         data-testid="library-document-place"
                         data-fit-name=""
-                        className="min-w-0 truncate text-[12px] text-ink-meta"
+                        className="min-w-0 truncate text-small text-ink-meta"
                       >
                         {where}
                       </span>
@@ -328,7 +328,7 @@ export const LibraryRow = memo(function LibraryRow({
               {foundAt && (
                 <span
                   data-testid="library-found-place"
-                  className="shrink-0 text-[12px] text-ink-meta"
+                  className="shrink-0 text-small text-ink-meta"
                 >
                   {foundAt}
                 </span>
@@ -341,7 +341,7 @@ export const LibraryRow = memo(function LibraryRow({
                       ? t("annotations.count.one")
                       : t("annotations.count", { count: annotationCount })
                   }
-                  className="inline-flex shrink-0 items-center gap-1 text-[12px] text-ink-meta"
+                  className="inline-flex shrink-0 items-center gap-1 text-small text-ink-meta"
                 >
                   <NoteLineIcon className="size-3" />
                   {annotationCount}
@@ -357,7 +357,7 @@ export const LibraryRow = memo(function LibraryRow({
                   <span
                     data-testid="library-not-sorted"
                     title={notSorted.title}
-                    className="inline-flex max-w-60 shrink-0 items-center text-label font-semibold text-ink-meta"
+                    className="inline-flex max-w-60 shrink-0 items-center text-small text-ink-meta"
                   >
                     <span aria-hidden="true" className="truncate">
                       {t(ROW_PROBLEM_WORDS[notSorted.kind])}
@@ -387,7 +387,7 @@ export const LibraryRow = memo(function LibraryRow({
             {line && (
               <p
                 data-testid="library-found-text"
-                className="truncate pl-6 text-[13px] leading-5 text-ink-secondary"
+                className="truncate pl-6 text-ui leading-5 text-ink-secondary"
               >
                 <Marked text={line.text} ranges={line.ranges} />
               </p>
@@ -399,7 +399,7 @@ export const LibraryRow = memo(function LibraryRow({
                 data-testid="library-path"
                 title={t("documents.moveTo")}
                 onClick={() => moveTo(pathButton.current)}
-                className="group/path flex min-w-0 items-center gap-1 rounded-sm pl-6 text-left text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
+                className="group/path flex min-w-0 items-center gap-1 rounded-sm pl-6 text-left text-small leading-4 text-ink-meta hover:text-ink hover:underline"
               >
                 <FolderLineIcon className="size-3 shrink-0" />
                 <span className="truncate">{path}</span>
@@ -420,13 +420,13 @@ export const LibraryRow = memo(function LibraryRow({
         </div>
         <span
           data-testid="library-document-format"
-          className={`${COLUMN_CLASSES.format} truncate text-[13px] text-ink-secondary`}
+          className={`${COLUMN_CLASSES.format} truncate text-ui text-ink-secondary`}
         >
           {format}
         </span>
         <span
           data-testid="library-document-added"
-          className={`${COLUMN_CLASSES.added} truncate text-[13px] whitespace-nowrap text-ink-secondary`}
+          className={`${COLUMN_CLASSES.added} truncate text-ui whitespace-nowrap text-ink-secondary`}
         >
           {added}
         </span>
@@ -447,7 +447,7 @@ export const LibraryRow = memo(function LibraryRow({
         <p
           data-testid="library-sort-failed"
           title={sortFailed.title}
-          className="truncate pr-1.5 pb-1.5 pl-14 text-label font-semibold leading-5 text-ink-meta"
+          className="truncate pr-1.5 pb-1.5 pl-14 text-small leading-5 text-ink-meta"
         >
           <span aria-hidden="true">{folderProblemWords(sortFailed.kind, t)}</span>
           <span className="sr-only">{sortFailed.title}</span>
@@ -521,7 +521,7 @@ function CiteAsToggle({
       aria-label={said ? `${label}. ${said}` : label}
       title={said ?? undefined}
       onClick={() => onToggle(missing[0] ?? null)}
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm text-[12px] leading-5 whitespace-nowrap text-ink-meta hover:text-ink hover:underline ${
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm text-small leading-5 whitespace-nowrap text-ink-meta hover:text-ink hover:underline ${
         missing.length > 0 || unchecked || open
           ? ""
           : "opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"

@@ -8,7 +8,7 @@ import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QUESTION_BLOCK } from "../../../core/api";
-import { withoutOwnDelete } from "../commands/blocks";
+import { notInBlockMenu } from "../commands/blocks";
 import { GripIcon } from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useT } from "../i18n";
@@ -336,7 +336,7 @@ export function BlockHandle({
               first={
                 inText ? (close) => <ClipboardMenuItems editor={editor} close={close} /> : undefined
               }
-              without={block ? withoutOwnDelete(block.node) : []}
+              without={block ? notInBlockMenu(block.node) : []}
               here={{
                 "block.delete": () => {
                   const found = findBlock(editor.state.doc, target);

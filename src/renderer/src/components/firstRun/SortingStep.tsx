@@ -33,7 +33,7 @@ const HOSTS: readonly Host[] = [
   "jev",
 ];
 
-const lineClass = "text-[12px] leading-5 text-ink-meta";
+const lineClass = "text-small leading-5 text-ink-meta";
 
 /**
  * The sorting step in Settings: what sorts new Documents and reads a check's sentences first. A
@@ -275,7 +275,7 @@ export function SortingStep({ place }: { place: StepPlace }) {
       {shown === "decision" && (
         <div data-testid="setup-decision" className="flex flex-col gap-3">
           <label className={`${fieldLabelClass} flex flex-col gap-1`} htmlFor={`${id}-host`}>
-            <span className="font-semibold">{t("setupPage.sorting.provider")}</span>
+            <span>{t("setupPage.sorting.provider")}</span>
             <select
               id={`${id}-host`}
               data-testid="setup-decision-host"
@@ -323,9 +323,7 @@ export function SortingStep({ place }: { place: StepPlace }) {
                 )}
                 {asksAccount && status?.account && (
                   <label className={`${fieldLabelClass} flex flex-col gap-1`}>
-                    <span className="font-semibold">
-                      {t(`decisions.account.${status.account.kind}`)}
-                    </span>
+                    <span>{t(`decisions.account.${status.account.kind}`)}</span>
                     <input
                       type="text"
                       data-testid="setup-decision-account"

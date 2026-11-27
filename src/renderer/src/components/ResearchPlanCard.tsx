@@ -9,7 +9,6 @@ import { NO_MIND, useComposer } from "../composer";
 import { core } from "../core";
 import { estimateText } from "../cost";
 import { AnswerError } from "../editor/AnswerView";
-import { RemoveIcon } from "../editor/icons";
 import { withKeys } from "../editor/withShortcut";
 import { useLanguage, useT } from "../i18n";
 import { useModelInUse, useOwnModel } from "../modelInUse";
@@ -37,8 +36,9 @@ import {
   ChevronDownLineIcon,
   MindLineIcon,
   PlusLineIcon,
+  RemoveIcon,
   SearchLineIcon,
-} from "./lineIcons";
+} from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine } from "./providers/ChatReadinessNotice";
 import { TypingTextarea } from "./TypingTextarea";

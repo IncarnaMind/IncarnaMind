@@ -15,7 +15,7 @@ import {
   wordReportOf,
   wordSourceOf,
 } from "../../../shared/wordFiles";
-import { DocumentLineIcon } from "../components/lineIcons";
+import { DocumentLineIcon } from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { useT } from "../i18n";
 import { saidInLine } from "../lineNames";

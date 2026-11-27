@@ -4,6 +4,7 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState } from "re
 import type * as Y from "yjs";
 import { useReadAgentRequests } from "../askYourAi";
 import { setClaimFocus, setOpenClaim } from "../checks";
+import { ClaimMarkIcon, type ClaimMarkState } from "../components/icons";
 import { useEarlyChecks } from "../earlyChecks";
 import { focusFigure, useFigureFocus } from "../figures";
 import { useT } from "../i18n";
@@ -24,7 +25,6 @@ import {
   shownClaims,
 } from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
-import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import {
   EDGE_GAP,
   MARK_HEIGHT,

@@ -82,7 +82,7 @@ export function DocumentFix({
     );
   }
   return (
-    <div data-testid="library-fix" className="pl-6 text-[13px] leading-5 text-ink-meta">
+    <div data-testid="library-fix" className="pl-6 text-ui leading-5 text-ink-meta">
       <p data-testid="library-fix-reason">{t(fix.reason)}</p>
       {actions.length > 0 && (
         <MetaLine

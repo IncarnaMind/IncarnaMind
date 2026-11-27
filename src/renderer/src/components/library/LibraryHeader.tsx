@@ -3,8 +3,7 @@ import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
 import { typesText } from "../../undo";
 import { AddDocumentsMenu } from "../AddDocumentsMenu";
-import { SearchIcon } from "../icons";
-import { CloseLineIcon } from "../lineIcons";
+import { CloseLineIcon, SearchIcon } from "../icons";
 import { buttonStyle } from "../ui";
 import { OrganizeButton } from "./OrganizeButton";
 
@@ -79,13 +78,13 @@ export function LibraryHeader({
           <span className="truncate">{t("library.title")}</span>
           <span
             data-testid="library-count"
-            className="shrink-0 font-sans text-[13px] font-normal tabular-nums text-ink-meta"
+            className="shrink-0 font-sans text-ui font-normal tabular-nums text-ink-meta"
           >
             {formatCount(count, language)}
           </span>
         </h1>
         {sorted && (
-          <span data-testid="library-sorted" className="shrink-0 text-[13px] text-ink-meta">
+          <span data-testid="library-sorted" className="shrink-0 text-ui text-ink-meta">
             {t("library.sorted.all")}
           </span>
         )}
@@ -131,7 +130,7 @@ export function LibraryHeader({
           className="min-w-0 flex-1 bg-transparent text-ui text-ink outline-0 placeholder:text-ink-placeholder [&::-webkit-search-cancel-button]:hidden"
         />
         {search === "" ? (
-          <kbd className="shrink-0 rounded-sm bg-chip px-1.5 font-sans text-[11px] leading-4 text-ink-meta">
+          <kbd className="shrink-0 rounded-sm bg-chip px-1.5 font-sans text-small leading-4 text-ink-meta">
             /
           </kbd>
         ) : (

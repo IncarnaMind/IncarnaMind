@@ -1,6 +1,7 @@
 import { type ReactNode, useLayoutEffect, useMemo, useRef } from "react";
 import type * as Y from "yjs";
 import { hasSearchScope, mindSearchScope } from "../../../shared/searchScope";
+import { ClaimMarkIcon } from "../components/icons";
 import { useLanguage, useT } from "../i18n";
 import { useMindScope } from "../keptScope";
 import { useFolderHoldsDocuments, useScopeDocumentCount, useScopeName } from "../scopeDocuments";
@@ -8,7 +9,6 @@ import { useAppStore } from "../store";
 import { Counted } from "./Counted";
 import { type CardStage, cardHeadWords } from "./checkCardStage";
 import type { CheckRow } from "./healthCounts";
-import { ClaimMarkIcon } from "./icons";
 
 /**
  * The Checks card's first lines (#3840): where the Note's check stands, said once — Not checked

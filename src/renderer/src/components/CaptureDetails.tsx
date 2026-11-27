@@ -3,7 +3,7 @@ import { captureLines, unsavedAudioMs } from "../captureHealth";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { clockTime, durationLabel } from "../meetingTime";
-import { ChevronDownLineIcon, ChevronRightLineIcon, PulseLineIcon } from "./lineIcons";
+import { ChevronDownLineIcon, ChevronRightLineIcon, PulseLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 
 /*

@@ -5,7 +5,7 @@ import { keysLabel } from "../../commands/keys";
 import { useT } from "../../i18n";
 import { useQuestions } from "../../questions";
 import { typesText } from "../../undo";
-import { CheckLineIcon } from "../lineIcons";
+import { CheckLineIcon } from "../icons";
 
 const CONTINUE_KEYS = "CmdOrCtrl+Enter";
 

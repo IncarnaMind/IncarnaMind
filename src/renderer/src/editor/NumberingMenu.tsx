@@ -8,8 +8,7 @@ import {
   numberingMarker,
 } from "../../../shared/numbering";
 import { keysHere } from "../commands/keymap";
-import { ChevronIcon } from "../components/icons";
-import { CheckLineIcon } from "../components/lineIcons";
+import { CheckLineIcon, ChevronIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { type ClipboardEdit, clipboardEdit, clipboardEdits } from "./clipboardItems";
 import { caretAnchor } from "./LinkField";

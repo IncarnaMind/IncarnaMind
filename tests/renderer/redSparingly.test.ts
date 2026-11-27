@@ -4,7 +4,8 @@ import { describe, expect, test } from "vitest";
 
 /*
  * DESIGN.md, Colors (Red, sparingly): red is for a contradicted claim, the
- * recording dot, and a button that can't be undone in a dialog that asks. An
+ * recording dot, a button that can't be undone in a dialog that asks, and a
+ * Delete in a menu or a table's cell bar (#3761). An
  * error is a Problem in ink after the amber "!" or the `attention` dot. A new
  * red fails here until it is listed, with the reason it may be red.
  */
@@ -37,11 +38,13 @@ const RED_RULES = [
   'src/viewer/viewer.css [data-quote-tone="contradicted"] td.viewer-cell--quote',
   "src/viewer/viewer.css .quote-mark--contradicted",
   "src/styles.css .recording-dot",
+  // A table's cell bar ends with Delete, red as a menu's Delete is (#3761).
+  "src/editor/tableHandles.css .table-cell-bar .table-bar-delete, .table-cell-bar .table-bar-delete:hover",
   // A cell's note, drawn with the red corner Excel gives it.
   "src/viewer/viewer.css .viewer-grid td.viewer-cell--note::after",
 ];
 
-/** The only code that names red: the button variant the dialogs below use. */
+/** The only code that names red: the button variant the dialogs below use, and a menu's Delete. */
 const RED_CODE = ["src/components/ui.ts"];
 
 const RED_BUTTON_DIALOGS = [

@@ -14,8 +14,7 @@ import {
   searchScopeOf,
 } from "../../../shared/searchScope";
 import { useAnswers } from "../answers";
-import { SkillIcon } from "../components/icons";
-import { SparkLineIcon } from "../components/lineIcons";
+import { ChevronDownSmallIcon, RemoveIcon, SkillIcon, SparkLineIcon } from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessLine } from "../components/providers/ChatReadinessNotice";
 import { folderWallOf } from "../folders";
@@ -23,7 +22,6 @@ import { useT } from "../i18n";
 import { useModelNames } from "../modelNames";
 import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
-import { ChevronDownSmallIcon, RemoveIcon } from "./icons";
 import { useMindId } from "./mindContext";
 import { askInEditor } from "./questionCommands";
 import { isQuestionFolded, toggleFold } from "./questionFold";

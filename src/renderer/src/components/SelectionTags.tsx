@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Document } from "../../../core/api";
 import { useT } from "../i18n";
-import { TagLineIcon } from "./lineIcons";
+import { TagLineIcon } from "./icons";
 import { pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "./TagPicker";
 import { buttonStyle } from "./ui";
 

@@ -14,7 +14,7 @@ import {
   CopyLineIcon,
   MindLineIcon,
   PlusLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { useGoesBy } from "../UndoLine";
 
 /** How long "Copied" says so. */

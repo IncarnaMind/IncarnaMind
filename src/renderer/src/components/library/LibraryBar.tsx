@@ -5,7 +5,7 @@ import { formatCount } from "../../linkedFolders";
 import type { Sort } from "../../sort";
 import type { SortScope } from "../../sortChoices";
 import { useSortMenu } from "../../sortMenu";
-import { CheckLineIcon, ChevronRightLineIcon, CloseLineIcon, PlusLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronRightLineIcon, CloseLineIcon, PlusLineIcon } from "../icons";
 import { SORT_KEY_LABELS } from "../SortMenu";
 import { TagDot } from "../TagColour";
 import { menuClass, menuItemClass, menuTitleClass } from "../ui";
@@ -13,7 +13,7 @@ import { usePopoverMenu } from "../usePopoverMenu";
 
 /** A quiet text button in the bar, its words on the page's edge: its padding hangs into the margin. */
 const barButtonClass =
-  "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[13px] text-ink-secondary hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink";
+  "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-ui text-ink-secondary hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink";
 
 /**
  * The quiet bar under the search: "+ Filter" and the filters chosen, as chips
@@ -204,7 +204,7 @@ function FilterChip<T>({
     <span
       data-testid="library-filter"
       data-facet={facet.id}
-      className="inline-flex h-6 max-w-72 min-w-0 items-center rounded-sm bg-chip text-[12px] text-ink-secondary"
+      className="inline-flex h-6 max-w-72 min-w-0 items-center rounded-sm bg-chip text-small text-ink-secondary"
     >
       <button
         {...menu.buttonProps}
@@ -214,7 +214,7 @@ function FilterChip<T>({
       >
         <span className="min-w-0 truncate">
           {sentence.slice(0, at)}
-          <span className="font-semibold text-ink">{value}</span>
+          <span className="text-ink">{value}</span>
           {sentence.slice(at + value.length)}
         </span>
       </button>
@@ -278,7 +278,7 @@ function FacetOptions<T>({
             <CheckLineIcon className={`size-3.5 shrink-0 ${selected ? "text-ink" : "invisible"}`} />
             {facet.colour?.(value) && <TagDot colour={facet.colour(value) ?? undefined} />}
             <span className="min-w-0 flex-1 truncate">{name}</span>
-            <span aria-hidden="true" className="shrink-0 text-[12px] tabular-nums text-ink-meta">
+            <span aria-hidden="true" className="shrink-0 text-small tabular-nums text-ink-meta">
               {formatCount(count, language)}
             </span>
           </button>

@@ -29,7 +29,7 @@ export function CardKeyHint({ shown }: { shown: boolean }) {
       ref={line}
       data-testid="card-key-hint"
       aria-hidden={!shown || undefined}
-      className={`m-0 items-center gap-1.5 text-[12px] leading-[18px] text-ink-meta ${hasControl ? "flex" : "hidden"} ${shown ? "" : "invisible"}`}
+      className={`m-0 items-center gap-1.5 text-small leading-[18px] text-ink-meta ${hasControl ? "flex" : "hidden"} ${shown ? "" : "invisible"}`}
     >
       <KeyCap>Space</KeyCap>
       <span>{t("card.useKey")}</span>

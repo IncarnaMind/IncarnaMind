@@ -18,7 +18,7 @@ import { buttonStyle } from "../ui";
 export const ANTHROPIC_SETUP_GUIDE_URL = "https://code.claude.com/docs/en/setup";
 
 const linkClass =
-  "rounded-sm text-[13px] font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
+  "rounded-sm text-ui text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
 
 /** Why the one-press install failed, in one line. */
 export function installFailureKey(reason: ClaudeCodeInstallFailureReason) {
@@ -106,10 +106,8 @@ export function ClaudeCodeInstallRow({
             className="mt-1.5 size-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
           />
           <div className="min-w-0 flex-1">
-            <div className="text-[13.5px] leading-5 font-semibold text-ink">
-              {t("agents.install.progress.title")}
-            </div>
-            <p className="mt-0.5 text-[12.5px] leading-[18px] text-ink-meta">
+            <div className="text-ui leading-5 text-ink">{t("agents.install.progress.title")}</div>
+            <p className="mt-0.5 text-small leading-[18px] text-ink-meta">
               {t("agents.install.progress.detail", { directory: state.directory })}
             </p>
             <div className="mt-2 h-[3px] max-w-[340px] overflow-hidden rounded-full bg-rule">
@@ -143,16 +141,14 @@ export function ClaudeCodeInstallRow({
           className="mt-1.5 size-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
         />
         <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] leading-5 font-semibold text-ink">
-            {t("agents.install.signIn.title")}
-          </div>
-          <p className="mt-0.5 text-[12.5px] leading-[18px] text-ink-meta">
+          <div className="text-ui leading-5 text-ink">{t("agents.install.signIn.title")}</div>
+          <p className="mt-0.5 text-small leading-[18px] text-ink-meta">
             {t("agents.install.signIn.detail")}
           </p>
           {state.notYet && (
             <p
               data-testid="claude-code-install-signin-not-yet"
-              className="mt-1 text-[12px] leading-[17px] text-ink-secondary"
+              className="mt-1 text-small leading-[17px] text-ink-secondary"
             >
               {t("agents.install.signIn.notYet")}
             </p>
@@ -203,10 +199,10 @@ export function ClaudeCodeInstallRow({
           <ProblemMark />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] leading-5 font-semibold text-ink">
+          <div className="text-ui leading-5 text-ink">
             {t(signInFailed ? "agents.install.failed.signInTitle" : "agents.install.failed.title")}
           </div>
-          <p className="mt-0.5 text-[12.5px] leading-[18px] text-ink-meta">
+          <p className="mt-0.5 text-small leading-[18px] text-ink-meta">
             {t(installFailureKey(state.reason))}
           </p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
@@ -272,10 +268,8 @@ export function ClaudeCodeInstallRow({
           <ProblemMark />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] leading-5 font-semibold text-ink">
-            {t("agents.install.noPlan.title")}
-          </div>
-          <p className="mt-0.5 text-[12.5px] leading-[18px] text-ink-meta">{detail}</p>
+          <div className="text-ui leading-5 text-ink">{t("agents.install.noPlan.title")}</div>
+          <p className="mt-0.5 text-small leading-[18px] text-ink-meta">{detail}</p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -327,8 +321,8 @@ export function ClaudeCodeInstallRow({
       className={`${wrapperClass} flex items-center justify-between gap-4`}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] leading-5 font-semibold text-ink">{title}</div>
-        <p className="mt-0.5 text-[12.5px] leading-[18px] text-ink-meta">{detail}</p>
+        <div className="text-ui leading-5 text-ink">{title}</div>
+        <p className="mt-0.5 text-small leading-[18px] text-ink-meta">{detail}</p>
       </div>
       <div className="shrink-0">
         <button

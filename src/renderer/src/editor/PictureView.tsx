@@ -1,10 +1,10 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ExpandIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { inAnswerAt } from "../pictureGroups";
 import { openPictureViewer, pictureClickHandlers, picturesAt } from "../pictureViewer";
 import { asOneStep } from "./editorUndo";
-import { ExpandIcon } from "./icons";
 import { PictureSurfaceContext } from "./mindContext";
 
 /**

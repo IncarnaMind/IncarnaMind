@@ -10,11 +10,11 @@ import { showsUndoPill } from "../undoPill";
 import { SidebarControlContext } from "./SidebarToggle";
 
 const lineClass = (inPill: boolean) =>
-  `${inPill ? "" : "mx-2 pt-0.5 pb-1 pl-2"} flex min-w-0 shrink-0 gap-1 text-[12px] leading-4 text-ink-secondary`;
+  `${inPill ? "" : "mx-2 pt-0.5 pb-1 pl-2"} flex min-w-0 shrink-0 gap-1 text-small leading-4 text-ink-secondary`;
 const changeLineClass = (inPill: boolean) =>
-  `${inPill ? "" : "mx-2 pt-0.5 pb-1 pl-2"} min-w-0 shrink-0 text-[12px] leading-4 text-ink-secondary`;
+  `${inPill ? "" : "mx-2 pt-0.5 pb-1 pl-2"} min-w-0 shrink-0 text-small leading-4 text-ink-secondary`;
 const actionClass =
-  "h-6 shrink-0 rounded-md px-1 text-[12px] leading-5 font-semibold text-ink-secondary hover:bg-hover hover:text-ink";
+  "h-6 shrink-0 rounded-md px-1 text-small leading-5 text-ink-secondary hover:bg-hover hover:text-ink";
 
 /**
  * The undo line (CONTEXT.md) at the foot of the sidebar, above Settings: what

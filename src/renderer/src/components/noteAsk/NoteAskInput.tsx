@@ -1,8 +1,7 @@
 import { type KeyboardEvent, type ReactNode, type RefObject, useLayoutEffect, useRef } from "react";
 import { clearFieldUndoPending, markFieldUndoPending } from "../../commands/edit";
-import { AskArrowIcon, RemoveIcon } from "../../editor/icons";
 import { useT } from "../../i18n";
-import { StopIcon } from "../icons";
+import { AskArrowIcon, RemoveIcon, StopIcon } from "../icons";
 import { TypingTextarea } from "../TypingTextarea";
 import { NoteModeChoice } from "./NoteModeChoice";
 import { NoteModelChoice } from "./NoteModelChoice";

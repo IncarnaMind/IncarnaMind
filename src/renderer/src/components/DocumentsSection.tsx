@@ -41,9 +41,9 @@ import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
+import { DocumentLineIcon, MoreLineIcon } from "./icons";
 import { Contents, LibraryFolders } from "./LibraryFolders";
 import { LinkFolderDialog } from "./LinkFolderDialog";
-import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import { SidebarHome } from "./SidebarHome";
 import { SidebarMoveTo } from "./SidebarMoveTo";
@@ -225,7 +225,7 @@ export function DocumentsSection() {
               <span
                 data-testid="library-row-count"
                 data-waiting="true"
-                className="min-w-[6ch] text-right text-[12px] font-bold tabular-nums text-ink"
+                className="min-w-[6ch] text-right text-small tabular-nums text-ink"
               >
                 <span aria-hidden="true">{formatCount(waiting, language)}</span>
                 <span className="sr-only">
@@ -237,7 +237,7 @@ export function DocumentsSection() {
             ) : (
               <span
                 data-testid="library-row-count"
-                className="min-w-[6ch] text-right text-[12px] tabular-nums text-ink-meta"
+                className="min-w-[6ch] text-right text-small tabular-nums text-ink-meta"
               >
                 {formatCount(libraryDocuments.length, language)}
               </span>
@@ -274,7 +274,7 @@ export function DocumentsSection() {
           <p
             role="status"
             data-testid="documents-empty"
-            className="px-2 pt-2 pb-1 font-sans text-[13px] leading-5 break-words text-ink-meta"
+            className="px-2 pt-2 pb-1 font-sans text-ui leading-5 break-words text-ink-meta"
           >
             {t("library.none")}
           </p>
@@ -478,7 +478,7 @@ export function NotCitedLabel({ item }: { item: Pick<Document, "notCited" | "han
           ? t("evidence.notCited.hint")
           : t("evidence.notCited.handedHint", { agent: item.handedBy })
       }
-      className="shrink-0 text-label font-semibold text-ink-meta"
+      className="shrink-0 text-small text-ink-meta"
     >
       {t("evidence.notCited.label")}
     </span>
@@ -493,7 +493,7 @@ export function CitedByLabel({ item }: { item: Pick<Document, "citedBy"> }) {
     <span
       data-testid="document-cited-by"
       title={t("library.citedBy.hint", { agent: item.citedBy })}
-      className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+      className="min-w-0 shrink truncate text-small text-ink-meta"
     >
       {t("library.citedBy.label", { agent: item.citedBy })}
     </span>
@@ -508,7 +508,7 @@ export function YourNoteLabel({ item }: { item: Pick<Document, "yourNote"> }) {
     <span
       data-testid="document-your-note"
       title={t("mind.yourNote")}
-      className="shrink-0 text-label font-semibold text-ink-meta"
+      className="shrink-0 text-small text-ink-meta"
     >
       {t("mind.yourNote")}
     </span>
@@ -532,7 +532,7 @@ export function DocumentStatusLabel({ item }: { item: Document }) {
         data-testid="document-status"
         data-file-status={item.fileStatus}
         title={t(fileState.full)}
-        className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+        className="min-w-0 shrink truncate text-small text-ink-meta"
       >
         <span aria-hidden="true">{t(fileState.short)}</span>
         <span className="sr-only">{t(fileState.full)}</span>
@@ -556,7 +556,7 @@ export function DocumentStatusLabel({ item }: { item: Document }) {
     <span
       data-testid="document-status"
       title={title}
-      className="flex shrink-0 items-center gap-1.5 text-label font-semibold text-ink-meta"
+      className="flex shrink-0 items-center gap-1.5 text-small text-ink-meta"
     >
       {item.status === "failed" && !unread && (
         <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-attention" />

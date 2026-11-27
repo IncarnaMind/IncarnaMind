@@ -5,7 +5,7 @@ import { useT } from "../../i18n";
 import { LEVEL_BARS, useMeetingLevels } from "../../meetingLevels";
 import { isWaitingForPermission } from "../../meetings";
 import { motionMode, subscribeMotion } from "../../motion";
-import { StopLineIcon, WarningLineIcon } from "../lineIcons";
+import { StopLineIcon, WarningLineIcon } from "../icons";
 
 /** Where a bar stands when the bars hold still: highest in the middle. */
 const STILL_SHAPE = [0.55, 0.8, 1, 0.8, 0.55];

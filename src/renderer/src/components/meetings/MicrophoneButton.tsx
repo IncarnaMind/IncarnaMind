@@ -3,7 +3,7 @@ import { useT } from "../../i18n";
 import { helpKeysLabel } from "../../meetingHelp";
 import { useMeetings } from "../../meetings";
 import { useAppStore } from "../../store";
-import { MicLineIcon, MicOffLineIcon } from "../lineIcons";
+import { MicLineIcon, MicOffLineIcon } from "../icons";
 
 /**
  * Pause my mic (暂停我的麦克风), for when the User mutes themselves in the call to talk to someone

@@ -7,7 +7,7 @@ import { onMiddleClick } from "../middleClick";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { useAppStore } from "../store";
 import { useTreeItem } from "../treeKeys";
-import { DocumentLineIcon } from "./lineIcons";
+import { DocumentLineIcon } from "./icons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import {
   clearsActions,

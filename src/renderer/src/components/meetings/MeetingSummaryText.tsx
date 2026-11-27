@@ -74,7 +74,7 @@ export function MeetingSummaryText({
           "aria-multiline": "true",
           "aria-label": label,
           class:
-            "min-h-6 cursor-text outline-none caret-ink [&_p+p]:mt-2 [&_h1]:text-lg [&_h2]:text-base [&_h3]:font-semibold [&_h1]:font-semibold [&_h2]:font-semibold [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ps-6 [&_ol]:ps-6 [&_blockquote]:border-s-2 [&_blockquote]:ps-3",
+            "min-h-6 cursor-text outline-none caret-ink [&_p+p]:mt-2 [&_h1]:text-body [&_h2]:text-body [&_h3]:font-semibold [&_h1]:font-semibold [&_h2]:font-semibold [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ps-6 [&_ol]:ps-6 [&_blockquote]:border-s-2 [&_blockquote]:ps-3",
         },
       },
       onUpdate: ({ editor }) =>
@@ -98,7 +98,7 @@ export function MeetingSummaryText({
   const problem = draft?.problem;
   const conflict = problem === "conflict";
   return (
-    <div className="mt-1 max-w-3xl text-[14px] leading-6 break-words text-ink-answer">
+    <div className="mt-1 max-w-3xl text-ui leading-6 break-words text-ink-answer">
       <EditorContent editor={editor} />
       {problem && (
         <ProblemLine
@@ -135,7 +135,7 @@ export function MeetingSummaryText({
         </ProblemLine>
       )}
       {conflict && (
-        <details className="mt-1 text-[13px] text-ink-secondary">
+        <details className="mt-1 text-ui text-ink-secondary">
           <summary className="cursor-pointer">{t("meetings.summary.content.savedVersion")}</summary>
           <p className="whitespace-pre-wrap">{summary.text}</p>
         </details>

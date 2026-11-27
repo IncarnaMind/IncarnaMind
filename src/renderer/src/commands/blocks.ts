@@ -42,9 +42,12 @@ export function cursorInFocus(editor: Editor, ctx: CommandContext): boolean {
   return ctx.focus?.kind !== "block" || blockAt(editor.state.selection)?.id === ctx.focus.id;
 }
 
-/** A table's menu has Delete table, which is its Delete, so it doesn't say it twice. */
-export const withoutOwnDelete = (node: ProseMirrorNode): readonly CommandId[] =>
-  node.type.name === "table" ? ["block.delete"] : [];
+/**
+ * A table's menu has Delete table, which is its Delete, so it doesn't say it twice; and it is for
+ * editing the table, so the Question context's switch isn't in it (#3761).
+ */
+export const notInBlockMenu = (node: ProseMirrorNode): readonly CommandId[] =>
+  node.type.name === "table" ? ["block.delete", "block.includeInContext"] : [];
 
 export const blockCommands: readonly Command[] = [
   {

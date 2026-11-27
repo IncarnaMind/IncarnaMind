@@ -5,8 +5,7 @@ import { type AddTarget, noteChoices } from "../../addToNote";
 import { Popover } from "../../editor/Popover";
 import { useT } from "../../i18n";
 import { exampleMindIds, useAppStore } from "../../store";
-import { SearchIcon } from "../icons";
-import { MindLineIcon, PlusLineIcon } from "../lineIcons";
+import { MindLineIcon, PlusLineIcon, SearchIcon } from "../icons";
 
 /** Under "Recent", this many Minds; a search shows up to this many. */
 const RECENT = 4;

@@ -12,7 +12,8 @@ import {
   DocumentLineIcon,
   FolderLineIcon,
   MindLineIcon,
-} from "./components/lineIcons";
+  OutlineToggleIcon,
+} from "./components/icons";
 import { TagDot } from "./components/TagColour";
 import { conversationLabel, openConversation, useConversations } from "./conversations";
 import { nameWithPlace, placesOf } from "./documentPlaces";
@@ -25,7 +26,6 @@ import { isListedDocument } from "./meetingTranscript";
 import { noteTabOf, noteTabRef, tabName } from "./noteTabs";
 import type { ObjectRef, Translate } from "./objects";
 import { useAppStore } from "./store";
-import { OutlineToggleIcon } from "./viewer/icons";
 
 type AppState = ReturnType<typeof useAppStore.getState>;
 

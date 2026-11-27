@@ -13,17 +13,17 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md" | "lg";
 
 const buttonBase =
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-semibold whitespace-nowrap transition-colors duration-80 disabled:cursor-default disabled:opacity-50";
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md whitespace-nowrap transition-colors duration-80 disabled:cursor-default disabled:opacity-50";
 
 const buttonSizes: Record<ButtonSize, string> = {
-  sm: "h-7 px-2.5 text-[13px] leading-5",
-  md: "h-8 px-3 text-[13px] leading-5",
+  sm: "h-7 px-2.5 text-ui leading-5",
+  md: "h-8 px-3 text-ui leading-5",
   lg: "h-9 px-4 text-ui",
 };
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-ink text-on-primary hover:bg-ink-strong active:scale-[0.98] disabled:hover:bg-ink disabled:active:scale-100",
+    "bg-ink font-medium text-on-primary hover:bg-ink-strong active:scale-[0.98] disabled:hover:bg-ink disabled:active:scale-100",
   secondary:
     "border border-rule-strong bg-sheet text-ink-strong hover:bg-frame disabled:hover:bg-sheet",
   ghost: "text-ink-secondary hover:bg-chip hover:text-ink disabled:hover:bg-transparent",
@@ -41,7 +41,7 @@ export const dangerButtonClass = buttonStyle("danger");
 
 /** A square ghost button around a 16px icon. */
 export const iconButtonClass =
-  "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-chip hover:text-ink focus-visible:outline-offset-0 disabled:opacity-50";
+  "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-hover hover:text-ink focus-visible:outline-offset-0 disabled:opacity-50";
 
 /**
  * A field's box: radius 4, a 1px edge, blue when focused, `warning` while its
@@ -55,13 +55,13 @@ export const inputClass = `mt-1 block w-full ${fieldClass}`;
 
 /** A text field at a Settings row's end: 28px high, like the row's buttons and pop-ups. */
 export const rowFieldClass =
-  "h-7 rounded-md border border-rule-strong bg-sheet px-2.5 text-[13px] leading-5 text-ink placeholder:text-ink-placeholder aria-invalid:border-warning focus:border-accent focus:outline-1 focus:outline-offset-0 focus:outline-accent disabled:opacity-60";
+  "h-7 rounded-md border border-rule-strong bg-sheet px-2.5 text-ui leading-5 text-ink placeholder:text-ink-placeholder aria-invalid:border-warning focus:border-accent focus:outline-1 focus:outline-offset-0 focus:outline-accent disabled:opacity-60";
 
 /** A field's label, above it. */
-export const fieldLabelClass = "block text-[13px] leading-5 text-ink-secondary";
+export const fieldLabelClass = "block text-ui leading-5 text-ink-secondary";
 
 /** The line of help under a field. */
-export const hintClass = "mt-1 block text-[12px] leading-[18px] text-ink-meta";
+export const hintClass = "mt-1 block text-small leading-[18px] text-ink-meta";
 
 /**
  * A checkbox with its label, and the line of help under it: the box is 16px
@@ -73,13 +73,13 @@ export const checkHintClass = `${hintClass} mt-0 pl-6`;
 
 /** A note that needs reading, on the frame: no tinted boxes outside Citations. */
 export const noticeClass =
-  "rounded-lg border border-rule bg-frame px-3 py-2 text-[13px] leading-5 text-ink-secondary";
+  "rounded-lg border border-rule bg-frame px-3 py-2 text-ui leading-5 text-ink-secondary";
 
 /** What went wrong, in words, in ink after a `ProblemMark`. Red is only for what can't be undone. */
-export const errorTextClass = "text-[13px] leading-5 break-words text-ink";
+export const errorTextClass = "text-ui leading-5 break-words text-ink";
 
 /** Something that worked, e.g. a connection test: in ink, as green is for Citation checks. */
-export const successTextClass = "text-[13px] leading-5 text-ink-secondary";
+export const successTextClass = "text-ui leading-5 text-ink-secondary";
 
 // Dialogs ------------------------------------------------------------------
 
@@ -126,10 +126,10 @@ export const compactChoiceRadioClass = "size-4 shrink-0 accent-ink";
 export const choiceRadioClass = "mt-[3px] size-4 accent-ink";
 
 /** A choice's name. */
-export const choiceTitleClass = "text-ui font-semibold text-ink";
+export const choiceTitleClass = "text-ui text-ink";
 
 /** What a choice means. */
-export const choiceTextClass = "text-[13px] leading-5 text-ink-secondary";
+export const choiceTextClass = "text-ui leading-5 text-ink-secondary";
 
 // Settings -------------------------------------------------------------------
 
@@ -137,7 +137,7 @@ export const choiceTextClass = "text-[13px] leading-5 text-ink-secondary";
 export const navRowClass = (selected: boolean) =>
   `flex h-7 w-full shrink-0 items-center rounded-md px-2 text-left text-ui focus-visible:-outline-offset-2 ${
     selected
-      ? "bg-sheet font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
+      ? "bg-sheet text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
       : "text-ink-secondary hover:bg-hover"
   }`;
 
@@ -145,10 +145,10 @@ export const navRowClass = (selected: boolean) =>
 export const pageIntroClass = "max-w-[560px] text-ui leading-[22px] text-ink-secondary";
 
 /** A section's title on a Settings page. */
-export const sectionTitleClass = "text-[15px] leading-[22px] font-semibold text-ink";
+export const sectionTitleClass = "text-ui leading-[22px] text-ink";
 
 /** The line under a section's title. */
-export const sectionNoteClass = "mt-0.5 mb-2 text-[13px] leading-5 text-ink-meta";
+export const sectionNoteClass = "mt-0.5 mb-2 text-ui leading-5 text-ink-meta";
 
 /**
  * Rows split by rules: a rule above each, and one under the last. Each row
@@ -174,13 +174,13 @@ export const ruledRowClass = ruledRow();
 export const rowButtonsClass = "-my-1.5 flex flex-wrap items-center justify-end gap-2";
 
 /** The name in a ruled row. */
-export const rowTitleClass = "text-ui font-semibold text-ink";
+export const rowTitleClass = "text-ui text-ink";
 
 /** What a ruled row is about. */
-export const rowTextClass = "text-[13px] leading-5 text-ink-secondary";
+export const rowTextClass = "text-ui leading-5 text-ink-secondary";
 
 /** A row's status, on the right. */
-export const rowStatusClass = "text-[13px] leading-5 text-ink-meta";
+export const rowStatusClass = "text-ui leading-5 text-ink-meta";
 
 /**
  * A few choices side by side, one chosen (radio buttons that look like a
@@ -191,7 +191,7 @@ export const segmentedClass =
   "inline-flex shrink-0 overflow-hidden rounded-md shadow-[inset_0_0_0_1px_var(--color-rule-strong)]";
 
 export const segmentClass =
-  "h-[26px] cursor-default px-2 text-[12px] leading-[26px] whitespace-nowrap text-ink-secondary hover:text-ink has-[:checked]:bg-frame has-[:checked]:font-semibold has-[:checked]:text-ink has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-accent";
+  "h-[26px] cursor-default px-2 text-small leading-[26px] whitespace-nowrap text-ink-secondary hover:text-ink has-[:checked]:bg-frame has-[:checked]:text-ink has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-accent";
 
 // Menus ----------------------------------------------------------------------
 
@@ -207,7 +207,7 @@ export const menuFrameClass =
 export const menuClass = `${menuFrameClass} w-max max-w-72 min-w-48`;
 
 /** A menu's small heading. */
-export const menuTitleClass = "px-2 pt-1.5 pb-1 text-label font-semibold text-ink-meta";
+export const menuTitleClass = "px-2 pt-1.5 pb-1 text-small text-ink-meta";
 
 const menuItemBase =
   "flex w-full items-center gap-2 rounded-md pr-2 text-left -outline-offset-2 hover:bg-hover focus-visible:bg-hover disabled:text-ink-placeholder disabled:hover:bg-transparent";
@@ -224,6 +224,9 @@ export const tallMenuItemClass = `${menuItemBase} min-h-7 py-1`;
  */
 export const menuItemUnavailableClass =
   "aria-disabled:cursor-default aria-disabled:text-ink-placeholder aria-disabled:hover:bg-transparent";
+
+/** A Delete, last in its menu or bar: its words and icon in red, on hover too (DESIGN.md, Menus). */
+export const dangerItemClass = "text-danger hover:text-danger";
 
 /** A rule between groups of menu items. */
 export const menuRuleClass = "mx-1 my-1 border-t border-rule";

@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { InlineName } from "../components/InlineName";
-import { PlusLineIcon } from "../components/lineIcons";
+import { PlusLineIcon } from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { stepOutlineFocus } from "../components/OutlinePanel";
 import { rowActionButtonClass } from "../components/sidebarRows";

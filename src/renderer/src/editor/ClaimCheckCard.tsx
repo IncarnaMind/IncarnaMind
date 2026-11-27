@@ -67,6 +67,25 @@ import {
 import { useChecksWaitForConsent } from "../checksConsent";
 import { requestCitationPicker } from "../citationPick";
 import { CountItLine } from "../components/CountItLine";
+import {
+  CalculatorLineIcon,
+  CheckedByMeIcon,
+  CheckLineIcon,
+  ClaimMarkIcon,
+  type ClaimMarkState,
+  CutIcon,
+  EraseIcon,
+  FindSourcesLineIcon,
+  FirstReadingIcon,
+  ImproveIcon,
+  MineLineIcon,
+  OpenBesideLineIcon,
+  PencilLineIcon,
+  QuoteIcon,
+  RetryLineIcon,
+  SearchLineIcon,
+  SparkLineIcon,
+} from "../components/icons";
 import { MetaLine } from "../components/MetaLine";
 import { useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
@@ -166,7 +185,6 @@ import {
   waitingParts,
 } from "./claimChecks";
 import { sentenceMarks } from "./claimSentenceMarks";
-import { ClaimMarkIcon, type ClaimMarkState, FirstReadingIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
 import {
   ConversationIdContext,
@@ -1413,6 +1431,7 @@ export function ClaimCard({
     (agent, index): CardAction => ({
       key: `ask-${agent.id}`,
       testId: "claim-ask-agent",
+      icon: SparkLineIcon,
       label: t("claim.askToFix", { agent: agent.name }),
       primary: askFirst && index === 0 && !accept,
       menuOnly: !askFirst || index > 0 || accept !== null,
@@ -1430,6 +1449,7 @@ export function ClaimCard({
       accept && {
         key: "accept-change",
         testId: "claim-accept-change",
+        icon: CheckLineIcon,
         label: t("claim.acceptChange"),
         primary: true,
         keys: "Meta+Enter Control+Enter",
@@ -1439,6 +1459,7 @@ export function ClaimCard({
       addable.length >= 2 && {
         key: "add-all",
         testId: "claim-parts-add-all",
+        icon: QuoteIcon,
         label: t("claim.addAllAsCitations"),
         menuOnly: true,
         onClick: () => partCitations.onAdd(addable),
@@ -1446,6 +1467,7 @@ export function ClaimCard({
       cuttable && {
         key: "cut",
         testId: "claim-cut",
+        icon: CutIcon,
         label: t("claim.cutUnsupported"),
         primary: true,
         onClick: onCut,
@@ -1453,6 +1475,7 @@ export function ClaimCard({
       sole && {
         key: "correct",
         testId: "claim-correct",
+        icon: PencilLineIcon,
         label: correctionLabel(sole.correction, t),
         primary: true,
         onClick: () => onCorrect(sole.span),
@@ -1461,6 +1484,7 @@ export function ClaimCard({
         calculation && {
           key: "use",
           testId: "claim-use-figure",
+          icon: CalculatorLineIcon,
           label: t("claim.useFigure", { figure: calculation.figure.shown }),
           primary: true,
           onClick: onUse,
@@ -1468,6 +1492,7 @@ export function ClaimCard({
       openEvidence && {
         key: "open",
         testId: "claim-open",
+        icon: OpenBesideLineIcon,
         label: t(`citation.open.${openKind(location)}`),
         menuOnly: true,
         onClick: openEvidence,
@@ -1475,6 +1500,7 @@ export function ClaimCard({
       unread && {
         key: "open-unread",
         testId: "claim-open-unread",
+        icon: OpenBesideLineIcon,
         label: t(`citation.open.${openKind(unreadLocation)}`),
         primary: true,
         onClick: () => {
@@ -1494,6 +1520,7 @@ export function ClaimCard({
         !fileOnly && {
           key: "fix",
           testId: "claim-fix",
+          icon: ImproveIcon,
           label: t("claim.fixSentence"),
           primary: fixable && !searchFirst,
           disabled: fixable && noteRunning,
@@ -1503,6 +1530,7 @@ export function ClaimCard({
         !searchOnLine && {
           key: "search-all",
           testId: "claim-search-all",
+          icon: SearchLineIcon,
           label: t("claim.searchAll"),
           primary: !(cuttable || check.citedOnly),
           onClick: () => onCheckAgain(true),
@@ -1511,6 +1539,7 @@ export function ClaimCard({
         mindId && {
           key: "choose-citation",
           testId: "claim-choose-citation",
+          icon: QuoteIcon,
           label: t("claim.chooseCitation"),
           disabled: noteRunning,
           onClick: () => requestCitationPicker(check.id),
@@ -1520,12 +1549,14 @@ export function ClaimCard({
         verified === null && {
           key: "cut-sentence",
           testId: "claim-cut-sentence",
+          icon: CutIcon,
           label: t("claim.cutSentence"),
           onClick: onCutSentence,
         },
       (fixes || notFound || keep) && {
         key: "keep",
         testId: "claim-keep",
+        icon: MineLineIcon,
         label: t("claim.keepAsWritten"),
         keep: true,
         onClick: onKeep,
@@ -1533,6 +1564,7 @@ export function ClaimCard({
       findSourcesOffered && {
         key: "search-web",
         testId: "claim-search-web",
+        icon: FindSourcesLineIcon,
         label: t("claim.searchWeb"),
         onClick: () => (webSearchOn || ownAiOnlyNow() ? onSearchWeb() : setWebOffShown(true)),
       },
@@ -1540,6 +1572,8 @@ export function ClaimCard({
         !fixes && {
           key: "remove",
           testId: "claim-remove",
+          icon: EraseIcon,
+          danger: true,
           label: t("claim.removeMark"),
           onClick: onRemove,
         },
@@ -1555,6 +1589,7 @@ export function ClaimCard({
           !leftOut)) && {
         key: "check-again",
         testId: "claim-check-again",
+        icon: RetryLineIcon,
         label: t("claim.checkAgain"),
         primary: true,
         onClick: () => onCheckAgain(),
@@ -1562,6 +1597,7 @@ export function ClaimCard({
       ownView && {
         key: "check-again",
         testId: "claim-check-again",
+        icon: RetryLineIcon,
         label: t("claim.checkAgain"),
         onClick: () => onCheckAgain(),
       },
@@ -1582,6 +1618,7 @@ export function ClaimCard({
           {
             key: "sign",
             testId: "sign-off-toggle",
+            icon: CheckedByMeIcon,
             label: t("signOff.action"),
             checked: signedAll,
             onClick: signAll,
@@ -1589,7 +1626,8 @@ export function ClaimCard({
         ]
       : []),
     ...menu.filter((action) => action.testId === "claim-ask-agent"),
-    ...menu.filter((action) => action.testId !== "claim-ask-agent"),
+    ...menu.filter((action) => action.testId !== "claim-ask-agent" && !action.danger),
+    ...menu.filter((action) => action.danger),
   ];
 
   // How the check was made: where it looked, what it read whole, the model and the time, and
@@ -2291,7 +2329,7 @@ export function ClaimCard({
             <button
               type="button"
               data-testid="claim-web-off-settings"
-              className="font-semibold text-accent underline-offset-2 hover:underline"
+              className="text-accent underline-offset-2 hover:underline"
               onClick={onTurnOnWebSearch}
             >
               {t("claim.webSearchOff.action")}

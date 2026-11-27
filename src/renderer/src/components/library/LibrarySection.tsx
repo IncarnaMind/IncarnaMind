@@ -34,7 +34,7 @@ import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
 import { useRename } from "../../useRename";
 import { BoundMark } from "../BoundMark";
 import { InlineName } from "../InlineName";
-import { ChevronRightLineIcon, FolderLineIcon, LockLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon, FolderLineIcon, LockLineIcon } from "../icons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import {
   dropAfterClass,
@@ -49,7 +49,7 @@ import { SectionHead, sectionNameClass } from "./SectionHead";
 
 /** A link-like button in a section's head or foot: quiet until pointed at. */
 export const quietButtonClass =
-  "shrink-0 rounded-sm text-[13px] font-semibold text-ink-secondary hover:text-ink hover:underline disabled:opacity-50 disabled:hover:no-underline";
+  "shrink-0 rounded-sm text-ui text-ink-secondary hover:text-ink hover:underline disabled:opacity-50 disabled:hover:no-underline";
 
 /**
  * One section of the Library page: a Folder's Documents, or those in no
@@ -287,14 +287,14 @@ function SubfolderRow({
                     useSidebarMove.getState().show(menuAnchorOf(element.current), object);
                   }
                 }}
-                className={`${sectionNameClass} font-medium`}
+                className={`${sectionNameClass} `}
               >
                 {folder.name}
               </button>
             )}
             <span
               data-testid="library-subfolder-count"
-              className="shrink-0 text-[12px] tabular-nums text-ink-meta"
+              className="shrink-0 text-small tabular-nums text-ink-meta"
             >
               {formatCount(count, language)}
             </span>
@@ -302,7 +302,7 @@ function SubfolderRow({
               <span
                 data-testid="library-subfolder-path"
                 title={path}
-                className="max-w-56 shrink-0 truncate rounded-sm bg-chip px-1.5 text-[11px] leading-[18px] text-ink-secondary"
+                className="max-w-56 shrink-0 truncate rounded-sm bg-chip px-1.5 text-small leading-[18px] text-ink-secondary"
               >
                 … › {deep}
               </span>
@@ -311,7 +311,7 @@ function SubfolderRow({
           <span className="w-[200px] shrink-0 group-data-[hide~=narrow]/page:w-[152px] group-data-[hide~=narrower]/page:w-[112px] group-data-[hide~=narrowest]/page:w-[88px] group-data-[hide~=chips]/page:w-auto" />
           <span
             data-testid="library-subfolder-format"
-            className="w-[76px] shrink-0 text-[13px] text-ink-secondary group-data-[hide~=format]/page:hidden"
+            className="w-[76px] shrink-0 text-ui text-ink-secondary group-data-[hide~=format]/page:hidden"
           >
             {t("library.format.folder")}
           </span>
@@ -453,7 +453,7 @@ function FolderHead({
         value={folder.name}
         label={t("folder.renameLabel", { name: folder.name })}
         testId="library-section-rename"
-        className="h-7 w-full max-w-80 min-w-0 rounded-sm border border-accent bg-sheet px-1.5 text-[15px] font-semibold text-ink outline-1 outline-offset-0 outline-accent select-text"
+        className="h-7 w-full max-w-80 min-w-0 rounded-sm border border-accent bg-sheet px-1.5 text-ui text-ink outline-1 outline-offset-0 outline-accent select-text"
         {...rename.field((next) => useAppStore.getState().renameFolder(folder.id, next))}
       />
     );
@@ -505,7 +505,7 @@ function FolderHead({
             {inSubfolders > 0 && (
               <span
                 data-testid="library-section-subfolders"
-                className="shrink-0 text-[12px] tabular-nums text-ink-meta"
+                className="shrink-0 text-small tabular-nums text-ink-meta"
               >
                 · {t("library.inSubfolders", { count: formatCount(inSubfolders, language) })}
               </span>
@@ -515,7 +515,7 @@ function FolderHead({
               <span
                 data-testid="folder-status"
                 title={status.full}
-                className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+                className="min-w-0 shrink truncate text-small text-ink-meta"
               >
                 {status.short}
               </span>
@@ -643,7 +643,7 @@ function Organize({ documents }: { documents: readonly Document[] }) {
       <span
         role="status"
         data-testid="library-organizing"
-        className="shrink-0 text-[13px] text-ink-meta"
+        className="shrink-0 text-ui text-ink-meta"
       >
         {t("library.organizing", { count: pending })}
       </span>
@@ -658,7 +658,7 @@ function Organize({ documents }: { documents: readonly Document[] }) {
       <span
         role="alert"
         data-testid="library-organize-failed"
-        className="min-w-0 truncate text-[13px] text-ink-meta"
+        className="min-w-0 truncate text-ui text-ink-meta"
       >
         {notOrganizedLine(problems, failedCount, t)}
         {fixable && fixLabel && (

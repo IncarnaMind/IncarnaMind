@@ -24,7 +24,7 @@ import { NoteFootAsk } from "../assistant/NoteFootAsk";
 import { ExampleLine } from "../ExampleLine";
 import { ExportResultLine } from "../ExportResultLine";
 import { useIsExample } from "../GettingStarted";
-import { PlusLineIcon } from "../lineIcons";
+import { PlusLineIcon } from "../icons";
 import { MakeSkillCard } from "../MakeSkillCard";
 import { MeetingInMind } from "../MeetingInMind";
 import { MindEditor } from "../MindEditor";

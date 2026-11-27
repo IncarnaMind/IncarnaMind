@@ -3,7 +3,7 @@ import { formatBytes } from "../../../shared/bytes";
 import { useLanguage, useT } from "../i18n";
 import { folderName, formatCount, formatDuration } from "../linkedFolders";
 import { type LinkingFolder, useAppStore } from "../store";
-import { FolderLineIcon } from "./lineIcons";
+import { FolderLineIcon } from "./icons";
 import { ProblemMark } from "./ProblemLine";
 import {
   buttonClass,
@@ -16,7 +16,7 @@ import {
 } from "./ui";
 import { useModal } from "./useModal";
 
-const factClass = "text-[13px] leading-5 text-ink-secondary";
+const factClass = "text-ui leading-5 text-ink-secondary";
 
 /**
  * Before a folder is linked (ADR-0010, "Big folders"): its name and path, how
@@ -69,13 +69,13 @@ function LinkFolderForm({ linking, onCancel }: { linking: LinkingFolder; onCance
       <div className="flex min-w-0 items-start gap-3">
         <FolderLineIcon className="mt-0.5 size-4 shrink-0 text-ink-meta" />
         <div className="min-w-0">
-          <p data-testid="link-folder-name" className="truncate text-ui font-semibold text-ink">
+          <p data-testid="link-folder-name" className="truncate text-ui text-ink">
             {folderName(path)}
           </p>
           <p
             data-testid="link-folder-path"
             title={preview?.path ?? path}
-            className="text-[12px] leading-[18px] break-all text-ink-meta"
+            className="text-small leading-[18px] break-all text-ink-meta"
           >
             {preview?.path ?? path}
           </p>
@@ -90,7 +90,7 @@ function LinkFolderForm({ linking, onCancel }: { linking: LinkingFolder; onCance
       ) : preview ? (
         <PreviewFacts preview={preview} />
       ) : (
-        <p role="status" className="text-[13px] leading-5 text-ink-meta">
+        <p role="status" className="text-ui leading-5 text-ink-meta">
           {t("linkedFolders.preview.counting")}
         </p>
       )}
@@ -185,7 +185,7 @@ function PreviewFacts({ preview }: { preview: LinkedFolderPreview }) {
               })}
         </p>
       )}
-      <p data-testid="link-folder-promise" className="py-2 text-[13px] leading-5 text-ink-meta">
+      <p data-testid="link-folder-promise" className="py-2 text-ui leading-5 text-ink-meta">
         {t("linkedFolders.preview.becomesFolder")}
       </p>
     </div>

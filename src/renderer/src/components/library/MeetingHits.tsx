@@ -5,7 +5,7 @@ import { meetingHitsOf, transcriptInNote } from "../../meetingTranscript";
 import { atPassage } from "../../palette";
 import { useAppStore } from "../../store";
 import { openTranscriptOfNote } from "../../transcripts";
-import { MindLineIcon } from "../lineIcons";
+import { MindLineIcon } from "../icons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { rowActionsClass } from "../sidebarRows";
 import { pageRowClass } from "./LibraryRow";
@@ -59,10 +59,10 @@ function MeetingHit({ match, note }: { match: DocumentTextMatch; note: Mind }) {
       >
         <MindLineIcon className="mt-0.5 size-4 shrink-0 text-ink-meta" />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[14px] leading-5 text-ink">
+          <span className="truncate text-ui leading-5 text-ink">
             {transcriptInNote(note, match.atMs, t)}
           </span>
-          <span className="line-clamp-2 text-[13px] leading-5 text-ink-meta">{match.excerpt}</span>
+          <span className="line-clamp-2 text-ui leading-5 text-ink-meta">{match.excerpt}</span>
         </span>
       </button>
       <div className={`${rowActionsClass} mt-2 mr-1`}>

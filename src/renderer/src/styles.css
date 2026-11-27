@@ -150,23 +150,25 @@
   --color-shadow: light-dark(rgb(23 25 28 / 0.12), rgb(0 0 0 / 0.45));
   --color-shadow-strong: light-dark(rgb(23 25 28 / 0.22), rgb(0 0 0 / 0.55));
 
-  /* The type scale (DESIGN.md, Typography). */
-  --text-display: 34px;
-  --text-display--line-height: 42px;
+  /*
+   * The type scale (DESIGN.md, Typography): the only sizes of the app's own interface (#3766). A
+   * Document's drawing (slides, office pages, PDF, print) keeps its own.
+   */
+  --text-title: 32px;
+  --text-title--line-height: 40px;
   --text-heading: 22px;
   --text-heading--line-height: 30px;
   --text-body: 16px;
   --text-body--line-height: 26px;
-  --text-note: 15px;
-  --text-note--line-height: 24px;
-  --text-question: 16px;
-  --text-question--line-height: 28px;
   --text-ui: 14px;
   --text-ui--line-height: 20px;
-  --text-meta: 12px;
-  --text-meta--line-height: 20px;
-  --text-label: 12px;
-  --text-label--line-height: 16px;
+  --text-small: 12px;
+  --text-small--line-height: 18px;
+  /*
+   * A conversation's reply: the interface size, a longer line. A Note's table, footnotes and
+   * references follow its writing a step under (`--text-note`, set with its style), else this.
+   */
+  --leading-reply: 22px;
 
   /* Depth for floating layers only; panes are flat. On the dark frame an edge needs rule-strong to show. */
   --shadow-popover:
@@ -372,7 +374,8 @@
       background: var(--color-sheet);
       box-shadow: 0 0 0 1px var(--color-rule-strong);
       color: var(--color-ink-meta);
-      font-size: 7px;
+      /* Three dots drawn as a grip, not text: half the interface size. */
+      font-size: calc(var(--text-ui) / 2);
       line-height: 0.8;
       text-align: center;
       white-space: pre;
@@ -834,8 +837,8 @@
     min-width: calc(70px + var(--tab-label-min, 0px));
     height: 34px;
     color: var(--color-ink-secondary);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     cursor: default;
     outline: none;
     user-select: none;
@@ -975,7 +978,7 @@
   }
   .tab-time {
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--text-small);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-meta);
@@ -1117,9 +1120,8 @@
     padding: 0 10px 0 8px;
     border-radius: 9999px;
     background: var(--color-sheet);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     white-space: nowrap;
     color: var(--color-ink);
     outline: none;
@@ -1138,8 +1140,8 @@
     margin: 0 2px 4px;
     padding: 0 8px;
     border-radius: 6px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   /* Waiting for a Note to export: the same button, quiet and inert. */
   .tab-export[aria-disabled="true"] {
@@ -1243,8 +1245,7 @@
       background: var(--color-sheet);
       box-shadow: var(--shadow-popover);
       color: var(--color-accent);
-      font-size: 12px;
-      font-weight: 600;
+      font-size: var(--text-small);
       line-height: 16px;
       white-space: nowrap;
     }
@@ -1352,8 +1353,8 @@
     min-width: 0;
     margin: 0 0 16px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .mind-word-problem {
@@ -1392,13 +1393,12 @@
     min-width: 0;
     margin: -16px 0 16px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .mind-verify-link {
     border-radius: 4px;
-    font-weight: 600;
     color: var(--color-accent);
     text-underline-offset: 2px;
 
@@ -1416,8 +1416,8 @@
     gap: 2px;
     margin: -8px 0 16px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   .mind-reference {
     display: flex;
@@ -1438,7 +1438,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-weight: 600;
     color: var(--color-ink);
   }
   .mind-reference-text {
@@ -1472,7 +1471,7 @@
     gap: 8px;
     min-width: 0;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
     pointer-events: auto;
@@ -1545,7 +1544,6 @@
     padding-right: 2px;
 
     & > .pdf-outline-title {
-      font-weight: 500;
     }
     /* Its name field clears the line that marks the open tab. */
     & > input {
@@ -1656,7 +1654,7 @@
     margin-left: auto;
     padding: 0 6px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-secondary);
     white-space: nowrap;
@@ -1676,8 +1674,8 @@
   .review-pane-empty {
     margin: 0;
     padding: 12px 12px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .review-card {
@@ -1722,8 +1720,7 @@
     border-radius: 50%;
     background: var(--color-chip);
     box-shadow: 0 0 0 2px var(--color-sheet);
-    font-size: 10px;
-    font-weight: 700;
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-secondary);
   }
@@ -1742,13 +1739,12 @@
     align-items: center;
     gap: 6px;
     min-height: 16px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
   }
   .review-card-clause,
   .review-card-name {
     min-width: 0;
-    font-weight: 600;
     color: var(--color-ink-secondary);
     overflow-wrap: anywhere;
   }
@@ -1765,7 +1761,7 @@
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink);
     overflow-wrap: break-word;
@@ -1803,9 +1799,8 @@
     padding: 0 8px;
     border-radius: 6px;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
     white-space: nowrap;
 
@@ -1823,21 +1818,21 @@
     display: flex;
     flex-direction: column;
     padding: 2px 0;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
   }
   .page-menu-counts {
     margin: 0;
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
   }
   .page-menu-switch {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     min-height: 30px;
     padding: 0 8px;
     border-radius: 6px;
@@ -1927,9 +1922,8 @@
     padding: 0 10px;
     border-radius: 6px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     color: var(--color-ink-secondary);
@@ -2126,8 +2120,8 @@
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
     pointer-events: auto;
     overflow-y: auto;
@@ -2146,13 +2140,11 @@
   }
   .check-card-title {
     padding: 6px 8px 4px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-meta);
   }
   .check-count {
-    font-weight: 600;
     color: var(--color-ink);
   }
   .mind-health-sep {
@@ -2222,7 +2214,7 @@
   }
   .verify-brief-note {
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -2238,9 +2230,8 @@
     height: 24px;
     padding: 0 8px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
     /* Every row is its own Next: the word shows on the row under the pointer or the keyboard, so
        a card of three rows doesn't say Next three times (#3756). */
@@ -2320,9 +2311,8 @@
     height: 28px;
     padding: 0 8px;
     border-radius: 6px;
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
     outline: none;
 
@@ -2337,8 +2327,8 @@
   }
   .check-card-note {
     padding: 4px 8px 6px;
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
   }
@@ -2354,9 +2344,8 @@
     column-gap: 8px;
     min-height: 32px;
     padding: 2px 8px;
-    font-size: 14px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
   }
   .check-card-head-mark {
@@ -2389,7 +2378,7 @@
     background: var(--color-accent);
   }
   .check-card-head-aside {
-    font-size: 12px;
+    font-size: var(--text-small);
     font-weight: 400;
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
@@ -2432,8 +2421,8 @@
     margin-inline-start: auto;
     padding: 0 8px;
     border-radius: 6px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     white-space: nowrap;
     color: var(--color-ink-meta);
     outline: none;
@@ -2475,13 +2464,12 @@
 
     & > p:not(.check-card-ask-title) {
       margin-top: 2px;
-      font-size: 12px;
+      font-size: var(--text-small);
       line-height: 16px;
       color: var(--color-ink-meta);
     }
   }
   .check-card-ask-title {
-    font-weight: 600;
     color: var(--color-ink);
     /* A Chinese question would otherwise leave "句子？" alone on its last line, at 900 and 1,440 px alike (#1554). */
     text-wrap: balance;
@@ -2511,8 +2499,8 @@
     border-radius: 8px;
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
 
     & b {
@@ -2538,7 +2526,7 @@
   }
   .citation-pick-line-sentence {
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
     text-overflow: ellipsis;
@@ -2607,8 +2595,8 @@
     gap: 8px;
     padding: 8px 12px;
     border-top: 1px solid var(--color-rule);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   .count-target-field {
     min-width: 0;
@@ -2629,7 +2617,6 @@
   .count-target-set {
     padding: 2px 8px;
     border-radius: 6px;
-    font-weight: 600;
     color: var(--color-accent);
     outline: none;
 
@@ -2640,7 +2627,7 @@
   }
   .count-target-problem {
     grid-column: 1 / -1;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink);
   }
@@ -2893,8 +2880,8 @@
     width: 100%;
     gap: 4px;
     padding: 0 12px;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     font-weight: 400;
     white-space: nowrap;
   }
@@ -2918,16 +2905,16 @@
     min-height: 0;
     overflow-y: auto;
     padding: 0 16px 8px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   .meeting-sheet-details {
     color: var(--color-ink-meta);
   }
   .meeting-sheet-meta {
     margin-left: 8px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-meta);
   }
@@ -2999,8 +2986,8 @@
     border-radius: 10px;
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   .meeting-foot-tip-close {
@@ -3036,9 +3023,8 @@
     padding: 0 8px 0 16px;
   }
   .meeting-sheet-title {
-    font-size: 14px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   .meeting-sheet-icon {
@@ -3057,8 +3043,8 @@
   .meeting-sheet-consent {
     flex: none;
     padding: 0 16px 8px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   /* Three lines of the words said at the least, however short the window. */
@@ -3092,8 +3078,8 @@
     gap: 2px;
     padding: 8px;
     border-top: 1px solid var(--color-rule);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   /*
    * As the foot narrows, its buttons give up their words and keep their icons (their names and
@@ -3132,8 +3118,8 @@
   .example-line {
     padding: 6px 0 8px 18px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
     .note-ask-foot:not(:has(.note-ask)) > & {
       padding-bottom: 16px;
@@ -3236,7 +3222,7 @@
     padding: 0 4px 0 10px;
     border-radius: 12px;
     background: var(--color-chip);
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-secondary);
   }
@@ -3249,7 +3235,7 @@
     height: 32px;
     padding: 0 8px;
     border-radius: 16px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     white-space: nowrap;
     color: var(--color-ink-meta);
@@ -3322,8 +3308,8 @@
     min-width: 0;
     height: 24px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .note-ask-pill-text {
@@ -3359,7 +3345,6 @@
   }
   .note-ask-pill-action {
     flex: none;
-    font-weight: 600;
     color: var(--color-accent);
     &:hover {
       text-decoration: underline;
@@ -3375,7 +3360,6 @@
   }
   .note-ask-pill-name {
     color: var(--color-ink);
-    font-weight: 600;
     &:hover {
       text-decoration: underline;
       text-underline-offset: 3px;
@@ -3470,7 +3454,6 @@
     border-radius: 6px;
     font-size: var(--text-ui);
     line-height: 20px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
     outline: none;
     &:hover,
@@ -3534,7 +3517,7 @@
     align-items: center;
     gap: 2px;
     min-height: 16px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
     /* Unseen until the request is pointed at or holds the focus, yet reachable by Tab. */
@@ -3555,7 +3538,7 @@
     align-items: center;
     gap: 2px;
     min-height: 16px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
     .note-ask-dots,
@@ -3601,12 +3584,12 @@
     margin: 0;
     padding: 0;
     list-style: none;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
   }
   .note-column-step {
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     overflow: hidden;
     white-space: nowrap;
@@ -3622,7 +3605,7 @@
   .note-column-interrupted,
   .note-column-notice {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -3643,7 +3626,7 @@
     align-items: center;
     gap: 12px;
     min-height: 28px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -3710,9 +3693,8 @@
   }
   .note-column-made-open {
     flex: none;
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-accent);
   }
   .note-column-made-title {
@@ -3720,13 +3702,12 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 14px;
-    line-height: 20px;
-    font-weight: 500;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
   }
   .note-column-made-kind {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -3773,8 +3754,8 @@
     gap: 6px;
     min-width: 0;
     min-height: 24px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
     text-align: left;
     > .note-ask-pill {
@@ -3907,8 +3888,8 @@
     border-radius: 4px;
     background: var(--color-chip);
     font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -3928,21 +3909,21 @@
   /* The AI's own words for its command, the card's main line; the command under them, grey. */
   .own-ask-description {
     margin: 0;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     overflow-wrap: anywhere;
   }
   .own-ask-value.own-ask-value--under {
-    font-size: 11px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-secondary);
   }
   /* Everything a lasting answer of several parts grants, under its button. */
   .own-ask-grants {
     margin: 0;
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-secondary);
     overflow-wrap: anywhere;
   }
@@ -3957,9 +3938,8 @@
   }
   .own-ask-link {
     align-self: flex-start;
-    font-size: 12px;
-    line-height: 18px;
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-accent);
     &:hover {
       text-decoration: underline;
@@ -3984,7 +3964,7 @@
   }
   .own-ask-input {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-small);
   }
   .own-ask-change {
     margin: 0;
@@ -3992,8 +3972,8 @@
     border-radius: 4px;
     background: var(--color-frame);
     font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-secondary);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -4092,7 +4072,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-small);
     font-variant-ligatures: none;
   }
   .own-step-by {
@@ -4114,7 +4094,7 @@
   }
   .own-first {
     margin: 2px 0;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
     white-space: normal;
@@ -4122,7 +4102,7 @@
   .own-mode {
     margin: 0;
     padding: 10px 12px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-secondary);
   }
@@ -4163,8 +4143,8 @@
     flex-wrap: wrap;
     gap: 4px 12px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     /* A reply with nothing to accept or undo keeps no gap under it. */
     &:empty {
       display: none;
@@ -4184,7 +4164,7 @@
     width: 100%;
     padding: 6px 8px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     text-align: left;
     &:is(:hover, :focus-visible) {
@@ -4251,7 +4231,7 @@
     border-radius: 6px;
     background: var(--color-sheet);
     box-shadow: inset 0 0 0 1px var(--color-rule);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-secondary);
     user-select: none;
@@ -4306,11 +4286,11 @@
   .paste-menu-name {
     display: flex;
     flex-direction: column;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   .paste-menu-hint {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -4335,7 +4315,7 @@
     justify-content: space-between;
     gap: 8px;
     padding: 8px 8px 0 16px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -4452,8 +4432,8 @@
     font-family: var(--font-sans);
   }
   .meeting-start-note {
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   /*
@@ -4505,7 +4485,7 @@
     align-items: flex-start;
     gap: 6px;
     padding: 0 4px 2px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-secondary);
   }
@@ -4522,8 +4502,8 @@
     border-radius: 10px;
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   .meeting-foot-over .meeting-screen-icon {
     width: 16px;
@@ -4539,7 +4519,6 @@
   .meeting-screen-action {
     padding: 0 2px;
     border-radius: 4px;
-    font-weight: 600;
     color: var(--color-ink);
     text-underline-offset: 2px;
   }
@@ -4595,8 +4574,8 @@
   }
   .screen-picker-name {
     overflow: hidden;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -4609,7 +4588,7 @@
     padding-top: 6px;
     border-top: 1px solid var(--color-rule);
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
     overflow-wrap: break-word;
@@ -4632,8 +4611,8 @@
     align-items: center;
     gap: 4px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .capture-details-line:hover {
@@ -4646,8 +4625,8 @@
     align-items: center;
     gap: 2px;
     height: var(--meeting-bar-row);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
   }
   .meeting-state {
@@ -4890,7 +4869,7 @@
     height: 22px;
     padding: 0 4px 0 6px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     white-space: nowrap;
     color: var(--color-ink-meta);
@@ -5039,9 +5018,8 @@
   .model-menu-title {
     flex: none;
     padding: 10px 12px 0;
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
   }
   /* "Use this for new notes too", then what new Notes start on. */
@@ -5052,13 +5030,13 @@
   }
   .model-menu-default {
     padding: 2px 8px 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
   .model-menu-intro {
     padding: 6px 8px 2px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -5068,8 +5046,8 @@
     padding: 4px 8px;
     border-radius: 6px;
     background: var(--color-hover);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
 
     &::placeholder {
@@ -5078,9 +5056,8 @@
   }
   .model-menu-heading {
     padding: 8px 8px 2px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-meta);
   }
   .model-menu-group-hint {
@@ -5111,8 +5088,8 @@
     min-width: 0;
     border: 0;
     background: none;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     outline: none;
   }
@@ -5153,30 +5130,29 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
   }
   .model-menu-hint {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
   .model-menu-provider {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
   }
   .model-menu-foot {
     padding: 8px 12px;
     border-top: 1px solid var(--color-rule);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
   .model-menu-link {
     border-radius: 2px;
-    font-weight: 600;
     color: var(--color-accent);
     outline: none;
 
@@ -5195,7 +5171,7 @@
     content: attr(data-meeting-time);
     margin-left: 12px;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-meta);
     opacity: 0;
@@ -5212,7 +5188,7 @@
     content: attr(data-meeting-time) " ·";
     margin-right: 8px;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-meta);
     user-select: none;
@@ -5322,8 +5298,8 @@
       font-weight: 600;
     }
     h1 {
-      font-size: var(--text-display);
-      line-height: var(--text-display--line-height);
+      font-size: var(--text-title);
+      line-height: var(--text-title--line-height);
       font-variation-settings: "opsz" 48;
       letter-spacing: -0.02em;
     }
@@ -5525,8 +5501,8 @@
       border-radius: 8px;
       background: var(--color-frame);
       font-family: var(--font-mono);
-      font-size: 13px;
-      line-height: 20px;
+      font-size: var(--text-ui);
+      line-height: var(--text-ui--line-height);
       color: var(--color-ink);
       overflow-x: auto;
 
@@ -5601,13 +5577,13 @@
       border-bottom: 1px solid var(--color-rule);
       vertical-align: top;
       text-align: start;
-      font-size: var(--text-note);
-      line-height: var(--text-note--line-height);
+      font-size: var(--text-note, var(--text-ui));
+      line-height: var(--text-note--line-height, var(--leading-reply));
     }
     :where(th) {
       background: var(--color-frame);
       font-family: var(--font-sans);
-      font-size: 13px;
+      font-size: var(--text-ui);
       line-height: 24px;
       font-weight: 600;
       color: var(--color-ink-secondary);
@@ -5676,7 +5652,7 @@
     border-radius: 4px;
     background: transparent;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
     field-sizing: content;
@@ -5830,8 +5806,8 @@
     min-width: 0;
     height: 20px;
     overflow: hidden;
-    font-size: var(--text-meta);
-    line-height: var(--text-meta--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     white-space: nowrap;
     color: var(--color-ink-meta);
     user-select: none;
@@ -5864,7 +5840,7 @@
     border-radius: 4px;
     background: var(--color-sheet);
     box-shadow: inset 0 0 0 1px var(--color-rule);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-secondary);
     user-select: none;
@@ -5898,7 +5874,7 @@
     margin: 0;
     padding: 0;
     list-style: none;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     user-select: none;
   }
@@ -6007,8 +5983,8 @@
     padding-top: 2px;
     overflow: hidden;
     font-family: var(--font-sans);
-    font-size: var(--text-meta);
-    line-height: var(--text-meta--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     white-space: nowrap;
     color: var(--color-ink-meta);
     user-select: none;
@@ -6030,16 +6006,16 @@
     display: none;
   }
   .my-notes-empty {
-    font-size: var(--text-meta);
-    line-height: var(--text-meta--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
     margin-bottom: 8px;
   }
   /* What it searched, opened from its meta line: under its text. */
   .answer-searches-open {
     font-family: var(--font-sans);
-    font-size: var(--text-meta);
-    line-height: var(--text-meta--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
     user-select: none;
   }
@@ -6052,8 +6028,8 @@
   .mind-writing {
     margin-block: 4px;
     font-family: var(--font-sans);
-    font-size: var(--text-meta);
-    line-height: var(--text-meta--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
     user-select: none;
   }
@@ -6117,7 +6093,6 @@
     }
   }
   .answer-writing--waiting {
-    font-weight: 600;
     color: var(--color-warning);
 
     &::before {
@@ -6209,8 +6184,8 @@
     flex-direction: column;
     border-bottom: 1px solid var(--color-rule);
     font-family: var(--font-sans);
-    font-size: var(--text-meta);
-    line-height: var(--text-meta--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
     user-select: none;
   }
@@ -6265,7 +6240,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--text-small);
     color: var(--color-ink-meta);
   }
   /* Opened: what was sent, or what a script wrote, under the row's text. */
@@ -6274,8 +6249,8 @@
     margin: 2px 0 4px 18px;
     overflow: auto;
     font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-secondary);
     white-space: pre-wrap;
     user-select: text;
@@ -6302,8 +6277,8 @@
   /* A model that can't cite. */
   .answer-info {
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
 
@@ -6337,16 +6312,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 15px;
+    font-size: var(--text-ui);
     line-height: 22px;
-    font-weight: 600;
 
     code {
       padding: 0;
       background: none;
       font-family: var(--font-mono);
-      font-size: 13.5px;
-      font-weight: 500;
+      font-size: var(--text-ui);
     }
   }
   .approval-title-text {
@@ -6361,15 +6334,15 @@
   }
   .approval-explanation {
     margin-left: 16px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   .approval-read-text {
     margin-left: 16px;
     overflow-wrap: anywhere;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .approval-details {
@@ -6380,9 +6353,8 @@
     border-top: 1px solid var(--color-rule);
   }
   .approval-label {
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .approval-args {
@@ -6391,13 +6363,13 @@
     gap: 4px 16px;
     max-height: 14rem;
     overflow: auto;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     user-select: text;
 
     dt {
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: var(--text-small);
       color: var(--color-ink-meta);
     }
     dd {
@@ -6408,12 +6380,12 @@
     }
     pre {
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: var(--text-small);
     }
   }
   .approval-empty {
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .approval-actions {
@@ -6430,8 +6402,7 @@
     border: 1px solid var(--color-rule-strong);
     border-radius: 6px;
     background: var(--color-sheet);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     color: var(--color-ink-strong);
 
     &:hover {
@@ -6495,12 +6466,11 @@
   .approval-warning-title {
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);
-    font-weight: 600;
     color: var(--color-ink);
   }
   .approval-warning-body {
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   .choice-options {
@@ -6517,7 +6487,7 @@
     margin-top: 2px;
     border-radius: 4px;
     box-shadow: inset 0 0 0 1px var(--color-rule);
-    font-size: 11px;
+    font-size: var(--text-small);
     line-height: 16px;
     text-align: center;
     color: var(--color-ink-meta);
@@ -6563,9 +6533,8 @@
   .choice-label-text {
     min-width: 0;
     overflow: hidden;
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -6574,19 +6543,18 @@
     padding: 0 6px;
     border-radius: 4px;
     background: var(--color-chip);
-    font-size: 11px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 500;
     color: var(--color-ink-secondary);
   }
   .choice-description {
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .choice-hint {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--text-small);
     color: var(--color-ink-meta);
   }
   /* A long question is cut short so its rows and buttons stay in reach (#1374); More reads it whole. */
@@ -6606,8 +6574,7 @@
   .choice-card .choice-more {
     flex: none;
     margin-left: auto;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-ink-secondary);
     text-decoration: underline;
     text-underline-offset: 2px;
@@ -6636,7 +6603,7 @@
   /* The question the assistant asked, folded to its words in the Answer's ink (#2530); its options are gone. */
   .answer-asked-question {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--text-ui);
     line-height: 22px;
     color: var(--color-ink-answer);
     white-space: pre-wrap;
@@ -6646,8 +6613,8 @@
     margin-top: 0;
   }
   .answer-asked-line {
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .approval-buttons {
@@ -6734,8 +6701,8 @@
     border-radius: 4px;
     background: var(--color-chip);
     font-family: var(--font-sans);
-    font-size: 11px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     font-weight: 600;
     color: var(--color-ink-secondary);
     vertical-align: 2px;
@@ -6819,7 +6786,7 @@
     min-width: 0;
     margin-left: 1px;
     padding: 0 3px;
-    font-size: 10px;
+    font-size: var(--text-small);
     line-height: 15px;
     vertical-align: 7px;
   }
@@ -6905,7 +6872,7 @@
       background: var(--color-sheet);
       box-shadow: inset 0 0 0 1px var(--color-rule-strong);
       font-family: var(--font-sans);
-      font-size: 12px;
+      font-size: var(--text-small);
       line-height: 20px;
       color: var(--color-ink-meta);
       pointer-events: none;
@@ -6945,8 +6912,8 @@
     background: var(--color-sheet);
     border-bottom: 1px solid var(--color-rule);
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   .proposals-bar-line {
@@ -6967,7 +6934,6 @@
   .proposal-action {
     flex-shrink: 0;
     border-radius: 4px;
-    font-weight: 600;
     color: var(--color-accent-strong);
     white-space: nowrap;
     text-underline-offset: 2px;
@@ -6997,7 +6963,7 @@
     gap: 6px;
     min-width: 0;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
     user-select: none;
@@ -7072,7 +7038,7 @@
     column-gap: 6px;
     min-width: 0;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
     user-select: none;
@@ -7102,7 +7068,6 @@
   }
   .mind-editor .change-section .change-original-button {
     flex-shrink: 0;
-    font-weight: 600;
     color: var(--color-ink-secondary);
     white-space: nowrap;
   }
@@ -7114,7 +7079,7 @@
     column-gap: 6px;
     min-width: 0;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     user-select: none;
     white-space: normal;
@@ -7150,7 +7115,7 @@
   .mind-editor .applied-restore-holder {
     margin-inline-start: 6px;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     user-select: none;
     white-space: nowrap;
@@ -7187,7 +7152,7 @@
     border-radius: 3px;
     background: var(--color-chip);
     font-family: var(--font-sans);
-    font-size: 11px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -7204,7 +7169,7 @@
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
     white-space: nowrap;
@@ -7332,7 +7297,7 @@
 
     table {
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: var(--text-small);
     }
     th,
     td {
@@ -7354,7 +7319,7 @@
     display: block;
     margin-bottom: 4px;
     color: var(--color-ink-meta);
-    font-size: 12px;
+    font-size: var(--text-small);
   }
   /* An area of a page: its thumbnail, then "Figure · p. 7" (#118). */
   .composer-quote--area {
@@ -7399,9 +7364,8 @@
     border-radius: 4px;
     box-shadow: inset 0 0 0 1px var(--color-rule-strong);
     font-family: var(--font-sans);
-    font-size: 11px;
-    line-height: 18px;
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-placeholder);
     vertical-align: 2px;
     white-space: nowrap;
@@ -7414,7 +7378,7 @@
     border-radius: 4px;
     background: var(--color-hover);
     font-family: var(--font-sans);
-    font-size: 11px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
     vertical-align: 2px;
@@ -7511,7 +7475,7 @@
   .word-atom-note {
     padding: 0 2px;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 0;
     font-weight: 600;
     color: var(--color-ink-secondary);
@@ -7543,7 +7507,7 @@
     background: var(--color-frame);
     box-shadow: inset 0 0 0 1px var(--color-rule);
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: var(--text-ui);
     line-height: 22px;
     color: var(--color-ink-secondary);
     white-space: pre-wrap;
@@ -7586,7 +7550,7 @@
     border-radius: 4px;
     background: var(--color-sheet);
     box-shadow: inset 0 0 0 1px var(--color-rule);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
     white-space: nowrap;
@@ -7603,13 +7567,13 @@
     gap: 8px;
     width: 100%;
     box-sizing: border-box;
-    height: var(--text-meta--line-height);
+    height: var(--text-small--line-height);
     vertical-align: middle;
     font-family: var(--font-sans);
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     font-weight: 400;
     font-style: normal;
-    line-height: var(--text-meta--line-height);
+    line-height: var(--text-small--line-height);
     text-decoration: none;
     color: var(--color-ink-meta);
     white-space: nowrap;
@@ -7672,8 +7636,8 @@
     border: 0;
     background: none;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
 
     &::placeholder {
@@ -7700,7 +7664,7 @@
     border-radius: 4px;
     background: transparent;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     font-weight: 600;
     color: var(--color-ink-secondary);
@@ -7726,8 +7690,8 @@
   .footnote-text {
     outline: none;
     font-family: var(--writing-font, var(--font-system));
-    font-size: var(--text-note);
-    line-height: var(--text-note--line-height);
+    font-size: var(--text-note, var(--text-ui));
+    line-height: var(--text-note--line-height, var(--leading-reply));
     color: var(--color-ink);
     white-space: pre-wrap;
     overflow-wrap: break-word;
@@ -7766,7 +7730,7 @@
   .footnote-popover-hint {
     flex: 1;
     min-width: 0;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -7775,7 +7739,7 @@
     height: 24px;
     padding: 0 8px;
     border-radius: 6px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     color: var(--color-ink-secondary);
 
     &:hover,
@@ -7805,9 +7769,8 @@
   .footnote-area-title {
     margin: 0 0 8px;
     font-family: var(--font-sans);
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .footnote-area-list {
@@ -7842,13 +7805,12 @@
   }
   .footnote-area-number {
     justify-self: end;
-    height: var(--text-note--line-height);
+    height: var(--text-note--line-height, var(--leading-reply));
     padding: 0 4px;
     border-radius: 4px;
     font-family: var(--font-sans);
-    font-size: var(--text-meta);
-    line-height: var(--text-note--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-note--line-height, var(--leading-reply));
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-secondary);
 
@@ -7865,8 +7827,8 @@
     min-width: 0;
     padding: 0 4px;
     font-family: var(--writing-font, var(--font-system));
-    font-size: var(--text-note);
-    line-height: var(--text-note--line-height);
+    font-size: var(--text-note, var(--text-ui));
+    line-height: var(--text-note--line-height, var(--leading-reply));
     color: var(--color-ink-meta);
   }
   .footnote-area-check {
@@ -7918,8 +7880,8 @@
     border: 0;
     border-radius: 4px;
     font-family: var(--font-sans);
-    font-size: 11px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     font-weight: 700;
     white-space: nowrap;
     cursor: pointer;
@@ -8072,8 +8034,8 @@
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   .citation-card-head {
@@ -8093,7 +8055,6 @@
     gap: 6px;
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);
-    font-weight: 600;
     color: var(--check-ink);
   }
   .citation-badge-icon {
@@ -8140,7 +8101,7 @@
       margin: 0;
       overflow-y: auto;
       font-family: var(--font-serif);
-      font-size: 15px;
+      font-size: var(--text-ui);
       line-height: 24px;
       color: var(--color-ink);
       white-space: pre-wrap;
@@ -8180,9 +8141,8 @@
     gap: 4px 6px;
     margin: 4px 0 0;
     padding-left: 6px;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--check-ink);
   }
   .citation-group-quote-icon {
@@ -8195,7 +8155,6 @@
     border: 0;
     background: none;
     font: inherit;
-    font-weight: 500;
     color: var(--color-accent);
     cursor: pointer;
   }
@@ -8212,7 +8171,7 @@
     border-radius: 6px;
     background: none;
     font-family: var(--font-serif);
-    font-size: 15px;
+    font-size: var(--text-ui);
     line-height: 24px;
     color: var(--color-ink);
     text-align: left;
@@ -8244,7 +8203,7 @@
     blockquote {
       margin: 0;
       font-family: var(--font-serif);
-      font-size: 15px;
+      font-size: var(--text-ui);
       line-height: 24px;
       color: var(--color-ink);
       overflow-wrap: break-word;
@@ -8254,9 +8213,8 @@
     }
   }
   .citation-card-label {
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .citation-card-match {
@@ -8307,9 +8265,8 @@
   /* Where a checked deck's slide starts in its Note (#3493): a quiet label, drawn, never the Note's text. */
   .slide-break {
     margin: 24px 0 4px;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
     user-select: none;
   }
@@ -8339,8 +8296,7 @@
     border: 0;
     background: none;
     color: var(--color-ink-meta);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--text-small);
     line-height: 1;
     vertical-align: super;
     cursor: pointer;
@@ -8354,7 +8310,6 @@
     z-index: 60;
   }
   .unchecked-figure-heading {
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   /* An uncited sentence's check (#3410): its card sits under its mark, as an unchecked figure's does. */
@@ -8367,13 +8322,12 @@
     }
   }
   .uncited-check-heading {
-    font-weight: 600;
     color: var(--check-ink);
   }
   /* A Citation's verdict, the one line a claim check adds. */
   .citation-card-verdict {
     padding-left: 22px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--check-ink);
   }
@@ -8428,8 +8382,8 @@
     }
     .citation-badge {
       padding-right: 28px;
-      font-size: 13px;
-      line-height: 20px;
+      font-size: var(--text-ui);
+      line-height: var(--text-ui--line-height);
     }
     /* A cited quote's words start at the card's edge, as the other lines do. */
     .claim-card-cited {
@@ -8525,8 +8479,8 @@
   .claim-quote-open {
     margin: 0;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     white-space: pre-wrap;
     overflow-wrap: break-word;
@@ -8539,7 +8493,7 @@
   }
   .claim-quote-where {
     min-width: 0;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -8568,7 +8522,6 @@
   }
   .claim-quote-link {
     border-radius: 3px;
-    font-weight: 600;
     color: var(--color-accent);
     white-space: nowrap;
 
@@ -8597,7 +8550,7 @@
   }
   .claim-fold-line {
     min-width: 0;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -8610,7 +8563,6 @@
     color: var(--color-success);
   }
   .claim-fold-what {
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   /* What was supported before the card's check was to be read again: said quietly, no longer a ✓. */
@@ -8626,8 +8578,7 @@
     padding: 0 8px;
     border-radius: 6px;
     box-shadow: inset 0 0 0 1px var(--color-rule);
-    font-size: var(--text-meta);
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-ink-secondary);
 
     &:hover {
@@ -8640,8 +8591,8 @@
   }
   .claim-about-title {
     padding: 2px 10px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
   }
   .claim-about-lines {
@@ -8687,8 +8638,8 @@
   /* What checked the sentence, and when: the card's last line. */
   .claim-card-checked-by {
     padding: 0 0 2px 22px;
-    font-size: var(--text-meta);
-    line-height: var(--text-meta--line-height);
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
 
@@ -8710,8 +8661,8 @@
     background: var(--color-chip);
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     overflow-wrap: anywhere;
   }
   /* A figure a check worked out (#707): how, then each input's Citation. */
@@ -8753,7 +8704,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -8768,7 +8719,7 @@
     padding: 2px 4px;
     border-radius: 4px;
     text-align: left;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
 
@@ -8788,7 +8739,7 @@
   }
   .citation-card-note {
     padding-left: 22px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -8833,28 +8784,27 @@
   .record-cite-raw {
     min-width: 0;
     font-family: var(--font-mono);
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink);
     white-space: pre-wrap;
     overflow-wrap: break-word;
   }
   .record-cite-outcome {
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--check-ink);
   }
   .record-cite-source {
     overflow: hidden;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .record-cite-detail {
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
     overflow-wrap: break-word;
@@ -8871,7 +8821,7 @@
     border-left: 2px solid var(--color-rule);
   }
   .record-cite-problem {
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-warning);
     overflow-wrap: break-word;
@@ -8938,8 +8888,7 @@
     border-radius: 6px;
     background: var(--color-sheet);
     box-shadow: inset 0 0 0 1px var(--color-rule-strong);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     color: var(--color-ink-strong);
 
     &:hover:not(:disabled) {
@@ -8973,7 +8922,7 @@
     .citation-badge {
       min-height: 18px;
       padding-right: 28px;
-      font-size: var(--text-meta);
+      font-size: var(--text-small);
       line-height: 16px;
     }
   }
@@ -9035,9 +8984,8 @@
     }
   }
   .claim-card-problem {
-    font-size: 14px;
-    line-height: 20px;
-    font-weight: 500;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     overflow-wrap: break-word;
   }
@@ -9055,9 +9003,8 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   .claim-group-label {
@@ -9079,7 +9026,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 14px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 16px;
   }
   /* A quote's Location line: who said it, the Document, which gives way first, and the place. */
@@ -9116,7 +9063,7 @@
   }
   .claim-card-none,
   .claim-card-signed {
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -9127,9 +9074,8 @@
     gap: 4px;
   }
   .claim-change-title {
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   .claim-change-text {
@@ -9149,22 +9095,11 @@
   }
   .claim-change-was {
     overflow: hidden;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  /* A row of a card's ⋯ that ticks keeps every row's words in one line. */
-  .claim-menu-tick {
-    display: inline-flex;
-    flex: none;
-    width: 14px;
-    color: var(--color-ink-secondary);
-  }
-  .claim-menu-tick-icon {
-    width: 14px;
-    height: 14px;
   }
   .citation-card-action--primary {
     background: var(--color-ink);
@@ -9183,7 +9118,7 @@
   .sign-off-line {
     margin: 0;
     padding-left: 22px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-secondary);
 
@@ -9211,15 +9146,14 @@
     margin: 0;
     padding-left: 22px;
     font-family: var(--font-serif);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
     overflow-wrap: break-word;
   }
   .citation-card-styled-label {
     font-family: var(--font-sans);
-    font-size: var(--text-label);
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-ink-meta);
   }
 
@@ -9244,9 +9178,8 @@
   }
   .references-title {
     margin: 0;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .references-button {
@@ -9259,7 +9192,7 @@
     border: 0;
     border-radius: 4px;
     background: transparent;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-secondary);
     cursor: pointer;
@@ -9279,17 +9212,16 @@
   }
   .references-style {
     max-width: min(100%, 280px);
-    font-weight: 600;
   }
   .references-default {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
   .references-status {
     margin: 8px 0 0;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .references-list {
@@ -9300,8 +9232,8 @@
     padding: 0;
     list-style: none;
     font-family: var(--writing-font, var(--font-system));
-    font-size: var(--text-note);
-    line-height: var(--text-note--line-height);
+    font-size: var(--text-note, var(--text-ui));
+    line-height: var(--text-note--line-height, var(--leading-reply));
     color: var(--color-ink);
     overflow-wrap: break-word;
     transition: opacity 120ms ease;
@@ -9334,7 +9266,7 @@
     border-radius: 2px;
     background: transparent;
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     text-indent: 0;
     white-space: nowrap;
@@ -9381,7 +9313,6 @@
    */
   .citation-style-prompt-action {
     border-radius: 2px;
-    font-weight: 600;
     color: var(--color-accent);
     white-space: nowrap;
     text-underline-offset: 2px;
@@ -9416,8 +9347,8 @@
   .citation-style-prompt {
     margin-top: 48px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
     overflow-wrap: break-word;
   }
@@ -9441,7 +9372,6 @@
     overflow-y: auto;
   }
   .selection-turn {
-    font-weight: 500;
   }
   /* The menu under text selected in a Document's viewer. */
   .viewer-selection-menu > .editor-menu {
@@ -9464,8 +9394,8 @@
     justify-content: center;
     height: 28px;
     border-radius: 6px;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
     outline: none;
 
@@ -9491,14 +9421,13 @@
     }
     /* The footnote button's label is a word with a raised number, as Word's is. */
     .format-footnote > sup {
-      font-size: 10px;
-      font-weight: 600;
+      font-size: 0.75em;
       line-height: 0;
     }
   }
   .selection-section {
     padding: 4px 8px 2px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -9579,8 +9508,8 @@
     padding: 0 6px 0 8px;
     border-radius: 6px;
     box-shadow: inset 0 0 0 1px var(--color-rule-strong);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     outline: none;
 
     &:hover,
@@ -9619,9 +9548,8 @@
   }
   .format-menu-section {
     padding: 6px 8px 4px;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .format-menu-swatches {
@@ -9647,20 +9575,6 @@
       width: 16px;
       height: 16px;
       box-shadow: none;
-    }
-  }
-  /* Superscript's and subscript's glyphs: an x with its raised or lowered 2, as Word's. */
-  .format-raise {
-    width: 16px;
-    flex-shrink: 0;
-    font-size: 13px;
-    line-height: 16px;
-    text-align: center;
-    color: var(--color-ink-secondary);
-
-    > :is(sup, sub) {
-      font-size: 9px;
-      line-height: 0;
     }
   }
   .format-menu-sizes {
@@ -9705,8 +9619,7 @@
     padding: 0 4px;
     border-radius: 4px;
     background: var(--color-chip);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-ink-secondary);
   }
   .find-bar {
@@ -9745,7 +9658,7 @@
       min-width: 3.5em;
       padding: 0 6px;
       text-align: center;
-      font-size: var(--text-meta);
+      font-size: var(--text-small);
       color: var(--color-ink-meta);
       white-space: nowrap;
     }
@@ -9774,8 +9687,7 @@
     }
     .find-option {
       width: 26px;
-      font-size: var(--text-meta);
-      font-weight: 600;
+      font-size: var(--text-small);
 
       &[aria-pressed="true"] {
         background: var(--color-hover);
@@ -9793,7 +9705,7 @@
       justify-content: flex-start;
       padding: 2px 8px;
       border-radius: 6px;
-      font-size: var(--text-meta);
+      font-size: var(--text-small);
       text-align: left;
       color: var(--color-ink-secondary);
 
@@ -9806,7 +9718,7 @@
     .find-read-only {
       margin: 0;
       padding: 2px 8px;
-      font-size: var(--text-meta);
+      font-size: var(--text-small);
       color: var(--color-ink-meta);
     }
   }
@@ -9818,7 +9730,6 @@
     color: var(--color-ink-secondary);
 
     .table-of-contents-title {
-      font-weight: 600;
       color: var(--color-ink);
     }
     .table-of-contents-list {
@@ -10059,7 +9970,7 @@
   .editor-menu-note {
     padding: 4px 8px 2px;
     color: var(--color-ink-meta);
-    font-size: 12px;
+    font-size: var(--text-small);
     white-space: nowrap;
   }
   /* Numbering ›: each scheme as its first levels draw it, its name after (#1419). */
@@ -10086,15 +9997,14 @@
     border-radius: 4px;
     background: var(--color-sheet);
     box-shadow: inset 0 0 0 1px var(--color-rule);
-    font-size: 11px;
+    font-size: var(--text-small);
     line-height: 1;
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   .editor-menu-shortcut {
     margin-left: auto;
     font-family: var(--font-sans);
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     color: var(--color-ink-meta);
   }
   /* The composer's "/" picker: each Skill's name over what it is for, the User's and the built-in ones apart. */
@@ -10113,7 +10023,7 @@
     padding-block: 4px;
   }
   .skill-choice-description {
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-secondary);
   }
@@ -10128,7 +10038,7 @@
   }
   .editor-menu-empty {
     padding: 4px 8px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--color-ink-meta);
   }
   /* The "@" picker of a Question's Search scope: Folders, Tags and Documents, under labels. */
@@ -10139,9 +10049,8 @@
   }
   .scope-picker-heading {
     padding: 8px 8px 4px;
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   .scope-picker > :first-child > .scope-picker-heading {
@@ -10160,7 +10069,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     color: var(--color-ink-meta);
   }
   /* An empty Folder or Tag stays pickable but reads as empty: its name greys, its hint says so. */
@@ -10173,7 +10082,7 @@
   }
   .scope-picker-empty {
     padding: 4px 8px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--color-ink-meta);
   }
   /* Cite… (#281): the search of the Mind's Search scope at the caret, and its Passages. */
@@ -10189,8 +10098,8 @@
     border-bottom: 1px solid var(--color-rule);
     background: none;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     outline: none;
 
@@ -10200,7 +10109,7 @@
   }
   .cite-scope {
     padding: 6px 12px 2px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -10234,7 +10143,7 @@
   }
   .cite-result-head {
     overflow: hidden;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-secondary);
     text-overflow: ellipsis;
@@ -10249,7 +10158,7 @@
   .cite-result-text {
     display: -webkit-box;
     overflow: hidden;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink);
     -webkit-box-orient: vertical;
@@ -10261,7 +10170,7 @@
   }
   .cite-note {
     padding: 8px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -10280,8 +10189,8 @@
     background: var(--color-frame);
     box-shadow: inset 0 0 0 1px var(--color-rule);
     font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     resize: none;
     outline: none;
@@ -10293,7 +10202,7 @@
   .math-hint {
     margin-top: 6px;
     padding: 0 2px;
-    font-size: var(--text-meta);
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -10386,8 +10295,7 @@
       background: var(--color-sheet);
       box-shadow: var(--shadow-popover);
       color: var(--color-accent);
-      font-size: 12px;
-      font-weight: 600;
+      font-size: var(--text-small);
       line-height: 16px;
       white-space: nowrap;
       opacity: 0;
@@ -10434,8 +10342,7 @@
     height: 36px;
     padding: 0 12px;
     border-bottom: 1px solid var(--color-rule);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     color: var(--color-ink);
     white-space: nowrap;
   }
@@ -10444,8 +10351,7 @@
     flex: 1 1 auto;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-accent);
   }
   @keyframes assistant-fade-in {
@@ -10543,8 +10449,7 @@
     height: 28px;
     padding: 0 6px;
     border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     line-height: 20px;
     color: var(--color-ink);
     cursor: default;
@@ -10700,8 +10605,8 @@
     padding: 3px 10px;
     border: 1px solid var(--color-rule);
     border-radius: 999px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
 
     &:hover {
@@ -10724,7 +10629,7 @@
     border-bottom: 1px solid var(--color-rule);
   }
   .help-strip-label {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -10737,8 +10642,8 @@
     padding: 3px 10px;
     border: 1px solid var(--color-rule);
     border-radius: 999px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
 
     &:hover {
@@ -10774,7 +10679,7 @@
     display: flex;
     gap: 4px;
     margin: 0;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
 
@@ -10807,23 +10712,21 @@
     row-gap: 2px;
   }
   .help-option-mark {
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     text-align: center;
     color: var(--color-accent);
   }
   .help-option-say {
-    font-size: 14.5px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     overflow-wrap: break-word;
     color: var(--color-ink-strong);
   }
   .help-option--recommended .help-option-say {
-    font-weight: 600;
     color: var(--color-ink);
   }
   .help-move {
-    font-weight: 600;
   }
   .help-option-note {
     grid-column: 2;
@@ -10833,7 +10736,7 @@
     padding: 0 6px;
     border-radius: 4px;
     background: var(--color-chip);
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     overflow-wrap: break-word;
     color: var(--color-ink-meta);
@@ -10874,7 +10777,7 @@
   }
   .help-option-effect {
     grid-column: 2;
-    font-size: 12.5px;
+    font-size: var(--text-small);
     line-height: 17px;
     overflow-wrap: break-word;
     color: var(--color-ink-meta);
@@ -10888,8 +10791,7 @@
     padding: 0 5px;
     border-radius: 4px;
     background: var(--color-chip);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--text-small);
     /* Every digit as wide, so a number the end changes takes the room it had. */
     font-variant-numeric: tabular-nums;
     vertical-align: 1px;
@@ -10908,7 +10810,7 @@
   .help-quote {
     grid-column: 2;
     min-height: 20px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 20px;
     overflow-wrap: break-word;
     color: var(--color-ink-secondary);
@@ -10960,8 +10862,7 @@
     padding: 0 4px;
     border-radius: 4px;
     background: var(--color-chip);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--text-small);
     vertical-align: 1px;
     color: var(--color-ink-secondary);
   }
@@ -11025,7 +10926,7 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -11042,8 +10943,8 @@
   }
   .help-failed {
     margin: 0;
-    font-size: 12.5px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-secondary);
   }
 
@@ -11109,7 +11010,6 @@
     background: var(--color-chip);
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);
-    font-weight: 500;
     color: var(--color-ink);
     white-space: pre-wrap;
     overflow-wrap: break-word;
@@ -11123,7 +11023,7 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     font-weight: 400;
     color: var(--color-ink-meta);
@@ -11141,7 +11041,7 @@
     max-width: 100%;
     padding-left: 10px;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     font-weight: 400;
     color: var(--color-ink-meta);
@@ -11166,7 +11066,6 @@
     align-items: center;
     gap: 4px;
     margin-right: 6px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   .assistant-answer {
@@ -11204,7 +11103,7 @@
     margin-left: 0;
     padding-left: 0;
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: var(--text-ui);
     line-height: var(--answer-line);
     color: var(--color-ink-answer);
     cursor: text;
@@ -11216,7 +11115,7 @@
       margin-top: 12px;
     }
     :is(h1, h2, h3, h4, h5, h6) {
-      font-size: 15px;
+      font-size: var(--text-ui);
       line-height: 22px;
     }
     /*
@@ -11243,8 +11142,8 @@
       border-radius: 8px;
       background: var(--color-frame);
       font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 18px;
+      font-size: var(--text-small);
+      line-height: var(--text-small--line-height);
       color: var(--color-ink);
       overflow-x: auto;
     }
@@ -11270,7 +11169,7 @@
     table {
       border: 0;
       border-radius: 0;
-      font-size: 13px;
+      font-size: var(--text-ui);
       line-height: 18px;
       font-variant-numeric: tabular-nums;
     }
@@ -11279,14 +11178,14 @@
       padding: 5px 8px;
       border-right: 0;
       border-radius: 0;
-      font-size: 13px;
+      font-size: var(--text-ui);
       line-height: 18px;
       white-space: nowrap;
     }
     th {
       background: none;
       border-bottom-color: var(--color-rule-strong);
-      font-size: 12px;
+      font-size: var(--text-small);
       color: var(--color-ink-meta);
     }
     :is(th, td):first-child {
@@ -11383,7 +11282,7 @@
       margin-left: 3px;
       padding: 0 3px 0 2px;
       background: var(--check-wash);
-      font-size: 11px;
+      font-size: var(--text-small);
       line-height: 16px;
       color: var(--check-ink);
       vertical-align: 1px;
@@ -11436,8 +11335,8 @@
     border-radius: 8px;
     background: var(--color-sheet);
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     user-select: none;
   }
@@ -11454,7 +11353,6 @@
     gap: 6px;
     padding: 7px 10px;
     background: var(--color-frame);
-    font-weight: 600;
   }
   .mind-changes-head:last-child {
     border-bottom: 0;
@@ -11507,7 +11405,6 @@
     flex-shrink: 0;
     padding: 0 2px;
     border-radius: 4px;
-    font-weight: 600;
     color: var(--color-accent);
 
     &:hover {
@@ -11523,7 +11420,7 @@
   .answer-coverage {
     margin: 0;
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: var(--text-ui);
     line-height: 22px;
     color: var(--color-ink);
   }
@@ -11534,8 +11431,8 @@
     gap: 6px;
     margin: 8px 0 2px;
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
   }
   .mind-changes-foot {
@@ -11552,8 +11449,7 @@
     height: 24px;
     padding: 0 8px;
     border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-ink-secondary);
 
     &:hover {
@@ -11584,7 +11480,7 @@
     gap: 0 2px;
     min-height: 24px;
     margin-left: -6px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     white-space: nowrap;
     color: var(--color-ink-meta);
@@ -11693,13 +11589,12 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-weight: 600;
   }
   .task-progress-meta {
     flex-shrink: 0;
     max-width: calc(100% - 6rem);
-    font-size: 12.5px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-meta);
 
@@ -11722,7 +11617,7 @@
   }
   .task-progress-more {
     align-self: flex-start;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-meta);
 
@@ -11761,12 +11656,12 @@
     color: var(--color-success);
   }
   .task-progress-mark--failed {
-    font-size: 12px;
+    font-size: var(--text-small);
     font-weight: 700;
     color: var(--color-warning);
   }
   .task-progress-details {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -11775,8 +11670,8 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 2px 6px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-secondary);
 
     &:empty {
@@ -11796,7 +11691,6 @@
     }
   }
   .task-progress-action--strong {
-    font-weight: 600;
     color: var(--color-accent);
 
     &:hover {
@@ -11818,8 +11712,8 @@
     color: var(--color-ink-secondary);
   }
   .task-progress-remaining-label {
-    font-size: 12.5px;
-    line-height: 18px;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
 
@@ -11944,7 +11838,7 @@
   /* A wait on a second row sits under the step's words, in the smaller ink of a note. */
   .answer-steps-live-row--second {
     padding-left: 20px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -12197,9 +12091,8 @@
     margin: 4px 0 0 20px;
     padding: 0 7px 0 6px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   .assistant-answer .answer-steps-regenerate:hover {
@@ -12215,7 +12108,6 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-weight: 600;
     color: var(--color-ink);
   }
 
@@ -12257,8 +12149,8 @@
       outline: none;
       background: transparent;
       font: inherit;
-      font-size: 14px;
-      line-height: 20px;
+      font-size: var(--text-ui);
+      line-height: var(--text-ui--line-height);
       color: var(--color-ink);
 
       &::placeholder {
@@ -12303,26 +12195,25 @@
     white-space: nowrap;
   }
   .add-to-option-title {
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   .add-to-option-detail {
-    font-size: var(--text-label);
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
   .add-to-option-key {
     align-self: center;
-    font-size: var(--text-label);
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
   .add-to-heading {
     margin: 0;
     padding: 8px 8px 2px;
-    font-size: var(--text-label);
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-meta);
   }
   .add-to-separator {
@@ -12334,7 +12225,7 @@
   .add-to-empty {
     margin: 0;
     padding: 4px 8px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--color-ink-meta);
   }
   /* The composer is drawn here, the panel's width: the Mind's it reads, or the one with none in focus. */
@@ -12453,7 +12344,7 @@
     border-radius: 10px 10px 0 0;
     background: var(--color-sheet);
     font-family: var(--font-sans);
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink);
   }
@@ -12516,8 +12407,8 @@
   }
   .tasks-popover-empty {
     padding: 8px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   /* The chip's own slot in the band, for "Show Tasks" with no chip to show: it takes no room. */
@@ -12535,9 +12426,8 @@
     text-overflow: ellipsis;
   }
   .tasks-popover-title {
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
-    font-weight: 600;
   }
   .tasks-popover-done {
     width: 14px;
@@ -12571,8 +12461,8 @@
       background: var(--color-sheet);
     }
     .approval-title {
-      font-size: 14px;
-      line-height: 20px;
+      font-size: var(--text-ui);
+      line-height: var(--text-ui--line-height);
     }
     /* In the short tray of the bottom dock the head is the title's one line, and the details scroll between it and the buttons. */
     .assistant[data-dock="bottom"] & {
@@ -12693,7 +12583,7 @@
     align-items: center;
     gap: 6px;
     margin: 0;
-    font-size: 12.5px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -12701,7 +12591,6 @@
     margin: 0;
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);
-    font-weight: 600;
     overflow-wrap: break-word;
   }
   .research-plan-planning {
@@ -12816,7 +12705,7 @@
   .research-plan-label {
     flex: none;
     min-width: 64px;
-    font-size: 12.5px;
+    font-size: var(--text-small);
     color: var(--color-ink-meta);
   }
   .research-plan-sources {
@@ -12833,7 +12722,7 @@
     border: 1px solid var(--color-rule);
     border-radius: 6px;
     background: var(--color-sheet);
-    font-size: 12.5px;
+    font-size: var(--text-small);
     color: var(--color-ink-secondary);
 
     &[aria-pressed="true"] {
@@ -12858,7 +12747,6 @@
     padding: 0 6px;
     margin-left: -6px;
     border-radius: 6px;
-    font-weight: 600;
 
     &:hover,
     &[aria-expanded="true"] {
@@ -12867,7 +12755,7 @@
   }
   .research-plan-note {
     margin: -2px 0 0;
-    font-size: 12.5px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -12885,7 +12773,7 @@
   .research-plan-estimate {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
     overflow-wrap: break-word;
@@ -12896,7 +12784,6 @@
   }
   .research-plan-view-mind {
     min-width: 0;
-    font-weight: 600;
     overflow-wrap: break-word;
   }
   /*
@@ -12954,13 +12841,13 @@
   .task-ask-count {
     flex: none;
     margin-bottom: 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
   .approval-keys {
     margin-left: 4px;
-    font-size: 11px;
+    font-size: var(--text-small);
     font-weight: 400;
     opacity: 0.75;
   }
@@ -12980,8 +12867,8 @@
     padding: 10px 12px;
     border: 1px solid var(--color-rule);
     border-radius: 10px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   /* At the bottom, the conversation and the composer keep to the Mind's column, 832px, which gutters the text 40px: the edge is where it starts. */
@@ -13075,8 +12962,7 @@
 
     > h2 {
       margin: 0;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: var(--text-ui);
       line-height: 20px;
       color: var(--color-ink);
     }
@@ -13098,13 +12984,13 @@
     border: 0;
     border-radius: 6px;
     background: none;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     text-align: left;
 
     > time {
-      font-size: 12px;
+      font-size: var(--text-small);
     }
 
     &:hover {
@@ -13117,8 +13003,8 @@
   .assistant-history-empty {
     margin: 0;
     padding: 16px 12px;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
 
@@ -13189,8 +13075,7 @@
     align-items: center;
     gap: 8px;
     margin: 0 4px 0 0;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     line-height: 20px;
     color: var(--color-ink-secondary);
 
@@ -13209,13 +13094,12 @@
     align-items: center;
     padding: 0 6px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--color-ink-meta);
     white-space: nowrap;
 
     &[data-named] {
       color: var(--color-ink);
-      font-weight: 600;
     }
     &:hover {
       background: var(--color-hover);
@@ -13232,7 +13116,7 @@
   }
   .history-undo {
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--text-ui);
   }
   .history-name-input {
     width: 280px;
@@ -13242,7 +13126,7 @@
     border: 1px solid var(--color-accent);
     border-radius: 6px;
     background: var(--color-sheet);
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--color-ink);
   }
   .history-picker {
@@ -13256,8 +13140,8 @@
     border: 1px solid var(--color-rule-strong);
     border-radius: 6px;
     background: var(--color-sheet);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     white-space: nowrap;
 
@@ -13272,7 +13156,6 @@
     &[data-side="right"] {
       border-color: transparent;
       background: transparent;
-      font-weight: 600;
       color: var(--color-ink-secondary);
     }
     &[data-side="right"]:hover {
@@ -13282,8 +13165,8 @@
   .history-menu {
     width: 300px;
     max-width: calc(100vw - 16px);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
   }
   .history-time {
     font-variant-numeric: tabular-nums;
@@ -13296,7 +13179,6 @@
       color: var(--color-ink);
     }
     &[aria-checked="true"] > .history-time {
-      font-weight: 600;
     }
   }
   .history-card {
@@ -13313,8 +13195,8 @@
   }
   .history-note {
     margin: 16px 56px 0;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
   }
   .history-scroller {
@@ -13352,7 +13234,7 @@
     line-height: var(--text-heading--line-height);
 
     &[data-level="2"] {
-      font-size: 19px;
+      font-size: var(--text-heading);
       line-height: 28px;
     }
     &:is([data-level="3"], [data-level="4"], [data-level="5"], [data-level="6"]) {
@@ -13362,9 +13244,8 @@
   }
   .history-question {
     font-family: var(--font-sans);
-    font-size: var(--text-question);
-    font-weight: 500;
-    line-height: var(--text-question--line-height);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
     color: var(--color-ink-secondary);
   }
   /* A list item's bullet or number hangs in the 24px its indent keeps for it. */
@@ -13381,8 +13262,8 @@
   }
   .history-code {
     font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     white-space: pre-wrap;
   }
   .history-lines {
@@ -13392,7 +13273,6 @@
     white-space: pre-line;
   }
   .history-label {
-    font-weight: 600;
     color: var(--color-ink-meta);
   }
   .history-rule {
@@ -13412,8 +13292,7 @@
     border-radius: 4px;
     background: var(--color-chip);
     font-family: var(--font-sans);
-    font-size: 11px;
-    font-weight: 600;
+    font-size: var(--text-small);
     line-height: 18px;
     color: var(--color-ink-secondary);
     vertical-align: 2px;
@@ -13494,9 +13373,8 @@
     text-align: start;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
-    font-weight: 600;
     color: var(--color-ink-meta);
     cursor: default;
   }
@@ -13508,8 +13386,7 @@
     border: 1px solid var(--color-accent);
     border-radius: 4px;
     background: var(--color-sheet);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     color: var(--color-ink);
     outline: none;
   }
@@ -13525,8 +13402,7 @@
     padding: 0 6px;
     border-radius: 6px;
     white-space: nowrap;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     color: var(--color-ink-secondary);
 
     &:is(:hover, [aria-expanded="true"]) {
@@ -13576,9 +13452,8 @@
   }
   .chart-unit {
     margin-bottom: 2px;
-    font-size: 12px;
-    line-height: 18px;
-    font-weight: 600;
+    font-size: var(--text-small);
+    line-height: var(--text-small--line-height);
     color: var(--color-ink-meta);
   }
   /* The values lie over the drawing; only they take the pointer. */
@@ -13588,12 +13463,12 @@
     pointer-events: none;
   }
   .chart-axis {
-    font-size: 12px;
+    font-size: var(--text-small);
     font-variant-numeric: tabular-nums;
     fill: var(--color-ink-meta);
   }
   .chart-label {
-    font-size: 12px;
+    font-size: var(--text-small);
     fill: var(--color-ink-secondary);
   }
   .chart-grid {
@@ -13715,7 +13590,7 @@
     margin: 0;
     padding: 24px 0 30px;
     text-align: center;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
@@ -13740,8 +13615,8 @@
       text-align: end;
       white-space: nowrap;
       font-family: var(--font-sans);
-      font-size: 14px;
-      line-height: 20px;
+      font-size: var(--text-ui);
+      line-height: var(--text-ui--line-height);
       font-weight: 400;
       color: var(--color-ink);
     }
@@ -13749,7 +13624,7 @@
       text-align: start;
     }
     thead th {
-      font-size: 12px;
+      font-size: var(--text-small);
       line-height: 16px;
       font-weight: 600;
       color: var(--color-ink-meta);
@@ -13759,7 +13634,7 @@
     }
   }
   .chart-value-note {
-    font-size: 12px;
+    font-size: var(--text-small);
     white-space: nowrap;
     color: var(--color-ink-meta);
   }
@@ -13848,7 +13723,7 @@
     align-items: center;
     gap: 4px 14px;
     margin-top: 8px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -13893,8 +13768,7 @@
   .chart-link {
     padding: 0 2px;
     border-radius: 4px;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-accent);
 
     &:hover {
@@ -13917,7 +13791,7 @@
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
     font-family: var(--font-sans);
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink);
 
@@ -13939,9 +13813,8 @@
     display: flex;
     justify-content: space-between;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-meta);
   }
   .chart-card-position {
@@ -13950,13 +13823,12 @@
     font-variant-numeric: tabular-nums;
   }
   .chart-card-value {
-    font-size: 15px;
+    font-size: var(--text-ui);
     line-height: 22px;
-    font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
   .chart-card-detail {
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-secondary);
@@ -13967,7 +13839,7 @@
     gap: 6px;
     min-width: 0;
     margin-top: 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -13984,8 +13856,7 @@
     flex: none;
     padding: 0 2px;
     border-radius: 4px;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--text-small);
     color: var(--color-accent);
 
     &:hover {
@@ -13997,7 +13868,7 @@
   }
   .chart-card-cut {
     margin-top: 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -14022,7 +13893,7 @@
     row-gap: 2px;
     min-height: 28px;
     margin-bottom: 6px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-meta);
     user-select: none;
@@ -14066,7 +13937,6 @@
     cursor: text;
   }
   .comparison-table[data-expanded] .comparison-name {
-    font-weight: 600;
   }
   .comparison-name-field {
     min-width: 120px;
@@ -14134,8 +14004,7 @@
     padding: 0 6px;
     border-radius: 6px;
     white-space: nowrap;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
     color: var(--color-ink-secondary);
 
     &:hover {
@@ -14152,9 +14021,8 @@
     border: 1px solid var(--color-rule);
     border-radius: 4px;
     font-family: var(--font-sans);
-    font-size: 11px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 500;
     color: var(--color-ink-meta);
   }
   .comparison-expand {
@@ -14226,9 +14094,8 @@
   .comparison-corner,
   .comparison-question {
     background: var(--color-frame);
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
     overflow-wrap: anywhere;
     word-break: normal;
@@ -14350,9 +14217,8 @@
     align-items: center;
     gap: 4px;
     background: var(--color-sheet);
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 600;
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
     color: var(--color-ink);
     user-select: none;
   }
@@ -14444,7 +14310,7 @@
   .comparison-cell {
     position: relative;
     font-family: var(--font-serif);
-    font-size: 15px;
+    font-size: var(--text-ui);
     line-height: 24px;
     color: var(--color-ink);
 
@@ -14462,7 +14328,7 @@
   .comparison-cell-problem {
     display: none;
     font-family: var(--font-sans);
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 24px;
     color: var(--color-ink-meta);
   }
@@ -14529,7 +14395,7 @@
     height: 16px;
     border-radius: 4px;
     background: var(--color-warning-wash);
-    font-size: 11px;
+    font-size: var(--text-small);
     font-weight: 700;
     color: var(--color-warning);
   }
@@ -14631,9 +14497,8 @@
     gap: 8px;
     min-height: 24px;
     margin-bottom: 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   .compare-sheet-count {
@@ -14655,7 +14520,7 @@
   }
   .compare-sheet-hint {
     margin-top: 6px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
   }
@@ -14667,7 +14532,6 @@
     margin-left: -4px;
     padding: 2px 4px;
     border-radius: 4px;
-    font-weight: 600;
 
     &:hover,
     &[aria-expanded="true"] {
@@ -14730,7 +14594,7 @@
   .compare-sheet-number {
     flex: none;
     width: 12px;
-    font-size: 12px;
+    font-size: var(--text-small);
     color: var(--color-ink-meta);
   }
   .compare-sheet-remove {
@@ -14760,7 +14624,7 @@
     margin-left: -4px;
     padding: 0 4px;
     border-radius: 4px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--color-ink-secondary);
 
     &:hover {
@@ -14789,7 +14653,7 @@
   .compare-sheet-estimate {
     padding: 0 16px 8px;
     text-align: end;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink);
 
@@ -14817,8 +14681,7 @@
     border: 1px solid var(--color-rule);
     border-radius: 6px;
     background: var(--color-frame);
-    font-size: 13px;
-    font-weight: 600;
+    font-size: var(--text-ui);
 
     button {
       display: inline-flex;
@@ -14866,27 +14729,26 @@
   }
   .comparison-add-heading {
     padding: 0 2px 4px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
-    font-weight: 600;
     color: var(--color-ink);
     outline: none;
   }
   .comparison-add-empty {
     padding: 6px 2px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
   .comparison-add-hint {
     padding: 2px 2px 4px;
-    font-size: 12px;
+    font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-warning);
   }
   .comparison-add-estimate {
     padding: 0 2px 6px;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink);
     text-align: end;
@@ -15003,8 +14865,8 @@ body.assistant-dragging * {
   background: var(--color-sheet);
   box-shadow: var(--shadow-popover);
   color: var(--color-ink);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
 }
 
 .comment-card--resolved {
@@ -15022,14 +14884,13 @@ body.assistant-dragging * {
   align-items: baseline;
   gap: 6px;
   color: var(--color-ink-meta);
-  font-size: 11px;
+  font-size: var(--text-small);
   line-height: 16px;
 }
 
 .comment-author {
   overflow: hidden;
   color: var(--color-ink);
-  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -15042,7 +14903,7 @@ body.assistant-dragging * {
 .comment-resolved {
   flex: none;
   color: var(--color-ink-meta);
-  font-size: 11px;
+  font-size: var(--text-small);
 }
 
 .comment-text {
@@ -15064,7 +14925,7 @@ body.assistant-dragging * {
   padding: 2px 5px;
   border-radius: 4px;
   color: var(--color-ink-meta);
-  font-size: 11px;
+  font-size: var(--text-small);
   line-height: 16px;
 }
 
@@ -15079,8 +14940,8 @@ body.assistant-dragging * {
   border-radius: 6px;
   background: var(--color-accent);
   color: var(--color-on-primary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
 }
 
 .comment-send:disabled {
@@ -15110,7 +14971,7 @@ body.assistant-dragging * {
   width: 100%;
   padding: 6px 8px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--text-ui);
   line-height: 18px;
   text-align: start;
 }
@@ -15132,7 +14993,7 @@ body.assistant-dragging * {
   border-radius: 6px;
   color: var(--color-ink-meta);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--text-small);
   line-height: 20px;
   white-space: nowrap;
 }
@@ -15154,8 +15015,8 @@ body.assistant-dragging * {
 .comments-list-head {
   padding: 6px 8px;
   color: var(--color-ink-meta);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
 }
 
 .comments-list-row {
@@ -15175,7 +15036,7 @@ body.assistant-dragging * {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--text-small);
   line-height: 16px;
 }
 
@@ -15184,8 +15045,8 @@ body.assistant-dragging * {
   margin-top: 2px;
   overflow: hidden;
   color: var(--color-ink);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -15211,4 +15072,30 @@ body.assistant-dragging * {
 [data-testid="setup-foot"][data-fresh-step] [data-testid="setup-skip"]:hover {
   background: transparent;
   color: var(--color-ink-secondary);
+}
+
+/*
+ * The icon set's two sizes (DESIGN.md, Icons; #3766): 16px in a row or a menu, 18px in a toolbar,
+ * a panel's head or an empty page. Unlayered, so a size a component still writes loses to them.
+ * The line stays 1.5px at both sizes.
+ */
+svg.app-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+
+  & * {
+    vector-effect: non-scaling-stroke;
+  }
+}
+:is(.title-bar, [data-toolbar]) svg.app-icon,
+svg.app-icon[data-size="18"] {
+  width: 18px;
+  height: 18px;
+}
+
+/* A menu opened with the pointer shows no item in focus until a key is pressed (DESIGN.md, Menus; #3761). */
+[role="menu"][data-pointer-open] :focus-visible:not(:hover) {
+  outline: none;
+  background-color: transparent;
 }

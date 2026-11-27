@@ -11,7 +11,7 @@ import { LanguagesLine } from "./LanguagesLine";
 import { TranscriptionKeyForm } from "./TranscriptionKeyForm";
 import type { TranscriptionSetUpRows } from "./TranscriptionRouteSelect";
 
-const consentClass = "text-[12px] leading-5 text-ink-meta";
+const consentClass = "text-small leading-5 text-ink-meta";
 
 /**
  * The Meeting transcription picker's "Set up another transcription service", wherever the picker

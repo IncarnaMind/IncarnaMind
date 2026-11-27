@@ -2,7 +2,7 @@ import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { Meeting, MeetingHelp } from "../../../core/api";
 import { withFigureText } from "../../../shared/figureMarkers";
 import { MEETING_PANEL_BRIDGE_KEY } from "../../../shared/meetingPanel";
-import { ChevronRightLineIcon } from "../components/lineIcons";
+import { ChevronRightLineIcon } from "../components/icons";
 import {
   HelpHeading,
   HelpOutline,

@@ -25,7 +25,7 @@ import {
   LinkLineIcon,
   NoteLineIcon,
   PlusLineIcon,
-} from "../components/lineIcons";
+} from "../components/icons";
 import { holdsQuote, useComposer } from "../composer";
 import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";

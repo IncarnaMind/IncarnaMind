@@ -17,7 +17,7 @@ import {
   ChevronDownLineIcon,
   CloseLineIcon,
   MoreLineIcon,
-} from "../components/lineIcons";
+} from "../components/icons";
 import {
   buttonStyle,
   iconButtonClass,
@@ -447,6 +447,11 @@ function PaneMenu({ editor, mindId }: { editor: Editor; mindId: string }) {
       onClick={() => decide(ids, outcome)}
       className={`${menuItemClass} pl-2`}
     >
+      {outcome === "accept" ? (
+        <CheckLineIcon className="shrink-0" />
+      ) : (
+        <CloseLineIcon className="shrink-0" />
+      )}
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
   );

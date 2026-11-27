@@ -32,8 +32,16 @@ import { FoundPassages } from "../components/assistant/FoundPassages";
 import { MindCall } from "../components/assistant/MindCall";
 import { DetailsLine } from "../components/DetailsLine";
 import { useIsExampleAnswer } from "../components/GettingStarted";
-import { PlugIcon, ScriptIcon, SkillIcon, StopIcon } from "../components/icons";
-import { DocumentLineIcon, FindSourcesLineIcon } from "../components/lineIcons";
+import {
+  ChevronRightSmallIcon,
+  DocumentLineIcon,
+  FindSourcesLineIcon,
+  PlugIcon,
+  RegenerateSmallIcon,
+  ScriptIcon,
+  SkillIcon,
+  StopIcon,
+} from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine, ProblemMark } from "../components/ProblemLine";
 import {
@@ -67,7 +75,6 @@ import { useAppStore } from "../store";
 import { reasonKey } from "../webPages";
 import { AnalysisCall } from "./AnalysisCall";
 import { CommandApprovalCard } from "./CommandApprovalCard";
-import { ChevronRightSmallIcon, RegenerateSmallIcon } from "./icons";
 import { useMindId } from "./mindContext";
 import { PlanLimitLine } from "./PlanLimitLine";
 import { ThirdPartyLine } from "./ThirdPartyLine";

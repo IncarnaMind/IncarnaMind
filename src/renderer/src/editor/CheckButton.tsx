@@ -8,12 +8,17 @@ import {
 } from "react";
 import { create } from "zustand";
 import { useChecks } from "../checks";
-import { CheckLineIcon, StopLineIcon } from "../components/lineIcons";
+import {
+  CheckLineIcon,
+  CheckMarkIcon,
+  ClaimMarkIcon,
+  NotYetCitedIcon,
+  StopLineIcon,
+} from "../components/icons";
 import { useT } from "../i18n";
 import type { NoteStateMark } from "../noteState";
 import type { CheckButtonView } from "./checkButtonState";
 import { useCardPlace } from "./checkPlace";
-import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 
 /** The state's mark, as the margin draws the worst thing it found. */
 function StateMark({ mark }: { mark: NoteStateMark }) {

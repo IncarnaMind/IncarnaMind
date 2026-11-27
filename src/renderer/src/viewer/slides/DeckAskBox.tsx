@@ -8,10 +8,9 @@
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentPairing, Document } from "../../../../core/api";
 import { useViewerHandle } from "../../commands/handles";
-import { StopIcon } from "../../components/icons";
+import { AskArrowIcon, RemoveIcon, StopIcon } from "../../components/icons";
 import { TypingTextarea } from "../../components/TypingTextarea";
 import { core } from "../../core";
-import { AskArrowIcon, RemoveIcon } from "../../editor/icons";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import {

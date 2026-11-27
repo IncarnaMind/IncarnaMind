@@ -81,7 +81,7 @@ function SummaryItemControls({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] leading-5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small leading-5">
         <button
           type="button"
           data-testid="meeting-summary-item-original"
@@ -89,7 +89,7 @@ function SummaryItemControls({
           aria-expanded={sources !== null}
           aria-controls={panelId}
           onClick={() => void toggle()}
-          className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+          className="rounded-sm text-accent underline-offset-2 hover:underline"
         >
           {t("meetings.summary.item.original")}
         </button>
@@ -275,7 +275,7 @@ export function MeetingSummaryItems({
 
   return (
     <details ref={details} data-testid="meeting-summary-items" className="mt-2 max-w-3xl">
-      <summary className="w-fit max-w-full cursor-pointer rounded-sm py-1 text-[13px] leading-5 font-medium text-ink-secondary hover:text-ink">
+      <summary className="w-fit max-w-full cursor-pointer rounded-sm py-1 text-ui leading-5 text-ink-secondary hover:text-ink">
         {t("meetings.summary.items", { count: items.length })}
       </summary>
       <div className="mt-2 space-y-3 ps-4">
@@ -289,7 +289,7 @@ export function MeetingSummaryItems({
           ];
           return (
             <div key={kind}>
-              <h3 className="text-[13px] leading-5 font-semibold text-ink">{heading}</h3>
+              <h3 className="text-ui leading-5 text-ink">{heading}</h3>
               <ul aria-label={heading} className="mt-1 space-y-3">
                 {ordered.map((item) => {
                   const rowId = `${id}-${item.id}`;
@@ -299,7 +299,7 @@ export function MeetingSummaryItems({
                       key={item.id}
                       data-testid="meeting-summary-item"
                       data-item-id={item.id}
-                      className="space-y-1 text-[13px] leading-5"
+                      className="space-y-1 text-ui leading-5"
                     >
                       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
                         <span
@@ -311,7 +311,7 @@ export function MeetingSummaryItems({
                         </span>
                         <span
                           data-testid="meeting-summary-item-status"
-                          className="text-[12px] whitespace-nowrap text-ink-meta"
+                          className="text-small whitespace-nowrap text-ink-meta"
                         >
                           {t(summaryItemStatus(item.kind, item.status))}
                         </span>

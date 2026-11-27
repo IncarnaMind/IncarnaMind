@@ -27,7 +27,7 @@ export function NeedsModelCard({
   const openSettings = useAppStore((state) => state.openSettings);
   return (
     <div data-testid={testId} className={`flex flex-col gap-1.5 ${className}`}>
-      <p className="text-[13px] leading-5 text-ink-secondary">{t(line)}</p>
+      <p className="text-ui leading-5 text-ink-secondary">{t(line)}</p>
       <KeyEntry
         testId={`${testId}-key`}
         autoFocus={autoFocus}

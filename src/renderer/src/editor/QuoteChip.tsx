@@ -1,4 +1,4 @@
-import { RemoveIcon } from "./icons";
+import { RemoveIcon } from "../components/icons";
 
 /**
  * A quote in the composer, as a chip before its text (DESIGN.md, Composer):

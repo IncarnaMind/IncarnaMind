@@ -1,9 +1,9 @@
 import type { Editor } from "@tiptap/core";
 import type { ReactNode, Ref } from "react";
 import { addFoundCitations } from "../checks";
+import { NotYetCitedIcon } from "../components/icons";
 import { useLanguage, useT } from "../i18n";
 import { offerEditorUndo } from "./editorUndo";
-import { NotYetCitedIcon } from "./icons";
 
 /**
  * The check card's row of sentences that can be cited (#3019, #3358), with its action on it: Add

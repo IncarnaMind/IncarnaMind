@@ -21,7 +21,7 @@ import { useLanguage, useT } from "../../i18n";
 import { useSelectable, useSelection } from "../../selection";
 import { useAppStore } from "../../store";
 import { TREE_ROW } from "../../treeKeys";
-import { CheckLineIcon, ChevronRightLineIcon, MoreLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronRightLineIcon, MoreLineIcon } from "../icons";
 import { useObjectMenu } from "../ObjectMenu";
 import { iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
@@ -176,10 +176,17 @@ export function FigureScheduleRowView({
               : t("claim.keepAsView"),
             () => props.onKeep(keeps),
           ),
-        parent.place.table &&
-          action(t(totals.length > 0 ? "figures.notTotal" : "figures.total"), () =>
-            props.onTotalRole(parent.id, totals.length > 0 ? totals : ["row"], totals.length === 0),
-          ),
+        ...(parent.place.table
+          ? (["row", "column"] as const).map((axis) => {
+              const on = totals.includes(axis);
+              return action(
+                t(axis === "row" ? "figures.totalRow" : "figures.totalColumn"),
+                () => props.onTotalRole(parent.id, [axis], !on),
+                undefined,
+                on,
+              );
+            })
+          : []),
       ].filter(Boolean);
 
   const { name, value, difference } = shows;

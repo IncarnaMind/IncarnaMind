@@ -16,8 +16,14 @@ import { useCitationRecheck, useQuoteLook } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
 import { YourNoteLabel } from "../components/DocumentsSection";
 import { InlineName } from "../components/InlineName";
+import {
+  AreaIcon,
+  DocumentLineIcon,
+  NoteLineIcon,
+  OpenExternallyIcon,
+  PinLineIcon,
+} from "../components/icons";
 import { moveDocumentsBeside } from "../components/library/DocumentMoveTo";
-import { DocumentLineIcon, NoteLineIcon, PinLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { ProblemLine } from "../components/ProblemLine";
 import { DocumentTagChips } from "../components/TagChips";
@@ -29,7 +35,6 @@ import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
 import { AreaModeContext } from "./areaSelection";
 import { citedPlaceGoneLine } from "./citedPlace";
-import { AreaIcon, OpenExternallyIcon } from "./icons";
 import { canOpenExternally, useOpenExternally } from "./openExternally";
 
 /** What every view's toolbar needs from its tab: the Document shown, and whether it is a preview. */
@@ -200,7 +205,7 @@ function Toolbar({
     return children ? (
       <header
         data-testid="viewer-embedded-header"
-        className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1 text-[12px] leading-5 text-ink-meta [&_.viewer-meta]:not-sr-only"
+        className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1 text-small leading-5 text-ink-meta [&_.viewer-meta]:not-sr-only"
       >
         {children}
       </header>
@@ -211,6 +216,7 @@ function Toolbar({
     <>
       <header
         data-testid="viewer-header"
+        data-toolbar
         {...(document ? objectMenu.rowProps : {})}
         ref={header}
         className={`viewer-header${areaMode ? " viewer-header--area" : ""}${

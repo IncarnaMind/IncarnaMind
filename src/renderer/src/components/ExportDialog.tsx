@@ -29,7 +29,7 @@ import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
 import { useAppStore } from "../store";
 import { CitationPlaceRow } from "./CitationPlace";
-import { ChevronDownLineIcon, CloseLineIcon } from "./lineIcons";
+import { ChevronDownLineIcon, CloseLineIcon } from "./icons";
 import { MarkAiTextRow } from "./MarkAiText";
 import { ProblemLine } from "./ProblemLine";
 import { SwitchRow } from "./SwitchRow";
@@ -162,10 +162,7 @@ function WordReviewRows({
         />
       ) : (
         fileCommentsNote && (
-          <p
-            data-testid="export-file-comments"
-            className="py-2.5 text-[13px] leading-5 text-ink-meta"
-          >
+          <p data-testid="export-file-comments" className="py-2.5 text-ui leading-5 text-ink-meta">
             {fileCommentsNote}
           </p>
         )
@@ -350,7 +347,7 @@ function CitationStyleRow({ mindId }: { mindId: string }) {
         {byDefault && (
           <span
             data-testid="export-citation-style-default"
-            className="text-[13px] leading-5 text-ink-meta"
+            className="text-ui leading-5 text-ink-meta"
           >
             {t("export.citationStyle.default")}
           </span>
@@ -408,7 +405,7 @@ function SaveToRow() {
           <span
             data-testid="export-save-to"
             title={location ?? undefined}
-            className="truncate text-[13px] leading-5 text-ink-meta"
+            className="truncate text-ui leading-5 text-ink-meta"
           >
             {output === null || location === null
               ? "…"
@@ -605,7 +602,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           </span>
         </div>
 
-        <div className="flex flex-col py-3 text-[13px] leading-5 text-ink-meta">
+        <div className="flex flex-col py-3 text-ui leading-5 text-ink-meta">
           <p data-testid="export-format-note">{t(FORMAT_NOTES[format])}</p>
           {format === "docx" && (
             <p data-testid="export-pending-note">{t("export.options.docx.pending")}</p>

@@ -4,9 +4,9 @@ import { useGap, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { declineOffer, useSuggestionOffer } from "../suggestions";
 
-const lineClass = "composer-problem font-sans text-[13px] leading-5 break-words text-ink-meta";
+const lineClass = "composer-problem font-sans text-ui leading-5 break-words text-ink-meta";
 const actionClass =
-  "rounded-sm font-semibold text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-accent";
+  "rounded-sm text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-accent";
 
 /**
  * The offer to suggest as the User writes, where they write, the once it

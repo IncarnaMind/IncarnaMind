@@ -27,7 +27,7 @@ const textAreaClass = `block w-full ${fieldClass}`;
 
 /** What opens a part of the form that most Connectors don't need: quiet, like a section title. */
 const disclosureClass =
-  "cursor-pointer px-4 text-[13px] leading-5 font-semibold text-ink-secondary select-none hover:text-ink";
+  "cursor-pointer px-4 text-ui leading-5 text-ink-secondary select-none hover:text-ink";
 
 /** Non-empty lines, trimmed. */
 const lines = (text: string) =>

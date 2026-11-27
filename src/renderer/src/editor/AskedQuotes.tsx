@@ -9,10 +9,9 @@ import {
 } from "../../../shared/citations";
 import { citationLocation, formatLocation, type Translate } from "../../../shared/locations";
 import { useAnswers } from "../answers";
-import { TableLineIcon } from "../components/lineIcons";
+import { RemoveIcon, TableLineIcon } from "../components/icons";
 import { quoteKey } from "../composer";
 import { areaCheck, areaLabel } from "../editor/areaWords";
-import { RemoveIcon } from "../editor/icons";
 import { QuoteChip } from "../editor/QuoteChip";
 import { useT } from "../i18n";
 import { useModelInUse } from "../modelInUse";

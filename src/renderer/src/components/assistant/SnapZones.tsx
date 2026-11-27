@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
-import { ChatLineIcon } from "../lineIcons";
+import { ChatLineIcon } from "../icons";
 import type { AssistantDragging } from "./useAssistantDrag";
 
 const ZONE_LABELS: Record<AssistantDragging["zones"][number]["dock"], MessageKey> = {

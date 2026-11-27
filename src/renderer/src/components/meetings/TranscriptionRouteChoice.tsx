@@ -5,7 +5,7 @@ import { joinMeta } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
-import { CloudLineIcon, ComputerLineIcon } from "../lineIcons";
+import { CloudLineIcon, ComputerLineIcon } from "../icons";
 import { ReadProblem } from "../ReadProblem";
 import { buttonStyle } from "../ui";
 import { CloudLine } from "./CloudLine";
@@ -13,7 +13,7 @@ import { LanguagesLine } from "./LanguagesLine";
 
 const lineClass = "flex items-center gap-3 rounded-lg p-3 ring-1 ring-rule ring-inset";
 const linkClass =
-  "shrink-0 text-[12px] leading-5 whitespace-nowrap text-accent underline-offset-2 hover:underline";
+  "shrink-0 text-small leading-5 whitespace-nowrap text-accent underline-offset-2 hover:underline";
 
 /**
  * Where the first recording is transcribed, on the sheet of a User who has chosen already (#141;
@@ -71,11 +71,11 @@ export function TranscriptionRouteChoice() {
       <div ref={root} data-testid="meeting-route" data-route={chosen.route} className={lineClass}>
         <CloudLineIcon className="size-[18px] shrink-0 text-ink-meta" />
         <div className="min-w-0 grow">
-          <p className="text-ui font-semibold text-ink">
+          <p className="text-ui text-ink">
             {t("meetings.route.cloudOn", { provider: t(ROUTE_LABELS[chosen.route]) })}
           </p>
-          <CloudLine service={chosen} className="text-[12px] leading-4 text-ink-meta" />
-          <LanguagesLine service={chosen} className="text-[12px] leading-4 text-ink-meta" />
+          <CloudLine service={chosen} className="text-small leading-4 text-ink-meta" />
+          <LanguagesLine service={chosen} className="text-small leading-4 text-ink-meta" />
         </div>
         <button
           type="button"
@@ -105,8 +105,8 @@ export function TranscriptionRouteChoice() {
       <div className={lineClass}>
         <ComputerLineIcon className="size-[18px] shrink-0 text-ink-meta" />
         <div className="min-w-0 grow">
-          <p className="text-ui font-semibold text-ink">{t("meetings.route.here")}</p>
-          <p className="text-[12px] leading-4 text-ink-meta">{t("meetings.route.hereLine")}</p>
+          <p className="text-ui text-ink">{t("meetings.route.here")}</p>
+          <p className="text-small leading-4 text-ink-meta">{t("meetings.route.hereLine")}</p>
         </div>
         {offered.length > 0 && !unfolded && (
           <button
@@ -124,7 +124,7 @@ export function TranscriptionRouteChoice() {
         )}
       </div>
       {slow && offered.length === 0 && !localMode && (
-        <p className="text-[12px] leading-4 text-ink-meta">
+        <p className="text-small leading-4 text-ink-meta">
           {t("meetings.route.slowNoKey")}{" "}
           <button
             type="button"
@@ -137,14 +137,10 @@ export function TranscriptionRouteChoice() {
       )}
       {unfolded && (
         <div data-testid="meeting-route-ways" className="flex flex-col gap-2 pl-[42px]">
-          {slow && (
-            <p className="text-[12px] leading-4 font-semibold text-ink">
-              {t("meetings.route.slow")}
-            </p>
-          )}
+          {slow && <p className="text-small leading-4 text-ink">{t("meetings.route.slow")}</p>}
           {offered.map((service) => (
             <div key={service.route} className="flex flex-col gap-1">
-              <div className="flex items-center gap-3 text-[13px] text-ink">
+              <div className="flex items-center gap-3 text-ui text-ink">
                 <span className="grow">
                   {joinMeta([
                     t("meetings.route.wayRow", { provider: t(ROUTE_LABELS[service.route]) }),
@@ -161,12 +157,12 @@ export function TranscriptionRouteChoice() {
                 </button>
               </div>
               {service.dataUse && (
-                <CloudLine service={service} className="text-[12px] leading-4 text-ink-meta" />
+                <CloudLine service={service} className="text-small leading-4 text-ink-meta" />
               )}
-              <LanguagesLine service={service} className="text-[12px] leading-4 text-ink-meta" />
+              <LanguagesLine service={service} className="text-small leading-4 text-ink-meta" />
             </div>
           ))}
-          <p className="text-[12px] leading-4 text-ink-meta">{t("meetings.route.waysNote")}</p>
+          <p className="text-small leading-4 text-ink-meta">{t("meetings.route.waysNote")}</p>
         </div>
       )}
     </div>

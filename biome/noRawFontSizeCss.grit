@@ -1,0 +1,8 @@
+language css;
+
+or {
+  `font-size: $size` as $found where { $size <: r"(?s).*[0-9]px.*" },
+  CssAtRule() as $found where { $found <: r"(?s)@apply\b.*(?:^|[\s:!])text-\[[0-9.]+(?:px|rem)\].*" }
+} where {
+  register_diagnostic(span = $found, message = "Use a type token (--text-title, --text-heading, --text-body, --text-ui, --text-small, or text-ui and the others in @apply): the interface has five sizes (DESIGN.md, Typography; #3766).", severity = "error")
+}

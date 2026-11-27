@@ -1,5 +1,5 @@
 import type { Ref } from "react";
-import { SearchLineIcon } from "./lineIcons";
+import { SearchLineIcon } from "./icons";
 
 /** A search field: Esc empties it first, and only once it is empty closes what it is in. */
 export function SearchField({
@@ -39,7 +39,7 @@ export function SearchField({
             onChange("");
           }
         }}
-        className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-placeholder"
+        className="h-full min-w-0 flex-1 bg-transparent text-ui text-ink outline-none placeholder:text-ink-placeholder"
       />
     </label>
   );

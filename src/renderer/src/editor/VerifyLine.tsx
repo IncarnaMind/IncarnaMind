@@ -12,6 +12,7 @@ import {
 import { useAskedAgent } from "../askedAgent";
 import { askToCheck, useAgentsToAskRead, useNoModel, useReadAgentsToAsk } from "../askYourAi";
 import { EstimateMeta } from "../components/EstimateSource";
+import { ClaimMarkIcon, type ClaimMarkState } from "../components/icons";
 import { MetaLine } from "../components/MetaLine";
 import { ProblemLine } from "../components/ProblemLine";
 import {
@@ -49,7 +50,6 @@ import {
   shownClaims,
 } from "./claimChecks";
 import { HandedFileLine } from "./HandedFileLine";
-import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { useRunModel } from "./ModelChip";
 import { NotYetCitedRow } from "./NotYetCitedRow";
 import { OpinionsLine } from "./OpinionsLine";

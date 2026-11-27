@@ -8,7 +8,7 @@ import { citedSpeakers } from "../../../shared/citations";
 import { formatLocation } from "../../../shared/locations";
 import { hasSearchScope, mindSearchScope } from "../../../shared/searchScope";
 import { INLINE_NODE, lastSentence } from "../../../shared/sentences";
-import { DocumentLineIcon } from "../components/lineIcons";
+import { DocumentLineIcon } from "../components/icons";
 import { Marked } from "../components/Marked";
 import { core } from "../core";
 import { useT } from "../i18n";

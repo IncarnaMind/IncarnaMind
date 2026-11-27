@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import type { FocusEvent, KeyboardEvent, RefObject } from "react";
-import { ChatLineIcon } from "../components/lineIcons";
+import { ChatLineIcon } from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { stopEdit, useEdits } from "../editWithAi";
 import { useT } from "../i18n";

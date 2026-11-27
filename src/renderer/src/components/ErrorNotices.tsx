@@ -44,7 +44,7 @@ function Notice({ notice }: { notice: ErrorNoticeState }) {
     <div
       role="alert"
       data-testid="error-notice"
-      className="flex items-start gap-3 rounded-lg bg-sheet py-2.5 pr-2.5 pl-4 text-[13px] leading-5 text-ink shadow-popover"
+      className="flex items-start gap-3 rounded-lg bg-sheet py-2.5 pr-2.5 pl-4 text-ui leading-5 text-ink shadow-popover"
     >
       <ProblemMark className="mt-2 -mr-1.5" />
       <div className="min-w-0 flex-1 py-1">

@@ -49,7 +49,7 @@ export function AddCustomConnector({
   return (
     <section data-testid="connector-custom" className="flex flex-col gap-4">
       <BackToConnectors onBack={onBack} />
-      <h4 className="text-[20px] leading-7 font-semibold text-ink">
+      <h4 className="text-heading leading-7 font-semibold text-ink">
         {t("connectors.custom.title")}
       </h4>
       <div
@@ -68,9 +68,9 @@ export function AddCustomConnector({
             aria-controls={`${id}-panel`}
             tabIndex={tab === each ? 0 : -1}
             onClick={() => setTab(each)}
-            className={`h-7 rounded-md px-3 text-[13px] leading-7 ${
+            className={`h-7 rounded-md px-3 text-ui leading-7 ${
               tab === each
-                ? "bg-sheet font-semibold text-ink shadow-[0_0_0_1px_var(--color-rule)]"
+                ? "bg-sheet text-ink shadow-[0_0_0_1px_var(--color-rule)]"
                 : "text-ink-secondary hover:text-ink"
             }`}
           >

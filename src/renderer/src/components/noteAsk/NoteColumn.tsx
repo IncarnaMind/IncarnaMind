@@ -4,7 +4,6 @@ import type { AgentSavedFile, NoteQuestion, NoteStep, NoteTurn } from "../../../
 import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
 import { files } from "../../core";
-import { AskArrowIcon } from "../../editor/icons";
 import { KIND_LABELS, showFileLabelKey } from "../../fileInfo";
 import { useLanguage, useT } from "../../i18n";
 import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
@@ -25,6 +24,7 @@ import {
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import {
+  AskArrowIcon,
   ChevronRightLineIcon,
   CopyLineIcon,
   DocumentLineIcon,
@@ -32,7 +32,7 @@ import {
   PencilLineIcon,
   RetryLineIcon,
   TrashLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { ProblemLine } from "../ProblemLine";
 import { SidebarToggle } from "../SidebarToggle";
 import { ConversationMenu } from "./ConversationMenu";

@@ -3,7 +3,6 @@ import { chosenParts } from "../../../shared/exportOptions";
 import { nameInLine } from "../../../shared/naming";
 import { saveFailureReason } from "../../../shared/systemReasons";
 import { core, files } from "../core";
-import { CheckStateIcon } from "../editor/icons";
 import { useDismissOnEscape } from "../escapeDismiss";
 import {
   checkComments,
@@ -53,7 +52,7 @@ import {
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";
-import { CloseLineIcon, ExportLineIcon } from "./lineIcons";
+import { CheckLineIcon, CheckStateIcon, CloseLineIcon, ExportLineIcon } from "./icons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { WordExportLosses } from "./WordExportLosses";
 
@@ -220,7 +219,7 @@ function ResultBody({
           <p
             role="status"
             data-testid="export-saving"
-            className="flex items-center gap-2 py-1 text-[13px] leading-5 text-ink-meta"
+            className="flex items-center gap-2 py-1 text-ui leading-5 text-ink-meta"
           >
             <ExportLineIcon className="size-4 shrink-0" />
             {saving}
@@ -251,7 +250,7 @@ function ResultBody({
                     type="button"
                     data-testid="export-change-folder"
                     onClick={showOutputLocationSetting}
-                    className="h-7 rounded-md px-2.5 text-[13px] leading-5 font-semibold text-ink-secondary hover:bg-hover hover:text-ink"
+                    className="h-7 rounded-md px-2.5 text-ui leading-5 text-ink-secondary hover:bg-hover hover:text-ink"
                   >
                     {t("export.changeFolder")}
                   </button>
@@ -507,11 +506,11 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
               folder,
             })
       }
-      className={`flex min-w-0 items-start gap-2 text-[14px] leading-5 text-ink-secondary ${
+      className={`flex min-w-0 items-start gap-2 text-ui leading-5 text-ink-secondary ${
         parts.length > 0 ? "grow basis-75" : ""
       }`}
     >
-      <CheckIcon />
+      <CheckLineIcon className="mt-0.5 shrink-0 text-ink" />
       <SavedName name={name} withCsv={result.withCsv} folder={folder} withFile={parts}>
         {canChange && result.changing === undefined && <ChangePart mindId={result.mindId} />}
       </SavedName>
@@ -544,7 +543,7 @@ function SavedName({
   const saved = (
     <span data-testid="export-saved" className="min-w-0 break-words">
       {before}
-      <span className="font-semibold text-ink">{name}</span>
+      <span className="text-ink">{name}</span>
       {after}
     </span>
   );
@@ -568,7 +567,7 @@ function SavedName({
                   type="button"
                   data-testid={action.testId}
                   onClick={action.onClick}
-                  className="font-semibold text-ink-secondary hover:text-ink hover:underline"
+                  className="text-ink-secondary hover:text-ink hover:underline"
                 >
                   {action.label}
                 </button>
@@ -590,7 +589,7 @@ function ChangePart({ mindId }: { mindId: string }) {
       type="button"
       data-testid="export-change"
       onClick={() => changeExportChoices(mindId)}
-      className="font-semibold text-ink-secondary hover:text-ink hover:underline"
+      className="text-ink-secondary hover:text-ink hover:underline"
     >
       {t("export.saved.change")}
     </button>
@@ -605,23 +604,6 @@ function FilePart({ children, testId }: { children: ReactNode; testId?: string }
       </span>
       <span data-testid={testId}>{children}</span>
     </span>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="mt-0.5 size-4 shrink-0 text-ink"
-    >
-      <path d="m5 12.5 4.5 4.5L19 7.5" />
-    </svg>
   );
 }
 

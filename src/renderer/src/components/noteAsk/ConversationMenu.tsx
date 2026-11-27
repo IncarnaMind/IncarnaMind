@@ -8,7 +8,15 @@ import {
   useNoteAsks,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { ChevronDownLineIcon } from "../lineIcons";
+import {
+  ChevronDownLineIcon,
+  CloseLineIcon,
+  DockBottomLineIcon,
+  DockRightLineIcon,
+  type Icon,
+  PlusLineIcon,
+} from "../icons";
+import { MenuItemParts } from "../MenuItemParts";
 import { menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
@@ -38,7 +46,7 @@ export function ConversationMenu({
   // one sent meanwhile still to be answered.
   const working = useNoteAsks((state) => isGoing(state.byMind[mindId]));
   const back = () => requestAnimationFrame(() => focusNoteAsk(mindId));
-  const item = (testId: string, label: string, run: () => void, disabled = false) => (
+  const item = (testId: string, icon: Icon, label: string, run: () => void, disabled = false) => (
     <button
       type="button"
       role="menuitem"
@@ -51,7 +59,7 @@ export function ConversationMenu({
       }}
       className={`${menuItemClass} pl-2`}
     >
-      <span className="flex-1">{label}</span>
+      <MenuItemParts icon={icon} label={label} />
     </button>
   );
   return (
@@ -76,6 +84,7 @@ export function ConversationMenu({
           <>
             {item(
               "conversation-new",
+              PlusLineIcon,
               t("noteColumn.new"),
               () =>
                 void core
@@ -86,16 +95,17 @@ export function ConversationMenu({
             )}
             <div className={menuRuleClass} />
             {place === "column" &&
-              item("conversation-move-down", t("noteColumn.moveDown"), () =>
+              item("conversation-move-down", DockBottomLineIcon, t("noteColumn.moveDown"), () =>
                 moveConversation("upward"),
               )}
             {place === "upward" &&
               canMove &&
-              item("conversation-move-left", t("noteColumn.moveLeft"), () =>
+              item("conversation-move-left", DockRightLineIcon, t("noteColumn.moveLeft"), () =>
                 moveConversation("column"),
               )}
             {item(
               place === "column" ? "note-column-close" : "note-ask-fold",
+              CloseLineIcon,
               t("noteColumn.close"),
               () => (place === "column" ? setColumnOpen(mindId, false) : onHide()),
             )}

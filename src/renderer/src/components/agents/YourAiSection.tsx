@@ -329,7 +329,7 @@ export function YourAiSection({
   return (
     <section data-testid="agents-settings" className="flex flex-col gap-6">
       {connected.length === 0 && (
-        <p data-testid="ai-lede" className="px-4 text-[13px] leading-5 text-ink-meta">
+        <p data-testid="ai-lede" className="px-4 text-ui leading-5 text-ink-meta">
           {t("agents.settings.intro")}
         </p>
       )}
@@ -342,7 +342,7 @@ export function YourAiSection({
             type="button"
             data-testid="agents-paused-open"
             onClick={() => openSettings("ai", "local-mode")}
-            className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+            className="rounded-sm text-accent underline-offset-2 hover:underline"
           >
             {t("agents.settings.paused.open")}
           </button>

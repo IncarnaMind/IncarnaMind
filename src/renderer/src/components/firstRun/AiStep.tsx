@@ -11,7 +11,7 @@ import { useAppStore } from "../../store";
 import { ServiceDirectory, useEntryName, usePlansOffered } from "../ai/AddSheet";
 import { RoleSelect } from "../ai/RoleSelect";
 import { jobsOf, type ServiceEntry } from "../ai/serviceDirectory";
-import { ChevronDownLineIcon, ChevronRightLineIcon, PlusLineIcon } from "../lineIcons";
+import { ChevronDownLineIcon, ChevronRightLineIcon, PlusLineIcon } from "../icons";
 import { ProblemLine } from "../ProblemLine";
 import { useContinueWithChatGpt } from "../providers/ChatGptSignIn";
 import { ClaudePlanSignIn, useClaudePlanOffered } from "../providers/ClaudePlan";
@@ -240,7 +240,7 @@ export function AiStep({ place }: { place: StepPlace }) {
       <AgentWays clients={clients} pairings={pairings ?? []} onSetUpModel={openInApp} />
       {inApp ? (
         <>
-          <h2 id="setup-in-app" className="-mb-2 text-ui font-semibold text-ink">
+          <h2 id="setup-in-app" className="-mb-2 text-ui text-ink">
             {t("setupPage.ai.inApp")}
           </h2>
           <div className="flex flex-col gap-2">
@@ -272,7 +272,7 @@ export function AiStep({ place }: { place: StepPlace }) {
             {readiness?.ready && <ModelWorks />}
           </div>
           <div className="flex flex-col gap-2">
-            <h3 id="setup-other" className="text-[13px] leading-5 font-semibold text-ink-secondary">
+            <h3 id="setup-other" className="text-ui leading-5 text-ink-secondary">
               {t("setup.other")}
             </h3>
             {/* Neither plan is sold in mainland China, which the Chinese interface stands for, so
@@ -339,7 +339,7 @@ function ModelWorks() {
   return (
     <>
       <WorksRow text={t("setup.ready", { name })} testId="setup-ai-works">
-        <label htmlFor={id} className="text-[12px] leading-[18px] text-ink-meta">
+        <label htmlFor={id} className="text-small leading-[18px] text-ink-meta">
           {t("setupPage.ai.model")}
         </label>
         <RoleSelect
@@ -430,7 +430,7 @@ function WayRow({
         onClick={onClick}
         className="flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-hover"
       >
-        <span className="min-w-0 flex-1 text-ui font-semibold text-ink">{title}</span>
+        <span className="min-w-0 flex-1 text-ui text-ink">{title}</span>
         {icon ?? <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />}
       </button>
       {children !== undefined && expanded && (

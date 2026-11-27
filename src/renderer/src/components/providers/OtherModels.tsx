@@ -2,8 +2,8 @@ import { type ReactNode, useId } from "react";
 import type { ChatModelGroup, OtherModel } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { modelName } from "../../../../shared/modelName";
-import { ChevronDownSmallIcon, ChevronRightSmallIcon } from "../../editor/icons";
 import { useT } from "../../i18n";
+import { ChevronDownSmallIcon, ChevronRightSmallIcon } from "../icons";
 import {
   SettingsGroup,
   SettingsRow,
@@ -60,7 +60,7 @@ export function OtherModels({
         aria-controls={panelId}
         data-testid="other-models-toggle"
         onClick={() => onOpen(!open)}
-        className="flex w-full items-center gap-1.5 rounded-sm px-4 py-1 text-left text-[13px] leading-5 font-semibold text-ink-secondary hover:text-ink"
+        className="flex w-full items-center gap-1.5 rounded-sm px-4 py-1 text-left text-ui leading-5 text-ink-secondary hover:text-ink"
       >
         <Chevron aria-hidden="true" className="size-4 shrink-0 text-ink-meta" />
         <span>
@@ -135,7 +135,7 @@ function ModelRow({
         label={label}
         control={
           row.reason ? (
-            <span className="text-[13px] leading-5 text-ink-meta">{t(REASONS[row.reason])}</span>
+            <span className="text-ui leading-5 text-ink-meta">{t(REASONS[row.reason])}</span>
           ) : undefined
         }
       />
@@ -150,9 +150,7 @@ function ModelRow({
       control={
         <>
           {row.why === "unknown" && (
-            <span className="text-[13px] leading-5 text-ink-meta">
-              {t("models.other.mayNotWork")}
-            </span>
+            <span className="text-ui leading-5 text-ink-meta">{t("models.other.mayNotWork")}</span>
           )}
           <SettingsSwitch id={id} checked={checked} onChange={onToggle} />
         </>

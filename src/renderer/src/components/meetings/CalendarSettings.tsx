@@ -19,7 +19,7 @@ import { useLanguage, useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
-import { CalendarLineIcon, CheckLineIcon } from "../lineIcons";
+import { CalendarLineIcon, CheckLineIcon } from "../icons";
 import { LineAction, ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
 import { SettingsGroup, SettingsRow, SettingsSection } from "../settings/SettingsGroup";
@@ -29,7 +29,7 @@ import { usePopoverMenu } from "../usePopoverMenu";
 
 const TARGET = ["calendars"] as const;
 
-const icon = <CalendarLineIcon className="size-5 text-ink-secondary" />;
+const icon = <CalendarLineIcon data-size="18" className="text-ink-secondary" />;
 
 /**
  * Settings › Meetings › Calendars (#190), as the board draws it: a row for each calendar

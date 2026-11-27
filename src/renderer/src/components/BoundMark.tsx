@@ -1,5 +1,5 @@
 import { useT } from "../i18n";
-import { LinkLineIcon } from "./lineIcons";
+import { LinkLineIcon } from "./icons";
 
 /** The mark beside a Folder bound to a folder on disk (#3613), which says where that folder is. */
 export function BoundMark({ path, size = "size-3.5" }: { path: string; size?: string }) {

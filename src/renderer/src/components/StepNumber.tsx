@@ -1,4 +1,4 @@
-import { CheckMarkIcon } from "../editor/icons";
+import { CheckMarkIcon } from "./icons";
 
 export type StepState = "open" | "later" | "done";
 
@@ -16,7 +16,7 @@ export function StepNumber({ number, state }: { number: number; state: StepState
   return (
     <span
       aria-hidden="true"
-      className={`flex size-[18px] shrink-0 items-center justify-center rounded-full text-[10px] leading-none font-bold ${
+      className={`flex size-[18px] shrink-0 items-center justify-center rounded-full text-small leading-none font-bold ${
         state === "open"
           ? "bg-ink text-on-primary"
           : "border-[1.5px] border-tab-divider text-ink-meta"

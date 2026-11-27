@@ -4,7 +4,7 @@ import { files } from "../core";
 import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
 import { useTaggingAlert } from "../taggingAlert";
-import { SidebarLineIcon } from "./lineIcons";
+import { SidebarLineIcon } from "./icons";
 import { iconButtonClass } from "./ui";
 
 /** What the window tells the sidebar's toggle buttons (see `Workspace` in App.tsx). */

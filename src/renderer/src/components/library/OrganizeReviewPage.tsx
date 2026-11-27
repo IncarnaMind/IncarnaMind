@@ -26,8 +26,23 @@ import { sortOf, useSort } from "../../sortChoices";
 import { folderFields } from "../../sortFields";
 import { useAppStore } from "../../store";
 import { typesText } from "../../undo";
-import { MoreLineIcon } from "../lineIcons";
-import { buttonStyle, iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "../ui";
+import {
+  type Icon,
+  MinusLineIcon,
+  MoreLineIcon,
+  PlusLineIcon,
+  RegenerateSmallIcon,
+  TrashLineIcon,
+} from "../icons";
+import { MenuItemParts } from "../MenuItemParts";
+import {
+  buttonStyle,
+  dangerItemClass,
+  iconButtonClass,
+  menuClass,
+  menuItemClass,
+  menuRuleClass,
+} from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import {
   type CardContext,
@@ -111,7 +126,7 @@ export function OrganizeReviewPage() {
 
   if (!layout || !context) {
     return (
-      <p role="status" className="mt-6 text-[13px] text-ink-meta">
+      <p role="status" className="mt-6 text-ui text-ink-meta">
         {t("library.loading")}
       </p>
     );
@@ -182,7 +197,7 @@ export function OrganizeReviewPage() {
 function SectionHead({ label, count }: { label: string; count: number }) {
   const language = useLanguage();
   return (
-    <h2 className="mt-5 mb-2 text-[13px] leading-5 font-semibold text-ink-meta">
+    <h2 className="mt-5 mb-2 text-ui leading-5 text-ink-meta">
       {label}
       <span className="ml-1.5 font-normal tabular-nums">{formatCount(count, language)}</span>
     </h2>
@@ -252,7 +267,7 @@ function ReviewBar({ layout, agent }: { layout: ReviewLayout; agent: string | nu
         <div className="min-w-[min(100%,240px)] flex-1">
           <h1
             data-testid="organize-review-title"
-            className="m-0 text-[20px] leading-7 font-semibold text-ink"
+            className="m-0 text-heading leading-7 font-semibold text-ink"
           >
             {layout.onlyTags
               ? t("organizeReview.title.tags")
@@ -263,7 +278,7 @@ function ReviewBar({ layout, agent }: { layout: ReviewLayout; agent: string | nu
           <p
             id="organize-review-will-move"
             data-testid="organize-review-will-move"
-            className="m-0 mt-0.5 text-[13px] leading-5 text-balance break-keep break-words text-ink-meta"
+            className="m-0 mt-0.5 text-ui leading-5 text-balance break-keep break-words text-ink-meta"
           >
             {willMove}
           </p>
@@ -287,9 +302,7 @@ function ReviewBar({ layout, agent }: { layout: ReviewLayout; agent: string | nu
             className={buttonStyle("primary")}
           >
             {t("organizeReview.confirm")}
-            <kbd className="font-sans text-[12px] font-medium opacity-70">
-              {keysHere(CONFIRM_KEYS)}
-            </kbd>
+            <kbd className="font-sans text-small opacity-70">{keysHere(CONFIRM_KEYS)}</kbd>
           </button>
         </div>
       </div>
@@ -311,7 +324,13 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
     menu.close();
     void replan(kind).catch(report);
   };
-  const item = (kind: Replan, label: string, unavailable: string | null, testId: string) => (
+  const item = (
+    kind: Replan,
+    icon: Icon,
+    label: string,
+    unavailable: string | null,
+    testId: string,
+  ) => (
     <button
       type="button"
       role="menuitem"
@@ -323,7 +342,7 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
       }}
       className={`${menuItemClass} pl-2 aria-disabled:cursor-default aria-disabled:text-ink-placeholder aria-disabled:hover:bg-transparent`}
     >
-      {label}
+      <MenuItemParts icon={icon} label={label} />
     </button>
   );
   return (
@@ -352,6 +371,7 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
               !onlyTags &&
               item(
                 "fewer",
+                MinusLineIcon,
                 t("organizeReview.fewer"),
                 count <= FEWEST ? t("organizeReview.fewer.fewest", { count: FEWEST }) : null,
                 "organize-review-fewer",
@@ -361,13 +381,20 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
               !onlyTags &&
               item(
                 "more",
+                PlusLineIcon,
                 t("organizeReview.more"),
                 count >= MOST ? t("organizeReview.more.most", { count: MOST }) : null,
                 "organize-review-more",
               )}
             {replans && (
               <>
-                {item("again", t("organizeReview.again"), null, "organize-review-again")}
+                {item(
+                  "again",
+                  RegenerateSmallIcon,
+                  t("organizeReview.again"),
+                  null,
+                  "organize-review-again",
+                )}
                 <div className={menuRuleClass} />
               </>
             )}
@@ -379,9 +406,9 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
                 menu.close();
                 void discardReview().catch(report);
               }}
-              className={`${menuItemClass} pl-2`}
+              className={`${menuItemClass} pl-2 ${dangerItemClass}`}
             >
-              {t("organizeReview.discard")}
+              <MenuItemParts icon={TrashLineIcon} label={t("organizeReview.discard")} />
             </button>
           </>
         )}

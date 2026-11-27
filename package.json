@@ -142,6 +142,7 @@
     "katex": "0.18.10",
     "linkedom": "0.18.13",
     "lowlight": "3.3.0",
+    "lucide-react": "1.72.0",
     "motion": "14.1.0",
     "ollama-ai-provider-v2": "4.0.1",
     "onnxruntime-node": "1.30.0",

@@ -10,7 +10,7 @@ import {
   MicLineIcon,
   SparkLineIcon,
   TableLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { buttonStyle } from "../ui";
 import { SetupChoice, SetupPanel, type StepPlace } from "./SetupPanel";
 
@@ -133,7 +133,7 @@ export function WorkStep({
         })}
       </fieldset>
       {canSend && (
-        <p data-testid="setup-work-sent" className="text-[12px] leading-[18px] text-ink-meta">
+        <p data-testid="setup-work-sent" className="text-small leading-[18px] text-ink-meta">
           {t("setupPage.work.sent")}
         </p>
       )}

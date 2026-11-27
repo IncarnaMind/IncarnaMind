@@ -53,7 +53,6 @@ import { CallStartsContext } from "../../callStarts";
 import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
 import { CallRow, SkillRow } from "../../editor/AnswerView";
-import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
 import { useCitedOrigin } from "../../editor/mindContext";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
 import { useLanguage, useT } from "../../i18n";
@@ -69,15 +68,17 @@ import { useRateLimitResumes } from "../../rateLimitWaits";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
 import { useAppStore } from "../../store";
-import { SearchIcon } from "../icons";
 import {
   CalculatorLineIcon,
+  CheckMarkIcon,
   ChevronRightLineIcon,
   CloseLineIcon,
   DocumentLineIcon,
   MindLineIcon,
+  RegenerateSmallIcon,
+  SearchIcon,
   SparkLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { LineAction, ProblemLine } from "../ProblemLine";
 import { askCallText } from "./AskCall";
 import { CheckTheRest } from "./CheckTheRest";

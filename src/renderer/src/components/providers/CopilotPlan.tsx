@@ -24,7 +24,7 @@ import { useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
-import { ChevronDownLineIcon, ChevronRightLineIcon, CopyLineIcon } from "../lineIcons";
+import { ChevronDownLineIcon, ChevronRightLineIcon, CopyLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { buttonStyle } from "../ui";
@@ -47,8 +47,7 @@ const NO_MODELS: RouteProblemWords = {
 const failureWords = (failure: CopilotFailure): RouteProblemWords =>
   failure.kind === "no-models" ? NO_MODELS : COPILOT_SIGN_IN_PROBLEMS[failure.kind];
 
-const linkClass =
-  "self-start text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline";
+const linkClass = "self-start text-ui leading-5 text-accent underline-offset-2 hover:underline";
 
 type Place = "setup" | "settings";
 
@@ -61,7 +60,7 @@ export function useOfferedWay(): { status: CopilotStatus; experimental: boolean 
 function ExperimentalTag() {
   const t = useT();
   return (
-    <span className="rounded-sm bg-chip px-1.5 text-label leading-5 font-semibold text-ink-secondary">
+    <span className="rounded-sm bg-chip px-1.5 text-small leading-5 text-ink-secondary">
       {t("copilot.experimental")}
     </span>
   );
@@ -89,11 +88,11 @@ export function CopilotSetupWay({ onKey }: { onKey(): void }) {
         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-hover"
       >
         <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-          <span className="flex flex-wrap items-center gap-x-2 text-ui font-semibold text-ink">
+          <span className="flex flex-wrap items-center gap-x-2 text-ui text-ink">
             {t("copilot.way.title")}
             {offered.experimental && <ExperimentalTag />}
           </span>
-          <span className="text-[13px] leading-5 text-ink-secondary">{t("copilot.way.line")}</span>
+          <span className="text-ui leading-5 text-ink-secondary">{t("copilot.way.line")}</span>
         </span>
         <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
       </button>
@@ -257,9 +256,9 @@ function Notice({
   }, [experimental]);
   return (
     <div data-testid="copilot-notice" className="flex flex-col gap-2">
-      <p className="text-[13px] leading-5 font-semibold text-ink">{t("copilot.notice.title")}</p>
-      <ul className="flex list-disc flex-col gap-1 pl-5 text-[13px] leading-5 text-ink-secondary">
-        <li data-testid="copilot-notice-usage" className="font-semibold text-ink">
+      <p className="text-ui leading-5 text-ink">{t("copilot.notice.title")}</p>
+      <ul className="flex list-disc flex-col gap-1 pl-5 text-ui leading-5 text-ink-secondary">
+        <li data-testid="copilot-notice-usage" className="text-ink">
           {t("copilot.notice.usage")}
         </li>
         {experimental && <li>{t("copilot.notice.experimental")}</li>}
@@ -311,11 +310,11 @@ function Waiting({ status }: { status: CopilotStatus }) {
     <div data-testid="copilot-waiting" className="flex flex-col gap-2">
       {code ? (
         <>
-          <p className="text-[13px] leading-5 font-semibold text-ink">{t("copilot.code.title")}</p>
+          <p className="text-ui leading-5 text-ink">{t("copilot.code.title")}</p>
           <div className="flex flex-wrap items-center gap-2">
             <span
               data-testid="copilot-code"
-              className="rounded-sm border border-rule-strong bg-sheet px-2 font-mono text-[20px] leading-8 font-semibold tracking-[0.04em] text-ink select-all"
+              className="rounded-sm border border-rule-strong bg-sheet px-2 font-mono text-heading leading-8 font-semibold tracking-[0.04em] text-ink select-all"
             >
               {code.userCode}
             </span>
@@ -336,13 +335,13 @@ function Waiting({ status }: { status: CopilotStatus }) {
           </div>
         </>
       ) : null}
-      <p role="status" className="flex items-start gap-2 text-[13px] leading-5 text-ink-secondary">
+      <p role="status" className="flex items-start gap-2 text-ui leading-5 text-ink-secondary">
         <span aria-hidden="true" className="flex h-5 shrink-0 items-center">
           <span className="size-1.5 rounded-full bg-accent motion-safe:animate-pulse" />
         </span>
         {t(code ? "copilot.code.waiting" : "copilot.code.asking")}
       </p>
-      <p className="text-[13px] leading-5 text-ink-meta">{t("copilot.notice.usage")}</p>
+      <p className="text-ui leading-5 text-ink-meta">{t("copilot.notice.usage")}</p>
       <div className="flex flex-wrap items-center gap-2">
         {code && (
           <button
@@ -417,14 +416,12 @@ function Failure({
       title={failure.message}
       className="flex flex-col gap-2"
     >
-      <p className="text-[13px] leading-5 font-semibold text-ink">
+      <p className="text-ui leading-5 text-ink">
         <ProblemMark />
         {t(words.line)}
       </p>
       {failure.kind === "policy-blocked" && (
-        <p className="text-[13px] leading-5 text-ink-secondary">
-          {t("copilot.policyBlocked.body")}
-        </p>
+        <p className="text-ui leading-5 text-ink-secondary">{t("copilot.policyBlocked.body")}</p>
       )}
       <div className="flex flex-wrap items-center gap-2">
         {actions.map(({ wayBack, onClick }, index) => (

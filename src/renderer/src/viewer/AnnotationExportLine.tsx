@@ -53,7 +53,7 @@ function ExportLine({ shown }: { shown: AnnotationExport }) {
     >
       <span className="min-w-0 break-words">
         {before}
-        <span className="font-semibold text-ink">{shown.name}</span>
+        <span className="text-ink">{shown.name}</span>
         {after}
       </span>
       <span className="flex shrink-0 gap-1">

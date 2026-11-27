@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ComputerLineIcon } from "./lineIcons";
+import { ComputerLineIcon } from "./icons";
 
 /**
  * What stays on this computer ("Stays on this computer"): its icon, then the

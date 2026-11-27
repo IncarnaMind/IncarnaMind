@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { registerNativePopover, unregisterNativePopover } from "../editor/Popover";
 import { enterFrom, exitToward } from "../motion";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon } from "./icons";
 import { menuClass, menuFrameClass, menuItemUnavailableClass, menuTitleClass } from "./ui";
 import { useFocusReturn } from "./useFocusReturn";
 
@@ -307,7 +307,7 @@ export function SearchPicker<Id>({
         {detail && (
           <span
             data-testid={`${testId}-option-detail`}
-            className="min-w-0 max-w-[55%] shrink-0 truncate text-[12px] text-ink-meta"
+            className="min-w-0 max-w-[55%] shrink-0 truncate text-small text-ink-meta"
             title={detail}
           >
             {detail}
@@ -386,9 +386,7 @@ export function SearchPicker<Id>({
             }
           >
             {optionRows.length === 0 ? (
-              <p className="px-2 py-1 text-[13px] leading-5 text-ink-meta">
-                {noMatch(query.trim())}
-              </p>
+              <p className="px-2 py-1 text-ui leading-5 text-ink-meta">{noMatch(query.trim())}</p>
             ) : virtual ? (
               <div style={{ height, position: "relative" }}>{drawn.map(rowElement)}</div>
             ) : (
@@ -396,7 +394,7 @@ export function SearchPicker<Id>({
             )}
           </div>
           {footer && (
-            <p className="mx-2 mt-1 border-t border-rule pt-1.5 pb-1 text-[12px] leading-[18px] text-ink-meta">
+            <p className="mx-2 mt-1 border-t border-rule pt-1.5 pb-1 text-small leading-[18px] text-ink-meta">
               {footer}
             </p>
           )}

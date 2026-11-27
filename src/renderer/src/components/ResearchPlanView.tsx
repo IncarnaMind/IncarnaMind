@@ -5,7 +5,7 @@ import { core } from "../core";
 import { useT } from "../i18n";
 import { closePlanView } from "../research";
 import { useAppStore } from "../store";
-import { CheckLineIcon, SearchLineIcon } from "./lineIcons";
+import { CheckLineIcon, SearchLineIcon } from "./icons";
 import { buttonStyle } from "./ui";
 
 /** The plan, asked again as the Task moves on; done, it stays as it ran. */

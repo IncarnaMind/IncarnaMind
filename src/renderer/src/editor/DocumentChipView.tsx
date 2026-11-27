@@ -1,5 +1,5 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
-import { DocumentLineIcon } from "../components/lineIcons";
+import { DocumentLineIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { openChipDocument } from "./documentChipKeys";

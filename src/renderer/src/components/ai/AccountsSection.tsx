@@ -26,7 +26,7 @@ import { useModelNames } from "../../modelNames";
 import type { SettingsTarget } from "../../settingsPages";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServices } from "../../transcriptionServices";
-import { ChevronRightLineIcon, MicLineIcon, PlusLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon, MicLineIcon, PlusLineIcon } from "../icons";
 import { TranscriptionKeyForm } from "../meetings/TranscriptionKeyForm";
 import { ProblemLine } from "../ProblemLine";
 import { useChatGptPlan } from "../providers/ChatGptSignIn";
@@ -427,7 +427,7 @@ function ProviderRow({
       data-opens={`provider:${provider.id}`}
       leading={<ProviderLogo id={logoIdOf(provider)} />}
       label={
-        <span className="block truncate font-semibold" title={name}>
+        <span className="block truncate" title={name}>
           {name}
           {region && <span className="font-normal text-ink-meta"> · {region}</span>}
         </span>
@@ -714,7 +714,7 @@ function BuiltInRow({ line }: { line: string }) {
       role="listitem"
       data-testid="built-in-row"
       leading={<ProviderLogo id={null} />}
-      label={<span className="block truncate font-semibold">{t("ai.accounts.builtIn")}</span>}
+      label={<span className="block truncate">{t("ai.accounts.builtIn")}</span>}
       detail={
         <span data-testid="built-in-row-status" className="block truncate" title={line}>
           {line}

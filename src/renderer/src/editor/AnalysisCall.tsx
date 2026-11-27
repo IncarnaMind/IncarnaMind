@@ -1,8 +1,8 @@
 import type { AnswerToolCall } from "../../../core/api";
 import { UNAVAILABLE_LINES } from "../../../shared/analysis";
 import { analysisCallText } from "../analysisCall";
+import { TableIcon } from "../components/icons";
 import { useT } from "../i18n";
-import { TableIcon } from "./icons";
 
 export function AnalysisCall({ call }: { call: AnswerToolCall }) {
   const t = useT();

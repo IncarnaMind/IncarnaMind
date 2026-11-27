@@ -1,6 +1,6 @@
 import { useId, useRef } from "react";
 import { useT } from "../i18n";
-import { InfoLineIcon } from "./lineIcons";
+import { InfoLineIcon } from "./icons";
 import { TipPopover } from "./TipPopover";
 import { useTip } from "./useTip";
 

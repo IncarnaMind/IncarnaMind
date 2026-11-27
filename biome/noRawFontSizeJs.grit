@@ -1,0 +1,10 @@
+language js;
+
+or {
+  JsStringLiteralExpression() as $words,
+  JsTemplateChunkElement() as $words,
+  JsxString() as $words
+} where {
+  $words <: r"(?s).*(?:^|[\s\x22'`:!])text-\[[0-9.]+(?:px|rem)\].*",
+  register_diagnostic(span = $words, message = "Use a type token (text-title, text-heading, text-body, text-ui, text-small): the interface has five sizes (DESIGN.md, Typography; #3766).", severity = "error")
+}

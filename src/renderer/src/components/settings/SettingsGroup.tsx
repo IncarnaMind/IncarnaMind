@@ -1,6 +1,6 @@
 import { type CSSProperties, type HTMLAttributes, type ReactNode, type Ref, useId } from "react";
 import { InfoTip } from "../InfoTip";
-import { ChevronRightLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon } from "../icons";
 
 /** The room an icon takes before a row's words: its 32px and the 12px after it. */
 const LEADING_PX = 44;
@@ -46,7 +46,7 @@ export function SettingsSection({
   const heading = title !== undefined && (
     <Title
       id={titleId}
-      className={`flex items-center px-4 text-[13px] leading-5 font-semibold text-ink-secondary ${present(action) ? "" : "mb-2"}`}
+      className={`flex items-center px-4 text-ui leading-5 text-ink-secondary ${present(action) ? "" : "mb-2"}`}
     >
       {title}
       {tip !== undefined && <InfoTip text={tip} />}
@@ -84,7 +84,7 @@ export function SettingsHelp({
   ...rest
 }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
   return (
-    <div {...rest} className={`mt-2 px-4 text-[12px] leading-[18px] text-ink-meta ${className}`} />
+    <div {...rest} className={`mt-2 px-4 text-small leading-[18px] text-ink-meta ${className}`} />
   );
 }
 
@@ -122,7 +122,7 @@ function RowWords({ label, htmlFor, labelId, tip, tipId, detail, detailId }: Row
         </div>
       )}
       {present(detail) && (
-        <div id={detailId} className="text-[12px] leading-[18px] text-ink-meta">
+        <div id={detailId} className="text-small leading-[18px] text-ink-meta">
           {detail}
         </div>
       )}
@@ -227,7 +227,7 @@ export function SettingsRowAction({
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="min-w-0 text-ui text-ink">{label}</span>
         {present(detail) && (
-          <span className="text-[12px] leading-[18px] text-ink-meta">{detail}</span>
+          <span className="text-small leading-[18px] text-ink-meta">{detail}</span>
         )}
       </span>
       {trailing ?? <ChevronRightLineIcon className="size-4 shrink-0 text-ink-placeholder" />}

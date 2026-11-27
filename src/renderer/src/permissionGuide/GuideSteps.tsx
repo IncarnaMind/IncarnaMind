@@ -24,7 +24,7 @@ export function GuideSteps({
           <li key={key} className="flex items-center gap-2">
             <span
               aria-hidden="true"
-              className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-full bg-chip text-[11px] font-bold text-ink-meta"
+              className="inline-flex size-[18px] shrink-0 items-center justify-center rounded-full bg-chip text-small text-ink-meta"
             >
               {index + 1}
             </span>
@@ -43,7 +43,7 @@ export function GuideRow({ on }: { on: boolean }) {
       aria-hidden="true"
       className="my-1 flex h-10 items-center gap-2 rounded-lg bg-frame px-2.5 text-ink"
     >
-      <span className="inline-flex size-6 items-center justify-center rounded-md bg-ink text-[10px] font-bold text-on-primary">
+      <span className="inline-flex size-6 items-center justify-center rounded-md bg-ink text-small text-on-primary">
         IM
       </span>
       <span className="grow">IncarnaMind</span>

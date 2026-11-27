@@ -7,8 +7,8 @@
   height: 100%;
   color: var(--color-ink);
   background: var(--color-sheet);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
   font-variant-numeric: tabular-nums;
 }
 .figure-scroll {
@@ -52,9 +52,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 16px;
+  font-size: var(--text-body);
   line-height: 24px;
-  font-weight: 600;
 }
 .figure-when {
   grid-column: 1;
@@ -113,7 +112,6 @@
   background: var(--color-ink);
   color: var(--color-sheet);
   box-shadow: none;
-  font-weight: 600;
 }
 .figure-grid {
   display: grid;
@@ -132,9 +130,8 @@
   border-bottom: 1px solid var(--color-rule);
   background: var(--color-frame);
   color: var(--color-ink-meta);
-  font-size: 12px;
+  font-size: var(--text-small);
   line-height: 16px;
-  font-weight: 600;
 }
 .figure-columns > * {
   min-width: 0;
@@ -147,7 +144,6 @@
   margin-left: -6px;
   padding: 0 6px;
   border-radius: 4px;
-  font-weight: 600;
 }
 .figure-sort:hover,
 .figure-sort[aria-pressed="true"] {
@@ -183,7 +179,7 @@
 .figure-number {
   grid-area: n;
   color: var(--color-ink-meta);
-  font-size: 12px;
+  font-size: var(--text-small);
 }
 .figure-main {
   grid-area: fg;
@@ -205,7 +201,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
-  font-weight: 600;
   color: var(--color-ink);
 }
 .figure-row[data-kid] .figure-main-button {
@@ -217,7 +212,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-small);
   line-height: 16px;
   color: var(--color-ink-meta);
 }
@@ -253,8 +248,7 @@
   border-radius: 4px;
   background: var(--color-chip);
   color: var(--color-ink-secondary);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-small);
 }
 .figure-value {
   grid-area: val;
@@ -291,7 +285,7 @@
 }
 .figure-formula {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-small);
   color: var(--color-ink-meta);
 }
 .figure-difference {
@@ -300,7 +294,6 @@
 }
 .figure-delta {
   color: var(--color-warning);
-  font-weight: 600;
 }
 .figure-dash {
   color: var(--color-ink-placeholder);
@@ -351,10 +344,9 @@
 }
 .figure-row:is([data-state="look"], [data-state="recheck"]) .figure-status-word {
   color: var(--color-ink);
-  font-weight: 600;
 }
 .figure-why-word {
-  font-size: 12px;
+  font-size: var(--text-small);
   line-height: 16px;
   color: var(--color-warning);
 }
@@ -432,7 +424,7 @@
     content: attr(data-label) " ";
     margin-right: 4px;
     color: var(--color-ink-meta);
-    font-size: 12px;
+    font-size: var(--text-small);
   }
 }
 @container figure-schedule (max-width: 619px) {
@@ -463,7 +455,7 @@
     content: attr(data-label) " ";
     margin-right: 4px;
     color: var(--color-ink-meta);
-    font-size: 12px;
+    font-size: var(--text-small);
   }
   .figure-row[data-kid] :is(.figure-difference, .figure-source.is-empty) {
     display: none;

@@ -170,7 +170,7 @@ export function ConnectAgentFields({
       )}
       <ProposeChoice checked={propose} onChange={setPropose} hint={false} noFolders={shared} />
       <details data-testid="connect-agent-details" className="flex flex-col">
-        <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
+        <summary className="cursor-pointer text-ui leading-5 text-ink-secondary">
           {t("agents.connect.details")}
         </summary>
         <div className="mt-2 flex flex-col gap-2">

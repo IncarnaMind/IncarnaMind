@@ -6,7 +6,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { dismissCitationStylePrompt } from "../../../shared/mindCitationStyle";
 import { useCitesWorks } from "../citationFormatting";
 import { chooseCitationStyle, useCitationStylePicker } from "../citationStylePicker";
-import { CloseLineIcon } from "../components/lineIcons";
+import { CloseLineIcon } from "../components/icons";
 import { useLanguage, useT } from "../i18n";
 import { useLaterPromptsAllowed } from "../laterPrompts";
 import { useMindInFront } from "../mindInFront";

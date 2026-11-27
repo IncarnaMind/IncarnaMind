@@ -83,7 +83,7 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
 
   return (
     <div data-testid="connector-import-form" className="flex flex-col gap-3">
-      <p className="text-[13px] leading-5 text-ink-secondary">{t("connectors.import.body")}</p>
+      <p className="text-ui leading-5 text-ink-secondary">{t("connectors.import.body")}</p>
       {!preview && (
         <SettingsGroup>
           <SettingsRow label={t("connectors.import.json")} htmlFor={jsonId}>
@@ -176,8 +176,8 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
                 }
                 control={
                   <span
-                    className={`max-w-56 text-right text-[13px] leading-5 ${
-                      entry.action === "add" ? "font-semibold text-ink" : "text-ink-meta"
+                    className={`max-w-56 text-right text-ui leading-5 ${
+                      entry.action === "add" ? "text-ink" : "text-ink-meta"
                     }`}
                   >
                     {t(`connectors.import.action.${entry.action}`)}
@@ -190,9 +190,7 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
             <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
           )}
           {adding.length === 0 ? (
-            <p className="text-[13px] leading-5 text-ink-secondary">
-              {t("connectors.import.nothing")}
-            </p>
+            <p className="text-ui leading-5 text-ink-secondary">{t("connectors.import.nothing")}</p>
           ) : (
             <div className="flex flex-col items-start gap-2">
               <SettingsHelp data-testid="connector-import-sends">

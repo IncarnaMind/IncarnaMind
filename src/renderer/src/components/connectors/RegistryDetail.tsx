@@ -60,17 +60,14 @@ export function RegistryDetail({
         <div className="flex flex-wrap items-center gap-3">
           <ConnectorTile name={server.name} large />
           <div className="flex min-w-[200px] flex-1 flex-col">
-            <h4
-              data-testid="connector-name"
-              className="text-[17px] leading-6 font-semibold break-words text-ink"
-            >
+            <h4 data-testid="connector-name" className="text-body leading-6 break-words text-ink">
               {server.name}
             </h4>
-            <p className="flex flex-wrap items-center gap-x-1.5 text-[12px] leading-[18px] text-ink-meta">
+            <p className="flex flex-wrap items-center gap-x-1.5 text-small leading-[18px] text-ink-meta">
               <span className="break-all">
                 {t("connectors.registry.by", { publisher: server.publisher })}
               </span>
-              <span className="rounded-sm bg-frame px-1.5 text-[11px] leading-[18px] text-ink-secondary">
+              <span className="rounded-sm bg-frame px-1.5 text-small leading-[18px] text-ink-secondary">
                 {t("connectors.registry.badge")}
               </span>
             </p>

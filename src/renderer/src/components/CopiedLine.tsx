@@ -1,10 +1,9 @@
 import { useRef } from "react";
-import { ClaimMarkIcon } from "../editor/icons";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
 import { useFade } from "../motion";
 import { type Confirmation, useNotices } from "../notices";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon, ClaimMarkIcon } from "./icons";
 
 /**
  * "Copied", for a few seconds, at the foot of the sidebar beside the undo
@@ -28,7 +27,7 @@ function Line({ confirmation }: { confirmation: Confirmation }) {
   return (
     <div
       ref={line}
-      className="mx-2 flex items-center gap-1 pt-0.5 pb-1 pl-2 text-[12px] leading-4 text-ink-secondary"
+      className="mx-2 flex items-center gap-1 pt-0.5 pb-1 pl-2 text-small leading-4 text-ink-secondary"
     >
       {confirmation.look ? (
         <ClaimMarkIcon state="unsupported" className="size-3.5 shrink-0" />

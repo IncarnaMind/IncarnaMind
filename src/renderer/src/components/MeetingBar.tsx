@@ -20,7 +20,7 @@ import {
   checkTranscriptionKey,
   ROUTE_LABELS,
 } from "../transcriptionServices";
-import { FloatLineIcon, PauseLineIcon, ResumeLineIcon, StopLineIcon } from "./lineIcons";
+import { FloatLineIcon, PauseLineIcon, ResumeLineIcon, StopLineIcon } from "./icons";
 import { LevelBars } from "./meetings/LevelBars";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
@@ -81,7 +81,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
           data-status={waiting ? "waiting" : meeting.status}
           className="recording-dot"
         />
-        <span data-testid="meeting-state" className="meeting-state-word font-semibold">
+        <span data-testid="meeting-state" className="meeting-state-word">
           {t(
             waiting
               ? "meetings.bar.waiting"

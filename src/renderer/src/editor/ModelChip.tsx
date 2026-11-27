@@ -8,7 +8,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { sameModel } from "../../../shared/mindModel";
 import { shortModelName } from "../../../shared/modelName";
 import { useAnswers } from "../answers";
-import { CheckLineIcon } from "../components/lineIcons";
+import { CheckLineIcon, ChevronDownSmallIcon } from "../components/icons";
 import { OnThisComputer } from "../components/OnThisComputer";
 import { ChatGptMark } from "../components/providers/ChatGptMark";
 import {
@@ -27,7 +27,6 @@ import { usePlanStandIn } from "../planLimits";
 import { type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { useAppStore } from "../store";
 import { untestedHintKey } from "../untestedModels";
-import { ChevronDownSmallIcon } from "./icons";
 
 /** Who pays for a model, as the menu groups them (DESIGN.md, AI setup, the composer). */
 type ModelGroup = "plan" | "keys" | "local" | "cloud";

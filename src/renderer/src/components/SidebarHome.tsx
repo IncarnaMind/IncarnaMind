@@ -2,7 +2,7 @@ import { useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { useAppStore } from "../store";
 import { TREE_ROW } from "../treeKeys";
-import { HomeLineIcon } from "./lineIcons";
+import { HomeLineIcon } from "./icons";
 import { rowButtonClass, rowClass, rowIconClass } from "./sidebarRows";
 
 export function SidebarHome() {

@@ -4,13 +4,12 @@ import type { CitationState } from "../../../shared/citations";
 import { formatTime } from "../../../shared/dates";
 import { formatLocation } from "../../../shared/locations";
 import type { CommandContext } from "../commands/registry";
-import { ScreenLineIcon } from "../components/lineIcons";
+import { CheckStateIcon, ScreenLineIcon } from "../components/icons";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
 import type { ObjectRef } from "../objects";
 import { useAppStore } from "../store";
-import { CheckStateIcon } from "./icons";
 
 type ScreenLocation = Extract<CitationLocation, { kind: "screen" }>;
 
@@ -69,13 +68,11 @@ export function ScreenCitationCard({
         <ScreenLineIcon className="citation-screen-icon" />
         {kept?.window ? (
           <>
-            <span className="font-semibold text-ink">
-              {t("citation.screen.window", { window: kept.window })}
-            </span>
+            <span className="text-ink">{t("citation.screen.window", { window: kept.window })}</span>
             <span className="truncate"> · {where}</span>
           </>
         ) : (
-          <span className="font-semibold text-ink">{where}</span>
+          <span className="text-ink">{where}</span>
         )}
       </p>
       {kept?.image && (

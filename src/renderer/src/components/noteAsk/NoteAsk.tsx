@@ -37,7 +37,7 @@ import {
   useNoteColumns,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { ChevronRightLineIcon, ConversationLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon, ConversationLineIcon } from "../icons";
 import { useTabPlace } from "../tabs/tabItems";
 import { WindowColumnContext } from "../tabs/windowColumn";
 import { ConversationMenu } from "./ConversationMenu";

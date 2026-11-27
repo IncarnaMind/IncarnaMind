@@ -45,7 +45,7 @@ export const rowClass = (
     selected && oneOfMany
       ? "bg-accent-wash text-ink [--row-bg:var(--color-accent-wash)]"
       : selected
-        ? "bg-sheet font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)] [--row-bg:var(--color-sheet)]"
+        ? "bg-sheet text-ink shadow-[inset_0_0_0_1px_var(--color-rule)] [--row-bg:var(--color-sheet)]"
         : dragged
           ? rowTones[tone]
           : `${rowTones[tone]} hover:bg-hover has-[:focus-visible]:bg-hover has-[.row-main:active]:hover:bg-press`
