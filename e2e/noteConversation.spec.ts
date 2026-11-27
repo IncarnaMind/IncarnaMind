@@ -1042,8 +1042,11 @@ test("Stop with a message held stops the reply and sends that message at once, w
 
     // Discard takes a held message away: it is never sent, and Stop then sends nothing.
     await nextRun("wait");
+    const ran = await runs();
     await send("Once more");
     await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    // Its run under way, so the count of runs below has it.
+    await expect.poll(runs).toBe(ran + 1);
     await window.keyboard.type("Never mind");
     await window.keyboard.press("Enter");
     await pointAndClick(
@@ -1222,6 +1225,7 @@ test("a held message whose run fails is Not sent, with Send, Edit, Copy and Disc
     await send("Once more");
     await expect(group.getByTestId("note-ask-stop")).toBeVisible();
     await send("Never mind");
+    await expect(panel.getByTestId("note-column-held")).toBeVisible();
     await stepTo(1);
     await expect
       .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })

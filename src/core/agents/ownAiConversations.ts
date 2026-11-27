@@ -41,7 +41,7 @@ import {
   type NoteTurnEvent,
   type NoteTurnProblem,
 } from "../api";
-import { InvalidInputError, isRecord } from "../errors";
+import { InvalidInputError, isRecord, TranslatableError } from "../errors";
 import type { Database } from "../storage";
 import type { ConversationHears, ConversationRun, RunCall, SelectedInBlock } from "./askedChecks";
 import { CITATION_TOKEN } from "./citations";
@@ -354,11 +354,15 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     if (list.length === 0) held.delete(mindId);
     return gone ?? null;
   };
-  /** No run can take the Note's held messages now: each is kept as never sent. */
-  const heldUnsent = (mindId: string, also: Held[] = []) => {
+  /**
+   * No run can take the Note's held messages now: each is kept as never sent. Whether there was one,
+   * which the windows must then hear of.
+   */
+  const heldUnsent = (mindId: string, also: Held[] = []): boolean => {
     const ids = [...also, ...(held.get(mindId) ?? [])].map((each) => each.turnId);
     held.delete(mindId);
-    if (ids.length === 0 || options.lifetime.aborted) return;
+    if (ids.length === 0) return false;
+    if (options.lifetime.aborted) return true;
     try {
       db.run(
         `UPDATE own_ai_turns SET outcome = 'unsent', updated_at = ?
@@ -367,6 +371,31 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       );
     } catch (error) {
       options.log.warn("agents.ownAiConversation.unsentNotKept", {
+        error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+    return true;
+  };
+  /** By Note, the end of its last request every window was told, while none runs. */
+  const lastEnded = new Map<string, NoteTurnEvent>();
+  /**
+   * Every window hears at once of the Note's held messages as they are now: through its running
+   * request, or the end of its last one when none runs.
+   */
+  const toldHeld = (mindId: string) => {
+    const run = running.get(mindId);
+    if (run) {
+      run.live.told();
+      return;
+    }
+    const last = lastEnded.get(mindId);
+    if (!last || options.lifetime.aborted) return;
+    const again = { ...last, queued: [], held: heldIds(mindId) };
+    lastEnded.set(mindId, again);
+    try {
+      options.turned(again);
+    } catch (error) {
+      options.log.warn("agents.ownAiConversation.eventFailed", {
         error: error instanceof Error ? error.name : "unknown",
       });
     }
@@ -466,7 +495,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         reply,
         rest.mode ?? null,
       );
-      options.turned({
+      const told: NoteTurnEvent = {
         ...turn,
         doing: null,
         startedAt: options.now(),
@@ -487,7 +516,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         ...rest,
         ...outcome,
         reply,
-      });
+      };
+      lastEnded.set(turn.mindId, told);
+      options.turned(told);
     } catch (error) {
       options.log.warn("agents.ownAiConversation.endFailed", {
         error: error instanceof Error ? error.name : "unknown",
@@ -566,6 +597,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   }
 
   async function askNow(input: NoteRequestInput, mindId: string): Promise<NoteRequestStart> {
+    // Asked after the one before, IncarnaMind may be quitting by now, its database closed.
+    if (options.lifetime.aborted) return { kind: "link" };
     const request = words(input.words, MAX_WORDS);
     if (request === "") throw new InvalidInputError({ key: "error.agent.askRequest" });
     const quote = input.quote === undefined ? "" : words(input.quote, MAX_QUOTE);
@@ -582,28 +615,36 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
 
-    // A request typed while one runs is held, about the whole Note, until that reply ends (#3765).
-    // One about words selected isn't: the selection may be gone by then, so it waits for Stop.
-    const into = (run: Running): NoteRequestStart => {
-      if (options.lifetime.aborted || options.heldBack(run.pairing, mindId))
-        return { kind: "link" };
-      if (quote !== "" || selection !== null) return { kind: "busy", pairing: run.pairing };
+    // A request typed while one runs is held, about the whole Note, until that reply ends (#3765);
+    // so is one typed while others are held, behind them. One about words selected isn't: the
+    // selection may be gone by then, so it waits for Stop.
+    const into = (pairing: AgentPairing, conversationId: string): NoteRequestStart => {
+      if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
+      if (quote !== "" || selection !== null) return { kind: "busy", pairing };
       const turnId = options.newId();
       const at = options.now();
       db.run(
         `INSERT INTO own_ai_turns (id, conversation_id, request, selection, outcome, created_at, updated_at)
          VALUES (?, ?, ?, '', 'waiting', ?, ?)`,
-        [turnId, run.conversationId, request, at, at],
+        [turnId, conversationId, request, at, at],
       );
       held.set(mindId, [
         ...(held.get(mindId) ?? []),
-        { turnId, words: request, pairing: run.pairing, model, editing: false },
+        { turnId, words: request, pairing, model, editors: new Set() },
       ]);
-      run.live.told();
-      return { kind: "sent", pairing: run.pairing, turnId };
+      toldHeld(mindId);
+      return { kind: "sent", pairing, turnId };
     };
-    const already = running.get(mindId);
-    if (already) return into(already);
+    /** Held behind the request running, or the messages held before it, if there are. */
+    const behind = (): NoteRequestStart | null => {
+      const run = running.get(mindId);
+      if (run) return into(run.pairing, run.conversationId);
+      const [ahead] = held.get(mindId) ?? [];
+      const conversation = ahead && conversationOf(mindId, ahead.pairing.id);
+      return ahead && conversation ? into(ahead.pairing, conversation.id) : null;
+    };
+    const already = behind();
+    if (already) return already;
     const { runner } = options;
     const pairing = options
       .askable(mindId)
@@ -633,8 +674,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         versions: { found: status.found, lowest: status.lowest },
       };
     }
-    const meanwhile = running.get(mindId);
-    if (meanwhile) return into(meanwhile);
+    const meanwhile = behind();
+    if (meanwhile) return meanwhile;
     // The consent can wait as long as the User does: what it found may no longer hold.
     if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
 
@@ -711,7 +752,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       options.lifetime.aborted ||
       options.heldBack(message.pairing, mindId) !== null
     ) {
-      heldUnsent(mindId, [message]);
+      if (heldUnsent(mindId, [message])) toldHeld(mindId);
       return;
     }
     db.run(
@@ -738,7 +779,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   function nextHeld(mindId: string): void {
     if (running.has(mindId)) return;
     const [first] = held.get(mindId) ?? [];
-    if (first && !first.editing && unhold(mindId, first.turnId)) startHeld(mindId, first);
+    if (first && first.editors.size === 0 && unhold(mindId, first.turnId)) startHeld(mindId, first);
   }
 
   async function converse(turn: {
@@ -1016,9 +1057,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      * each message sent into it that its AI never took. Otherwise none: those, and every message
      * held for the Note, can't be sent now.
      */
+    let heldCleared = false;
     const carried = (goesOn: boolean) => {
       const can = goesOn && !options.lifetime.aborted && options.heldBack(pairing, mindId) === null;
-      if (!can) heldUnsent(mindId);
+      if (!can) heldCleared = heldUnsent(mindId);
       return can ? sent.splice(0) : [];
     };
     /** Sends on what the run handed on, in a run begun with the first; with none, the oldest held. */
@@ -1539,7 +1581,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             : outcomeOf(current, end),
         end.kind === "finished" ? end.reply.trim() : "",
       );
-    } else if ((neverTaken || next.length > 0) && lastEnd && !options.lifetime.aborted) {
+    } else if (
+      (neverTaken || next.length > 0 || heldCleared) &&
+      lastEnd &&
+      !options.lifetime.aborted
+    ) {
       tell({ ...lastEnd, queued: [], held: heldIds(mindId) });
     }
     handOn(next);
@@ -1587,14 +1633,20 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
              (SELECT id FROM own_ai_conversations WHERE mind_id = ? AND deleted_at IS NULL)`,
         [at, at, turnId, wasHeld ? "waiting" : "unsent", mindId],
       );
-      if (wasHeld) running.get(mindId)?.live.told();
+      if (!wasHeld) return;
+      toldHeld(mindId);
+      // The oldest gone, the next may go now, if no request runs.
+      nextHeld(mindId);
     },
 
     /**
      * Sends a message held for the Note at once (#3765): into the request running, as a message
      * sent into it is, its AI taking it at its next step; as a request of its own when none runs.
+     * Not while its editor is open in a window: its words may still change there.
      */
     sendNow(mindId: string, turnId: string): void {
+      const open = (held.get(mindId) ?? []).find((each) => each.turnId === turnId)?.editors.size;
+      if (open) throw new TranslatableError({ key: "error.noteAsk.heldEditing" });
       const message = unhold(mindId, turnId);
       if (!message) return;
       const run = running.get(mindId);
@@ -1603,15 +1655,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     },
 
     /**
-     * Opens or closes a held message's editor (#3765). Closed with new words, the message is kept
-     * with them; closed while none of the Note's requests runs, the oldest held goes at once.
+     * Opens or closes a held message's editor in the window `clientId` (#3765). Closed with new
+     * words, the message is kept with them; once its editor is closed in every window, and none of
+     * the Note's requests runs, the oldest held goes at once. Whether the message was still held:
+     * if not, it has gone, the editor doesn't open and its words aren't kept.
      */
-    editHeld(mindId: string, turnId: string, edit: NoteHeldEdit): void {
+    editHeld(input: { mindId: string; turnId: string; clientId: string; edit: NoteHeldEdit }) {
+      const { mindId, turnId, clientId, edit } = input;
       const message = (held.get(mindId) ?? []).find((each) => each.turnId === turnId);
-      if (!message) return;
+      if (!message) return false;
       if (edit.kind === "open") {
-        message.editing = true;
-        return;
+        message.editors.add(clientId);
+        return true;
       }
       if (edit.kind === "save") {
         const changed = words(edit.words, MAX_WORDS);
@@ -1622,9 +1677,19 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         );
         message.words = changed;
       }
-      message.editing = false;
-      running.get(mindId)?.live.told();
+      message.editors.delete(clientId);
+      toldHeld(mindId);
       nextHeld(mindId);
+      return true;
+    },
+
+    /** A window closed, crashed or began again: each editor it had open is closed, as by Cancel. */
+    windowGone(clientId: string): void {
+      for (const [mindId, list] of [...held]) {
+        if (list.filter((each) => each.editors.delete(clientId)).length === 0) continue;
+        toldHeld(mindId);
+        nextHeld(mindId);
+      }
     },
 
     /** The Note's conversation, as IncarnaMind keeps it, with the agent asked last, oldest first. */
@@ -1868,8 +1933,8 @@ interface Held {
   words: string;
   pairing: AgentPairing;
   model: string | undefined;
-  /** Its editor is open: it isn't sent until the editor closes. */
-  editing: boolean;
+  /** The windows its editor is open in, by their own id: it isn't sent until each closes. */
+  editors: Set<string>;
 }
 
 /** A request of a run as its AI works on it, the first or one sent meanwhile and taken (#3765). */

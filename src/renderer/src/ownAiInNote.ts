@@ -27,6 +27,7 @@ import {
   useOwnAiRunsHere,
 } from "./askYourAi";
 import type { ChangedMind } from "./changedMinds";
+import { clientId } from "./clientId";
 import { core } from "./core";
 import { currentTabOf } from "./layoutSlice";
 import { useNotices } from "./notices";
@@ -517,18 +518,22 @@ export async function sendOldestNow(mindId: string): Promise<boolean> {
 }
 
 /**
- * Opens or closes a held message's editor (#3765): while it is open the message isn't sent; closed,
- * the conversation is read again, as it may have gone meanwhile.
+ * Opens or closes a held message's editor in this window (#3765): while it is open the message
+ * isn't sent. Whether the message was still held; if not, it has gone, and the conversation is
+ * read again to show it so, as it is once the editor closes.
  */
 export async function editHeldInNote(
   mindId: string,
   turnId: string,
   edit: NoteHeldEdit,
-): Promise<void> {
-  if (edit.kind === "open") editingHere.add(turnId);
-  else editingHere.delete(turnId);
-  await core.editHeldInNote(mindId, turnId, edit);
-  if (edit.kind !== "open") readAgain(mindId);
+): Promise<boolean> {
+  const held = await core.editHeldInNote({ mindId, turnId, clientId, edit });
+  if (edit.kind === "open" && held) editingHere.add(turnId);
+  else {
+    editingHere.delete(turnId);
+    readAgain(mindId);
+  }
+  return held;
 }
 
 /**

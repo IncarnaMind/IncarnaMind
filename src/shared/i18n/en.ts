@@ -6737,6 +6737,8 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.noteAsk.heldEditing":
+    "This message is open to edit in another window. Save or cancel it there, then send it.",
   "error.noteAsk.tooLong":
     "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":

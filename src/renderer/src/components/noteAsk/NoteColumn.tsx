@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
@@ -756,9 +757,16 @@ function Held({ mindId, turn, oldest }: { mindId: string; turn: NoteTurn; oldest
     },
     [mindId, turn.id, report],
   );
-  const close = (edit: { kind: "cancel" } | { kind: "save"; words: string }) => {
-    setDraft(null);
-    void editHeldInNote(mindId, turn.id, edit).catch(report);
+  // The editor stays open with its words until the core has them.
+  const close = async (edit: { kind: "cancel" } | { kind: "save"; words: string }) => {
+    try {
+      const held = await editHeldInNote(mindId, turn.id, edit);
+      // It went meanwhile, never sent as its run failed: the new words go to the input, not lost.
+      if (!held && edit.kind === "save") editRequest(mindId, edit.words);
+      setDraft(null);
+    } catch (error) {
+      report(error);
+    }
   };
   if (draft !== null) {
     return (
@@ -771,7 +779,7 @@ function Held({ mindId, turn, oldest }: { mindId: string; turn: NoteTurn; oldest
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
-            close({ kind: "cancel" });
+            void close({ kind: "cancel" });
           }}
           rows={1}
           className="note-column-editor-text"
@@ -780,7 +788,7 @@ function Held({ mindId, turn, oldest }: { mindId: string; turn: NoteTurn; oldest
           <button
             type="button"
             data-testid="note-column-edit-cancel"
-            onClick={() => close({ kind: "cancel" })}
+            onClick={() => void close({ kind: "cancel" })}
             className="approval-button approval-button--ghost note-column-editor-button"
           >
             {t("noteColumn.edit.cancel")}
@@ -789,7 +797,7 @@ function Held({ mindId, turn, oldest }: { mindId: string; turn: NoteTurn; oldest
             type="button"
             data-testid="note-column-edit-save"
             disabled={draft.trim() === "" || draft === turn.request}
-            onClick={() => close({ kind: "save", words: draft })}
+            onClick={() => void close({ kind: "save", words: draft })}
             className="approval-button approval-button--primary note-column-editor-button"
           >
             {t("noteColumn.edit.save")}
@@ -809,15 +817,19 @@ function Held({ mindId, turn, oldest }: { mindId: string; turn: NoteTurn; oldest
           data-testid="note-column-edit"
           aria-label={t("noteColumn.edit")}
           title={t("noteColumn.edit")}
-          onClick={() => {
-            setDraft(turn.request);
-            requestAnimationFrame(() => {
-              const field = area.current;
-              field?.focus();
-              field?.setSelectionRange(field.value.length, field.value.length);
-            });
-            void editHeldInNote(mindId, turn.id, { kind: "open" }).catch(report);
-          }}
+          onClick={() =>
+            // Only a message still held opens: one gone meanwhile reads again as sent.
+            void editHeldInNote(mindId, turn.id, { kind: "open" })
+              .then((held) => {
+                if (!held) return;
+                // Drawn at once, out of the press's own event, so its field can take the focus.
+                flushSync(() => setDraft(turn.request));
+                const field = area.current;
+                field?.focus();
+                field?.setSelectionRange(field.value.length, field.value.length);
+              })
+              .catch(report)
+          }
           className="note-column-icon"
         >
           <PencilLineIcon />

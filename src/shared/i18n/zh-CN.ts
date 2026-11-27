@@ -6351,6 +6351,7 @@ export const zhCN = {
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
   "error.agent.cantAskDocument": "这个智能体现在无法读取这个文档。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
+  "error.noteAsk.heldEditing": "这条消息正在另一个窗口中编辑。在那里保存或取消后再发送。",
   "error.noteAsk.tooLong": "一次请求最多 {max} 个字符。缩短后再发送一次。",
   "error.agent.selectionTooLong": "文字太多，无法一次交给你的 AI。少选一些再试。",
   "error.agent.nameEmpty": "输入智能体的名称。",

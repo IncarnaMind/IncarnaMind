@@ -13784,10 +13784,19 @@ export interface NoteTurnEvent {
 
 /**
  * A held message's editor (#3765): opened, the message isn't sent until it closes; closed with
- * Cancel, the message stays as it was; with Save, it takes the new words. Closed while no request
- * of the Note runs, it is sent at once.
+ * Cancel, the message stays as it was; with Save, it takes the new words. Closed in every window
+ * while no request of the Note runs, the oldest held is sent at once.
  */
 export type NoteHeldEdit = { kind: "open" } | { kind: "cancel" } | { kind: "save"; words: string };
+
+/** A held message's editor opened or closed in one window (#3765). */
+export interface NoteHeldEditInput {
+  mindId: string;
+  turnId: string;
+  /** The window's own id: the message waits for its editor in each window it is open in. */
+  clientId: string;
+  edit: NoteHeldEdit;
+}
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
 export type NoteStep =
@@ -16548,11 +16557,16 @@ export interface CoreApi {
   discardInNote(mindId: string, turnId: string): Promise<void>;
   /**
    * Sends a message held for the Note at once (#3765): into the request running, whose AI takes it
-   * at its next step, or as a request of its own when none runs. Any other does nothing.
+   * at its next step, or as a request of its own when none runs. Any other does nothing. Refused
+   * while its editor is open in a window.
    */
   sendNowInNote(mindId: string, turnId: string): Promise<void>;
-  /** Opens or closes a held message's editor (#3765); any other message does nothing. */
-  editHeldInNote(mindId: string, turnId: string, edit: NoteHeldEdit): Promise<void>;
+  /**
+   * Opens or closes a held message's editor in a window (#3765). Whether the message was still
+   * held: if not, it has gone, the editor isn't opened and its words aren't kept. An editor left
+   * open in a window that closes, crashes or loads again is closed as by Cancel.
+   */
+  editHeldInNote(input: NoteHeldEditInput): Promise<boolean>;
   /**
    * Answers what the User's own AI asks in the Note's conversation (#3653), with one of the
    * answers the question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
