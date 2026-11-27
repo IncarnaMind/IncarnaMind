@@ -64,19 +64,32 @@ test.each(["before-stop", "in-flight-at-stop", "after-stop"] as const)(
     const { utterances } = summaryRetention;
     const stages = [openingChanges, [], [], [sampleReturnsChange], [], finalChanges];
     const prompts: string[] = [];
+    const systems: string[] = [];
     const model = new MockLanguageModelV4({
       doGenerate: async (options) => {
+        const system = options.prompt
+          .filter((message) => message.role === "system")
+          .map((message) => message.content)
+          .join("\n");
         const user = options.prompt
           .flatMap((message) => (message.role === "user" ? message.content : []))
           .flatMap((part) => (part.type === "text" ? [part.text] : []))
           .join("\n");
+        systems.push(system);
         prompts.push(user);
         const index = prompts.length - 1;
+        const parsed = JSON.parse(user) as { items?: MeetingSummaryItem[] };
+        const changes = stages[index] ?? [];
+        const activeIds = (parsed.items ?? [])
+          .filter((item) => item.status === "active")
+          .map((item) => item.id);
+        const changedIds = new Set(changes.map((change) => change.id));
         const raw = JSON.stringify({
           summary: `summary ${index + 1}`,
-          changes: stages[index],
-          ...(timing === "after-stop" &&
-            index === stages.length - 1 && { unchanged: [initial[0].id] }),
+          changes,
+          ...(activeIds.length > 0 && {
+            unchanged: activeIds.filter((id) => !changedIds.has(id)),
+          }),
         });
         return replyingModel(raw).doGenerate(options);
       },
@@ -88,6 +101,11 @@ test.each(["before-stop", "in-flight-at-stop", "after-stop"] as const)(
       timing,
     });
     expect(prompts).toHaveLength(utterances.length);
+    expect(systems[0]).toContain("two keys");
+    for (const system of systems.slice(1)) {
+      expect(system).toContain("three keys");
+      expect(system).toContain("When a deliverable is explicitly withdrawn");
+    }
     const retained = [...initial, sampleReturns];
     for (const [index, text] of utterances.entries()) {
       expect(JSON.parse(prompts[index] ?? "")).toEqual({

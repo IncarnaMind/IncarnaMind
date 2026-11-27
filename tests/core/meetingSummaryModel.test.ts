@@ -34,6 +34,24 @@ test("the language of the meeting is used for a short bilingual update", () => {
   expect(JSON.parse(prompt.prompt)).toHaveProperty("language", "Chinese");
 });
 
+test("reconciliation instructions and unchanged accounting turn on whenever active items exist", () => {
+  const active = { id: 1, kind: "action", status: "active", text: "Send the agenda." } as const;
+  const cancelled = { id: 2, kind: "action", status: "cancelled", text: "Book the room." } as const;
+  const withActive = meetingSummaryPrompt({ ...input, items: [active, cancelled] });
+  expect(withActive.instructions).toContain("three keys");
+  expect(withActive.instructions).toContain("unchanged");
+  expect(withActive.instructions).toContain("When a deliverable is explicitly withdrawn");
+  expect(withActive.instructions).not.toContain("final confirmed segment");
+  for (const withoutActive of [
+    meetingSummaryPrompt(input),
+    meetingSummaryPrompt({ ...input, items: [] }),
+    meetingSummaryPrompt({ ...input, items: [cancelled] }),
+  ]) {
+    expect(withoutActive.instructions).toContain("two keys");
+    expect(withoutActive.instructions).not.toContain("unchanged (an array of numeric IDs)");
+  }
+});
+
 function reply(finishReason: "stop" | "length" = "stop") {
   return new MockLanguageModelV4({
     doGenerate: {

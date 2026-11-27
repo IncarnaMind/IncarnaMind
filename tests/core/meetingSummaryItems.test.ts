@@ -34,11 +34,15 @@ const decision = {
   text: "Meet at the depot.",
   quote: "We have agreed to meet at the depot",
 };
-const reply = (changes: unknown[]) =>
-  JSON.stringify({ summary: "We will meet at the depot.", changes });
+const reply = (changes: unknown[], unchanged?: unknown) =>
+  JSON.stringify({
+    summary: "We will meet at the depot.",
+    changes,
+    ...(unchanged !== undefined && { unchanged }),
+  });
 
 test("confirmed changes retain stable ids and preserve every unmentioned agreement and status", () => {
-  const out = readMeetingSummaryUpdate(reply([cancelled, added, decision]), draft);
+  const out = readMeetingSummaryUpdate(reply([cancelled, added, decision], [7]), draft);
   expect(out).toEqual({
     text: "We will meet at the depot.",
     evidence: { 2: cancelled.quote, 8: added.quote, 9: decision.quote },
@@ -49,9 +53,9 @@ test("confirmed changes retain stable ids and preserve every unmentioned agreeme
       { id: 9, kind: "decision", status: "active", text: decision.text },
     ],
   });
-  expect(readMeetingSummaryUpdate(reply([]), { ...draft, items: out.items }).items).toEqual(
-    out.items,
-  );
+  expect(
+    readMeetingSummaryUpdate(reply([], [7, 8, 9]), { ...draft, items: out.items }).items,
+  ).toEqual(out.items);
   expect(draft.items?.[0]?.status).toBe("active");
 });
 
@@ -60,8 +64,8 @@ test("an unrelated action cannot replace a saved decision by borrowing its id", 
     ...draft,
     items: [{ id: 4, kind: "decision", status: "active", text: "Meet on Tuesday." }],
   };
-  expect(() => readMeetingSummaryUpdate(reply([{ ...added, id: 4 }]), input)).toThrow();
-  expect(readMeetingSummaryUpdate(reply([added]), input).items).toEqual([
+  expect(() => readMeetingSummaryUpdate(reply([{ ...added, id: 4 }], []), input)).toThrow();
+  expect(readMeetingSummaryUpdate(reply([added], [4]), input).items).toEqual([
     input.items?.[0],
     { id: 5, kind: "action", status: "active", text: added.text },
   ]);
@@ -93,10 +97,13 @@ test("a repeated unchanged commitment retains its original evidence", () => {
     status: "active",
     text: "Asha will order cones by Monday.",
   };
-  const out = readMeetingSummaryUpdate(reply([{ ...previous, quote: "Asha still has this." }]), {
-    ...draft,
-    utterances: [{ text: "Asha still has this." }],
-  });
+  const out = readMeetingSummaryUpdate(
+    reply([{ ...previous, quote: "Asha still has this." }], [7]),
+    {
+      ...draft,
+      utterances: [{ text: "Asha still has this." }],
+    },
+  );
   expect(out.items).toEqual(draft.items);
   expect(out.evidence).toEqual({});
 });
@@ -105,11 +112,13 @@ test("repeating an identical item needs no new evidence and cannot authorize a c
   const item = draft.items?.[0];
   if (!item) throw new Error("Missing action fixture");
   const repeated = { ...item, quote: "Words absent from the new speech" };
-  const result = readMeetingSummaryUpdate(reply([repeated, decision]), draft);
+  const result = readMeetingSummaryUpdate(reply([repeated, decision], [7]), draft);
   expect(result.items[0]).toEqual(item);
   expect(Object.values(result.evidence)).toEqual([decision.quote]);
-  expect(() => readMeetingSummaryUpdate(reply([repeated, repeated]), draft)).toThrow();
-  expect(() => readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }]), draft)).toThrow();
+  expect(() => readMeetingSummaryUpdate(reply([repeated, repeated], [7]), draft)).toThrow();
+  expect(() =>
+    readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }], [7]), draft),
+  ).toThrow();
 });
 
 test("a repeated addition never supplies coverage or changes the saved item’s status or evidence", () => {
@@ -117,38 +126,35 @@ test("a repeated addition never supplies coverage or changes the saved item’s 
   const utterances = [{ text: "Order the cones. Cancel the cones." }];
   const input = { previous: null, items: [saved], utterances };
   const repeated = { ...saved, id: null, quote: "Order the cones." };
-  const unchanged = readMeetingSummaryUpdate(reply([repeated]), input);
+  const unchanged = readMeetingSummaryUpdate(reply([repeated], [2]), input);
   expect(unchanged.items).toEqual([saved]);
   expect(unchanged.evidence).toEqual({});
   expect(() =>
-    readMeetingSummaryUpdate(reply([{ ...repeated, quote: "missing" }]), input),
+    readMeetingSummaryUpdate(reply([{ ...repeated, quote: "missing" }], [2]), input),
   ).toThrow();
-  expect(() => readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }]), input)).toThrow();
+  expect(() =>
+    readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }], [2]), input),
+  ).toThrow();
   for (const changes of [
     [repeated, cancelled],
     [cancelled, repeated],
   ]) {
-    expect(() => readMeetingSummaryUpdate(reply(changes), input)).toThrow();
+    expect(() => readMeetingSummaryUpdate(reply(changes, []), input)).toThrow();
   }
-  const closing = JSON.stringify({
-    summary: "The cone order stands.",
-    changes: [repeated],
-    unchanged: [],
-  });
-  expect(() => readMeetingSummaryUpdate(closing, { ...input, closing: true })).toThrow();
+  expect(() => readMeetingSummaryUpdate(reply([repeated], []), input)).toThrow();
 });
 
-test("the closing update accounts for every active item and can acknowledge earlier closed items", () => {
+test("any update with active items accounts for every active item and can acknowledge earlier closed items", () => {
   const done = { id: 3, kind: "action", status: "done", text: "Return the cart." } as const;
   const withdrawn = { id: 5, kind: "action", status: "cancelled", text: "Book a lift." } as const;
-  const input = { ...draft, items: [...(draft.items ?? []), done, withdrawn], closing: true };
-  const close = (unchanged: unknown) =>
+  const input = { ...draft, items: [...(draft.items ?? []), done, withdrawn] };
+  const updateWith = (unchanged: unknown) =>
     JSON.stringify({
       summary: "Only the cone order was cancelled.",
       changes: [cancelled],
-      unchanged,
+      ...(unchanged !== undefined && { unchanged }),
     });
-  const result = readMeetingSummaryUpdate(close([7]), input);
+  const result = readMeetingSummaryUpdate(updateWith([7]), input);
   expect(result.items.map((item) => item.status)).toEqual([
     "cancelled",
     "active",
@@ -156,11 +162,19 @@ test("the closing update accounts for every active item and can acknowledge earl
     "cancelled",
   ]);
   expect(result.evidence).toEqual({ 2: cancelled.quote });
-  expect(readMeetingSummaryUpdate(close([3, 5, 7]), input)).toEqual(result);
+  expect(readMeetingSummaryUpdate(updateWith([3, 5, 7]), input)).toEqual(result);
   for (const ids of [undefined, [], [3, 5], [7, 7], [7, 5, 5], [7, 2], [9, 7]]) {
-    expect(() => readMeetingSummaryUpdate(close(ids), input)).toThrow();
+    expect(() => readMeetingSummaryUpdate(updateWith(ids), input)).toThrow();
   }
-  expect(() => readMeetingSummaryUpdate(close([7]), draft)).toThrow();
+  const noActiveInputs: MeetingSummaryInput[] = [
+    { previous: null, utterances: draft.utterances },
+    { ...draft, items: [] },
+    { ...draft, items: [done, withdrawn] },
+  ];
+  for (const noActive of noActiveInputs) {
+    expect(readMeetingSummaryUpdate(reply([]), noActive).items).toEqual(noActive.items ?? []);
+    expect(() => readMeetingSummaryUpdate(reply([], []), noActive)).toThrow();
+  }
 });
 
 test("previous visible prose can seed historical commitments once; empty structured records disable that path", () => {
@@ -186,22 +200,27 @@ test("an evidence quote must occur within one utterance; whitespace inside that 
     utterances: [{ text: "PARK will book" }, { text: "the van." }, { text: "By Friday." }],
   };
   expect(() =>
-    readMeetingSummaryUpdate(reply([{ ...added, quote: "Park will book the van." }]), apart),
+    readMeetingSummaryUpdate(
+      reply([{ ...added, quote: "Park will book the van." }], [2, 7]),
+      apart,
+    ),
   ).toThrow();
   const together = { ...draft, utterances: [{ text: "PARK  will book\nthe van." }] };
   const quote = "Park will book the van.";
-  expect(readMeetingSummaryUpdate(reply([{ ...added, quote }]), together).evidence).toEqual({
-    8: quote,
-  });
+  expect(readMeetingSummaryUpdate(reply([{ ...added, quote }], [2, 7]), together).evidence).toEqual(
+    {
+      8: quote,
+    },
+  );
 });
 test("typographic apostrophes denote the same quote without dropping significant punctuation", () => {
   const input = { ...draft, utterances: [{ text: "Cancel Karim’s booking； budget is 3.6万." }] };
   const quote = "cancel Karim's booking; budget";
-  expect(readMeetingSummaryUpdate(reply([{ ...cancelled, quote }]), input).evidence).toEqual({
+  expect(readMeetingSummaryUpdate(reply([{ ...cancelled, quote }], [7]), input).evidence).toEqual({
     2: quote,
   });
   expect(() =>
-    readMeetingSummaryUpdate(reply([{ ...cancelled, quote: "budget is 36万" }]), input),
+    readMeetingSummaryUpdate(reply([{ ...cancelled, quote: "budget is 36万" }], [7]), input),
   ).toThrow();
 });
 
@@ -220,7 +239,7 @@ test.each([
   [{ ...cancelled, text: "Ben will collect the keys." }],
 ])("rejects a malformed or conflicting edit atomically", (...changes) => {
   const before = structuredClone(draft);
-  expect(() => readMeetingSummaryUpdate(reply(changes), draft)).toThrow();
+  expect(() => readMeetingSummaryUpdate(reply(changes, [7]), draft)).toThrow();
   expect(draft).toEqual(before);
 });
 
@@ -230,6 +249,7 @@ test.each([
   '{"summary":"", "changes":[]}',
   '{"summary":"So far","changes":[],"items":[]}',
   '{"summary":"So far"}',
+  '{"summary":"So far","changes":[]}',
 ])("rejects an unreadable response rather than erasing the old summary", (raw) => {
   expect(() => readMeetingSummaryUpdate(raw, draft)).toThrow();
 });

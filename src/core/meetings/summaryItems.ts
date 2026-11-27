@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { MeetingSummaryItem } from "../api";
 import { TranslatableError } from "../errors";
 import { normalizeSummaryEvidence } from "./summaryEvidence";
-import type { MeetingSummaryInput } from "./summaryModel";
+import { hasActiveSummaryItems, type MeetingSummaryInput } from "./summaryModel";
 
 export { normalizeSummaryEvidence } from "./summaryEvidence";
 
@@ -75,7 +75,7 @@ export function readMeetingSummaryUpdate(
     updated.set(id, { id, kind: change.kind, status: change.status, text: change.text });
     evidence[id] = change.quote;
   }
-  if (input.closing) {
+  if (hasActiveSummaryItems(input.items)) {
     if (!reply.data.unchanged) return invalid();
     for (const id of reply.data.unchanged) {
       if (!existing.has(id) || touched.has(id)) return invalid();
