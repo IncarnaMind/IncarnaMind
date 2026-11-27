@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpDown,
+  ArrowUpRight,
   AtSign,
   AudioLines,
   Ban,
@@ -18,7 +19,6 @@ import {
   Bookmark,
   BookmarkCheck,
   BookOpen,
-  Calculator,
   Calendar,
   ChartColumn,
   ChartLine,
@@ -35,12 +35,12 @@ import {
   CircleHelp,
   CircleMinus,
   ClipboardPaste,
+  Clock,
   Cloud,
   Code,
   Columns2,
   Columns3,
   Copy,
-  CopyPlus,
   Download,
   Ellipsis,
   Eraser,
@@ -60,7 +60,6 @@ import {
   FileText,
   FileType,
   Folder,
-  FolderInput,
   FolderOpen,
   FolderPlus,
   Globe,
@@ -68,7 +67,6 @@ import {
   GripVertical,
   Hash,
   Highlighter,
-  History,
   House,
   Image,
   Info,
@@ -102,7 +100,6 @@ import {
   Minus,
   Monitor,
   MoveHorizontal,
-  NotebookPen,
   Palette,
   PanelBottom,
   PanelLeft,
@@ -132,8 +129,9 @@ import {
   Sigma,
   Sparkle,
   Square,
-  SquareArrowOutUpRight,
   SquareDashed,
+  SquarePen,
+  SquarePlus,
   SquareTerminal,
   SquareX,
   StickyNote,
@@ -145,7 +143,7 @@ import {
   TextAlignEnd,
   TextAlignJustify,
   TextAlignStart,
-  Trash2,
+  Trash,
   TriangleAlert,
   Type,
   Unlink,
@@ -231,7 +229,7 @@ export const AskArrowIcon = line(ArrowUp);
 export const AskIcon = line(Play, true);
 export const AtLineIcon = line(AtSign);
 export const BookmarkLineIcon = line(Bookmark);
-export const CalculatorLineIcon = line(Calculator);
+export const CalculatorLineIcon = line(Sigma);
 export const CalendarLineIcon = line(Calendar);
 export const ChatLineIcon = line(MessageSquare);
 export const CheckLineIcon = line(Check);
@@ -265,7 +263,7 @@ export const FloatLineIcon = line(PictureInPicture2);
 export const FolderLineIcon = line(Folder);
 export const FolderPlusLineIcon = line(FolderPlus);
 export const GripIcon = line(GripVertical);
-export const HistoryLineIcon = line(History);
+export const HistoryLineIcon = line(Clock);
 export const HomeLineIcon = line(House);
 export const ImageLineIcon = line(Image);
 export const IndentDecreaseIcon = line(ListIndentDecrease);
@@ -279,14 +277,16 @@ export const LooseDocumentsLineIcon = line(Files);
 export const MergeLineIcon = line(Merge);
 export const MicLineIcon = line(Mic);
 export const MicOffLineIcon = line(MicOff);
-export const MindLineIcon = line(NotebookPen);
+export const MindLineIcon = line(SquarePen);
 export const MineLineIcon = line(UserCheck);
 export const MinusLineIcon = line(Minus);
 export const MoreLineIcon = line(Ellipsis);
 export const NextPageIcon = line(ChevronRight);
 export const NoteLineIcon = line(StickyNote);
 export const NumberingIcon = line(ListOrdered);
-export const OpenBesideLineIcon = line(SquareArrowOutUpRight);
+export const NewTabLineIcon = line(SquarePlus);
+export const OpenBesideLineIcon = line(PanelRight);
+export const OpenLineIcon = line(ArrowUpRight);
 export const OpenExternallyIcon = line(ExternalLink);
 export const OutlineToggleIcon = line(List);
 export const PageBreakLineIcon = line(SeparatorHorizontal);
@@ -319,7 +319,7 @@ export const SubscriptIcon = line(Subscript);
 export const SuperscriptIcon = line(Superscript);
 export const TableLineIcon = line(Table);
 export const TagLineIcon = line(Tag);
-export const TrashLineIcon = line(Trash2);
+export const TrashLineIcon = line(Trash);
 export const UploadLineIcon = line(Upload);
 export const VerifyLineIcon = line(FileCheck);
 export const WarningLineIcon = line(TriangleAlert);
@@ -339,7 +339,7 @@ export const CloseTabIcon = line(SquareX);
 export const CloseRightIcon = line(PanelRightClose);
 export const ColumnsIcon = line(Columns3);
 export const DeleteRowIcon = line(CircleMinus);
-export const DuplicateIcon = line(CopyPlus);
+export const DuplicateIcon = line(Copy);
 export const EraseIcon = line(Eraser);
 export const EyeLineIcon = line(Eye);
 export const FilePlusIcon = line(FilePlus);
@@ -352,7 +352,7 @@ export const MoveDownIcon = line(ArrowDown);
 export const MoveLeftIcon = line(ArrowLeft);
 export const MoveRightIcon = line(ArrowRight);
 export const MoveUpIcon = line(ArrowUp);
-export const MoveToIcon = line(FolderInput);
+export const MoveToIcon = line(Folder);
 export const PaletteIcon = line(Palette);
 export const QuoteIcon = line(Quote);
 export const ReplaceIcon = line(Replace);

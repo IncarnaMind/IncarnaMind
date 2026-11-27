@@ -914,7 +914,6 @@ export const en = {
   "page.count.characters.one": "1 character",
   "page.count.selected.words": "{selected} of {count} words",
   "page.count.selected.characters": "{selected} of {count} characters",
-  "page.countShown": "Show word count while writing",
   "page.countShown.command": "Show word count while writing",
   "page.countHidden.command": "Hide word count while writing",
   "page.countShown.keywords": "word count characters length target while writing page bottom",
