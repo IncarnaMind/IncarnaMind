@@ -122,7 +122,7 @@
                 },
                 "patterns": [
                   {
-                    "group": ["lucide-react/*"],
+                    "group": ["lucide-react/**"],
                     "message": "Import icons from components/icons.tsx: one set, one line width, two sizes (DESIGN.md, Icons; #3766)."
                   }
                 ]
