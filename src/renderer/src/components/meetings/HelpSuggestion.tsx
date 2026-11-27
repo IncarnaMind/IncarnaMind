@@ -597,7 +597,7 @@ function Sources({
           <li key={citation.marker} data-testid="help-source" className="help-source">
             <DocumentLineIcon
               kind={isTranscriptLocation(citation.location) ? "transcript" : "text"}
-              className="size-[13px] shrink-0"
+              className="shrink-0"
             />
             <span className="truncate">
               {[String(number), citation.documentName, where, starts.get(citation.documentId)]

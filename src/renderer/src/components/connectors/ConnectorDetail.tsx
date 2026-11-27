@@ -220,7 +220,7 @@ export function ConnectorDetail({
             data-testid="connector-connected"
             label={
               <span className="flex items-center gap-2">
-                <CheckLineIcon className="size-3.5 shrink-0 text-ink-secondary" />
+                <CheckLineIcon className="shrink-0 text-ink-secondary" />
                 {t("connectors.directory.done", { name })}
               </span>
             }
@@ -380,7 +380,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
                   onClick={() => setEditing((open) => !open)}
                   className={iconButtonClass}
                 >
-                  <PencilLineIcon className="size-4" />
+                  <PencilLineIcon />
                 </button>
               )}
               <button
@@ -391,7 +391,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
                 onClick={() => void act(() => core.deleteConnector(id))}
                 className={iconButtonClass}
               >
-                <TrashLineIcon className="size-4" />
+                <TrashLineIcon />
               </button>
             </>
           }

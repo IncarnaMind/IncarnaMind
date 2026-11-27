@@ -53,7 +53,7 @@ body {
   white-space: nowrap;
 
   & b {
-    font-weight: 600;
+    font-weight: 400;
     color: var(--color-ink);
   }
 
@@ -155,7 +155,7 @@ body {
   color: var(--color-ink-meta);
 
   & b {
-    font-weight: 600;
+    font-weight: 400;
     color: var(--color-ink);
   }
 }
@@ -376,6 +376,7 @@ body {
   max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 400;
   color: var(--color-ink-secondary);
 }
 

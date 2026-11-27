@@ -140,7 +140,7 @@ export function ReferencesBlock({
           className="references-button references-style"
         >
           <span className="min-w-0 truncate">{label}</span>
-          <ChevronDownLineIcon className="size-3.5 shrink-0" />
+          <ChevronDownLineIcon className="shrink-0" />
         </button>
         <button
           type="button"

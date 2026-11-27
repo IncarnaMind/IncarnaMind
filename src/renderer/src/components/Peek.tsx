@@ -259,7 +259,7 @@ function PeekCard({ target }: { target: PeekTarget }) {
       className="inset-auto m-0 flex max-h-[calc(100vh-16px)] flex-col overflow-y-auto rounded-[10px] border-0 bg-sheet p-0 text-ui text-ink shadow-popover"
     >
       <div className="flex items-center gap-2 px-3.5 pt-3">
-        <DocumentLineIcon kind={document.kind} className="size-4 shrink-0 text-ink-meta" />
+        <DocumentLineIcon kind={document.kind} className="shrink-0 text-ink-meta" />
         <p
           data-testid="peek-name"
           title={name}
@@ -289,7 +289,7 @@ function PeekCard({ target }: { target: PeekTarget }) {
               className="-ml-1 inline-flex max-w-full items-center gap-1 rounded-sm px-1 hover:bg-hover"
             >
               <span className="truncate">{folder?.name ?? t("library.unsorted")}</span>
-              <ChevronDownLineIcon className="size-3 shrink-0 text-ink-meta" />
+              <ChevronDownLineIcon className="shrink-0 text-ink-meta" />
             </button>
           ) : (
             // A meeting's Transcript is where its Note is, and moves with it (#2528).

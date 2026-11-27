@@ -218,7 +218,7 @@ export function DocumentsSection() {
             }
             className={`${rowButtonClass} ${clearsActions.menu}`}
           >
-            <DocumentLineIcon kind="text" className="size-4 shrink-0" />
+            <DocumentLineIcon kind="text" className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t("library.title")}</span>
             {waiting > 0 ? (
               // What waits to be confirmed, as Mail counts unread (#1569).
@@ -256,7 +256,7 @@ export function DocumentsSection() {
               }
               className={rowActionButtonClass}
             >
-              <MoreLineIcon className="size-4" />
+              <MoreLineIcon />
             </button>
           </div>
         </div>

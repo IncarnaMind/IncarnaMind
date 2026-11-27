@@ -263,7 +263,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
         disabled={busy !== null || preview !== null}
         className={buttonStyle("secondary", "sm")}
       >
-        <ExportLineIcon className="size-4" />
+        <ExportLineIcon />
         {t("skills.settings.import")}
       </button>
       <div
@@ -348,7 +348,7 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
             }}
             className={buttonStyle("secondary", "sm")}
           >
-            <PlusLineIcon className="size-4" />
+            <PlusLineIcon />
             {t("skills.settings.new")}
           </button>
           {importControls}
@@ -654,7 +654,7 @@ function SkillRow({
             title={label}
             className={iconButtonClass}
           >
-            <MoreLineIcon className="size-4" />
+            <MoreLineIcon />
           </button>
           <div
             {...menu.menuProps}

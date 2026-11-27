@@ -281,7 +281,7 @@ export function ReviewPane({
           onClick={close}
           className={iconButtonClass}
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </div>
       {shown.length === 0 ? (
@@ -385,7 +385,7 @@ function AuthorMenu({
       className={`${menuItemClass} pl-2`}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
-        {who === key && <CheckLineIcon className="size-4" />}
+        {who === key && <CheckLineIcon />}
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
@@ -401,7 +401,7 @@ function AuthorMenu({
         className="review-pane-who"
       >
         <span className="min-w-0 truncate">{current ?? t("review.everyone")}</span>
-        <ChevronDownLineIcon className="size-3 shrink-0" />
+        <ChevronDownLineIcon className="shrink-0" />
       </button>
       <div
         {...menu.menuProps}
@@ -466,7 +466,7 @@ function PaneMenu({ editor, mindId }: { editor: Editor; mindId: string }) {
         title={t("review.more")}
         className={iconButtonClass}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -614,8 +614,8 @@ function Card({
                 title={item.state === "kept" ? t("review.kept.why") : undefined}
                 className="review-card-status"
               >
-                {item.state === "accepted" && <CheckLineIcon className="size-3" />}
-                {item.state === "rejected" && <CloseLineIcon className="size-3" />}
+                {item.state === "accepted" && <CheckLineIcon />}
+                {item.state === "rejected" && <CloseLineIcon />}
                 {status}
               </span>
             )}
@@ -646,7 +646,7 @@ function Card({
             }}
             className={`${buttonStyle("secondary", "sm")} aria-disabled:cursor-default aria-disabled:opacity-50`}
           >
-            <CheckLineIcon className="size-3" />
+            <CheckLineIcon />
             {t("proposal.accept")}
           </button>
           <button
@@ -659,7 +659,7 @@ function Card({
             }}
             className={buttonStyle("secondary", "sm")}
           >
-            <CloseLineIcon className="size-3" />
+            <CloseLineIcon />
             {t("proposal.reject")}
           </button>
         </div>

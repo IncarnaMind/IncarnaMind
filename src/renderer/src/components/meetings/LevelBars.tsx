@@ -45,7 +45,7 @@ export function LevelBars({ meeting, onStop }: { meeting: Meeting; onStop?: () =
         data-testid="level-warning"
         className="level-warning"
       >
-        <WarningLineIcon className="size-3.5" />
+        <WarningLineIcon />
       </span>
     );
   }
@@ -87,7 +87,7 @@ export function LevelBars({ meeting, onStop }: { meeting: Meeting; onStop?: () =
       data-pointed={pointed}
       className="level-meter level-meter--stop"
     >
-      {pointed ? <StopLineIcon data-testid="level-stop-icon" className="size-3.5" /> : bars}
+      {pointed ? <StopLineIcon data-testid="level-stop-icon" /> : bars}
     </button>
   );
 }

@@ -139,7 +139,7 @@ function RecentRow({
     >
       {rename.renaming ? (
         <span className="flex min-w-0 flex-1 items-center gap-3 px-2">
-          <MindLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <MindLineIcon className="shrink-0 text-ink-meta" />
           <InlineName
             value={mind.title}
             label={t("mind.renameLabel", { title })}
@@ -160,7 +160,7 @@ function RecentRow({
           onKeyDown={rename.nameProps.onKeyDown}
           className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 rounded-sm py-1.5 pr-1 pl-2 text-left -outline-offset-2"
         >
-          <MindLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <MindLineIcon className="shrink-0 text-ink-meta" />
           <span className="flex min-w-0 flex-1 flex-col">
             <span data-testid="row-text" className="truncate text-ink">
               {title}

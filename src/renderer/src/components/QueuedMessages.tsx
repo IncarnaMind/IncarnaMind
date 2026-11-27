@@ -32,7 +32,7 @@ export function QueuedMessages({ task }: { task: Task }) {
             onClick={() => takeBack(task, message).catch(report)}
             className="task-queued-remove"
           >
-            <RemoveIcon className="size-2.5" />
+            <RemoveIcon />
           </button>
         </li>
       ))}

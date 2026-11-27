@@ -126,7 +126,7 @@ function AddFilter<T>({
         aria-label={t("library.filter.addLabel")}
         className={`${barButtonClass} ${className}`}
       >
-        <PlusLineIcon className="size-3.5" />
+        <PlusLineIcon />
         {t("library.filter.add")}
       </button>
       <div
@@ -167,7 +167,7 @@ function AddFilter<T>({
                 className={`${menuItemClass} pl-2`}
               >
                 <span className="min-w-0 flex-1 truncate">{t(each.title)}</span>
-                <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+                <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
               </button>
             ))
           ))}
@@ -226,7 +226,7 @@ function FilterChip<T>({
         onClick={onRemove}
         className="mr-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-ink-meta hover:bg-hover hover:text-ink"
       >
-        <CloseLineIcon className="size-3" />
+        <CloseLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -275,7 +275,7 @@ function FacetOptions<T>({
             onClick={() => onToggle(value)}
             className={`${menuItemClass} pl-2 ${count === 0 && !selected ? "text-ink-meta" : ""}`}
           >
-            <CheckLineIcon className={`size-3.5 shrink-0 ${selected ? "text-ink" : "invisible"}`} />
+            <CheckLineIcon className={`shrink-0 ${selected ? "text-ink" : "invisible"}`} />
             {facet.colour?.(value) && <TagDot colour={facet.colour(value) ?? undefined} />}
             <span className="min-w-0 flex-1 truncate">{name}</span>
             <span aria-hidden="true" className="shrink-0 text-small tabular-nums text-ink-meta">

@@ -16,7 +16,7 @@ export function StepNumber({ number, state }: { number: number; state: StepState
   return (
     <span
       aria-hidden="true"
-      className={`flex size-[18px] shrink-0 items-center justify-center rounded-full text-small leading-none font-bold ${
+      className={`flex size-[18px] shrink-0 items-center justify-center rounded-full text-small leading-none ${
         state === "open"
           ? "bg-ink text-on-primary"
           : "border-[1.5px] border-tab-divider text-ink-meta"

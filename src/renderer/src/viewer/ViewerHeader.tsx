@@ -280,7 +280,7 @@ ${sourceOf(document)}`
             onClick={() => areaMode.setActive(!areaMode.active)}
             className="viewer-icon-button"
           >
-            <AreaIcon className="size-4" />
+            <AreaIcon />
           </button>
         )}
         {preview && (
@@ -291,7 +291,7 @@ ${sourceOf(document)}`
             onClick={keep}
             className="viewer-keep"
           >
-            <PinLineIcon className="size-[13px]" />
+            <PinLineIcon />
             <span>{t("viewer.keep")}</span>
           </button>
         )}
@@ -309,7 +309,7 @@ ${sourceOf(document)}`
             onClick={openExternally}
             className="viewer-icon-button"
           >
-            <OpenExternallyIcon className="size-4" />
+            <OpenExternallyIcon />
           </button>
         )}
         {document && (
@@ -327,7 +327,7 @@ ${sourceOf(document)}`
             onClick={() => togglePanel(!panelOpen, tabId)}
             className="viewer-icon-button viewer-annotations-toggle"
           >
-            <NoteLineIcon className="size-4" />
+            <NoteLineIcon />
           </button>
         )}
         {document && (

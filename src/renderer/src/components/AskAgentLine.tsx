@@ -114,7 +114,7 @@ export function OtherAgents({
         title={name}
         className={`inline-flex items-center rounded-sm px-0.5 ${className}`}
       >
-        <ChevronDownLineIcon className="size-3.5" />
+        <ChevronDownLineIcon />
       </button>
       <div {...menu.menuProps} role="menu" aria-label={name} className={menuClass}>
         {menu.open && onContinue && (

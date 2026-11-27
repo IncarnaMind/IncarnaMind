@@ -8,7 +8,7 @@ export function ConnectorTile({ name, large = false }: { name: string; large?: b
   return (
     <span
       aria-hidden="true"
-      className={`flex shrink-0 items-center justify-center bg-chip font-bold text-ink-secondary ${
+      className={`flex shrink-0 items-center justify-center bg-chip text-ink-secondary ${
         large ? "size-11 rounded-[10px] text-body" : "size-8 rounded-lg text-ui"
       }`}
     >

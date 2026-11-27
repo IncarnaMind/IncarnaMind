@@ -1021,11 +1021,6 @@
     color: var(--color-ink-meta);
     opacity: 0;
 
-    > svg {
-      width: 10px;
-      height: 10px;
-      stroke-width: 2.75;
-    }
     &:hover {
       background: var(--color-tab-hover);
       color: var(--color-ink);
@@ -1538,13 +1533,11 @@
   .mind-editor > .note-tab-start.note-tab-start {
     --block-gap: 0px;
   }
-  /* A tab's row: a step heavier than its headings, its ⋯ shown on hover and focus. */
+  /* A tab's row: its ⋯ shown on hover and focus. */
   .note-tab-row {
     gap: 2px;
     padding-right: 2px;
 
-    & > .pdf-outline-title {
-    }
     /* Its name field clears the line that marks the open tab. */
     & > input {
       margin-left: 6px;
@@ -1746,6 +1739,7 @@
   .review-card-name {
     min-width: 0;
     color: var(--color-ink-secondary);
+    font-weight: 400;
     overflow-wrap: anywhere;
   }
   .review-card-status {
@@ -2146,6 +2140,7 @@
   }
   .check-count {
     color: var(--color-ink);
+    font-weight: 400;
   }
   .mind-health-sep {
     color: var(--color-ink-placeholder);
@@ -2506,7 +2501,7 @@
     & b {
       flex: 1 1 auto;
       min-width: 0;
-      font-weight: 600;
+      font-weight: 400;
       color: var(--color-ink);
     }
   }
@@ -5585,7 +5580,7 @@
       font-family: var(--font-sans);
       font-size: var(--text-ui);
       line-height: 24px;
-      font-weight: 600;
+      font-weight: 500;
       color: var(--color-ink-secondary);
     }
     :where(tr > :last-child) {
@@ -5609,13 +5604,12 @@
     :where(th > * + *, td > * + *) {
       margin-top: 8px;
     }
-    /* Cells selected together (a drag across cells, or Shift and the arrows). */
+    /* Cells selected together (a drag across cells, or Shift and the arrows), as a sheet's are: see-through, not multiplied, which would darken light words in dark. */
     .selectedCell::after {
       content: "";
       position: absolute;
       inset: 0;
-      background: var(--color-accent-wash);
-      mix-blend-mode: multiply;
+      background: var(--selection-overlay);
       pointer-events: none;
     }
     &.ProseMirror .selectedCell ::selection {
@@ -6703,7 +6697,6 @@
     font-family: var(--font-sans);
     font-size: var(--text-small);
     line-height: var(--text-small--line-height);
-    font-weight: 600;
     color: var(--color-ink-secondary);
     vertical-align: 2px;
     white-space: nowrap;
@@ -6719,12 +6712,10 @@
     &[data-check="not-found"],
     &[data-check="unsupported"] {
       background: var(--color-warning-wash);
-      font-weight: 700;
       color: var(--color-warning);
     }
     &[data-check="contradicted"] {
       background: var(--color-danger-wash);
-      font-weight: 700;
       color: var(--color-danger);
     }
     &[data-check="checking"] {
@@ -6751,7 +6742,6 @@
     min-height: 18px;
     max-width: 100%;
     padding: 0 5px;
-    font-weight: 500;
     white-space: normal;
     text-align: left;
     vertical-align: 1px;
@@ -6761,7 +6751,6 @@
     &[data-check="contradicted"] {
       background: var(--color-chip);
       box-shadow: none;
-      font-weight: 500;
       color: var(--color-ink-secondary);
     }
   }
@@ -6771,11 +6760,9 @@
 
     &[data-check="not-found"],
     &[data-check="unsupported"] {
-      font-weight: 700;
       color: var(--color-warning);
     }
     &[data-check="contradicted"] {
-      font-weight: 700;
       color: var(--color-danger);
     }
   }
@@ -7308,7 +7295,7 @@
     }
     th {
       background: var(--color-frame);
-      font-weight: 600;
+      font-weight: 500;
     }
   }
   .composer-quote--rows:hover .composer-table-preview,
@@ -7437,7 +7424,6 @@
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-weight: 500;
 
     .citation-marker-icon {
       display: block;
@@ -7477,7 +7463,6 @@
     font-family: var(--font-sans);
     font-size: var(--text-small);
     line-height: 0;
-    font-weight: 600;
     color: var(--color-ink-secondary);
   }
   .word-atom-comment {
@@ -7666,7 +7651,6 @@
     font-family: var(--font-sans);
     font-size: var(--text-small);
     line-height: 16px;
-    font-weight: 600;
     color: var(--color-ink-secondary);
     cursor: pointer;
     user-select: none;
@@ -7882,7 +7866,6 @@
     font-family: var(--font-sans);
     font-size: var(--text-small);
     line-height: var(--text-small--line-height);
-    font-weight: 700;
     white-space: nowrap;
     cursor: pointer;
     pointer-events: auto;
@@ -9371,8 +9354,6 @@
     border-radius: 10px;
     overflow-y: auto;
   }
-  .selection-turn {
-  }
   /* The menu under text selected in a Document's viewer. */
   .viewer-selection-menu > .editor-menu {
     width: 232px;
@@ -10150,7 +10131,7 @@
     white-space: nowrap;
 
     & b {
-      font-weight: 600;
+      font-weight: 400;
       color: var(--color-ink);
     }
   }
@@ -10685,7 +10666,7 @@
 
     & b {
       flex: none;
-      font-weight: 600;
+      font-weight: 400;
       white-space: nowrap;
       color: var(--color-ink-secondary);
     }
@@ -10726,7 +10707,9 @@
   .help-option--recommended .help-option-say {
     color: var(--color-ink);
   }
+  /* The model's own bold in its suggestion, as a reply's bold: the writing's, not the interface's. */
   .help-move {
+    font-weight: 600;
   }
   .help-option-note {
     grid-column: 2;
@@ -11197,7 +11180,6 @@
       padding-left: 0;
       border-right: 1px solid var(--color-rule);
       background: var(--color-sheet);
-      font-weight: 600;
       color: var(--color-ink-secondary);
       white-space: normal;
     }
@@ -11657,7 +11639,6 @@
   }
   .task-progress-mark--failed {
     font-size: var(--text-small);
-    font-weight: 700;
     color: var(--color-warning);
   }
   .task-progress-details {
@@ -13178,8 +13159,6 @@
       background: var(--color-hover);
       color: var(--color-ink);
     }
-    &[aria-checked="true"] > .history-time {
-    }
   }
   .history-card {
     position: relative;
@@ -13626,7 +13605,7 @@
     thead th {
       font-size: var(--text-small);
       line-height: 16px;
-      font-weight: 600;
+      font-weight: 500;
       color: var(--color-ink-meta);
     }
     tbody tr:last-child > * {
@@ -13920,7 +13899,7 @@
     white-space: nowrap;
 
     strong {
-      font-weight: 600;
+      font-weight: 400;
       color: var(--color-ink);
     }
   }
@@ -13935,8 +13914,6 @@
     text-overflow: ellipsis;
     color: var(--color-ink);
     cursor: text;
-  }
-  .comparison-table[data-expanded] .comparison-name {
   }
   .comparison-name-field {
     min-width: 120px;
@@ -14396,7 +14373,6 @@
     border-radius: 4px;
     background: var(--color-warning-wash);
     font-size: var(--text-small);
-    font-weight: 700;
     color: var(--color-warning);
   }
   /*

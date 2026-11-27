@@ -117,7 +117,7 @@ function SharePageForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           onClick={onDone}
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-hover hover:text-ink"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </header>
 

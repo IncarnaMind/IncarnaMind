@@ -315,7 +315,6 @@
   justify-content: center;
   min-width: 12px;
   height: 20px;
-  font-weight: 700;
 }
 .figure-glyph[data-glyph="supported"] {
   color: var(--color-success);

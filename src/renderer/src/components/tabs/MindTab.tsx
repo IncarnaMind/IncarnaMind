@@ -277,7 +277,7 @@ export function NoTabOpen() {
         onClick={() => void newNote()}
         className={`mt-3 ${buttonStyle("primary")}`}
       >
-        <PlusLineIcon className="size-4" />
+        <PlusLineIcon />
         {t("sidebar.newMind")}
       </button>
     </div>

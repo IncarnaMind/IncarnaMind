@@ -127,7 +127,7 @@ export function SetupPanel({
             onClick={crumb.onClick}
             className="-ml-1 inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-1.5 pl-0.5 text-ui leading-5 text-ink-secondary hover:bg-hover hover:text-ink"
           >
-            <ChevronLeftLineIcon aria-hidden="true" className="size-4" />
+            <ChevronLeftLineIcon aria-hidden="true" />
             {crumb.label}
           </button>
         )}
@@ -165,7 +165,7 @@ export function SetupPanel({
           onClick={place.close}
           className="absolute top-3.5 right-4 inline-flex size-8 items-center justify-center rounded-md text-ink-secondary hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       )}
     </section>
@@ -286,7 +286,7 @@ export function WorksRow({
       className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-chip py-2 pr-2 pl-3 text-ui leading-5"
     >
       <span className="mr-auto inline-flex min-w-0 items-center gap-2 text-ink">
-        <CheckLineIcon aria-hidden="true" className="size-4 shrink-0" />
+        <CheckLineIcon aria-hidden="true" className="shrink-0" />
         <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
       </span>
       {children}

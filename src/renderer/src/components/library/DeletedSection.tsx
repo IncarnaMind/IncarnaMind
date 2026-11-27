@@ -117,7 +117,7 @@ export function DeletedSection() {
         label={label}
         open={open}
         onToggle={toggle}
-        icon={<TrashLineIcon className="size-4" />}
+        icon={<TrashLineIcon />}
         name={
           <button
             type="button"

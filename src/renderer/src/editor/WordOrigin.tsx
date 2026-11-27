@@ -86,7 +86,7 @@ export function WordImportProgress({ doc }: { doc: Y.Doc }) {
   const percent = Math.floor((progress.done / Math.max(1, progress.total)) * 100);
   return (
     <p className="mind-word" data-testid="mind-word-progress" role="status">
-      <DocumentLineIcon kind="docx" className="size-3.5 shrink-0" />
+      <DocumentLineIcon kind="docx" className="shrink-0" />
       <span className="min-w-0 truncate">
         {t("wordImport.progress", { name: file.name, percent })}
       </span>

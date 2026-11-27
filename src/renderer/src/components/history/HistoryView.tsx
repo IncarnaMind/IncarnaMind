@@ -236,7 +236,7 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
             onClick={onClose}
             className={iconButtonClass}
           >
-            <CloseLineIcon className="size-4" />
+            <CloseLineIcon />
           </button>
         </div>
       </header>

@@ -162,7 +162,7 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
           onClick={() => void discard(meeting.id)}
           className="ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-chip hover:text-ink"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </div>
       {microphoneOnly && (
@@ -178,7 +178,7 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
           onClick={() => void start(meeting.id, systemAudio && !microphoneOnly)}
           className={buttonStyle("primary", "lg")}
         >
-          <RecordingLineIcon className="size-4" />
+          <RecordingLineIcon />
           {t("meetings.start.record")}
         </button>
         <div className="min-w-0 flex-1 basis-64 text-ui leading-5">

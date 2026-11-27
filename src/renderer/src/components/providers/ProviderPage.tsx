@@ -430,7 +430,7 @@ export function ProviderPage({
               label={t("providers.settings.remove")}
               testId="provider-remove"
               onClick={() => void remove()}
-              trailing={<TrashLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
+              trailing={<TrashLineIcon className="shrink-0 text-ink-placeholder" />}
             />
           </SettingsGroup>
         </SettingsSection>
@@ -625,7 +625,7 @@ function AddModelId({
             label={t("models.provider.addModel")}
             testId="provider-add-model"
             onClick={() => setOpen(true)}
-            trailing={<PlusLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
+            trailing={<PlusLineIcon className="shrink-0 text-ink-placeholder" />}
           />
         </SettingsGroup>
       </SettingsSection>

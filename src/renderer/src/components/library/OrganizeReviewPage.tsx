@@ -355,7 +355,7 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
         title={t("organizeReview.menu")}
         className={iconButtonClass}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

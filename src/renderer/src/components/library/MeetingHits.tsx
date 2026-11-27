@@ -57,7 +57,7 @@ function MeetingHit({ match, note }: { match: DocumentTextMatch; note: Mind }) {
         }}
         className="flex min-w-0 flex-1 items-start gap-2 px-2 py-2 text-left outline-none"
       >
-        <MindLineIcon className="mt-0.5 size-4 shrink-0 text-ink-meta" />
+        <MindLineIcon className="mt-0.5 shrink-0 text-ink-meta" />
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-ui leading-5 text-ink">
             {transcriptInNote(note, match.atMs, t)}

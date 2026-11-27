@@ -279,7 +279,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
             onClick={() => stop(mindId, answerId)}
             className="answer-action"
           >
-            <StopIcon className="size-3" />
+            <StopIcon />
             {t("answer.stop")}
           </button>
         )}
@@ -290,7 +290,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
             onClick={() => writeAgain()}
             className="answer-action"
           >
-            <RegenerateSmallIcon className="size-3" />
+            <RegenerateSmallIcon />
             {t("answer.regenerate")}
           </button>
         )}

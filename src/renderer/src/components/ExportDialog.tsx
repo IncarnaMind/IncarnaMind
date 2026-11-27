@@ -214,7 +214,7 @@ function TheirChangesRow({
           <option value="shown">{t("export.theirChanges.shown")}</option>
           <option value="accepted">{t("export.theirChanges.accepted")}</option>
         </select>
-        <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+        <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 text-ink-meta" />
       </span>
     </div>
   );
@@ -283,7 +283,7 @@ function MarksRows({
                 </option>
               ))}
             </select>
-            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 text-ink-meta" />
           </span>
         </div>
         <span id={`${id}-hint`} className={hintClass}>
@@ -364,7 +364,7 @@ function CitationStyleRow({ mindId }: { mindId: string }) {
         <span id="export-citation-style-value" className="truncate">
           {label ?? "…"}
         </span>
-        <ChevronDownLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+        <ChevronDownLineIcon className="shrink-0 text-ink-meta" />
       </button>
     </div>
   );
@@ -570,7 +570,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           onClick={onDone}
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-hover hover:text-ink"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </header>
 
@@ -598,7 +598,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
                 </option>
               ))}
             </select>
-            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 size-3.5 text-ink-meta" />
+            <ChevronDownLineIcon className="pointer-events-none absolute top-2.5 right-2.5 text-ink-meta" />
           </span>
         </div>
 

@@ -9,7 +9,7 @@ export function Marked({ text, ranges }: { text: string; ranges: readonly TextRa
     if (range.start < at) continue;
     if (range.start > at) parts.push(text.slice(at, range.start));
     parts.push(
-      <b key={range.start} className="text-ink">
+      <b key={range.start} className="font-semibold text-ink">
         {text.slice(range.start, range.end)}
       </b>,
     );

@@ -300,7 +300,7 @@ function Pill({
         onClick={onExpand}
         className="panel-icon-button"
       >
-        <ChevronDownLineIcon className="size-3.5" />
+        <ChevronDownLineIcon />
       </button>
     </section>
   );
@@ -366,7 +366,7 @@ function Panel({
           {meeting.helpTemplate
             ? t(templateLabel(meeting.helpTemplate))
             : t("meetings.template.chip")}
-          <ChevronDownLineIcon className="size-3" />
+          <ChevronDownLineIcon />
         </button>
         <span className="grow" />
         <button
@@ -377,7 +377,7 @@ function Panel({
           onClick={onFold}
           className="panel-icon-button"
         >
-          <MinusLineIcon className="size-3.5" />
+          <MinusLineIcon />
         </button>
         <button
           type="button"
@@ -387,12 +387,12 @@ function Panel({
           onClick={() => bridge.close()}
           className="panel-icon-button"
         >
-          <CloseLineIcon className="size-3.5" />
+          <CloseLineIcon />
         </button>
       </header>
       {meeting.microphonePausedAtMs !== null && (
         <p role="status" data-testid="panel-mic-line" className="panel-subline">
-          <MicOffLineIcon className="size-3.5 shrink-0" />
+          <MicOffLineIcon className="shrink-0" />
           <b>{t("meetings.mic.pausedSince", { time: clockTime(meeting.microphonePausedAtMs) })}</b>
           <span aria-hidden="true">·</span>
           <button
@@ -420,7 +420,7 @@ function Panel({
       )}
       {SAYS_HIDDEN_FROM_SHARES && hidden && (
         <p data-testid="panel-hidden" className="panel-hidden">
-          <EyeOffLineIcon className="size-3 shrink-0" />
+          <EyeOffLineIcon className="shrink-0" />
           <span>{t("meetings.panel.hidden")}</span>
         </p>
       )}

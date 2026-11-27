@@ -317,7 +317,7 @@ function TagRow({
         onClick={() => setMode("edit")}
         className={iconButtonClass}
       >
-        <PencilLineIcon className="size-4" />
+        <PencilLineIcon />
       </button>
       {tags.length > 1 && (
         <button
@@ -328,7 +328,7 @@ function TagRow({
           onClick={() => setMode("merge")}
           className={iconButtonClass}
         >
-          <MergeLineIcon className="size-4" />
+          <MergeLineIcon />
         </button>
       )}
       <button
@@ -339,7 +339,7 @@ function TagRow({
         onClick={() => void run(() => deleteTag(tag.id))}
         className={iconButtonClass}
       >
-        <TrashLineIcon className="size-4" />
+        <TrashLineIcon />
       </button>
     </li>
   );

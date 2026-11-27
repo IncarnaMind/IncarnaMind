@@ -69,7 +69,7 @@ export function ExamplesMenu() {
         title={label}
         className={rowActionButtonClass}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

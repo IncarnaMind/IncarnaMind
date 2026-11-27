@@ -62,7 +62,7 @@ export function SidebarToggle({ place }: { place: "header" | "band" }) {
       data-needs-you={alert || undefined}
       className={`${iconButtonClass} sidebar-toggle relative text-ink-secondary`}
     >
-      <SidebarLineIcon className="size-4" />
+      <SidebarLineIcon />
       {alert && (
         <span
           aria-hidden="true"

@@ -125,7 +125,7 @@ export function CheckButton({
           className="note-check-stop"
           onClick={onStop}
         >
-          <StopLineIcon className="size-3.5" />
+          <StopLineIcon />
         </button>
       )}
     </span>

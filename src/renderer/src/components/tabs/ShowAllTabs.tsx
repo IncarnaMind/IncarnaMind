@@ -72,7 +72,7 @@ function Row({ tab, active, close }: { tab: LayoutTab; active: boolean; close():
       }}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
-        {active && <CheckLineIcon className="size-4" />}
+        {active && <CheckLineIcon />}
       </span>
       <span className="flex size-4 shrink-0 items-center justify-center text-ink-meta [&_svg]:size-3.5">
         <TabIcon item={tab.item} />

@@ -39,7 +39,7 @@ export function DocumentTagMenu({
         tabIndex={tabIndex}
         className={buttonClassName}
       >
-        {children ?? <TagLineIcon className="size-[15px]" />}
+        {children ?? <TagLineIcon />}
       </button>
       <div
         {...popover.popoverProps}

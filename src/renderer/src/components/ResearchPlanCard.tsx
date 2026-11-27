@@ -124,7 +124,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string | null }) {
     >
       <div className="research-plan-body">
         <p className="research-plan-kind">
-          <SearchLineIcon aria-hidden="true" className="size-3.5" />
+          <SearchLineIcon aria-hidden="true" />
           {t("research.plan.heading")}
         </p>
         <p data-testid="research-plan-title" className="research-plan-title">
@@ -169,7 +169,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string | null }) {
                     onClick={() => removeStep(key, index)}
                     className="research-plan-remove"
                   >
-                    <RemoveIcon className="size-2.5" />
+                    <RemoveIcon />
                   </button>
                 )}
               </li>
@@ -191,7 +191,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string | null }) {
             }}
             className="research-plan-add"
           >
-            <PlusLineIcon className="size-3.5" />
+            <PlusLineIcon />
             {t("research.plan.addStep")}
           </button>
         )}
@@ -306,7 +306,7 @@ function SourceToggle({
       onClick={onToggle}
       className="research-plan-source"
     >
-      {pressed && <CheckLineIcon aria-hidden="true" className="size-3" />}
+      {pressed && <CheckLineIcon aria-hidden="true" />}
       {label}
     </button>
   );
@@ -373,9 +373,9 @@ function WriteInto({ mindId, card }: { mindId: string | null; card: Card }) {
         title={label}
         className="research-plan-target"
       >
-        <MindLineIcon aria-hidden="true" className="size-3.5 shrink-0" />
+        <MindLineIcon aria-hidden="true" className="shrink-0" />
         <span className="truncate">{label}</span>
-        <ChevronDownLineIcon aria-hidden="true" className="size-3 shrink-0" />
+        <ChevronDownLineIcon aria-hidden="true" className="shrink-0" />
       </button>
       <div
         {...menu.menuProps}

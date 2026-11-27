@@ -67,7 +67,7 @@ function LinkFolderForm({ linking, onCancel }: { linking: LinkingFolder; onCance
   return (
     <div className="flex flex-col gap-4">
       <div className="flex min-w-0 items-start gap-3">
-        <FolderLineIcon className="mt-0.5 size-4 shrink-0 text-ink-meta" />
+        <FolderLineIcon className="mt-0.5 shrink-0 text-ink-meta" />
         <div className="min-w-0">
           <p data-testid="link-folder-name" className="truncate text-ui text-ink">
             {folderName(path)}

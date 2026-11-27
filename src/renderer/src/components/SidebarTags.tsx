@@ -101,7 +101,7 @@ export function SidebarTags() {
             onClick={startNew}
             className={rowActionButtonClass}
           >
-            <PlusLineIcon className="size-4" />
+            <PlusLineIcon />
           </button>
           <SectionMenu />
         </>
@@ -140,7 +140,7 @@ function SectionMenu() {
         title={label}
         className={rowActionButtonClass}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

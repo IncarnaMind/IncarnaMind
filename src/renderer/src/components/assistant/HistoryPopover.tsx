@@ -40,7 +40,7 @@ export function HistoryPopover({ anchor, onClose }: { anchor: Element; onClose()
     >
       <section className="assistant-history">
         <header className="assistant-history-head">
-          <HistoryLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <HistoryLineIcon className="shrink-0 text-ink-meta" />
           <h2 className="min-w-0 flex-1 truncate">{t("assistant.history")}</h2>
           <button
             ref={close}
@@ -50,7 +50,7 @@ export function HistoryPopover({ anchor, onClose }: { anchor: Element; onClose()
             onClick={onClose}
             className={iconButtonClass}
           >
-            <CloseLineIcon className="size-4" />
+            <CloseLineIcon />
           </button>
         </header>
         {conversations.length === 0 ? (

@@ -191,7 +191,7 @@ export function FormatMenu({
             className="format-menu-picker"
           >
             <span className="min-w-0 truncate">{fontLabel}</span>
-            <ChevronIcon className="size-3 shrink-0 rotate-90 text-ink-meta" />
+            <ChevronIcon className="shrink-0 rotate-90 text-ink-meta" />
           </button>
           <button
             type="button"
@@ -205,7 +205,7 @@ export function FormatMenu({
             className="format-menu-picker"
           >
             <span className="min-w-0 truncate">{state.size ?? t("format.size.default")}</span>
-            <ChevronIcon className="size-3 shrink-0 rotate-90 text-ink-meta" />
+            <ChevronIcon className="shrink-0 rotate-90 text-ink-meta" />
           </button>
         </div>
         {/* biome-ignore lint/a11y/useSemanticElements: a menu's radio items are grouped by role; a fieldset is for a form's. */}
@@ -243,7 +243,7 @@ export function FormatMenu({
         >
           <LineSpacingIcon className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">{t("format.lineSpacing")}</span>
-          <ChevronIcon className="size-3 shrink-0 text-ink-meta" />
+          <ChevronIcon className="shrink-0 text-ink-meta" />
         </button>
         <Row
           testId="format-indent-increase"
@@ -281,7 +281,7 @@ export function FormatMenu({
           <span className="editor-menu-shortcut truncate">
             {state.scheme ? t(SCHEME_NAMES[state.scheme]) : schemePreview("default")}
           </span>
-          <ChevronIcon className="size-3 shrink-0 text-ink-meta" />
+          <ChevronIcon className="shrink-0 text-ink-meta" />
         </button>
         <hr className="selection-rule" />
         <p aria-hidden="true" className="format-menu-section">
@@ -300,7 +300,7 @@ export function FormatMenu({
           >
             <span aria-hidden="true" className="format-menu-swatch bg-ink" />
             <span className="min-w-0 flex-1 truncate">{t("format.color.automatic")}</span>
-            {state.color === null && <CheckLineIcon className="size-3.5 shrink-0 text-ink-meta" />}
+            {state.color === null && <CheckLineIcon className="shrink-0 text-ink-meta" />}
           </button>
           <div className="format-menu-swatches">
             {TEXT_COLORS.map(({ id, color }) => (
@@ -473,7 +473,7 @@ function Row({
       <Glyph className="shrink-0" />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {keys && <span className="editor-menu-shortcut">{keys}</span>}
-      {checked && <CheckLineIcon className="size-3.5 shrink-0 text-ink-meta" />}
+      {checked && <CheckLineIcon className="shrink-0 text-ink-meta" />}
     </button>
   );
 }
@@ -536,7 +536,7 @@ function ChoiceList({
             className="editor-menu-item"
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
-              {choice.checked && <CheckLineIcon className="size-4" />}
+              {choice.checked && <CheckLineIcon />}
             </span>
             <span className="min-w-0 truncate" style={choice.style}>
               {choice.label}
@@ -597,7 +597,7 @@ function SpacingMenu({
             className="editor-menu-item"
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
-              {current === multiple && <CheckLineIcon className="size-4" />}
+              {current === multiple && <CheckLineIcon />}
             </span>
             <span className="min-w-0 truncate">{spacingLabel(multiple, t)}</span>
           </button>
@@ -612,7 +612,7 @@ function SpacingMenu({
           className="editor-menu-item"
         >
           <span className="flex size-4 shrink-0 items-center justify-center">
-            {custom && <CheckLineIcon className="size-4" />}
+            {custom && <CheckLineIcon />}
           </span>
           <span className="min-w-0 truncate">
             {t("format.lineSpacing.custom")}

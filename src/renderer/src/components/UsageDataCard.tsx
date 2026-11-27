@@ -68,7 +68,7 @@ export function UsageDataCard() {
             onClick={() => void hide()}
             className="inline-flex size-[22px] shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
           >
-            <CloseLineIcon strokeWidth={2.5} className="size-3" />
+            <CloseLineIcon />
           </button>
         )}
       </div>

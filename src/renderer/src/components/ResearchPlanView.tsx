@@ -89,7 +89,7 @@ export function ResearchPlanView({ task }: { task: Task }) {
     >
       <div className="research-plan-body">
         <p className="research-plan-kind">
-          <SearchLineIcon aria-hidden="true" className="size-3.5" />
+          <SearchLineIcon aria-hidden="true" />
           {t("research.plan.heading")}
         </p>
         <p className="research-plan-title">{plan.title}</p>

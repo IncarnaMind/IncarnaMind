@@ -229,7 +229,7 @@ export function ScopeChips({
                 onClick={remove.run}
                 className="scope-chip-remove"
               >
-                <RemoveIcon className="size-2.5" />
+                <RemoveIcon />
               </button>
             )}
           </li>

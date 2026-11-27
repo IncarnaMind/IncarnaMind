@@ -93,7 +93,7 @@ export function ReferenceImportPanel() {
       onClick={state.dismiss}
       className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-hover hover:text-ink"
     >
-      <CloseLineIcon className="size-3.5" />
+      <CloseLineIcon />
     </button>
   );
 

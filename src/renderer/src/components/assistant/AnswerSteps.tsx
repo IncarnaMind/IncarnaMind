@@ -202,7 +202,7 @@ export function AnswerSteps({
             onClick={onRegenerate}
             className="answer-steps-regenerate"
           >
-            <RegenerateSmallIcon className="size-3.5" />
+            <RegenerateSmallIcon />
             {t("answer.regenerate")}
           </button>
         </>

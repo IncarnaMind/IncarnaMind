@@ -926,7 +926,7 @@ function SlideFrame({
             onClick={onAsk}
             className="viewer-slide-ask"
           >
-            <ChatLineIcon className="size-3.5" />
+            <ChatLineIcon />
             {t("viewer.slide.ask")}
           </button>
         )}

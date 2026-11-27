@@ -221,7 +221,7 @@ function ResultBody({
             data-testid="export-saving"
             className="flex items-center gap-2 py-1 text-ui leading-5 text-ink-meta"
           >
-            <ExportLineIcon className="size-4 shrink-0" />
+            <ExportLineIcon className="shrink-0" />
             {saving}
           </p>
         ) : result.state === "saved" ? (
@@ -364,7 +364,7 @@ function ResultBody({
           onClick={dismiss}
           className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-hover hover:text-ink"
         >
-          <CloseLineIcon className="size-3.5" />
+          <CloseLineIcon />
         </button>
       )}
     </>

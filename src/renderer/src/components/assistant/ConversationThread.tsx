@@ -393,13 +393,13 @@ function QuestionBubble({
         <AskedQuoteLines quotes={question?.quotes ?? quotes} />
         {skill && (
           <span data-testid="assistant-question-skill" className="assistant-question-skill">
-            <SparkLineIcon aria-hidden="true" className="size-3" />
+            <SparkLineIcon aria-hidden="true" />
             {skillTitle(skill, t)}
           </span>
         )}
         {research && (
           <span data-testid="assistant-question-research" className="assistant-question-skill">
-            <SearchLineIcon aria-hidden="true" className="size-3" />
+            <SearchLineIcon aria-hidden="true" />
             {t("research.chip")}
           </span>
         )}

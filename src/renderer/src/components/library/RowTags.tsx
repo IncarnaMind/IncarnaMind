@@ -68,7 +68,7 @@ export function RowTags({ document }: { document: Document }) {
         title={t("tags.edit", { name: document.name })}
         className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-ink-meta opacity-0 group-hover/row:opacity-60 group-has-[:focus-visible]/row:opacity-60 hover:bg-hover hover:text-ink hover:opacity-100! focus-visible:opacity-100 aria-expanded:opacity-100"
       >
-        <PlusLineIcon className="size-3.5" />
+        <PlusLineIcon />
       </button>
       <div
         {...popover.popoverProps}
@@ -119,7 +119,7 @@ function RowChip({ document, tag, link }: { document: Document; tag: Tag; link: 
           onClick={() => void useAppStore.getState().removeDocumentTag(document.id, tag.id)}
           className={chipButtonClass}
         >
-          <CloseLineIcon className="size-2.5" />
+          <CloseLineIcon />
         </button>
       </span>
     </span>

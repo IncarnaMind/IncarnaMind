@@ -191,9 +191,7 @@ function Entry({
     >
       <ProviderLogo
         id={logo}
-        fallback={
-          entry.kind === "transcription" ? <MicLineIcon className="size-[18px]" /> : undefined
-        }
+        fallback={entry.kind === "transcription" ? <MicLineIcon /> : undefined}
       />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-ui text-ink" title={name}>

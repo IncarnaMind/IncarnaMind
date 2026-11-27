@@ -206,7 +206,7 @@ export function QuestionCard({ request }: { request: UserQuestionRequest }) {
               </span>
               {multiple ? (
                 <span aria-hidden="true" className="choice-box" data-on={on || undefined}>
-                  {on && <CheckLineIcon className="size-3" />}
+                  {on && <CheckLineIcon />}
                 </span>
               ) : (
                 <span aria-hidden="true" className="choice-radio" data-on={on || undefined} />

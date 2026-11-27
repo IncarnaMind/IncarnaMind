@@ -194,7 +194,7 @@ export function LibrarySelectionBar({ shownIds }: { shownIds: readonly string[] 
         onClick={() => useSelection.getState().clear("library")}
         className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-ink-meta hover:bg-rule hover:text-ink"
       >
-        <CloseLineIcon className="size-3.5" />
+        <CloseLineIcon />
         <span className="text-small">Esc</span>
       </button>
     </div>

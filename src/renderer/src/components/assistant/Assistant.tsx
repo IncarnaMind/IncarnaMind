@@ -175,7 +175,7 @@ export function Assistant({
       label={t("assistant.newChat.button", { shortcut: shortcutLabel("assistant.newChat") })}
       onClick={newChat}
     >
-      <PlusLineIcon className="size-4" />
+      <PlusLineIcon />
     </IconButton>
   );
   return (
@@ -199,7 +199,7 @@ export function Assistant({
           onClickCapture={afterMove}
         >
           <IconButton testId="assistant-fold" label={unfoldLabel} expanded={false} onClick={fold}>
-            <ChatLineIcon className="size-4" />
+            <ChatLineIcon />
           </IconButton>
           <WaitingDot />
           {newChatButton}
@@ -212,7 +212,7 @@ export function Assistant({
             popup="dialog"
             onClick={(event) => openHistory(event.currentTarget)}
           >
-            <HistoryLineIcon className="size-4" />
+            <HistoryLineIcon />
           </IconButton>
         </div>
       ) : (
@@ -238,7 +238,7 @@ export function Assistant({
           >
             {/* The conversation's name; a new chat is "New chat". */}
             <span className="truncate">{title}</span>
-            <ChevronDownLineIcon className="size-3 shrink-0 text-ink-meta" />
+            <ChevronDownLineIcon className="shrink-0 text-ink-meta" />
           </button>
           <WaitingDot />
           <span className="flex-1" />
@@ -341,10 +341,10 @@ function WaitingDot() {
 
 /** The fold chevron points where it folds to; folded at the bottom or floating, it points up. */
 function FoldIcon({ dock, folded }: { dock: AssistantDock; folded: boolean }) {
-  if (folded) return <ChevronUpLineIcon className="size-4" />;
-  if (dock === "right") return <ChevronRightLineIcon className="size-4" />;
-  if (dock === "left") return <ChevronLeftLineIcon className="size-4" />;
-  return <ChevronDownLineIcon className="size-4" />;
+  if (folded) return <ChevronUpLineIcon />;
+  if (dock === "right") return <ChevronRightLineIcon />;
+  if (dock === "left") return <ChevronLeftLineIcon />;
+  return <ChevronDownLineIcon />;
 }
 
 function IconButton({

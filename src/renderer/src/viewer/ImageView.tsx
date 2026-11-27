@@ -339,7 +339,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           onClick={() => zoomStep(-1)}
           className="viewer-icon-button"
         >
-          <ZoomOutIcon className="size-4" />
+          <ZoomOutIcon />
         </button>
         <span
           data-testid="image-zoom-level"
@@ -357,7 +357,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           onClick={() => zoomStep(1)}
           className="viewer-icon-button"
         >
-          <ZoomInIcon className="size-4" />
+          <ZoomInIcon />
         </button>
         <button
           type="button"
@@ -368,7 +368,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           onClick={() => setZoom({ fit: true })}
           className="viewer-icon-button"
         >
-          <FitWidthIcon className="size-4" />
+          <FitWidthIcon />
         </button>
       </ViewerHeader>
       <UnreadPagesLine document={document} />

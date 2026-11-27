@@ -92,7 +92,7 @@ export function ScopeCountMenu({
                   }}
                   className="flex shrink-0 rounded p-1.5 text-ink-meta -outline-offset-2 hover:bg-hover hover:text-ink focus-visible:bg-hover"
                 >
-                  <RemoveIcon className="size-2.5" />
+                  <RemoveIcon />
                 </button>
               )}
             </div>

@@ -69,7 +69,7 @@ export function TranscriptionRouteChoice() {
   if (chosen && !localMode) {
     return (
       <div ref={root} data-testid="meeting-route" data-route={chosen.route} className={lineClass}>
-        <CloudLineIcon className="size-[18px] shrink-0 text-ink-meta" />
+        <CloudLineIcon className="shrink-0 text-ink-meta" />
         <div className="min-w-0 grow">
           <p className="text-ui text-ink">
             {t("meetings.route.cloudOn", { provider: t(ROUTE_LABELS[chosen.route]) })}
@@ -103,7 +103,7 @@ export function TranscriptionRouteChoice() {
   return (
     <div ref={root} data-testid="meeting-route" data-route="local" className="flex flex-col gap-2">
       <div className={lineClass}>
-        <ComputerLineIcon className="size-[18px] shrink-0 text-ink-meta" />
+        <ComputerLineIcon className="shrink-0 text-ink-meta" />
         <div className="min-w-0 grow">
           <p className="text-ui text-ink">{t("meetings.route.here")}</p>
           <p className="text-small leading-4 text-ink-meta">{t("meetings.route.hereLine")}</p>

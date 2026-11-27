@@ -277,7 +277,7 @@ function CalendarChoice({ calendar }: { calendar: CalendarInfo }) {
       className={`${menuItemClass} pl-2`}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
-        {calendar.counted && <CheckLineIcon className="size-3.5 text-accent" />}
+        {calendar.counted && <CheckLineIcon className="text-accent" />}
       </span>
       <span className="min-w-0 flex-1 truncate">{calendar.name}</span>
     </button>

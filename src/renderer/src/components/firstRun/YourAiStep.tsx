@@ -411,7 +411,7 @@ function FoundList({
               <span className="min-w-0 flex-1">
                 {t("setupPage.ai.moreFound", { count: folded })}
               </span>
-              <ChevronDownLineIcon aria-hidden="true" className="size-3.5 shrink-0" />
+              <ChevronDownLineIcon aria-hidden="true" className="shrink-0" />
             </button>
           </li>
         )}

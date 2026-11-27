@@ -38,7 +38,7 @@ export function EventBar({ mindId }: { mindId: string }) {
   return (
     <section data-testid="event-bar" aria-label={t("eventBar.label")} className="meeting-bar">
       <div className="flex h-8 items-center gap-2">
-        <CalendarLineIcon className="size-4 shrink-0 text-ink-meta" />
+        <CalendarLineIcon className="shrink-0 text-ink-meta" />
         <span
           data-testid="event-bar-when"
           title={people || undefined}
@@ -61,7 +61,7 @@ export function EventBar({ mindId }: { mindId: string }) {
           onClick={join}
           className={buttonStyle(event.joinUrl ? "primary" : "secondary", "sm")}
         >
-          <RecordingLineIcon className="size-4" />
+          <RecordingLineIcon />
           {t(event.joinUrl ? "eventBar.join" : "eventBar.record")}
         </button>
       </div>

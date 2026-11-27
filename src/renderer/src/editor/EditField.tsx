@@ -82,7 +82,7 @@ export function EditField({
             onClick={onHandOff}
             className="selection-edit-handoff"
           >
-            <ChatLineIcon className="size-4" />
+            <ChatLineIcon />
           </button>
         )}
       </div>

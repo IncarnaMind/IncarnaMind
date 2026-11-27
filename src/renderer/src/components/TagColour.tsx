@@ -155,7 +155,7 @@ export function TagColourPicker({
             <span
               className={`flex size-6 items-center justify-center rounded-full border text-ink ${DOT[colour]} peer-checked:shadow-[0_0_0_2px_var(--color-sheet),0_0_0_3px_var(--color-ink-meta)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent`}
             >
-              {value === colour && <CheckLineIcon className="size-3.5" />}
+              {value === colour && <CheckLineIcon />}
             </span>
           </label>
         ))}

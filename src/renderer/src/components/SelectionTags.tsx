@@ -33,7 +33,7 @@ export function SelectionTags({
         data-selection-tags=""
         className={className}
       >
-        <TagLineIcon className="size-3.5" />
+        <TagLineIcon />
         {t("library.selected.tags")}
         {keys}
       </button>

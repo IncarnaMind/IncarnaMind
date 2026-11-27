@@ -27,7 +27,7 @@ export function SettingsBackLink({
       onClick={onBack}
       className="inline-flex items-center gap-1 self-start rounded-sm text-small leading-[18px] text-ink-meta hover:text-ink"
     >
-      <ChevronLeftLineIcon className="size-3" />
+      <ChevronLeftLineIcon />
       {label}
     </button>
   );

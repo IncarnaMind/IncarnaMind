@@ -154,7 +154,7 @@ export function OutlineButton({
       onClick={onToggle}
       className="viewer-icon-button"
     >
-      <OutlineToggleIcon className="size-4" />
+      <OutlineToggleIcon />
     </button>
   );
 }

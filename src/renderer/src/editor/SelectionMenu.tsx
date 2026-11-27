@@ -599,7 +599,7 @@ export function SelectionMenu({
               >
                 <span className="editor-menu-icon">T</span>
                 <span className="flex-1 truncate">{t(state.turn)}</span>
-                <ChevronIcon className="size-4 text-ink-meta" />
+                <ChevronIcon className="text-ink-meta" />
               </button>
               <hr className="selection-rule" />
             </>
@@ -789,7 +789,7 @@ export function SelectionMenu({
                     <span className="editor-menu-icon">{action.icon}</span>
                     <span className="flex-1 truncate">{t(action.label)}</span>
                     {action.keys && <span className="editor-menu-shortcut">{action.keys}</span>}
-                    {action.choices && <ChevronIcon className="size-4 text-ink-meta" />}
+                    {action.choices && <ChevronIcon className="text-ink-meta" />}
                   </button>
                 ))}
                 {edit && state.editable && (

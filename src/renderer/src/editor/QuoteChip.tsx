@@ -56,7 +56,7 @@ export function QuoteChip({
         onClick={onRemove}
         className="scope-chip-remove"
       >
-        <RemoveIcon className="size-2.5" />
+        <RemoveIcon />
       </button>
     </span>
   );

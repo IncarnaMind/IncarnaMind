@@ -388,7 +388,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
                     onClick={() => setStatusSort(!statusSort)}
                   >
                     {t("figures.status")}
-                    <SortLineIcon className="size-3" />
+                    <SortLineIcon />
                   </button>
                 </th>
                 <th scope="col" className="figure-checked-by">

@@ -347,7 +347,7 @@ export function TagPicker({
               onClick={() => void run(() => remove(state.tag.id))}
               className="inline-flex size-4 items-center justify-center rounded-sm opacity-70 hover:bg-sheet/70 hover:opacity-100"
             >
-              <CloseLineIcon className="size-2.5" />
+              <CloseLineIcon />
             </button>
           </span>
         ))}
@@ -405,7 +405,7 @@ export function TagPicker({
                 index === current ? "bg-hover" : ""
               }`}
             >
-              <PlusLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+              <PlusLineIcon className="shrink-0 text-ink-meta" />
               <span className="min-w-0 flex-1 truncate">
                 {t("tags.picker.create", { name: option.name })}
               </span>
@@ -503,7 +503,7 @@ function TagOption({
         title={markTitle}
         className="flex size-3.5 shrink-0 items-center justify-center"
       >
-        {coverage === "all" && <CheckLineIcon className="size-3.5 text-ink" />}
+        {coverage === "all" && <CheckLineIcon className="text-ink" />}
         {coverage === "some" && <span className="h-0.5 w-2.5 rounded-full bg-ink-secondary" />}
       </span>
       <TagDot colour={tag.colour} />

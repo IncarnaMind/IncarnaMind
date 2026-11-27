@@ -23,7 +23,7 @@ export function SearchField({
     <label
       className={`flex items-center gap-2 rounded-lg px-2.5 text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)] ${className}`}
     >
-      <SearchLineIcon className="size-3.5 shrink-0" />
+      <SearchLineIcon className="shrink-0" />
       <input
         ref={inputRef}
         type="search"

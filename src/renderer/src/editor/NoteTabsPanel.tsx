@@ -313,7 +313,7 @@ export function NoteTabsPanel({
                 className="pdf-outline-title note-tab-new"
                 style={{ paddingLeft: INSET }}
               >
-                <PlusLineIcon className="size-3.5 shrink-0" />
+                <PlusLineIcon className="shrink-0" />
                 {t("noteTabs.new")}
               </button>
             </div>

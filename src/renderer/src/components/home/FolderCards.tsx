@@ -61,7 +61,7 @@ export function FolderCards({ now }: { now: Date }) {
           onClick={() => void commands.run("folder.new").catch(useAppStore.getState().reportError)}
           className="flex min-h-[132px] items-center justify-center gap-2 rounded-[10px] border border-dashed border-rule-strong text-ui text-ink-meta hover:bg-frame hover:text-ink"
         >
-          <PlusLineIcon className="size-4" />
+          <PlusLineIcon />
           {t("menu.newFolder")}
         </button>
       </div>
@@ -137,7 +137,7 @@ function FolderCard({
       className={`${cardClass(select.selected)} ${drop.over ? dropIntoClass : ""}`}
     >
       <div className="flex min-w-0 items-center gap-2 text-ink">
-        <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
+        <FolderLineIcon className="shrink-0 text-ink-meta" />
         {rename.renaming ? (
           <InlineName
             value={folder.name}
@@ -185,9 +185,9 @@ function FolderCard({
           className="flex min-w-0 items-center gap-1.5 text-ui text-ink-secondary"
         >
           {item.kind ? (
-            <DocumentLineIcon kind={item.kind} className="size-3.5 shrink-0 text-ink-meta" />
+            <DocumentLineIcon kind={item.kind} className="shrink-0 text-ink-meta" />
           ) : (
-            <MindLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+            <MindLineIcon className="shrink-0 text-ink-meta" />
           )}
           <span className="truncate">{item.name}</span>
         </p>
@@ -198,7 +198,7 @@ function FolderCard({
         </span>
         {kinds.map((kind) => (
           <span key={kind} title={t(FORMAT_LABELS[kind])}>
-            <DocumentLineIcon kind={kind} className="size-3.5" />
+            <DocumentLineIcon kind={kind} />
           </span>
         ))}
       </p>

@@ -272,7 +272,7 @@ export function TranscriptTurn({
           style={{ marginTop: aim?.top ?? 0 }}
           className="transcript-add"
         >
-          <PlusLineIcon className="size-3.5" />
+          <PlusLineIcon />
           <span className="transcript-add-word">{t("transcript.addToNote")}</span>
         </button>
       ) : null}

@@ -107,7 +107,7 @@ export function WorkbookSheetDialog() {
           {t("verify.workbook.title")}
         </h2>
         <div className="flex min-w-0 items-center gap-3">
-          <DocumentLineIcon kind="xlsx" className="size-4 shrink-0 text-ink-meta" />
+          <DocumentLineIcon kind="xlsx" className="shrink-0 text-ink-meta" />
           <p title={path ?? ""} className="min-w-0 truncate text-ui text-ink">
             {path?.split(/[\\/]/).pop() ?? ""}
           </p>

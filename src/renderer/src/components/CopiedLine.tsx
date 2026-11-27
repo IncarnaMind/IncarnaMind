@@ -32,7 +32,7 @@ function Line({ confirmation }: { confirmation: Confirmation }) {
       {confirmation.look ? (
         <ClaimMarkIcon state="unsupported" className="size-3.5 shrink-0" />
       ) : (
-        <CheckLineIcon className="size-3.5 shrink-0" />
+        <CheckLineIcon className="shrink-0" />
       )}
       {t(confirmation.message, confirmation.params)}
     </div>

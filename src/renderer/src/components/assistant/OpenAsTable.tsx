@@ -81,7 +81,7 @@ export function OpenAsTable({
             if (table) onOpen(table);
           }}
         >
-          <ExpandIcon className="size-3.5" />
+          <ExpandIcon />
         </button>
       </>,
       slot,

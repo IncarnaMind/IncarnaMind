@@ -71,7 +71,7 @@ export function SectionHead({
         onClick={onToggle}
         className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-ink-meta hover:bg-hover hover:text-ink"
       >
-        <ChevronDownLineIcon className={`size-3.5 ${open ? "" : "-rotate-90"}`} />
+        <ChevronDownLineIcon className={open ? "" : "-rotate-90"} />
       </button>
       <span className="flex shrink-0 text-ink-meta">{icon}</span>
       {name}

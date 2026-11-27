@@ -65,7 +65,7 @@ export function PeekPage({ document, settled }: { document: Document; settled: b
       ) : kindOnly ? (
         <DocumentLineIcon
           kind={document.kind}
-          className="absolute top-1/2 left-1/2 size-8 -translate-x-1/2 -translate-y-1/2 text-ink-placeholder"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-ink-placeholder"
         />
       ) : (
         settled && (

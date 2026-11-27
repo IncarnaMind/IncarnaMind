@@ -52,7 +52,7 @@ export function TranscriptLineActions({
         style={{ marginTop: top }}
         className="transcript-add transcript-line-actions"
       >
-        <MoreLineIcon className="size-3.5" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

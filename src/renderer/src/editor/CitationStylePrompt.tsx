@@ -107,7 +107,7 @@ export function CitationStylePrompt({
         onClick={dismiss}
         className="citation-style-prompt-dismiss"
       >
-        <CloseLineIcon className="size-3.5" />
+        <CloseLineIcon />
       </button>
     </p>
   );

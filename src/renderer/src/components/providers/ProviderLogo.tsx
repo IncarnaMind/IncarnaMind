@@ -48,7 +48,7 @@ export function ProviderLogo({
           )}
         </svg>
       ) : (
-        (fallback ?? <ComputerLineIcon className={large ? "size-6" : "size-[18px]"} />)
+        (fallback ?? <ComputerLineIcon data-size="18" />)
       )}
     </span>
   );

@@ -284,7 +284,7 @@ export const LibraryRow = memo(function LibraryRow({
             <div className="flex min-w-0 items-center gap-2">
               {rename.renaming ? (
                 <span className="flex min-w-0 flex-1 items-center gap-2">
-                  <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />
+                  <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />
                   <InlineName
                     value={doc.name}
                     label={t("documents.renameLabel", { name: doc.name })}
@@ -304,7 +304,7 @@ export const LibraryRow = memo(function LibraryRow({
                   ].join("\n")}
                   className="flex min-w-0 items-center gap-2 text-left focus-visible:outline-0"
                 >
-                  <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />
+                  <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />
                   <span className="flex min-w-0 items-center gap-2">
                     <span
                       data-testid="library-document-name"
@@ -343,7 +343,7 @@ export const LibraryRow = memo(function LibraryRow({
                   }
                   className="inline-flex shrink-0 items-center gap-1 text-small text-ink-meta"
                 >
-                  <NoteLineIcon className="size-3" />
+                  <NoteLineIcon />
                   {annotationCount}
                 </span>
               )}
@@ -401,12 +401,12 @@ export const LibraryRow = memo(function LibraryRow({
                 onClick={() => moveTo(pathButton.current)}
                 className="group/path flex min-w-0 items-center gap-1 rounded-sm pl-6 text-left text-small leading-4 text-ink-meta hover:text-ink hover:underline"
               >
-                <FolderLineIcon className="size-3 shrink-0" />
+                <FolderLineIcon className="shrink-0" />
                 <span className="truncate">{path}</span>
                 <ChevronDownLineIcon
                   aria-hidden="true"
                   data-testid="library-path-chevron"
-                  className="size-3 shrink-0 opacity-0 group-hover/path:opacity-100 group-focus-visible/path:opacity-100"
+                  className="shrink-0 opacity-0 group-hover/path:opacity-100 group-focus-visible/path:opacity-100"
                 />
               </button>
             )}

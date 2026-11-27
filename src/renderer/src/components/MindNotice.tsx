@@ -18,7 +18,7 @@ export function MindNotice({ kind }: { kind: "update" | "read-only" }) {
     >
       <InfoLineIcon className="mt-0.5 shrink-0 text-accent-strong" />
       <p className="min-w-0 flex-1">
-        <strong className="text-ink">{t(`${key}.title`)}</strong> {t(`${key}.body`)}
+        <strong className="font-normal text-ink">{t(`${key}.title`)}</strong> {t(`${key}.body`)}
       </p>
     </aside>
   );

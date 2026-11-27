@@ -251,7 +251,7 @@ export function MeetingSummaryCandidates({
       >
         <ChevronRightLineIcon
           aria-hidden="true"
-          className={`size-3 shrink-0 ${open ? "rotate-90" : ""}`}
+          className={`shrink-0 ${open ? "rotate-90" : ""}`}
         />
         {reviewed
           ? t("meetings.summary.candidates", { count })

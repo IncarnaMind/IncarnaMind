@@ -117,7 +117,7 @@ export function SettingsDialog() {
               onClick={close}
               className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
             >
-              <CloseLineIcon className="size-4" />
+              <CloseLineIcon />
             </button>
           </header>
           {/*

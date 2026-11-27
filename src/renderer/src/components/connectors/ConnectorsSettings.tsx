@@ -294,7 +294,7 @@ export function ConnectorsSettings() {
           onClick={() => open({ page: "custom" }, "custom")}
           className={buttonStyle("secondary", "sm")}
         >
-          <PlusLineIcon className="size-3.5" />
+          <PlusLineIcon />
           {t("connectors.directory.addCustom")}
         </button>
       </div>

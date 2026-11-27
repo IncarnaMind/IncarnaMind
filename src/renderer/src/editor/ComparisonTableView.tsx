@@ -352,7 +352,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
         className={`comparison-add-question comparison-add-question--${place}`}
         onClick={() => setAdding(true)}
       >
-        <PlusLineIcon className="size-3.5" />
+        <PlusLineIcon />
         {t("comparison.addQuestion")}
       </button>
     );
@@ -388,7 +388,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
         }}
         className="comparison-head"
       >
-        {expanded && <TableIcon className="size-4 shrink-0 text-ink-meta" />}
+        {expanded && <TableIcon className="shrink-0 text-ink-meta" />}
         <span data-testid="comparison-title" className="comparison-title" title={title}>
           {renaming ? (
             <TableNameField
@@ -523,7 +523,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
                 className="comparison-export"
                 onClick={() => void exportComparison(mindId, tableId)}
               >
-                <ExportLineIcon className="size-3.5" />
+                <ExportLineIcon />
                 {t("export.excel.button")}
               </button>
               <button
@@ -538,7 +538,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
                   )
                 }
               >
-                <ExportLineIcon className="size-3.5" />
+                <ExportLineIcon />
                 {t("export.csv.button")}
               </button>
             </>
@@ -550,7 +550,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
               className="comparison-back"
               onClick={() => expandComparisonTable(null)}
             >
-              <CollapseIcon className="size-3.5" />
+              <CollapseIcon />
               {t("comparison.back")}
               <kbd>Esc</kbd>
             </button>
@@ -563,7 +563,7 @@ export function ComparisonTableView({ node, editor }: ReactNodeViewProps) {
               title={t("comparison.expand")}
               onClick={() => expandComparisonTable(tableId)}
             >
-              <ExpandIcon className="size-3.5" />
+              <ExpandIcon />
             </button>
           )}
         </span>

@@ -1048,7 +1048,7 @@
   margin-bottom: 2px;
 }
 .docx-note-author {
-  font-weight: 600;
+  color: var(--color-ink);
 }
 .docx-note-date {
   font-size: var(--text-small);

@@ -265,7 +265,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
               onClick={() => closeTip("meeting-transcript")}
               className="meeting-foot-tip-close"
             >
-              <CloseLineIcon className="size-4" />
+              <CloseLineIcon />
             </button>
           </div>
         )}
@@ -316,7 +316,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
                 tip={t("meetings.command.resume")}
                 onClick={() => void resume(meeting.id)}
               >
-                <ResumeLineIcon className="size-4" />
+                <ResumeLineIcon />
               </SlotButton>
             ) : waiting ? (
               // The system's prompt is open: nothing is heard yet, so no bars move.
@@ -340,14 +340,14 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
               tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
               onClick={() => setSheet(tabId, mindId, !open)}
             >
-              <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
+              <ChevronDownLineIcon className={open ? "" : "rotate-180"} />
             </SlotButton>
             <SlotButton
               testId="meeting-foot-stop"
               tip={t("meetings.bar.stopLabel")}
               onClick={() => void stop(meeting.id)}
             >
-              <StopLineIcon className="size-4" />
+              <StopLineIcon />
             </SlotButton>
           </>
         ) : (
@@ -360,7 +360,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             onClick={() => setSheet(tabId, mindId, !open)}
           >
             <span>{t("meetings.views.transcript")}</span>
-            <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
+            <ChevronDownLineIcon className={open ? "" : "rotate-180"} />
           </SlotButton>
         )}
       </fieldset>
@@ -539,7 +539,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 onClick={() => openTranscriptBeside({ meeting, tabId, groupId: place?.groupId })}
                 className="meeting-sheet-icon"
               >
-                <OpenBesideLineIcon className="size-4" />
+                <OpenBesideLineIcon />
               </button>
               <button
                 type="button"
@@ -549,7 +549,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 onClick={() => foldSheet(tabId, mindId)}
                 className="meeting-sheet-icon"
               >
-                <ChevronDownLineIcon className="size-4" />
+                <ChevronDownLineIcon />
               </button>
             </div>
           </header>
@@ -609,7 +609,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 onClick={() => void useMeetings.getState().resume(meeting.id)}
                 className="meeting-button meeting-button--words"
               >
-                <ResumeLineIcon className="size-4" />
+                <ResumeLineIcon />
                 <span className="meeting-button-word">{t("meetings.foot.resume")}</span>
               </button>
               {review && (
@@ -686,7 +686,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         onClick={() => void (recording ? pause(meeting.id) : resume(meeting.id))}
         className="meeting-button meeting-button--words"
       >
-        {recording ? <PauseLineIcon className="size-4" /> : <ResumeLineIcon className="size-4" />}
+        {recording ? <PauseLineIcon /> : <ResumeLineIcon />}
         <span className="meeting-button-word">
           {t(recording ? "meetings.foot.pause" : "meetings.foot.resume")}
         </span>
@@ -700,7 +700,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         onClick={() => void commands.run("meeting.mark")}
         className="meeting-button meeting-button--words"
       >
-        <BookmarkLineIcon className="size-4" />
+        <BookmarkLineIcon />
         <span className="meeting-button-word">{t("meetings.mark")}</span>
       </button>
       <button
@@ -712,7 +712,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         onClick={() => void chooseScreen(meeting.id)}
         className="meeting-button meeting-button--words"
       >
-        <ScreenLineIcon className="size-4" />
+        <ScreenLineIcon />
         <span className="meeting-button-word">{t("meetings.foot.screen")}</span>
       </button>
       <CallHelpToggle />
@@ -741,7 +741,7 @@ function SheetMore({ meeting, onRefill }: { meeting: Meeting; onRefill?: () => v
         title={t("meetings.bar.more")}
         className="meeting-button meeting-button--icon meeting-sheet-more"
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

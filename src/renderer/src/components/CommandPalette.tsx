@@ -297,7 +297,7 @@ function Palette() {
       className="mx-auto mt-16 mb-auto open:flex max-h-[calc(100vh-96px)] w-[640px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-xl bg-sheet p-0 text-ink shadow-popover backdrop:bg-transparent"
     >
       <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-rule px-4">
-        <SearchLineIcon className="size-4 shrink-0 text-ink-meta" />
+        <SearchLineIcon className="shrink-0 text-ink-meta" />
         <input
           ref={field}
           value={query}
@@ -509,7 +509,7 @@ function Option({
         )}
       </span>
       {item.kind === "command" && item.checked && (
-        <CheckLineIcon data-testid="palette-checked" className="size-4 shrink-0 text-ink-meta" />
+        <CheckLineIcon data-testid="palette-checked" className="shrink-0 text-ink-meta" />
       )}
       {item.kind === "command" && item.shortcut && (
         <span className="shrink-0 text-small text-ink-meta">{item.shortcut}</span>

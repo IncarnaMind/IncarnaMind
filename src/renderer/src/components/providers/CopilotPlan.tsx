@@ -314,7 +314,7 @@ function Waiting({ status }: { status: CopilotStatus }) {
           <div className="flex flex-wrap items-center gap-2">
             <span
               data-testid="copilot-code"
-              className="rounded-sm border border-rule-strong bg-sheet px-2 font-mono text-heading leading-8 font-semibold tracking-[0.04em] text-ink select-all"
+              className="rounded-sm border border-rule-strong bg-sheet px-2 font-mono text-heading leading-8 tracking-[0.04em] text-ink select-all"
             >
               {code.userCode}
             </span>
@@ -329,7 +329,7 @@ function Waiting({ status }: { status: CopilotStatus }) {
               }
               className={buttonStyle("secondary", "sm")}
             >
-              <CopyLineIcon aria-hidden="true" className="size-3.5" />
+              <CopyLineIcon aria-hidden="true" />
               {t("copilot.code.copy")}
             </button>
           </div>

@@ -194,7 +194,7 @@ export function AiStep({ place }: { place: StepPlace }) {
     <WayRow
       title={t("setupPage.ai.more")}
       testId="setup-way-more"
-      icon={<PlusLineIcon aria-hidden="true" className="size-4 shrink-0 text-ink-meta" />}
+      icon={<PlusLineIcon aria-hidden="true" className="shrink-0 text-ink-meta" />}
       onClick={() => setView({ kind: "list" })}
     />
   );

@@ -13,7 +13,7 @@ export function NoteMark({ annotationId, hasNote }: { annotationId: string; hasN
       title={label}
       className="annotation-note-mark"
     >
-      <NoteLineIcon className="size-[11px]" />
+      <NoteLineIcon />
     </button>
   );
 }

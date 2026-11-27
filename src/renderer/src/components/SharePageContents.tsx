@@ -52,7 +52,7 @@ export function SharePageContents({
       className="mb-2 rounded-lg bg-frame px-3.5 py-3 text-ui leading-[19px] text-ink"
     >
       <p>
-        <strong>{label}</strong>
+        <strong className="font-normal">{label}</strong>
         {gap(label, contents)}
         {contents}
         {gap(contents, readers)}

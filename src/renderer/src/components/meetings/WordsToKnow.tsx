@@ -87,7 +87,7 @@ function WordRow({
           onClick={() => void remove(word)}
           className={rowActionButtonClass}
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       }
     />

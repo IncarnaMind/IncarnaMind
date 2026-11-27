@@ -1055,7 +1055,7 @@ export function Composer({
               onClick={() => mind && stopEditing(mind.editor, mind.mindId)}
               className="scope-chip-remove"
             >
-              <RemoveIcon className="size-2.5" />
+              <RemoveIcon />
             </button>
           </span>
         )}
@@ -1082,7 +1082,7 @@ export function Composer({
               onClick={() => update({ research: false })}
               className="scope-chip-remove"
             >
-              <RemoveIcon className="size-2.5" />
+              <RemoveIcon />
             </button>
           </span>
         )}
@@ -1104,7 +1104,7 @@ export function Composer({
               onClick={() => update({ analyse: false })}
               className="scope-chip-remove"
             >
-              <RemoveIcon className="size-2.5" />
+              <RemoveIcon />
             </button>
           </span>
         )}
@@ -1240,7 +1240,7 @@ export function Composer({
               }}
               className="composer-ask"
             >
-              <StopIcon className="size-3.5" />
+              <StopIcon />
             </button>
           ) : (
             <button
@@ -1254,7 +1254,7 @@ export function Composer({
               onClick={() => void ask()}
               className="composer-ask"
             >
-              <AskArrowIcon className="size-3" />
+              <AskArrowIcon />
             </button>
           )}
         </div>
@@ -1273,7 +1273,7 @@ export function Composer({
             }}
             className="composer-expand"
           >
-            {expanded ? <CollapseIcon className="size-3.5" /> : <ExpandIcon className="size-3.5" />}
+            {expanded ? <CollapseIcon /> : <ExpandIcon />}
           </button>
         )}
       </div>

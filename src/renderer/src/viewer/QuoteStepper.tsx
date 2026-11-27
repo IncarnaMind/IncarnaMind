@@ -57,7 +57,7 @@ export function QuoteStepper({
           disabled={at === 0}
           onClick={() => onStep(-1)}
         >
-          <ChevronUpLineIcon className="size-4" />
+          <ChevronUpLineIcon />
         </button>
         <button
           type="button"
@@ -68,7 +68,7 @@ export function QuoteStepper({
           disabled={at === total - 1}
           onClick={() => onStep(1)}
         >
-          <ChevronDownLineIcon className="size-4" />
+          <ChevronDownLineIcon />
         </button>
       </div>
     </div>

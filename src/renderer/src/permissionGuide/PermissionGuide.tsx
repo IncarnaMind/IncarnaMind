@@ -68,7 +68,7 @@ export function PermissionGuide() {
       className="guide-root flex flex-col gap-1.5 px-3.5 py-3 text-ui leading-5 text-ink-secondary"
     >
       <div className="guide-drag flex items-center gap-2 text-ui text-ink">
-        <b className="grow">{title}</b>
+        <b className="grow font-normal">{title}</b>
         <button
           type="button"
           data-testid="permission-guide-close"
@@ -77,7 +77,7 @@ export function PermissionGuide() {
           onClick={() => bridge.close()}
           className="flex size-6 items-center justify-center rounded-md text-ink-meta hover:bg-hover hover:text-ink"
         >
-          <CloseLineIcon className="size-3.5" />
+          <CloseLineIcon />
         </button>
       </div>
       <GuideSteps source={source} status={status} />

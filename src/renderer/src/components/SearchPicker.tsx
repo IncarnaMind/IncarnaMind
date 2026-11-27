@@ -315,7 +315,7 @@ export function SearchPicker<Id>({
         )}
         {here && (
           <span title={currentLabel} className="shrink-0 text-ink-meta">
-            <CheckLineIcon className="size-3.5" />
+            <CheckLineIcon />
           </span>
         )}
       </div>

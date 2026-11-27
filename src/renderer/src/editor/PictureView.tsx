@@ -108,7 +108,7 @@ export function PictureView({
         }}
         className="pointer-events-none absolute top-2 right-2 inline-flex size-7 items-center justify-center rounded-md bg-sheet/90 text-ink-secondary opacity-0 shadow-popover group-hover:pointer-events-auto group-hover:opacity-100 hover:text-ink focus-visible:pointer-events-auto focus-visible:opacity-100"
       >
-        <ExpandIcon className="size-4" />
+        <ExpandIcon />
       </button>
       {(selected || writing || alt !== "") && editor.isEditable && (
         <input

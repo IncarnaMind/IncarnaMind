@@ -221,7 +221,7 @@ function FontChoices({ mindId, onOtherFonts }: { mindId: string; onOtherFonts():
           className={`${tallMenuItemClass} mt-1 pl-2`}
         >
           <span className="flex size-4 shrink-0 items-center justify-center">
-            <CheckLineIcon className="size-4" />
+            <CheckLineIcon />
           </span>
           <span className="min-w-0 flex-1">
             <span
@@ -335,7 +335,7 @@ function LineSpacingChoice({ mindId, onCustom }: { mindId: string; onCustom(): v
         className={`${menuItemClass} px-2`}
       >
         <span className="flex size-4 shrink-0 items-center justify-center">
-          {typed && <CheckLineIcon className="size-4" />}
+          {typed && <CheckLineIcon />}
         </span>
         <span className="min-w-0 flex-1 truncate">
           {`${t("format.lineSpacing.custom")}${typed ? ` ${lineSpacing}` : ""}`}

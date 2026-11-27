@@ -203,7 +203,7 @@ export function SpeakerMenu({
                   data-initials={initialsOf(named(label))}
                 />
                 <span className="min-w-0 flex-1 truncate">{named(label)}</span>
-                {label === now && <CheckLineIcon className="size-3.5 shrink-0 text-accent" />}
+                {label === now && <CheckLineIcon className="shrink-0 text-accent" />}
               </button>
             ))}
             {invited.length > 0 && (
@@ -269,7 +269,7 @@ export function SpeakerMenu({
                 className={`${menuItemClass} pl-1.5`}
               >
                 <span aria-hidden="true" className="speaker-initials bg-transparent">
-                  <PlusLineIcon className="size-3.5" />
+                  <PlusLineIcon />
                 </span>
                 {t("transcript.speaker.new")}
               </button>

@@ -47,7 +47,7 @@ export function LookMenuItems({ mindId, close }: { mindId: string; close(): void
       className={`${menuItemClass} pl-2`}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
-        {shown.shown === look && <CheckLineIcon className="size-4" />}
+        {shown.shown === look && <CheckLineIcon />}
       </span>
       <span className="flex-1">{label}</span>
     </button>

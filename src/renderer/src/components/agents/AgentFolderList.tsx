@@ -102,9 +102,7 @@ export function AgentFolderList({
                 onChange={(event) => onToggle(row.id, event.target.checked)}
                 className="size-4 shrink-0 accent-ink"
               />
-              <FolderLineIcon
-                className={`size-3.5 shrink-0 ${row.name === null ? "opacity-60" : ""}`}
-              />
+              <FolderLineIcon className={`shrink-0 ${row.name === null ? "opacity-60" : ""}`} />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate" title={name}>
                   {name}
@@ -127,7 +125,7 @@ export function AgentFolderList({
                   title={t("folder.wall.title")}
                   className="flex shrink-0"
                 >
-                  <LockLineIcon className="size-3.5 text-ink-meta" />
+                  <LockLineIcon className="text-ink-meta" />
                 </span>
               )}
               {withWords && (

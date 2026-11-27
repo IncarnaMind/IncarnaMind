@@ -92,17 +92,17 @@ export function DocumentOrFolderPicker({
         disabledReason,
         data: { "data-scope-kind": choice.kind, "data-scope-id": choice.id },
         icon: kept ? (
-          <LockLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <LockLineIcon className="shrink-0 text-ink-meta" />
         ) : choice.sourceLocation ? (
-          <LinkLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <LinkLineIcon className="shrink-0 text-ink-meta" />
         ) : choice.kind === "folder" ? (
-          <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <FolderLineIcon className="shrink-0 text-ink-meta" />
         ) : choice.meeting ? (
-          <MindLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <MindLineIcon className="shrink-0 text-ink-meta" />
         ) : (
           <DocumentLineIcon
             kind={choice.documentKind ?? "text"}
-            className="size-4 shrink-0 text-ink-meta"
+            className="shrink-0 text-ink-meta"
           />
         ),
       };

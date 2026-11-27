@@ -58,7 +58,7 @@ export function ChartKindMenu({
         className="chart-head-button"
       >
         <span>{t(`chart.kind.${chart.kind}`)}</span>
-        <ChevronDownSmallIcon className="size-3" />
+        <ChevronDownSmallIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -86,7 +86,7 @@ export function ChartKindMenu({
                   className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
                 >
                   <CheckLineIcon
-                    className={`size-3.5 shrink-0 ${chart.kind === kind ? "text-ink" : "invisible"}`}
+                    className={`shrink-0 ${chart.kind === kind ? "text-ink" : "invisible"}`}
                   />
                   <span className="flex-1">{t(`chart.kind.${kind}`)}</span>
                 </button>
@@ -108,9 +108,7 @@ export function ChartKindMenu({
                   const axis = axisOf(series);
                   const content = (
                     <>
-                      <CheckLineIcon
-                        className={`size-3.5 shrink-0 ${on ? "text-ink" : "invisible"}`}
-                      />
+                      <CheckLineIcon className={`shrink-0 ${on ? "text-ink" : "invisible"}`} />
                       <span className="min-w-0 flex-1 truncate">{seriesName(series)}</span>
                       {axis && <span className="pl-4 text-small text-ink-meta">{axis}</span>}
                     </>

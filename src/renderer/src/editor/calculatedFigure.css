@@ -31,6 +31,9 @@
   font-size: var(--text-ui);
   line-height: var(--text-ui--line-height);
 }
+.calculated-figure-input strong {
+  font-weight: 400;
+}
 :is(.calculated-figure-card, .chart-card-figure) h3 {
   margin: 0 0 8px;
   font-size: var(--text-ui);
@@ -39,7 +42,7 @@
 }
 :is(.calculated-figure-card, .chart-card-figure) h3 strong {
   color: var(--color-ink);
-  font-weight: 600;
+  font-weight: 400;
 }
 :is(.calculated-figure-card, .chart-card-figure) p {
   margin: 0;

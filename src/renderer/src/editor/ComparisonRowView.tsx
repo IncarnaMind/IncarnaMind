@@ -213,7 +213,7 @@ export function ComparisonRowView({ node, editor, getPos }: ReactNodeViewProps) 
                 tabIndex={-1}
                 onClick={() => openRowDocument(documentId)}
               >
-                <OpenBesideLineIcon className="size-3.5" />
+                <OpenBesideLineIcon />
               </button>
             )}
             <ObjectMenu

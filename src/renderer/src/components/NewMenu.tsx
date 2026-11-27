@@ -128,7 +128,7 @@ export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
           title={t("home.newMind.more")}
           className={`${buttonClass} -ml-px w-8 rounded-l-none px-0`}
         >
-          <ChevronDownLineIcon className="size-3.5" />
+          <ChevronDownLineIcon />
         </button>
       ) : (
         <button
@@ -139,7 +139,7 @@ export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
           title={t("sidebar.plus")}
           className={`${iconButtonClass} text-ink-secondary`}
         >
-          <PlusLineIcon className="size-4" />
+          <PlusLineIcon />
         </button>
       )}
       <div

@@ -47,7 +47,7 @@ function GuideStep({
     <li data-testid="start-step" className="grid grid-cols-[24px_minmax(0,1fr)] gap-x-3">
       <span
         aria-hidden="true"
-        className={`flex size-6 items-center justify-center rounded-full text-small font-bold ${
+        className={`flex size-6 items-center justify-center rounded-full text-small ${
           state === "next"
             ? "bg-ink text-on-primary"
             : state === "done"
@@ -136,7 +136,7 @@ export function StartGuide({ mindId }: { mindId: string }) {
                 }}
                 className="inline-flex items-center gap-1 rounded-sm text-accent underline-offset-2 hover:underline"
               >
-                <PlugIcon className="size-3.5" />
+                <PlugIcon />
                 {t("startGuide.documents.connectApp")}
               </button>
             </Tip>
@@ -159,7 +159,7 @@ export function StartGuide({ mindId }: { mindId: string }) {
             className="relative rounded-lg bg-frame py-2 pr-3 pl-11 text-ui leading-6 text-ink-placeholder"
           >
             <span className="absolute top-2 left-2.5 flex size-6 items-center justify-center rounded-md bg-tab-divider text-on-primary">
-              <AskIcon className="size-3" />
+              <AskIcon />
             </span>
             {t("startGuide.ask.example")}
           </div>

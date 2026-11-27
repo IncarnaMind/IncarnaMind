@@ -167,12 +167,9 @@ export function OrganizeReviewCard({ card, context }: { card: ReviewCard; contex
           />
         )}
         {card.stays && card.id === NOT_IN_A_FOLDER ? (
-          <LooseDocumentsLineIcon
-            aria-hidden="true"
-            className="size-[18px] shrink-0 text-ink-secondary"
-          />
+          <LooseDocumentsLineIcon aria-hidden="true" className="shrink-0 text-ink-secondary" />
         ) : (
-          <FolderLineIcon aria-hidden="true" className="size-[18px] shrink-0 text-ink-secondary" />
+          <FolderLineIcon aria-hidden="true" className="shrink-0 text-ink-secondary" />
         )}
         {rename.renaming ? (
           <InlineName
@@ -267,7 +264,7 @@ function CardMenu({
         title={t("organizeReview.folderActions", { name: card.name })}
         className={`${iconButtonClass} ${onHover}`}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -363,7 +360,7 @@ function OrganizeReviewRow({
         }
         className="m-0 size-4 shrink-0 accent-accent"
       />
-      {doc && <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />}
+      {doc && <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />}
       <button
         type="button"
         data-row-main
@@ -457,7 +454,7 @@ function RowChips({
           onClick={() => setAdding(true)}
           className={`inline-flex size-6 items-center justify-center rounded-md text-ink-meta hover:bg-hover hover:text-ink ${onHover}`}
         >
-          <PlusLineIcon className="size-3" />
+          <PlusLineIcon />
         </button>
       )}
     </span>
@@ -508,7 +505,7 @@ function ReviewChip({
         }
         className="hidden size-4 items-center justify-center rounded-sm opacity-70 group-hover/review-row:inline-flex group-focus-within/review-row:inline-flex hover:bg-sheet/60 hover:opacity-100"
       >
-        <CloseLineIcon className="size-2.5" />
+        <CloseLineIcon />
       </button>
     </span>
   );
@@ -548,7 +545,7 @@ function RowMenu({
         title={t("organizeReview.rowActions", { name })}
         className={`${iconButtonClass} ${onHover}`}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -632,7 +629,7 @@ export function LeftOutCard({
               at === 0 ? "" : "border-t border-rule"
             }`}
           >
-            {doc && <DocumentLineIcon kind={doc.kind} className="size-4 shrink-0 text-ink-meta" />}
+            {doc && <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />}
             <button
               type="button"
               data-row-main

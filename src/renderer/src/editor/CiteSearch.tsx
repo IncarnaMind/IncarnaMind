@@ -362,10 +362,7 @@ export function CiteSearch({
                   title={passage.quote}
                   className="cite-result"
                 >
-                  <DocumentLineIcon
-                    kind={passage.documentKind}
-                    className="cite-result-icon size-3.5"
-                  />
+                  <DocumentLineIcon kind={passage.documentKind} className="cite-result-icon" />
                   <span className="cite-result-body">
                     <span className="cite-result-head">
                       <b>{passage.documentName}</b>

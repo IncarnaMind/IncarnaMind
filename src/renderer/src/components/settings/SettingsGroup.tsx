@@ -230,7 +230,7 @@ export function SettingsRowAction({
           <span className="text-small leading-[18px] text-ink-meta">{detail}</span>
         )}
       </span>
-      {trailing ?? <ChevronRightLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
+      {trailing ?? <ChevronRightLineIcon className="shrink-0 text-ink-placeholder" />}
     </>
   );
   const inset = insetOf(leading !== undefined);

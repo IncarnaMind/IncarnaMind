@@ -67,7 +67,7 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
         title={t("assistant.more")}
         className="assistant-button"
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

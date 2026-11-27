@@ -43,11 +43,7 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
         onClick={() => void toggle()}
         className="transcript-player-toggle"
       >
-        {playing ? (
-          <PauseLineIcon aria-hidden="true" className="size-3.5" />
-        ) : (
-          <ResumeLineIcon aria-hidden="true" className="size-3.5" />
-        )}
+        {playing ? <PauseLineIcon aria-hidden="true" /> : <ResumeLineIcon aria-hidden="true" />}
       </button>
       {failure === null ? (
         <>
@@ -79,7 +75,7 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
         onClick={stop}
         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-hover hover:text-ink"
       >
-        <CloseLineIcon aria-hidden="true" className="size-3" />
+        <CloseLineIcon aria-hidden="true" />
       </button>
     </fieldset>
   );

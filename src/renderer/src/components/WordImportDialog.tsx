@@ -75,7 +75,7 @@ export function WordImportDialog() {
           {t("wordImport.title")}
         </h2>
         <div className="flex min-w-0 items-center gap-3">
-          <DocumentLineIcon kind="docx" className="size-4 shrink-0 text-ink-meta" />
+          <DocumentLineIcon kind="docx" className="shrink-0 text-ink-meta" />
           <p
             data-testid="word-import-file"
             title={path ?? ""}

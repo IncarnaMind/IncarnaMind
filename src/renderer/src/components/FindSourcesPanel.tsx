@@ -99,7 +99,7 @@ export function FindSourcesPanel() {
           onClick={close}
           className={iconButtonClass}
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </div>
       <p className="mt-0.5 text-ui leading-5 text-ink-meta">{t("sources.intro")}</p>

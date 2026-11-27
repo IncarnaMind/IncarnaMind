@@ -128,7 +128,7 @@ export function FigureScheduleRowView({
       }}
     >
       <span className="flex-1">{label}</span>
-      {checked && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
+      {checked && <CheckLineIcon className="shrink-0 text-ink-meta" />}
       {keys && <span className="text-ink-meta">{keys}</span>}
     </button>
   );
@@ -292,7 +292,7 @@ export function FigureScheduleRowView({
                   useSelection.getState().choose("figures", lineRef(mindId, line));
               }}
             >
-              <MoreLineIcon className="size-4" />
+              <MoreLineIcon />
             </button>
             <div
               {...menu.menuProps}

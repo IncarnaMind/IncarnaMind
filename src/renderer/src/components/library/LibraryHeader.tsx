@@ -105,7 +105,7 @@ export function LibraryHeader({
         title={t("library.search.hint")}
         className="mt-3 flex h-10 min-w-0 cursor-text items-center gap-2.5 rounded-md border border-rule-strong bg-sheet px-3 focus-within:border-accent"
       >
-        <SearchIcon className="size-4 shrink-0 text-ink-meta" />
+        <SearchIcon className="shrink-0 text-ink-meta" />
         <input
           ref={field}
           data-testid="library-search"
@@ -145,7 +145,7 @@ export function LibraryHeader({
             }}
             className="-mr-1 inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-ink-meta hover:bg-hover hover:text-ink"
           >
-            <CloseLineIcon className="size-3.5" />
+            <CloseLineIcon />
           </button>
         )}
       </label>

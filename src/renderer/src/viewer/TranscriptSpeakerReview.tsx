@@ -187,7 +187,7 @@ export function TranscriptSpeakerReview({
               type="button"
               onClick={close}
             >
-              <CloseLineIcon className="size-4" />
+              <CloseLineIcon />
             </button>
           </div>
           {phase.kind === "quoting" && (

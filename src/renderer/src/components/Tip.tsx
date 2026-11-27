@@ -20,7 +20,7 @@ export function Tip({
       data-tip={id}
       className="flex min-h-6 items-center gap-1.5 text-small leading-4 text-ink-meta"
     >
-      <InfoLineIcon aria-hidden="true" className="size-3.5 shrink-0" />
+      <InfoLineIcon aria-hidden="true" className="shrink-0" />
       <span className="min-w-0 flex-1 break-words">{children}</span>
       <button
         type="button"
@@ -30,7 +30,7 @@ export function Tip({
         onClick={onClose}
         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-hover hover:text-ink"
       >
-        <CloseLineIcon aria-hidden="true" className="size-3" />
+        <CloseLineIcon aria-hidden="true" />
       </button>
     </p>
   );

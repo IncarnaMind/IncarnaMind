@@ -96,10 +96,7 @@ export function AnotherApp({
                 <span className="min-w-0 flex-1 truncate" title={name}>
                   {name}
                 </span>
-                <ChevronRightLineIcon
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-ink-meta"
-                />
+                <ChevronRightLineIcon aria-hidden="true" className="shrink-0 text-ink-meta" />
               </button>
             </li>
           );

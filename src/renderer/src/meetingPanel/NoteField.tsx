@@ -246,7 +246,7 @@ export function NoteField({
           onClick={send}
           className="composer-ask ask-field-send"
         >
-          <AskArrowIcon className="size-3" />
+          <AskArrowIcon />
         </button>
         <span role="status" className="sr-only">
           {said}

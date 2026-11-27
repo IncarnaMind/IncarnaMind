@@ -305,7 +305,7 @@ function Tab({ tab, groupId, selected, divider, dragged }: TabProps) {
             }}
             className="tab-close"
           >
-            <PinLineIcon className="size-[13px] [stroke-width:1.75]" />
+            <PinLineIcon />
           </button>
         ) : (
           <button

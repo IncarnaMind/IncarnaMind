@@ -514,7 +514,7 @@ export function SelectionMenuBody({
             }}
             className="editor-menu-item"
           >
-            <NoteLineIcon className="size-4 shrink-0 text-ink-secondary" />
+            <NoteLineIcon className="shrink-0 text-ink-secondary" />
             <span className="flex-1 truncate">{t("annotations.highlight")}</span>
             <span className="annotation-swatches">
               {ANNOTATION_COLOURS.map((each) => (
@@ -546,7 +546,7 @@ export function SelectionMenuBody({
             onClick={() => annotations.note()}
             className="editor-menu-item"
           >
-            <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
+            <PlusLineIcon className="shrink-0 text-ink-secondary" />
             <span className="flex-1 truncate">{t("annotations.addNote")}</span>
             <kbd className="editor-menu-shortcut">{shortcutLabel("comment.add")}</kbd>
           </button>
@@ -562,7 +562,7 @@ export function SelectionMenuBody({
           onClick={actions.ask}
           className="editor-menu-item"
         >
-          <ChatLineIcon className="size-4 shrink-0 text-ink-secondary" />
+          <ChatLineIcon className="shrink-0 text-ink-secondary" />
           <span className="flex-1 truncate">{t("viewer.selection.ask")}</span>
           <kbd className="editor-menu-shortcut">{shortcutLabel("composer.focus")}</kbd>
         </button>
@@ -577,7 +577,7 @@ export function SelectionMenuBody({
         onClick={actions.addToNote}
         className="editor-menu-item"
       >
-        <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
+        <PlusLineIcon className="shrink-0 text-ink-secondary" />
         <span className="flex-1 truncate">{t("viewer.selection.addToNote")}</span>
       </button>
       <button
@@ -588,7 +588,7 @@ export function SelectionMenuBody({
         onClick={actions.copy}
         className="editor-menu-item"
       >
-        <CopyLineIcon className="size-4 shrink-0 text-ink-secondary" />
+        <CopyLineIcon className="shrink-0 text-ink-secondary" />
         <span className="flex-1 truncate">{t("viewer.selection.copy")}</span>
       </button>
     </div>
@@ -614,7 +614,7 @@ function UseAsCitationItem({
       onClick={onClick}
       className="editor-menu-item"
     >
-      <LinkLineIcon className="size-4 shrink-0 text-ink-secondary" />
+      <LinkLineIcon className="shrink-0 text-ink-secondary" />
       <span className="flex-1 truncate">{t("claim.useAsCitation")}</span>
       <kbd className="editor-menu-shortcut">{keysHere("Enter")}</kbd>
     </button>

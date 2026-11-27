@@ -115,7 +115,7 @@ export function NoteAskInput({
                 onClick={onWholeNote}
                 className="scope-chip-remove"
               >
-                <RemoveIcon className="size-2.5" />
+                <RemoveIcon />
               </button>
             </span>
           </div>
@@ -163,7 +163,7 @@ export function NoteAskInput({
             onClick={onStop}
             className="note-ask-round"
           >
-            <StopIcon className="size-3" />
+            <StopIcon />
           </button>
         ) : (
           <button
@@ -176,7 +176,7 @@ export function NoteAskInput({
             onClick={onSend}
             className="note-ask-round"
           >
-            <AskArrowIcon className="size-3" />
+            <AskArrowIcon />
           </button>
         )}
       </div>

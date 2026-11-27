@@ -299,7 +299,7 @@ export function CompareSheet({
                     })}
                     onClick={() => setQuestions(questions.filter((_, at) => at !== index))}
                   >
-                    <RemoveIcon className="size-3" />
+                    <RemoveIcon />
                   </button>
                 )}
               </li>
@@ -312,7 +312,7 @@ export function CompareSheet({
               className="compare-sheet-add"
               onClick={() => addQuestion()}
             >
-              <PlusLineIcon className="size-3.5" />
+              <PlusLineIcon />
               {t("comparison.addQuestion")}
             </button>
           )}
@@ -451,7 +451,7 @@ export function CompareSheet({
           {estimated?.line && <SheetEstimate line={estimated.line} hidden={blocked} />}
           <div className="compare-sheet-foot">
             <span className="compare-sheet-chip">
-              <TableIcon className="size-3.5" />
+              <TableIcon />
               {t("comparison.sheet.region")}
               <button
                 type="button"
@@ -460,7 +460,7 @@ export function CompareSheet({
                 title={t("comparison.sheet.close")}
                 onClick={close}
               >
-                <RemoveIcon className="size-3" />
+                <RemoveIcon />
               </button>
             </span>
             <ModelChip doc={doc} onChosen={() => region.current?.focus()} />
@@ -501,7 +501,7 @@ function SourceMenu({ label, onChoose }: { label: string; onChoose(source: Sheet
         title={t("comparison.sheet.chooseFolder")}
       >
         <span className="truncate">{label}</span>
-        <ChevronDownLineIcon className="size-3 shrink-0" />
+        <ChevronDownLineIcon className="shrink-0" />
       </button>
       <div
         {...menu.menuProps}

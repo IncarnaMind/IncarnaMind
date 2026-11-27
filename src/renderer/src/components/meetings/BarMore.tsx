@@ -51,7 +51,7 @@ export function BarMore({ meeting }: { meeting: Meeting }) {
         title={t("meetings.bar.more")}
         className="meeting-button meeting-button--icon meeting-more"
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

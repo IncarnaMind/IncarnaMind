@@ -334,9 +334,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
           t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
         ) : (
           <>
-            {meeting.kind === "meeting" && (
-              <CheckLineIcon className="mr-1 inline size-3.5 align-[-2px]" />
-            )}
+            {meeting.kind === "meeting" && <CheckLineIcon className="mr-1 inline align-[-2px]" />}
             {t(words.filled)}
           </>
         )}

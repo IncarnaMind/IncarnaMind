@@ -345,7 +345,7 @@ export function AccountsSection({
           onClick={onAdd}
           className={buttonStyle("secondary", "sm")}
         >
-          <PlusLineIcon className="size-3.5" />
+          <PlusLineIcon />
           {t("ai.accounts.add")}
         </button>
       </div>
@@ -440,7 +440,7 @@ function ProviderRow({
       trailing={
         <span className="flex shrink-0 items-center gap-2">
           {state && <AccountState state={state} />}
-          <ChevronRightLineIcon className="size-4 shrink-0 text-ink-placeholder" />
+          <ChevronRightLineIcon className="shrink-0 text-ink-placeholder" />
         </span>
       }
       onClick={onOpen}
@@ -531,7 +531,7 @@ function TranscriptionKeyRow({
       id={service.route}
       name={name}
       logo={null}
-      fallback={<MicLineIcon className="size-[18px]" />}
+      fallback={<MicLineIcon />}
       status={status}
       state={
         paused ??

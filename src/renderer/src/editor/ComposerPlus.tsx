@@ -112,7 +112,7 @@ export function ComposerPlus({
         title={t("composer.plus")}
         className="composer-plus"
       >
-        <PlusLineIcon className="size-3.5" />
+        <PlusLineIcon />
       </button>
       <div
         {...menu.menuProps}

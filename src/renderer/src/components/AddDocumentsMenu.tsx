@@ -46,9 +46,9 @@ export function AddDocumentsMenu({ secondary = false }: { secondary?: boolean })
         data-testid="library-add-documents"
         className={`${buttonStyle(secondary ? "secondary" : "primary")} pr-2.5 pl-2.5`}
       >
-        <PlusLineIcon className="size-4" />
+        <PlusLineIcon />
         {t("documents.add")}
-        <ChevronDownLineIcon className="size-3.5 opacity-80" />
+        <ChevronDownLineIcon className="opacity-80" />
       </button>
       <div
         {...menu.menuProps}

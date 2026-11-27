@@ -264,7 +264,7 @@ export function LibraryFolders({
               }
               className={rowActionButtonClass}
             >
-              <PlusLineIcon className="size-4" />
+              <PlusLineIcon />
             </button>
           }
         >
@@ -599,7 +599,7 @@ function FolderGroup({
                 title={t("folder.wall.title")}
                 className="flex shrink-0"
               >
-                <LockLineIcon className="size-3.5 text-ink-meta" />
+                <LockLineIcon className="text-ink-meta" />
               </span>
             )}
             {status ? (
@@ -828,7 +828,7 @@ function NotInAFolder({
                   style={{ marginLeft: rowPadding(0).paddingLeft + 24 }}
                   className="flex min-w-0 items-center gap-2 rounded-sm text-small leading-4 text-ink-meta hover:text-ink hover:underline"
                 >
-                  <PlusLineIcon className="size-3.5 shrink-0" />
+                  <PlusLineIcon className="shrink-0" />
                   <span className="truncate">{t("menu.newFolder")}</span>
                 </button>
               </li>

@@ -101,7 +101,7 @@ export const noteSlashItems: readonly SlashItem[] = [
     label: "editor.slash.picture",
     // "tupian" is 图片 in pinyin; "image" and "photo" are what it is called elsewhere.
     keywords: ["image", "photo", "picture", "screenshot", "tupian"],
-    icon: <ImageLineIcon className="size-3.5" />,
+    icon: <ImageLineIcon />,
     run(editor, range) {
       editor.chain().focus().deleteRange(range).run();
       editor.commands.choosePicture();
@@ -128,7 +128,7 @@ export const noteSlashItems: readonly SlashItem[] = [
     id: "table",
     label: "editor.slash.table",
     keywords: ["grid", "columns", "rows"],
-    icon: <TableIcon className="size-3.5" />,
+    icon: <TableIcon />,
     run(editor, range) {
       const pos = insertBlock(editor, range, emptyTable());
       // Into its first cell, to start typing the first heading.
@@ -221,7 +221,7 @@ export function compareSlashItem(onCompare: (afterBlockId: string | null) => voi
     id: "compare",
     label: "command.compareDocuments",
     keywords: ["comparison", "table", "documents"],
-    icon: <TableIcon className="size-3.5" />,
+    icon: <TableIcon />,
     run(editor, range) {
       editor.chain().focus().deleteRange(range).run();
       const { $from } = editor.state.selection;
@@ -284,7 +284,7 @@ export function skillSlashItems(
       label: { text: titleOf(skill) },
       hint: describe(skill),
       keywords: ["skill"],
-      icon: <SkillIcon className="size-3.5" />,
+      icon: <SkillIcon />,
       run(editor, range) {
         const inQuestion = editor.state.selection.$from.parent.type.name === QUESTION_BLOCK;
         if (!inQuestion) {

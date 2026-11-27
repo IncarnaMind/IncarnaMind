@@ -30,7 +30,7 @@ export function SidebarHeader({ toggle, children }: { toggle?: ReactNode; childr
 export function PlusMenuPlaceholder() {
   return (
     <span aria-hidden="true" className={`${iconButtonClass} text-ink-secondary`}>
-      <PlusLineIcon className="size-4" />
+      <PlusLineIcon />
     </span>
   );
 }

@@ -670,7 +670,7 @@ export function CommentsButton({
         title={t("comments.fold", { count: comments.length })}
         onClick={() => showList(open ? null : mindId)}
       >
-        <CommentLineIcon className="size-4 flex-none" aria-hidden="true" />
+        <CommentLineIcon className="flex-none" aria-hidden="true" />
         <span className="tabular-nums">{comments.length}</span>
       </button>
       {open && button.current && (

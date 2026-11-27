@@ -426,7 +426,7 @@ export function PictureViewer() {
               onClick={finish}
               className={iconButtonClass}
             >
-              <CloseLineIcon className="size-4" />
+              <CloseLineIcon />
             </button>
           </div>
           <div

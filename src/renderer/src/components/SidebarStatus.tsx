@@ -288,7 +288,7 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
           onClick={dismiss}
           className={rowActionButtonClass}
         >
-          <CloseLineIcon className="size-3.5" />
+          <CloseLineIcon />
         </button>
       )}
     </div>

@@ -71,7 +71,7 @@ export function ConversationMenu({
         className="note-conversation-name"
       >
         <span className="truncate">{t("noteColumn.title")}</span>
-        <ChevronDownLineIcon className="size-3 shrink-0" aria-hidden="true" />
+        <ChevronDownLineIcon className="shrink-0" aria-hidden="true" />
       </button>
       <div
         {...menu.menuProps}

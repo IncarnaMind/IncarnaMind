@@ -80,7 +80,7 @@ export function DocumentTagChips({
             : "viewer-icon-button"
         }
       >
-        {peek ? t("peek.addTags") : <TagLineIcon className="size-4" />}
+        {peek ? t("peek.addTags") : <TagLineIcon />}
       </button>
       <div
         {...popover.popoverProps}
