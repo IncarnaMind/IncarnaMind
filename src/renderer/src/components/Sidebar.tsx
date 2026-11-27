@@ -1,19 +1,19 @@
-import type { ClipboardEvent, ReactNode } from "react";
+import type { ClipboardEvent } from "react";
 import { useFirstOpen } from "../firstOpen";
 import { useT } from "../i18n";
 import { usePruneSelection } from "../selection";
 import { linksIn, useWebPages } from "../webPages";
 import { CopiedLine } from "./CopiedLine";
 import { DocumentsSection } from "./DocumentsSection";
-import { AppMark, PlusLineIcon, SettingsLineIcon } from "./lineIcons";
+import { SettingsLineIcon } from "./lineIcons";
 import { NewMenu } from "./NewMenu";
 import { NudgeSlot } from "./NudgeSlot";
+import { SidebarHeader } from "./SidebarHeader";
 import { SidebarSelection } from "./SidebarSelection";
 import { SidebarStatus } from "./SidebarStatus";
 import { SidebarToggle } from "./SidebarToggle";
 import { rowButtonClass, rowClass, rowIconClass } from "./sidebarRows";
 import { UndoLine } from "./UndoLine";
-import { iconButtonClass } from "./ui";
 
 /**
  * The sidebar, on the frame: a 44px header like every pane's (the window's
@@ -39,7 +39,7 @@ export function Sidebar({ width, onOpenSettings }: { width: number; onOpenSettin
       style={{ flexBasis: width }}
       onPaste={pasteLinks}
     >
-      <SidebarHeader>
+      <SidebarHeader toggle={<SidebarToggle place="header" />}>
         <NewMenu />
       </SidebarHeader>
 
@@ -70,39 +70,6 @@ export function Sidebar({ width, onOpenSettings }: { width: number; onOpenSettin
         </div>
       </footer>
     </aside>
-  );
-}
-
-/**
- * The sidebar's 44px header, the start of the window's title bar: macOS's
- * traffic lights sit here, in place of the app's mark (styles.css, "The title
- * bar"). The "+" menu sits at its right end. The startup shell draws it too.
- */
-export function SidebarHeader({ children }: { children?: ReactNode }) {
-  return (
-    <header
-      data-testid="sidebar-header"
-      // Its rule is inset 8px each side, like the rows: it never meets the sidebar's edge. The
-      // 8px on top put its buttons on the card's band, y 8 to 44, so every header shares a line.
-      className="title-bar sidebar-header relative flex h-11 shrink-0 items-center pt-2 pr-2 after:absolute after:inset-x-2 after:bottom-0 after:h-px after:bg-rule after:content-['']"
-    >
-      <AppMark />
-      <SidebarToggle place="header" />
-      <span className="flex-1" />
-      {children}
-    </header>
-  );
-}
-
-/**
- * The "+" at the header's right end, drawn alone while the app loads (nothing
- * in the startup shell can be used yet).
- */
-export function PlusMenuPlaceholder() {
-  return (
-    <span aria-hidden="true" className={`${iconButtonClass} text-ink-secondary`}>
-      <PlusLineIcon className="size-4" />
-    </span>
   );
 }
 

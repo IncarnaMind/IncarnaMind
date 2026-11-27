@@ -18,6 +18,7 @@ import {
   frontMind,
   launchApp,
   motionSettled,
+  noteCheck,
   openDocumentMenu,
   pointAndClick,
   removeDataFolder,
@@ -35,7 +36,7 @@ test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION
  * Note marks where each slide starts; the card asks Claude Code to fix everything its check flagged
  * in one request, and a claim's card asks it first and offers no fix of words that aren't the file;
  * a conclusion shows its check's mark; a workbook's differing formula is named by its row and
- * column, counted alike on the badge and in the card, and a flagged row's card says the whole row;
+ * column, counted alike on the Note's Check button and in the card, and a flagged row's card says the whole row;
  * the file's row in the sidebar says what it is and offers to cite it, not to cite it "again". The
  * scripted model (src/main/fakeChat/) finds a claim contradicted when it shares three words with a
  * Document's line and has a number the line doesn't. The app opens nothing: each link it would
@@ -241,13 +242,9 @@ for (const language of ["en", "zh-CN"] as const) {
       const bookCard = await checkCard(window);
       await expect(bookCard.getByTestId("verify-formula-differs")).toContainText(words.differs);
       await expect(bookCard.getByTestId("verify-done")).toContainText(words.needLook);
-      const badge = window.getByTestId("check-badge");
-      const counted = await badge
-        .locator(".check-badge-mark")
-        .evaluateAll((parts) =>
-          parts.reduce((sum, part) => sum + (Number(part.textContent?.replace(/\D/g, "")) || 0), 0),
-        );
-      expect(counted).toBe(2);
+      const button = noteCheck(window);
+      await expect(button).toHaveAttribute("data-state", "look");
+      await expect(button.locator(".note-check-words")).toHaveText(words.needLook);
       await shot(window, `handed-card-workbook-${language}`);
       await window.keyboard.press("Escape");
 

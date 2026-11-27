@@ -19,7 +19,6 @@ import {
   tableShownIn,
 } from "../../../shared/analysisTables";
 import { readTableBinding, sameBinding } from "../../../shared/figureRuns";
-import { registerMenu } from "../commands/menus";
 import type { CommandContext } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useLanguage, useT } from "../i18n";
@@ -31,9 +30,6 @@ import { Popover } from "./Popover";
 import { useCitationPeek } from "./peek";
 import { focusQuietly, isQuietFocus } from "./quietFocus";
 import "./calculatedFigure.css";
-
-// The marker's own menu, as a figure's marker has one: its card first, then Convert to text.
-registerMenu("check", ["table.openCalculation", "table.convertToText"]);
 
 /** The table a caption's marker names, above or below it: the Block holding the same binding. */
 function boundTable(doc: ProseMirrorNode, binding: AnalysisTableBinding) {

@@ -8,19 +8,20 @@ import {
   askInAssistant,
   checkAssistantWrites,
   checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   newMind,
-  pointAndClick,
+  noteCheck,
   removeDataFolder,
   setLanguage,
   setWindowSize,
 } from "./app";
 
 /*
- * The one count of sentences to check (#1909): the corner badge, its card and
+ * The one count of sentences to check (#1909, #3794): the Note's Check button, its card and
  * the line under the Answer count every claim a check reads, a table's cells
  * among them. What the assistant writes is checked whole after its reply
  * (#2830), every one of the 22 cells, past the twelve a write once checked, so
@@ -52,10 +53,8 @@ const WORDS = {
   en: {
     request: "Add a revenue table for checking",
     line: "Checked 22 sentences",
-    badgeWords: "1 sentence not checked yet",
-    badgeName: "1 sentence not checked yet",
-    afterBadgeWords: "1 needs a look",
-    afterBadgeName: "1 needs a look",
+    buttonTitle: "1 sentence not checked yet",
+    afterWords: "1 needs a look",
     toCheck: "1 not checked yet",
     supported: "22 supported",
     supportedAfter: "22 supported",
@@ -65,10 +64,8 @@ const WORDS = {
   "zh-CN": {
     request: "添加核对用的收入表格",
     line: "已核对 22 句",
-    badgeWords: "1 句未核对",
-    badgeName: "1 句未核对",
-    afterBadgeWords: "需要留意 1 处",
-    afterBadgeName: "需要留意 1 处",
+    buttonTitle: "1 句未核对",
+    afterWords: "需要留意 1 处",
     toCheck: "1 句未核对",
     supported: "22 句有依据",
     supportedAfter: "22 句有依据",
@@ -107,7 +104,7 @@ async function useCloudChatModel(window: Page) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a write's 22 sentences are all checked after its reply, the badge and its card count what is left, and Check closes it (${language})`, async () => {
+  test(`a write's 22 sentences are all checked after its reply, the Check button and its card count what is left, and Check closes it (${language})`, async () => {
     test.setTimeout(240_000);
     const words = WORDS[language];
     await writeFile(join(sources, "Annual report.md"), REPORT);
@@ -131,11 +128,11 @@ for (const language of ["en", "zh-CN"] as const) {
     const line = answer.getByTestId("self-check-checked");
     await expect(line).toHaveText(words.line, { timeout: 120_000 });
     await expect(answer.getByTestId("self-check-left")).toHaveCount(0);
-    const badge = window.getByTestId("check-badge");
-    await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-      new RegExp(words.badgeName),
-    );
-    await expect(badge.locator(".check-badge-words")).toHaveText(words.badgeWords);
+    // The Note's old sentence is the one left: the button waits to check it, its title saying so.
+    const button = noteCheck(window);
+    await expect(button).toHaveAttribute("data-state", "check");
+    await expect(button.locator(".note-check-count")).toHaveText("1");
+    await expect(button).toHaveAttribute("title", new RegExp(`^${words.buttonTitle}(?: · |$)`));
     await screenshot(window, `check-counts-line-${language}`);
 
     // Its card counts each sentence once (#2831): the 22 the write checked supported, none of its
@@ -159,9 +156,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card).toBeVisible();
 
     // The one Check checks the Note's own old text from its one press (#2313); the count closes.
-    await pointAndClick(window, card.getByTestId("badge-check-mind"));
+    await checkNote(window);
     await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
+    await expect(button).toHaveAttribute("data-state", "look", { timeout: 120_000 });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
     await expect(line).toHaveText(words.line);
     await window.keyboard.press("Escape");
     const done = await checkCard(window);
@@ -172,10 +170,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(done.getByTestId("health-look")).toContainText(words.look);
     await expect(done.getByTestId("health-supported")).toContainText(words.supportedAfter);
     await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
-    await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-      new RegExp(words.afterBadgeName),
-    );
-    await expect(badge.locator(".check-badge-words")).toHaveText(words.afterBadgeWords);
+    await expect(button).toHaveAttribute("title", new RegExp(`^${words.afterWords}(?: · |$)`));
+    await expect(button.locator(".note-check-words")).toHaveText(words.afterWords);
     await screenshot(window, `check-counts-done-${language}`);
     await window.keyboard.press("Escape");
     await expect(done).toHaveCount(0);
@@ -186,10 +182,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await clean.click();
     await window.keyboard.type("Revenue in Q1 was €1 million.");
     await expect(clean).toContainText("Revenue in Q1");
-    const cleanCard = await checkCard(window);
-    await pointAndClick(window, cleanCard.getByTestId("badge-check-mind"));
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
-    await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
+    await checkNote(window);
+    await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
+      timeout: 120_000,
+    });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 120_000 });
     const allDone = await checkCard(window);
     await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(allDone.getByTestId("health-look")).toHaveCount(0);

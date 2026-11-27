@@ -67,6 +67,26 @@ export function myCommentsPart(count: number, shown: boolean, t: Translate): str
     : t("export.myComments.leftOut.other", { count });
 }
 
+/**
+ * The Saved line's part on comments already in the original Word file (#3821): how many the
+ * exported Word file keeps; null when there are none.
+ */
+export function fileCommentsPart(count: number, t: Translate): string | null {
+  if (count === 0) return null;
+  return count === 1 ? t("export.fileComments.one") : t("export.fileComments.other", { count });
+}
+
+/**
+ * The Export dialog's Word-options disclosure for comments already in the original Word file
+ * (#3821); null when there are none.
+ */
+export function fileCommentsHint(count: number, t: Translate): string | null {
+  if (count === 0) return null;
+  return count === 1
+    ? t("export.fileComments.hint.one")
+    : t("export.fileComments.hint.other", { count });
+}
+
 /** `changed`: the file written beside, which had changed after it was saved (#110). */
 export function rewrittenLine(
   t: Translate,

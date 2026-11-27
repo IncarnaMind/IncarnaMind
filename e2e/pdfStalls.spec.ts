@@ -54,6 +54,7 @@ async function stallDocumentFiles(app: ElectronApplication, window: Page): Promi
   });
   // A page keeps the scheme's handler it loaded with: the stall reaches the page from its next load.
   await window.reload();
+  await window.getByTestId("plus-menu").waitFor();
 }
 
 /** pdf.js's worker starts and never answers. */

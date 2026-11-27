@@ -8,6 +8,7 @@ import type {
   EmbeddingSettings,
   ExampleGroup,
   Examples,
+  FirstRunStep,
   Folder,
   FolderMove,
   GettingStarted,
@@ -274,7 +275,16 @@ export interface AppState extends LayoutSlice {
    * with the order its kinds of work are shown in and whether this install sent its picks; or its
    * model steps again, from Settings › AI or ⌘K, in a dialog over the app. Null when neither shows.
    */
-  setup: { from: "work"; workOrder: WorkKind[]; picksSent: boolean } | { from: "ai" } | null;
+  setup:
+    | {
+        from: "work";
+        workOrder: WorkKind[];
+        picksSent: boolean;
+        step: FirstRunStep;
+        work: WorkKind[];
+      }
+    | { from: "ai" }
+    | null;
 
   load(): Promise<void>;
   /** Shows the setup's model steps again, in a dialog over the app (#3296). */
@@ -1285,9 +1295,11 @@ export const useAppStore = create<AppState>()((set, get) => {
           console.error("Couldn't read what the link that started IncarnaMind names.", error);
           return null;
         });
-        // Before the tabs are drawn, so the Mind left in front isn't drawn only to be covered.
+        // Before the tabs are drawn: a link opens in front, and an empty layout opens Home,
+        // while an open Note the User quit in stays in front (#3819).
+        const hasOpenTabs = get().layout?.groups.some((group) => group.tabs.length > 0) ?? false;
         if (linked) showOpened({ item: linked, front: true });
-        else if (!setup.show && launchedBefore && !reloaded) {
+        else if (!setup.show && launchedBefore && !reloaded && !hasOpenTabs) {
           await get().openHome({ first: true });
         }
         const read = {
@@ -1313,7 +1325,13 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...examplesBy(everyExample, settings.device.work),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           setup: setup.show
-            ? { from: "work", workOrder: setup.workOrder, picksSent: setup.picksSent }
+            ? {
+                from: "work",
+                workOrder: setup.workOrder,
+                picksSent: setup.picksSent,
+                step: setup.step,
+                work: setup.work,
+              }
             : null,
           status: { kind: "ready" },
         });

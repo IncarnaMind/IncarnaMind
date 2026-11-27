@@ -103,7 +103,7 @@ import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { createDecisionChoice } from "./answers/checks/decisionChoice";
-import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
+import { containsTable } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { checkedSentences } from "./answers/checks/sentences";
 import { judgedNow, readingOf } from "./answers/checks/standing";
@@ -309,7 +309,7 @@ import { createExportLedger, ownFileOf } from "./exports/ledger";
 import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
-import { figureSchedule, noteFooting } from "./figureSchedule";
+import { figureSchedule, readTableSnapshot } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFirstRun } from "./firstRun";
@@ -1992,11 +1992,16 @@ export function createCore(adapters: CoreAdapters): Core {
   const unscopedDocuments = (mindId: string | null, focusOnly = false): string[] | null => {
     const made = examples.made();
     const exampleNote = mindId !== null && made.mindIds.includes(mindId);
-    if (made.documentIds.length === 0 || (exampleNote && !focusOnly)) return null;
+    if (made.documentIds.length === 0) return null;
     const left = new Set(made.documentIds);
     // The examples are the User's Library until a Document of their own exists (#1942), a
     // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
+    // An example Note searches the User's own Documents and its own example's Documents, never
+    // another example's (#3819), so lending that one example keeps Check within reach.
+    if (exampleNote && !focusOnly) {
+      return [...new Set([...own, ...(examples.documentsOf(mindId) ?? [])])];
+    }
     if (own.length === 0) return null;
     if (mindId === null || exampleNote) return own;
     // A Note the User wrote against an example is their own work, so what it cites stays in its
@@ -8004,19 +8009,21 @@ export function createCore(adapters: CoreAdapters): Core {
           if (error instanceof NotFoundError) continue;
           throw error;
         }
-        const now = {
-          versions,
-          folderId: mind.folderId,
-          scope: content.readSettings(mindId, mindScopeIn),
-        };
-        found.push({
+        const snapshot = await content.inspectStored(
           mindId,
-          state: content.storedState(mindId),
-          cellFigures: content.peek(mindId, tableCellFigurePlaces),
-          footing: content.peek(mindId, (blocks) =>
-            [...noteFooting(blocks, now)].map(([id, live]) => ({ id, ...live })),
-          ),
-        });
+          async ({ state, blocks, settings, yieldTurn }) => {
+            const now = {
+              versions,
+              folderId: mind.folderId,
+              scope: mindScopeIn(settings),
+            };
+            const { cellFigures, footing } = await readTableSnapshot(blocks, now, yieldTurn);
+            return { mindId, state, cellFigures, footing };
+          },
+          (blocks) =>
+            blocks.toArray().some((child) => child instanceof Y.XmlElement && containsTable(child)),
+        );
+        found.push(snapshot);
       }
       return found;
     },
@@ -8362,6 +8369,7 @@ export function createCore(adapters: CoreAdapters): Core {
     isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     firstRunSetup: async () => firstRun.status(),
+    saveFirstRunProgress: async (progress) => firstRun.saveProgress(progress),
     finishFirstRunSetup: (work) => firstRun.finish(work),
     sendWorkPicked: async (work) => firstRun.sendPicks(work),
     createExamples: async (group) => examples.create(group),

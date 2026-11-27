@@ -11,6 +11,7 @@ import {
   leaveFirstOpen,
   makeTagOnDocument,
   newMind,
+  noteCheck,
   openExample,
   openPageMenu,
   pointAndClick,
@@ -80,35 +81,38 @@ test("a first open shows Home with no assistant and a slim sidebar, and the exam
   await app.close();
 });
 
-test("the quiet first open keeps the example's marks to its margin, but a check the User asks for shows the badge and its card (#909)", async () => {
+// protects=#3794: the quiet first open keeps the example's text and marks alone, but not its Check, the app's centre: the labelled button is in the Note's row from the moment the example opens, and with no AI its one press says why; fails_when=the example opens with no Check until a first request, or its press with no AI does nothing
+test("the quiet first open keeps the example's marks to its margin, and its Check is in the Note's row from the start (#909, #3794)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
   await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
-  await expect(window.getByTestId("check-badge")).toHaveCount(0);
+  await expect(window.getByTestId("mind-count-button")).toHaveCount(0);
+  const button = noteCheck(window);
+  await expect(button).toHaveAttribute("data-state", "check");
+  await expect(button.locator(".note-check-words")).toHaveText("Check");
 
-  // No model yet: Check can't run, and says so where the User asked.
-  await window.keyboard.press("ControlOrMeta+k");
-  await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("check this note");
-  await window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first().click();
-  await expect(window.getByTestId("check-badge")).toBeVisible();
-  await expect(window.getByTestId("check-card")).toBeVisible();
+  // No model and no AI app yet: Check can't run, and says so from the button that was pressed.
+  await pointAndClick(window, button);
+  const card = window.getByTestId("check-card");
+  await expect(card).toBeVisible();
+  await expect(card.getByTestId("checks-problem")).toContainText("Checking needs your AI");
   await app.close();
 });
 
-// protects=the first open ends with the first file of the User's own, as it does with their first ask of any AI: the example's check comes out of its quiet margin; fails_when=the quiet first open goes on for good for a User who only adds files and asks their own AI
+// protects=the first open ends with the first file of the User's own, as it does with their first ask of any AI: the shell comes out of its quiet; fails_when=the quiet first open goes on for good for a User who only adds files and asks their own AI
 test("the first file of the User's own ends the quiet first open (#3791)", async () => {
   await writeFile(join(sources, "Harbour notes.md"), "# Harbour notes\n\nTide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true });
   await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
-  await expect(window.getByTestId("check-badge")).toHaveCount(0);
+  const library = window.getByTestId("sidebar").getByTestId("open-library");
+  await expect(library).toHaveCount(0);
   await window
     .getByTestId("add-documents-input")
     .setInputFiles([join(sources, "Harbour notes.md")]);
-  await expect(window.getByTestId("check-badge")).toBeVisible();
+  await expect(library).toBeVisible();
   await app.close();
 });
 

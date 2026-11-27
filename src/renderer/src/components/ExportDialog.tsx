@@ -23,7 +23,7 @@ import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
 import { shortcutLabel } from "../commands/keymap";
 import { core } from "../core";
 import { errorMessage } from "../errors";
-import { commentsHint } from "../exportChecks";
+import { commentsHint, fileCommentsHint } from "../exportChecks";
 import { EXPORT_OPTIONS_FORMATS, exportPreferences, FORMAT_LABELS } from "../exports";
 import { useT } from "../i18n";
 import { chooseOutputLocation, outputFolderLabel } from "../outputFiles";
@@ -91,6 +91,7 @@ function WordReviewRows({
   othersFile,
   myComments,
   myCommentsOptional,
+  fileComments,
   includeMine,
   onChange,
   onOthersChange,
@@ -104,6 +105,8 @@ function WordReviewRows({
   myComments: number;
   /** The file came from someone else: its export offers "Include my comments" (#328). */
   myCommentsOptional: boolean;
+  /** Comments and replies already in the original Word file, which Word exports keep (#3821). */
+  fileComments: number;
   /** This Note's own choice, if it was made here: another Note's choice doesn't show. */
   includeMine: boolean;
   onChange(next: WordExportPreferences): void;
@@ -112,6 +115,7 @@ function WordReviewRows({
 }) {
   const t = useT();
   const author = useAppStore((state) => state.settings?.author ?? "");
+  const fileCommentsNote = fileCommentsHint(fileComments, t);
   return (
     <>
       {fromWord && (
@@ -144,13 +148,27 @@ function WordReviewRows({
           testId="export-comment-failed-checks"
         />
       )}
-      {myCommentsOptional && myComments > 0 && (
+      {myCommentsOptional && myComments > 0 ? (
         <SwitchRow
           label={t("export.includeMyComments")}
+          hint={
+            fileCommentsNote ? (
+              <span data-testid="export-file-comments">{fileCommentsNote}</span>
+            ) : undefined
+          }
           checked={includeMine}
           onChange={onIncludeMine}
           testId="export-include-my-comments"
         />
+      ) : (
+        fileCommentsNote && (
+          <p
+            data-testid="export-file-comments"
+            className="py-2.5 text-[13px] leading-5 text-ink-meta"
+          >
+            {fileCommentsNote}
+          </p>
+        )
       )}
     </>
   );
@@ -451,6 +469,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     othersComments: boolean;
     myComments: number;
     myCommentsOptional: boolean;
+    fileComments: number;
     theirChanges: number;
     hiddenColumns: number;
   } | null>(null);
@@ -482,6 +501,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           othersComments: preview.othersComments,
           myComments: preview.myComments,
           myCommentsOptional: preview.myCommentsOptional,
+          fileComments: preview.fileComments,
           theirChanges: preview.theirChanges,
           hiddenColumns: preview.hiddenColumns,
         });
@@ -654,6 +674,7 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
             }
             myComments={counts?.myComments ?? 0}
             myCommentsOptional={counts?.myCommentsOptional ?? false}
+            fileComments={counts?.fileComments ?? 0}
             includeMine={
               draft.docx.myCommentsFile === mind.id && (draft.docx.includeMyComments ?? false)
             }

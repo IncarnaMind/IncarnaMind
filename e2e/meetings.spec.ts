@@ -955,8 +955,6 @@ test("killed mid-recording, IncarnaMind recovers the audio up to the last part a
   await writeFile(join(dataDir, "meetings", meetingId, "microphone-0000010000.wav.writing"), "");
 
   const { app, window } = await launchApp(dataDir);
-  await expect(window.getByTestId("home")).toBeVisible();
-  await window.getByTestId("mind-tab").click();
   const control = window.getByTestId("meeting-foot");
   await expect(control).toHaveAttribute("data-status", "paused");
   await expect(control.getByTestId("meeting-foot-resume-recording")).toBeVisible();

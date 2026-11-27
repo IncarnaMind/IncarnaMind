@@ -6,7 +6,6 @@ import { EXAMPLE_SETS } from "../src/core/exampleSets";
 import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
-  askFirstQuestion,
   createDataFolder,
   exampleRow,
   expectExampleInFront,
@@ -207,13 +206,13 @@ test("a fresh profile opens on the setup: two picks, sent once, lead to their ex
   }
 });
 
-// protects=Skip on every step reaches the credit paper with nothing set up, a setup quit halfway shows again, a finished one never does, and a skipped model is asked for at the first own Question as today; fails_when=a step sets something up when skipped, the example is made before the end, the setup shows again once ended, or the composer doesn't ask for a model; no_claim=the composer's setup card itself (modelSetup.spec.ts).
-test("Skip on every step: nothing set, the setup gone for good, and the first Question still asks for a model", async () => {
+// protects=Skip on every step reaches the credit paper with nothing set up, a setup quit halfway returns to the same step, a finished one never shows again, and ⌘J with no AI connected leads to Connect your AI rather than opening the model-setup panel (#3819); fails_when=a step sets something up when skipped, the example is made before the end, the setup loses its step or shows again once ended, or ⌘J opens model-setup; no_claim=the composer's setup card itself (modelSetup.spec.ts).
+test("Skip on every step: nothing set, the setup gone for good, and ⌘J leads to Connect your AI", async () => {
   test.setTimeout(120_000);
   let window = await launch();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   await atStep(window, "ai");
-  // Quit halfway: nothing was made, and the next launch opens on the setup again.
+  // Quit halfway: nothing was made, and the next launch returns to the Your AI step (#3819).
   expect(
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds(),
@@ -221,7 +220,7 @@ test("Skip on every step: nothing set, the setup gone for good, and the first Qu
   ).toEqual([]);
   await app?.close();
   window = await launch();
-  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  await atStep(window, "ai");
   await skipTheRest(window);
 
   await expectExampleInFront(window);
@@ -233,8 +232,12 @@ test("Skip on every step: nothing set, the setup gone for good, and the first Qu
   expect(user.chatModel).toBeNull();
   expect((await bridge(window).library()).settings.classifier).toEqual({ kind: "automatic" });
 
-  const card = await askFirstQuestion(window);
-  await expect(card.getByTestId("setup-key")).toBeVisible();
+  // ⌘J with no AI app connected focuses Connect your AI rather than opening the model-setup panel (#3819).
+  await window.getByTestId("mind-editor").click();
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect(window.getByTestId("note-ask-connect")).toBeFocused();
+  await expect(window.getByTestId("model-setup")).toHaveCount(0);
+  await expect(window.getByTestId("assistant")).toBeHidden();
 
   await app?.close();
   window = await launch();

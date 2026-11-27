@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import {
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -13,7 +14,7 @@ import {
 } from "./app";
 
 /*
- * Next in the check card, with the card open down from the badge at the Note's top right (#3677):
+ * Next in the check card, with the card open down from the Note's Check button at its top right (#3677):
  * a sentence further down lands in the room under the card; one in the Note's first lines, which
  * no scroll can clear, has the card make way, and the walk goes on from it, never over again.
  */
@@ -80,13 +81,13 @@ for (const [language, width] of [
         })),
       );
     }, LINE[language]);
-    const badge = window.getByTestId("check-badge-open");
     const card = window.getByTestId("check-card");
     const next = card.getByTestId("health-toCheck");
 
     // The first sentence is in the Note's first lines, under the card: the card makes way, and the
-    // keyboard is at that sentence.
-    await pointAndClick(window, badge);
+    // keyboard is at that sentence. Every sentence waits, so the Note's button would check: the
+    // card opens from ⌘K, as it does whenever the button checks.
+    await checkCard(window);
     await pointAndClick(window, next);
     await expect(card).toHaveCount(0);
     expect(await caretParagraph(window)).toBe(0);
@@ -95,7 +96,7 @@ for (const [language, width] of [
     // Opened again, Next goes on to the following sentence, never back to the first.
     let at = 0;
     for (let press = 0; press < 6; press++) {
-      if ((await card.count()) === 0) await pointAndClick(window, badge);
+      await checkCard(window);
       await pointAndClick(window, next);
       const now = await caretParagraph(window);
       expect(now, "the walk goes on").toBe(at + 1);

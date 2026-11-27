@@ -5,6 +5,8 @@ import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -181,8 +183,7 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
 
   await window.getByTestId("mind-editor").click();
   await window.keyboard.type("The northern estuary stations showed stable salinity readings.");
-  await window.getByTestId("check-badge-open").click();
-  await window.getByTestId("badge-check-mind").click();
+  await checkNote(window);
   const checksProblem = window.getByTestId("checks-problem");
   await expect(checksProblem).toContainText("Checking needs your AI");
   await expect(checksProblem.getByTestId("checks-install-claude-code")).toHaveText(
@@ -203,9 +204,10 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
   await setLanguage(window, "en");
   await setWindowSize(app, window, 1440, 900);
 
-  // The Checks card hangs from the strip over the Note (#3765): its control closes it, as a person
-  // closes it to reach what lies under it.
-  await window.getByTestId("check-badge-open").click();
+  // The Checks card hangs from the strip over the Note (#3765): Escape closes it, as a person
+  // closes it to reach what lies under it. The Check, which stays the Check while nothing can
+  // check, would check again (#3794).
+  await window.keyboard.press("Escape");
   await expect(window.getByTestId("check-card")).toHaveCount(0);
   // Pressing Install Claude Code on the one-line readiness bar opens Settings › AI beside the
   // disclosure rather than downloading without showing it first.
@@ -218,9 +220,9 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
   // Pressing Install Claude Code from the Checks card (beside its disclosure) opens Settings › AI
   // and starts installing in one press. The card still says what checking needs, and offers no
   // Check under it while nothing can check (#3756).
-  await window.getByTestId("check-badge-open").click();
+  const card = await checkCard(window);
   await expect(checksProblem).toContainText("Checking needs your AI");
-  await expect(window.getByTestId("badge-check-mind")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Check", exact: true })).toHaveCount(0);
   await checksProblem.getByTestId("checks-install-claude-code").click();
   await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   const progress = window.getByTestId("claude-code-install-progress");

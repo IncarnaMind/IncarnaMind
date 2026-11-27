@@ -59,8 +59,8 @@ const estimate: RunEstimate = {
   calls: 2,
   tokens: 1000,
   cost: { amount: 0.01, currency: "USD" },
-  cap: { amount: 5, currency: "USD" },
-  spentTowardCap: { amount: 1, currency: "USD" },
+  cap: null,
+  spentTowardCap: null,
   setAsideTowardCap: null,
 };
 const languages = [
@@ -160,13 +160,13 @@ describe.each(languages)("Check after editing checked words ($language)", (row) 
       inFolder: false,
       model: null,
     });
-    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-    await startCheck("mind");
+    const { startCheckAsking, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheckAsking("mind");
     const { setCheckProblem } = await import("../../src/renderer/src/checks");
     expect(vi.mocked(setCheckProblem).mock.calls).toEqual([]);
     expect(bridge.checkMind).toHaveBeenCalledWith(expect.objectContaining({ mode: "changed" }));
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
-    expect(bridge.estimateRun).not.toHaveBeenCalled();
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
     expect(bridge.planMindCheck).toHaveBeenCalledWith("mind", "changed", false);
   });
 
@@ -183,8 +183,8 @@ describe.each(languages)("Check after editing checked words ($language)", (row) 
         inFolder: false,
         model: null,
       });
-      const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-      await startCheck("mind");
+      const { startCheckAsking, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+      await startCheckAsking("mind");
       expect(bridge.checkMind).toHaveBeenCalledOnce();
       expect(useMindCheck.getState().asking.mind).toBeUndefined();
     },
@@ -202,8 +202,8 @@ describe.each(languages)("Check after editing checked words ($language)", (row) 
         model: null,
       });
       bridge.estimateRun.mockResolvedValue(billing === "per-token" ? estimate : { billing });
-      const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-      await startCheck("mind");
+      const { startCheckAsking, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+      await startCheckAsking("mind");
       expect(bridge.checkMind).toHaveBeenCalledOnce();
       expect(useMindCheck.getState().asking.mind).toBeUndefined();
     },
@@ -221,8 +221,8 @@ describe.each(languages)("Check after editing checked words ($language)", (row) 
         inFolder: false,
         model: null,
       });
-      const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-      await startCheck("mind");
+      const { startCheckAsking, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+      await startCheckAsking("mind");
       expect(bridge.checkMind).toHaveBeenCalledOnce();
       expect(useMindCheck.getState().asking.mind).toBeUndefined();
     },
@@ -244,8 +244,8 @@ describe.each(languages)("Check after editing checked words ($language)", (row) 
       smallModel: false,
       stop: { reason: "cost-cap" },
     });
-    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-    await startCheck("mind");
+    const { startCheckAsking, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    await startCheckAsking("mind");
     expect(bridge.checkMind).toHaveBeenCalledOnce();
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
   });
@@ -262,8 +262,8 @@ describe.each(languages)("Check after editing checked words ($language)", (row) 
         model: null,
       });
       bridge.estimateRun.mockResolvedValue(billing === "per-token" ? estimate : { billing });
-      const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-      await startCheck("mind");
+      const { startCheckAsking, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+      await startCheckAsking("mind");
       expect(bridge.checkMind).toHaveBeenCalledOnce();
       expect(useMindCheck.getState().asking.mind).toBeUndefined();
     },

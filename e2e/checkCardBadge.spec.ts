@@ -6,11 +6,13 @@ import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -19,10 +21,10 @@ import {
 } from "./app";
 
 /*
- * A sentence's check card, reached with Next, stays clear of the page's check
- * badge (#1686): the badge shows the Mind's counts at the page's bottom right,
- * where a card for one of the last sentences would cover it. The checks are
- * written into the page, so no model is involved.
+ * A sentence's check card, reached with Next, stays clear of the Note's Check
+ * button (#1686, #3794): the button shows the Mind's state in the Note's row at
+ * the page's top right, where a card for one of the sentences could cover it.
+ * The checks are written into the page, so no model is involved.
  */
 
 const TIDES = buildPdf([
@@ -91,7 +93,7 @@ test.afterEach(async () => {
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Next on the last sentences leaves each check card clear of the page's badge (${language})`, async () => {
+  test(`Next on the last sentences leaves each check card clear of the Note's Check button (${language})`, async () => {
     test.setTimeout(240_000);
     const words = SENTENCES[language];
     await writeFile(join(sources, "Tides.pdf"), TIDES);
@@ -135,9 +137,9 @@ for (const language of ["en", "zh-CN"] as const) {
       ],
     );
     await expect(window.getByTestId("claim-mark")).toHaveCount(3);
-    const badge = window.getByTestId("check-badge");
+    const button = noteCheck(window);
     const card = window.getByTestId("claim-card");
-    await expect(badge).toBeVisible();
+    await expect(button).toBeVisible();
 
     /**
      * Next on the card's "needs a look" row, which ends on the next such sentence's own card: the
@@ -145,9 +147,7 @@ for (const language of ["en", "zh-CN"] as const) {
      */
     const next = async (state: string, sentence: string, action: string) => {
       await window.mouse.move(2, 2);
-      await pointAndClick(window, window.getByTestId("check-badge-open").first());
-      const health = window.getByTestId("check-card");
-      await expect(health).toBeVisible();
+      const health = await checkCard(window);
       await pointAndClick(window, health.getByTestId("health-look"));
       await expect(health).toHaveCount(0);
       await expect(card).toBeVisible();
@@ -158,15 +158,15 @@ for (const language of ["en", "zh-CN"] as const) {
     };
 
     const clear = async ({ width, height }: { width: number; height: number }) => {
-      const [onCard, onBadge] = await Promise.all([box(card), box(badge)]);
+      const [onCard, onButton] = await Promise.all([box(card), box(button)]);
       const apart =
-        onCard.x + onCard.width <= onBadge.x ||
-        onBadge.x + onBadge.width <= onCard.x ||
-        onCard.y + onCard.height <= onBadge.y ||
-        onBadge.y + onBadge.height <= onCard.y;
+        onCard.x + onCard.width <= onButton.x ||
+        onButton.x + onButton.width <= onCard.x ||
+        onCard.y + onCard.height <= onButton.y ||
+        onButton.y + onButton.height <= onCard.y;
       expect(
         apart,
-        `the card ${JSON.stringify(onCard)} clears the badge ${JSON.stringify(onBadge)}`,
+        `the card ${JSON.stringify(onCard)} clears the Check button ${JSON.stringify(onButton)}`,
       ).toBe(true);
       expect(onCard.x).toBeGreaterThanOrEqual(0);
       expect(onCard.y).toBeGreaterThanOrEqual(0);

@@ -5,24 +5,16 @@ import { App } from "./App";
 import { installAgentOpened } from "./agentOpened";
 import { installAppearance } from "./appearance";
 import { PanelBoundary } from "./components/PanelBoundary";
-import "./commands/app";
 import { files } from "./core";
 import "./fonts.css";
 import "./styles.css";
-import "./viewer/viewer.css";
 import { installErrorLog } from "./errorLog";
 import { installMotion } from "./motion";
 import { installRateLimitWaits } from "./rateLimitWaits";
 import { retryTaggingWhenOnline } from "./taggingRetry";
-import { installTestHooks } from "./viewerControls";
-import { installWindowMemory } from "./windowMemory";
-import { installWrittenChecks } from "./writtenChecks";
 
 installErrorLog();
-installWindowMemory();
-installTestHooks();
 retryTaggingWhenOnline();
-installWrittenChecks();
 installRateLimitWaits();
 installAgentOpened();
 // Before the first paint: the system's Reduce motion holds until the settings say the User's choice.

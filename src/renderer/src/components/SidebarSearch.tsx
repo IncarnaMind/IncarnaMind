@@ -14,6 +14,7 @@ export function SidebarSearch() {
         type="button"
         {...TREE_ROW}
         data-testid="sidebar-search"
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => usePalette.getState().show()}
         className={rowButtonClass}
       >

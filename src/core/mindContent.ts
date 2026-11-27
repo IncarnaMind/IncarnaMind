@@ -165,6 +165,26 @@ export function createMindContent(
       [mindId],
     );
 
+  const yieldTurn = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const docOfAsync = async (rows: readonly { data: Uint8Array }[]): Promise<Y.Doc> => {
+    const doc = new Y.Doc();
+    let sliceStart = performance.now();
+    try {
+      for (const row of rows) {
+        Y.applyUpdate(doc, row.data);
+        if (performance.now() - sliceStart >= 15) {
+          await yieldTurn();
+          sliceStart = performance.now();
+        }
+      }
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
+    return doc;
+  };
+
   const docOf = (rows: readonly { data: Uint8Array }[]): Y.Doc => {
     const doc = new Y.Doc();
     try {
@@ -374,6 +394,72 @@ export function createMindContent(
       const { doc } = fromStorage(mindId);
       try {
         return Y.encodeStateAsUpdate(doc);
+      } finally {
+        doc.destroy();
+      }
+    },
+
+    /**
+     * Reads a Mind's stored state, Blocks and settings in one decode, yielding between heavy
+     * steps so a long Note never holds the main process past its frame budget (#3822). When the
+     * Mind is loaded and `needsAsync` returns true, the read runs on an isolated copy decoded from
+     * the captured state so concurrent edits or closing the Mind cannot disturb it across yields.
+     */
+    async inspectStored<T>(
+      mindId: string,
+      look: (snapshot: {
+        state: Uint8Array;
+        blocks: Y.XmlFragment;
+        settings: Y.Map<unknown>;
+        yieldTurn: () => Promise<void>;
+      }) => Promise<T>,
+      needsAsync?: (blocks: Y.XmlFragment) => boolean,
+    ): Promise<T> {
+      const mind = loaded.get(mindId);
+      if (mind) {
+        const t0 = performance.now();
+        const state = Y.encodeStateAsUpdate(mind.doc);
+        const blocks = mind.doc.getXmlFragment(MIND_CONTENT_FIELD);
+        const settings = mind.doc.getMap(MIND_SETTINGS_FIELD);
+        if (!needsAsync?.(blocks)) {
+          const result = await look({ state, blocks, settings, yieldTurn });
+          if (performance.now() - t0 >= 15) await yieldTurn();
+          return result;
+        }
+        await yieldTurn();
+        const isolated = await docOfAsync([{ data: state }]);
+        try {
+          await yieldTurn();
+          return await look({
+            state,
+            blocks: isolated.getXmlFragment(MIND_CONTENT_FIELD),
+            settings: isolated.getMap(MIND_SETTINGS_FIELD),
+            yieldTurn,
+          });
+        } finally {
+          isolated.destroy();
+        }
+      }
+      const rows = storedRows(mindId, false);
+      const totalBytes = rows.reduce((sum, row) => sum + row.data.byteLength, 0);
+      if (totalBytes >= 100_000) await yieldTurn();
+      const doc = await docOfAsync(rows);
+      try {
+        if (totalBytes >= 100_000) await yieldTurn();
+        let state: Uint8Array;
+        if (rows.length === 1 && rows[0]) {
+          state = Uint8Array.from(rows[0].data);
+        } else {
+          const tEncode = performance.now();
+          state = Y.encodeStateAsUpdate(doc);
+          if (performance.now() - tEncode >= 15) await yieldTurn();
+        }
+        return await look({
+          state,
+          blocks: doc.getXmlFragment(MIND_CONTENT_FIELD),
+          settings: doc.getMap(MIND_SETTINGS_FIELD),
+          yieldTurn,
+        });
       } finally {
         doc.destroy();
       }

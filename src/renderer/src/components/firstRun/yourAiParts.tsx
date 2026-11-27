@@ -1,9 +1,22 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { AgentClient, AgentSetupResult } from "../../../../core/api";
+import { core } from "../../core";
 import { useT } from "../../i18n";
+import { useAppStore } from "../../store";
 import { buttonStyle } from "../ui";
 import type { StepPlace } from "./SetupPanel";
 import { monogram } from "./yourAiList";
+
+/** The pairings that wait for their app's own Install, as Settings › AI is told of them; null until read. */
+export function useAwaitingInstall(): readonly string[] | null {
+  const [awaiting, setAwaiting] = useState<readonly string[] | null>(null);
+  const reportError = useAppStore((state) => state.reportError);
+  useEffect(() => {
+    core.getAgents().then((settings) => setAwaiting(settings.awaitingInstall), reportError);
+    return core.on("agents.changed", (settings) => setAwaiting(settings.awaitingInstall));
+  }, [reportError]);
+  return awaiting;
+}
 
 /** What came of connecting one app in the Your AI step (#3791): its connection, or why it failed. */
 export type Done =

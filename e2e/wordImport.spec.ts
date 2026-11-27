@@ -935,6 +935,9 @@ test("the User's own comments in someone else's Word file are off in Export opti
   const include = sheet.getByTestId("export-include-my-comments");
   await expect(include).toBeVisible();
   await expect(include).not.toBeChecked();
+  await expect(sheet.getByTestId("export-file-comments")).toHaveText(
+    "1 comment from the Word file stays in the exported file.",
+  );
   await motionSettled(window);
   await screenshot(window, "word-export-my-comments-off");
   await include.check();
@@ -952,6 +955,9 @@ test("the User's own comments in someone else's Word file are off in Export opti
   const result = window.getByTestId("export-result");
   await expect(result.getByTestId("export-done")).toContainText(savedLine("Memo.docx", output));
   await expect(result.getByTestId("export-my-comments")).toHaveText("with 1 comment");
+  await expect(result.getByTestId("export-file-comments")).toHaveText(
+    "Kept 1 comment from the Word file",
+  );
   const withMine =
     unzip(await readFile(join(output, "Memo.docx")))
       .get("word/comments.xml")
@@ -969,6 +975,9 @@ test("the User's own comments in someone else's Word file are off in Export opti
   await exportFromMenu(window);
   await expect(result.getByTestId("export-my-comments")).toContainText("Your comment was left out");
   await expect(result.getByTestId("export-my-comments-include")).toBeVisible();
+  await expect(result.getByTestId("export-file-comments")).toHaveText(
+    "Kept 1 comment from the Word file",
+  );
   const written = async () => {
     const saved = await result.getByTestId("export-done").getAttribute("title");
     if (!saved) throw new Error("The Saved line names no file.");

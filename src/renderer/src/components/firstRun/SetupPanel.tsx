@@ -55,6 +55,9 @@ export function SetupPanel({
   const t = useT();
   const body = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(false);
+  // Suppresses stale :hover on a foot button that landed under a stationary pointer after stepping
+  // from the previous step's Skip/Continue button (#3819), until the pointer actually moves.
+  const [freshStep, setFreshStep] = useState(false);
   // A step taller than the window keeps its foot in view, over a rule, so Continue is always in
   // reach (#3362): it sits 1px past the edge it sticks to, so stuck is seen as not wholly in view.
   const footing = useCallback((foot: HTMLDivElement | null) => {
@@ -68,6 +71,7 @@ export function SetupPanel({
   }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each new step or view takes the focus once.
   useEffect(() => {
+    setFreshStep(true);
     const within = body.current;
     if (!within) return;
     const chosen = within.querySelector<HTMLElement>("input:checked");
@@ -140,6 +144,10 @@ export function SetupPanel({
           ref={footing}
           data-testid="setup-foot"
           data-stuck={stuck || undefined}
+          data-fresh-step={freshStep || undefined}
+          onPointerMove={() => {
+            if (freshStep) setFreshStep(false);
+          }}
           className={`sticky -bottom-px z-10 flex flex-wrap items-center gap-2 rounded-b-[12px] bg-sheet px-6 pt-3.5 pb-5 ${
             stuck ? "shadow-[0_-1px_0_var(--color-rule)]" : ""
           }`}

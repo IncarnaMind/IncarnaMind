@@ -61,6 +61,8 @@ import {
   figuresInMind,
   headingAbove,
   readAbove,
+  type TableLayout,
+  tableCellContext,
   withAboveNow,
 } from "./figureOccurrences";
 
@@ -225,7 +227,10 @@ export function wordsReader(element: Y.XmlElement): (from: number, to: number) =
  * which is what a decision model's lines were measured with (#3118); and those of its figures that
  * IncarnaMind worked out itself, which no Passage states.
  */
-export function checkText(sentence: SelectedSentence): {
+export function checkText(
+  sentence: SelectedSentence,
+  layouts?: Map<Y.XmlElement, TableLayout>,
+): {
   claim: string;
   projection?: InlineTextProjection;
   context: string;
@@ -235,10 +240,13 @@ export function checkText(sentence: SelectedSentence): {
   const worked = (sentence.figures ?? []).filter(
     (figure) => figure.calculated !== null || figure.analysisRecord?.label !== undefined,
   );
-  // A table cell's words alone don't say what its figure is; its row and column headings do.
+  // A table cell's words alone don't say what its figure is; its table's header row and cell labels do (#3825).
+  // Charts keep their own figure context so chart prompts stay unchanged.
+  const words = wordsOf(sentence.element);
   const around =
-    (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
-    wordsOf(sentence.element);
+    sentence.element.nodeName === CHART_NODE
+      ? (sentence.figures?.find((figure) => figure.label)?.context ?? words)
+      : (tableCellContext(sentence.element, words, layouts) ?? words);
   return {
     claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
     ...(sentence.projection && { projection: sentence.projection }),
@@ -793,17 +801,26 @@ const marksOfBlock = perBlock((block): readonly MarkedSentence[] => {
  * The first of each check's marks in the Mind's Blocks, in order, each Block read once while it
  * stays the same: the Note's figures are read with them on every change (#746).
  */
-function firstMarks<T extends { check: ClaimCheckAttributes }>(
-  blocks: Y.XmlFragment,
+function firstMarksIn<T extends { check: ClaimCheckAttributes }>(
+  elements: readonly Y.XmlElement[],
   marksOf: (block: Y.XmlElement) => readonly T[],
 ): T[] {
   const found = new Map<string, T>();
-  for (const block of blocks.toArray()) {
-    if (!(block instanceof Y.XmlElement)) continue;
+  for (const block of elements) {
     for (const mark of marksOf(block))
       if (!found.has(mark.check.id)) found.set(mark.check.id, { ...mark });
   }
   return [...found.values()];
+}
+
+function firstMarks<T extends { check: ClaimCheckAttributes }>(
+  blocks: Y.XmlFragment,
+  marksOf: (block: Y.XmlElement) => readonly T[],
+): T[] {
+  return firstMarksIn(
+    blocks.toArray().filter((block): block is Y.XmlElement => block instanceof Y.XmlElement),
+    marksOf,
+  );
 }
 
 /** Every check's mark in the Mind, in order. */
@@ -889,6 +906,11 @@ export function keptAsView(
  */
 export function checkedSentences(blocks: Y.XmlFragment): CheckedSentence[] {
   return firstMarks(blocks, checkedOfBlock);
+}
+
+/** As `checkedSentences`, restricted to the given top-level Blocks. */
+export function checkedSentencesInBlocks(elements: readonly Y.XmlElement[]): CheckedSentence[] {
+  return firstMarksIn(elements, checkedOfBlock);
 }
 
 type CheckedSentence = MarkedSentence & {

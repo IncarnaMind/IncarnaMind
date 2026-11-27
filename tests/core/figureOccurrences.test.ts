@@ -2,7 +2,13 @@ import { expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { figuresInMind, figuresInSentence } from "../../src/core/answers/checks/figureOccurrences";
-import { type SelectedSentence, textOf } from "../../src/core/answers/checks/sentences";
+import {
+  checkText,
+  everySentence,
+  figuresByBlock,
+  type SelectedSentence,
+  textOf,
+} from "../../src/core/answers/checks/sentences";
 import { CALCULATED_FIGURE_NODE, CHART_NODE } from "../../src/core/api";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
@@ -468,3 +474,150 @@ test.each([
     expect(figure?.reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
   },
 );
+
+// protects=table cell checkText supplies the header row (including Unit columns) and cell labels while keeping figure.context unchanged for staleness hashes (#3825); fails_when=header row or cell labels are omitted or figure.context changes
+test("table cell checkText includes the header row and cell labels without changing figure.context (#3825)", () => {
+  const cell = (id: string, value: string, header = false): NodeJSON => ({
+    type: header ? "tableHeader" : "tableCell",
+    content: [paragraph(id, text(value))],
+  });
+  const blocks = stored(
+    paragraph("intro", text("Budget notes.")),
+    paragraph("cap", text("Revenue and cost")),
+    {
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        {
+          type: "tableRow",
+          content: [
+            cell("h0", "Item", true),
+            cell("h1", "2024", true),
+            cell("h2", "2025", true),
+            cell("h3", "Unit", true),
+          ],
+        },
+        {
+          type: "tableRow",
+          content: [
+            cell("r1c0", "Cost"),
+            cell("r1c1", "70"),
+            cell("r1c2", "78"),
+            cell("r1c3", "million tonnes"),
+          ],
+        },
+      ],
+    },
+  );
+  const byBlock = figuresByBlock(blocks);
+  const figure = byBlock.get("r1c1")?.[0];
+  expect(figure?.context).toBe("2024\nCost | 70 | 78 | million tonnes\nRevenue and cost\n70");
+
+  const table = blocks.toArray()[2];
+  if (!(table instanceof Y.XmlElement)) throw new Error("Missing table");
+  const row = table.toArray()[1];
+  if (!(row instanceof Y.XmlElement)) throw new Error("Missing row");
+  const cellEl = row.toArray()[1];
+  if (!(cellEl instanceof Y.XmlElement)) throw new Error("Missing cell");
+  const p = cellEl.toArray()[0];
+  if (!(p instanceof Y.XmlElement)) throw new Error("Missing paragraph");
+  const checked = checkText({ ...selected(p), figures: byBlock.get("r1c1") ?? [] });
+  expect(checked.claim).toBe("70");
+  expect(checked.context).toBe(
+    [
+      "Budget notes.",
+      [
+        "Table: Revenue and cost",
+        "| Item | 2024 | 2025 | Unit |",
+        "| Cost | 70 | 78 | million tonnes |",
+        "Cell (Cost, 2024): 70",
+      ].join("\n"),
+    ].join("\n\n"),
+  );
+
+  // Text-only cells in the table also receive the structured table context.
+  const labelCell = row.toArray()[0];
+  if (!(labelCell instanceof Y.XmlElement)) throw new Error("Missing label cell");
+  const labelP = labelCell.toArray()[0];
+  if (!(labelP instanceof Y.XmlElement)) throw new Error("Missing label paragraph");
+  expect(checkText(selected(labelP)).context).toContain("| Item | 2024 | 2025 | Unit |");
+});
+
+// protects=a heading immediately before a table is not duplicated as both the section heading above and "Table: <heading>" (#3825); fails_when=the heading appears twice in context or near
+test("a heading immediately before a table is not duplicated as a Table: caption (#3825)", () => {
+  const cell = (id: string, value: string, header = false): NodeJSON => ({
+    type: header ? "tableHeader" : "tableCell",
+    content: [paragraph(id, text(value))],
+  });
+  const blocks = stored(
+    { type: "heading", attrs: { id: "h", level: 2 }, content: [text("2025 Figures")] },
+    {
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        { type: "tableRow", content: [cell("h0", "Item", true), cell("h1", "2025", true)] },
+        { type: "tableRow", content: [cell("r1c0", "Revenue"), cell("r1c1", "120")] },
+      ],
+    },
+  );
+  const table = blocks.toArray()[1];
+  if (!(table instanceof Y.XmlElement)) throw new Error("Missing table");
+  const row = table.toArray()[1];
+  if (!(row instanceof Y.XmlElement)) throw new Error("Missing row");
+  const cellEl = row.toArray()[1];
+  if (!(cellEl instanceof Y.XmlElement)) throw new Error("Missing cell");
+  const p = cellEl.toArray()[0];
+  if (!(p instanceof Y.XmlElement)) throw new Error("Missing paragraph");
+
+  const checked = checkText({ ...selected(p), figures: figuresByBlock(blocks).get("r1c1") ?? [] });
+  expect(checked.context).toBe(
+    [
+      "2025 Figures",
+      ["| Item | 2025 |", "| Revenue | 120 |", "Cell (Revenue, 2025): 120"].join("\n"),
+    ].join("\n\n"),
+  );
+  expect(checked.near).toBe(checked.context);
+});
+
+// protects=table cell checkText caches the table layout per table rather than rebuilding it per cell (#3825, #2512, #2523); fails_when=reading every cell of a 200-row table grows quadratically
+test("checkText reads every cell of a 200-row table in bounded time (#3825)", () => {
+  const cell = (id: string, value: string, header = false): NodeJSON => ({
+    type: header ? "tableHeader" : "tableCell",
+    content: [paragraph(id, text(value))],
+  });
+  const rows: NodeJSON[] = [
+    {
+      type: "tableRow",
+      content: [
+        cell("h0", "Item", true),
+        cell("h1", "2024", true),
+        cell("h2", "2025", true),
+        cell("h3", "Unit", true),
+      ],
+    },
+    ...Array.from({ length: 200 }, (_, index) => ({
+      type: "tableRow",
+      content: [
+        cell(`r${index}c0`, `Line ${index + 1}`),
+        cell(`r${index}c1`, `${100 + index}`),
+        cell(`r${index}c2`, `${200 + index}`),
+        cell(`r${index}c3`, "USD million"),
+      ],
+    })),
+  ];
+  const blocks = stored(paragraph("cap", text("Annual summary")), {
+    type: "table",
+    attrs: { id: "big" },
+    content: rows,
+  });
+  const sentences = everySentence(blocks).filter((sentence) => sentence.blockId !== "cap");
+  expect(sentences).toHaveLength(800);
+
+  const started = performance.now();
+  const contexts = sentences.map((sentence) => checkText(sentence).context);
+  const elapsedMs = performance.now() - started;
+
+  expect(contexts[1]).toContain("Cell (Line 1, 2024): 100");
+  expect(contexts.at(-2)).toContain("Cell (Line 200, 2025): 399");
+  expect(elapsedMs).toBeLessThan(250);
+});

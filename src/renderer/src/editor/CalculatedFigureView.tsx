@@ -11,7 +11,6 @@ import { calculatedCitations } from "../../../shared/figureRuns";
 import { checkedByMe } from "../../../shared/signOffs";
 import { useMindFormatting } from "../citationFormatting";
 import { useStyleCatalogue } from "../citationStylePicker";
-import { registerMenu } from "../commands/menus";
 import type { CommandContext } from "../commands/registry";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { copyText } from "../copied";
@@ -30,15 +29,6 @@ import { useCitationPeek } from "./peek";
 import { focusQuietly, isQuietFocus } from "./quietFocus";
 import { StyledRuns } from "./StyledRuns";
 import "./calculatedFigure.css";
-
-registerMenu("check", [
-  "figure.open",
-  "figure.copyFormula",
-  "figure.signOff",
-  "figure.signOffRemove",
-  "figure.convertToText",
-  "figure.remove",
-]);
 
 export function CalculatedFigureView({
   node,

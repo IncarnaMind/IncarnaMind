@@ -15,7 +15,12 @@ import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
 import { isListedDocument } from "../meetingTranscript";
 import { useOrganizeReview } from "../organizeReview";
-import { useExampleDocuments, useLibraryDocuments, useLibraryShown } from "../ownDocuments";
+import {
+  useExampleDocuments,
+  useLibraryDocuments,
+  useLibraryShown,
+  useOnlyExamples,
+} from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -100,10 +105,11 @@ export function DocumentsSection() {
   );
   const libraryShown = useLibraryShown();
   const firstOpen = useFirstOpen();
+  const onlyExamples = useOnlyExamples();
   const hasOwnDocuments = useAppStore((state) =>
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
   );
-  const quiet = firstOpen && !hasOwnDocuments;
+  const quiet = (firstOpen && !hasOwnDocuments) || onlyExamples;
   // The example folds to one row once the User has a Document of their own (#1944), and only while
   // its Mind is there for that row to open: its Documents and folder stay reachable without one.
   // Opening one of its Documents lists them under that row again (see `useExampleFoldDocuments`).

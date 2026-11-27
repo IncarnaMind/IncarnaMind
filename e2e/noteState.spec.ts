@@ -8,12 +8,14 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   checkCard,
+  checkNote,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -23,7 +25,7 @@ import {
 } from "./app";
 
 /*
- * A note says when it is done (D266, #1915): the corner badge, the note's row in Home and
+ * A note says when it is done (#1915, #3794): the Note's Check button, the note's row in Home and
  * the Export menu say the same state — "Not checked", "1 needs a look", "Checked 14:25" —
  * in English and Chinese. The scripted model finds a sentence contradicted when it shares
  * three words with a Document line and has a number the line doesn't (#96). Set
@@ -84,22 +86,21 @@ async function launchWithTides() {
   return running;
 }
 
-const badge = (window: Page) => window.getByTestId("check-badge");
-const stateWords = (window: Page) => badge(window).locator(".check-badge-words");
+const button = (window: Page) => noteCheck(window);
+const stateWords = (window: Page) => button(window).locator(".note-check-words");
 
-/** Runs the one Check from its card in one press, and waits for it to end. */
+/** Runs the Note's one Check from its button in one press, and waits for it to end. */
 async function checkWholeMind(window: Page, from: string | null) {
-  const card = await checkCard(window);
-  await pointAndClick(window, card.getByTestId("badge-check-mind"));
+  await checkNote(window);
   await expect(async () => {
-    if (await window.getByTestId("badge-stop").isVisible()) return;
+    if (await window.getByTestId("note-check-stop").isVisible()) return;
     const marks = window.getByTestId("claim-mark");
     const mark =
       (await marks.count()) === 0 ? null : await marks.first().getAttribute("data-check");
     if (mark !== from) return;
     throw new Error("The check hasn't started.");
   }).toPass({ timeout: 30_000 });
-  await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
+  await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 60_000 });
 }
 
 async function goHome(window: Page) {
@@ -116,7 +117,7 @@ const rowState = (window: Page, title: string): Locator =>
   recentRow(window, title).getByTestId("home-recent-state");
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the badge, Home's row and the Export menu say the same state through a check, a fix and an edit (${language})`, async () => {
+  test(`the Check button, Home's row and the Export menu say the same state through a check, a fix and an edit (${language})`, async () => {
     test.setTimeout(180_000);
     const words = WORDS[language];
     const { app, window } = await launchWithTides();
@@ -130,9 +131,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.type(CONTRADICTED);
     await expect(editor).toContainText(CONTRADICTED);
 
-    // Nothing has checked it since the last edit: the badge says so, whatever its Citation (D266).
-    await expect(badge(window)).toHaveAttribute("data-state", "not-checked");
-    await expect(stateWords(window)).toHaveText(words.notChecked);
+    // Nothing has checked it since the last edit: the button checks it, and says so, whatever its Citation.
+    await expect(button(window)).toHaveAttribute("data-state", "check");
+    await expect(button(window).locator(".note-check-count")).toHaveText("1");
+    await expect(button(window)).toHaveAttribute("title", words.notChecked);
     await screenshot(window, `note-state-${language}-900-not-checked`);
 
     // The Home row says the same.
@@ -143,22 +145,21 @@ for (const language of ["en", "zh-CN"] as const) {
     await recentRow(window, "Tides").getByTestId("home-recent-open").click();
     await expect(window.getByTestId("mind-pane")).toBeVisible();
 
-    // One contradiction: the state is amber-red, and Home says the same.
+    // One contradiction: the button says it needs a look, and Home says the same.
     await checkWholeMind(window, null);
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
       timeout: 60_000,
     });
-    await expect(badge(window)).toHaveAttribute("data-state", "needs-look", {
+    await expect(button(window)).toHaveAttribute("data-state", "look", {
       timeout: 60_000,
     });
     await expect(stateWords(window)).toHaveText(words.look);
+    await expect(button(window)).toHaveAttribute("title", words.look);
     // Screen readers hear the state by name.
-    await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-      new RegExp(words.look),
-    );
-    // A contradiction keeps the margin's red (D266, "amber or red as now").
+    await expect(button(window)).toHaveAccessibleName(new RegExp(words.look));
+    // What needs a look, a contradiction too, is in the warning colour, as the margin marks it (#3794).
     expect(await stateWords(window).evaluate((element) => getComputedStyle(element).color)).toBe(
-      await tokenColor(window, "--color-danger"),
+      await tokenColor(window, "--color-warning"),
     );
     await goHome(window);
     await expect(rowState(window, "Tides")).toHaveText(words.look);
@@ -189,19 +190,20 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
       timeout: 60_000,
     });
-    await expect(badge(window)).toHaveAttribute("data-state", "checked", {
+    await expect(button(window)).toHaveAttribute("data-state", "checked", {
       timeout: 60_000,
     });
-    await expect(stateWords(window)).toHaveText(new RegExp(`^${words.checked}`));
-    await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-      new RegExp(words.checked),
-    );
-    const time = (await stateWords(window).textContent())?.slice(words.checked.length) ?? "";
+    await expect(stateWords(window)).toHaveText(words.checked.trim());
+    await expect(button(window)).toHaveAttribute("title", new RegExp(`^${words.checked}`));
+    const said = (await button(window).getAttribute("title"))?.split(" · ")[0] ?? "";
+    const time = said.slice(words.checked.length);
     expect(time).not.toBe("");
-    // The green is the success token (D266).
-    expect(await stateWords(window).evaluate((element) => getComputedStyle(element).color)).toBe(
-      await tokenColor(window, "--color-success"),
-    );
+    // The green is the success token, on the button's mark.
+    expect(
+      await button(window)
+        .locator(".note-check-mark")
+        .evaluate((element) => getComputedStyle(element).color),
+    ).toBe(await tokenColor(window, "--color-success"));
     await screenshot(window, `note-state-${language}-900-checked`);
 
     await goHome(window);
@@ -221,11 +223,12 @@ for (const language of ["en", "zh-CN"] as const) {
     const edited = editor.locator("p").filter({ hasText: "Spring tides happened" }).first();
     await slideSelect(window, edited, "2026");
     await window.keyboard.type("2025");
-    await expect(badge(window)).toHaveAttribute("data-state", "not-checked");
+    await expect(button(window)).toHaveAttribute("data-state", "check");
+    await expect(button(window)).toHaveAttribute("title", words.notChecked);
     await goHome(window);
     await expect(rowState(window, "Tides")).toHaveText(words.notChecked);
     await recentRow(window, "Tides").getByTestId("home-recent-open").click();
-    // The edited sentence counts in the badge's card, and the Export menu counts the same.
+    // The edited sentence counts in the Checks card, and the Export menu counts the same.
     const card = await checkCard(window);
     await expect(card.getByTestId("health-toCheck")).toContainText("1");
     await window.keyboard.press("Escape");
@@ -233,11 +236,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("export-note-state")).toHaveText(words.checkFirst);
     await window.keyboard.press("Escape");
 
-    // The badge holds its place at the widest window too, in both languages.
+    // The Check button holds its place at the widest window too, in both languages.
     await setWindowSize(app, window, 1600, 900);
     const pane = await window.getByTestId("mind-pane").boundingBox();
-    const box = await badge(window).boundingBox();
-    if (!pane || !box) throw new Error("The badge isn't drawn.");
+    const box = await button(window).boundingBox();
+    if (!pane || !box) throw new Error("The Check button isn't drawn.");
     expect(box.x).toBeGreaterThanOrEqual(pane.x);
     expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width + 1);
     await screenshot(window, `note-state-${language}-1600-not-checked`);
@@ -266,9 +269,9 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     await expect(editor).toContainText("slowly");
 
-    const card = await checkCard(window);
-    await pointAndClick(window, card.getByTestId("badge-check-mind"));
-    await expect(window.getByTestId("badge-stop")).toBeVisible({ timeout: 30_000 });
+    await checkNote(window);
+    await expect(window.getByTestId("note-check-stop")).toBeVisible({ timeout: 30_000 });
+    await expect(button(window)).toHaveAttribute("data-state", "checking");
 
     // While it runs, Export says so; clicking opens the card at its progress, never a second Check.
     await pointAndClick(window, window.getByTestId("export-mind"));
@@ -279,12 +282,16 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, runningLine);
     const cardAgain = window.getByTestId("check-card");
     await expect(cardAgain.getByTestId("card-foot-progress")).toBeVisible();
+    await expect(cardAgain.getByTestId("card-foot-stop")).toBeVisible();
+    await expect(
+      cardAgain.getByRole("button", { name: language === "en" ? "Check" : "核对", exact: true }),
+    ).toHaveCount(0);
     // The sentence being checked has its row, in the card's one noun, the sentence (#2831).
     await expect(cardAgain.getByTestId("health-checking")).toContainText(words.checking);
 
     // Every sentence holds when the run ends, so the line is gone.
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
-    await expect(badge(window)).toHaveAttribute("data-state", "checked", { timeout: 60_000 });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 60_000 });
+    await expect(button(window)).toHaveAttribute("data-state", "checked", { timeout: 60_000 });
     await window.keyboard.press("Escape");
     await pointAndClick(window, window.getByTestId("export-mind"));
     await expect(window.getByTestId("export-note-state")).toHaveCount(0);
@@ -373,13 +380,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
         timeout: 60_000,
       });
-      // Every claim holds, so the state is green, and it names what the check couldn't read (D261).
-      await expect(badge(window)).toHaveAttribute("data-state", "checked", {
+      // Every claim holds, so the state is green, and its words name what the check couldn't read.
+      await expect(button(window)).toHaveAttribute("data-state", "checked", {
         timeout: 60_000,
       });
-      await expect(stateWords(window)).toHaveText(language === "en" ? /^Checked / : /^已核对 /);
-      await expect(badge(window)).toContainText(
-        language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
+      await expect(stateWords(window)).toHaveText(language === "en" ? "Checked" : "已核对");
+      await expect(button(window)).toHaveAttribute(
+        "title",
+        language === "en" ? /^Checked / : /^已核对 /,
+      );
+      await expect(button(window)).toHaveAttribute(
+        "title",
+        language === "en" ? /3 files couldn’t be read/ : /3 个文件未能读取/,
       );
       // Its card counts the sentence once (#2831), as one that can be cited (#3358): with no
       // Citation yet it is done, so the card says everything is checked, the files still named.
@@ -393,7 +405,7 @@ for (const language of ["en", "zh-CN"] as const) {
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
 
-      // An all-Documents check that couldn't read files leaves the Note checked (D266): with the
+      // An all-Documents check that couldn't read files leaves the Note checked: with the
       // Citation added nothing is left, and the files stay named under the summary.
       await citeTides(window, READABLE);
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
@@ -462,7 +474,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.type(READABLE);
       await expect(window.getByTestId("mind-editor")).toContainText(READABLE);
       // The Mind and the files in one Folder: its check searches the Folder, a scope narrower
-      // than all Documents, so a file it couldn't read could hold the evidence it looked for (D266).
+      // than all Documents, so a file it couldn't read could hold the evidence it looked for.
       await window.evaluate(async () => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
@@ -476,10 +488,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
         timeout: 60_000,
       });
-      // Amber, naming the file its check couldn't read (D266).
-      await expect(badge(window)).toHaveAttribute("data-state", "needs-look", {
+      // Amber, naming the file its check couldn't read.
+      await expect(button(window)).toHaveAttribute("data-state", "said", {
         timeout: 60_000,
       });
+      await expect(button(window)).toHaveAttribute("data-tone", "warning");
       await expect(stateWords(window)).toHaveText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
@@ -503,7 +516,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(still.getByTestId("checks-unread")).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
-      await expect(badge(window)).toHaveAttribute("data-state", "needs-look");
+      await expect(button(window)).toHaveAttribute("data-state", "said");
+      await expect(button(window)).toHaveAttribute("data-tone", "warning");
       await screenshot(window, `note-state-${language}-narrow-unread`);
       await app.close();
     } finally {

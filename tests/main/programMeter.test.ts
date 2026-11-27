@@ -509,6 +509,61 @@ describe("the meter's ticks (macOS)", () => {
     }
   });
 
+  test("a single ps killed at its deadline under load does not report an error, while sustained ps timeouts stop the run and report", async () => {
+    const c = clock();
+    const { folder } = await workingFolder();
+    let calls = 0;
+    const { command } = computer({
+      ps: () => {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new Error("Command failed: ps -A -o pid=,ppid=,pgid=,uid=,rss="), {
+            killed: true,
+            signal: "SIGTERM",
+          });
+        }
+        return "600 1 600 501 2048";
+      },
+    });
+    const meters = createMeters({
+      command,
+      platform: "darwin",
+      interval: false,
+      now: c.now,
+      cpu: c.cpu,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, folder, each.use, each.unmeasured);
+    await run(meters, c, 2, 250);
+    expect(each.reports).toEqual([]);
+    expect(each.peak().memory).toBe(2048 * 1024);
+
+    // Sustained ps timeouts past UNKNOWN_DISK_MS still stop the run and report the timeout.
+    const c2 = clock();
+    const stalled = createMeters({
+      command: computer({
+        ps: () => {
+          throw Object.assign(new Error("Command failed: ps -A -o pid=,ppid=,pgid=,uid=,rss="), {
+            killed: true,
+            signal: "SIGTERM",
+          });
+        },
+      }).command,
+      platform: "darwin",
+      interval: false,
+      now: c2.now,
+      cpu: c2.cpu,
+      folder: async () => 0,
+    });
+    const stuck = watcher();
+    stalled.meter().watch(600, folder, stuck.use, stuck.unmeasured);
+    await run(stalled, c2, 45, 250);
+    expect(stuck.peak().unknown).toBe(true);
+    expect(stuck.reports.length).toBeGreaterThan(0);
+    expect(stuck.reports[0]).toContain("Command failed: ps");
+  });
+
   test("a shared lsof killed at its deadline by one run's processes stops that run only: another's own read is judged on its own time and counted", async () => {
     const c = clock();
     const { folder, device } = await workingFolder();

@@ -19,12 +19,13 @@ import {
 
 /*
  * A check card that opened with nothing in it takes its height from what lands in it, once, when
- * it has stopped landing, then holds it (#2313). From the badge at the Note's top right (#3677) it
- * opens down and hangs from its top edge: the edge under the badge never moves, in any frame, and
- * only its foot goes down, as far as the window's margin. From a badge at a page's foot it opens up
- * and hangs from its foot: the Check in the foot never moves, and only its top edge goes up, as far
- * as the window's margin. It never covers the badge. Nothing animates the growth. Each test
- * attaches the card's two stills, before and after.
+ * it has stopped landing, then holds it (#2313). From the Check button at the Note's top right
+ * (#3677, #3794) it opens down and hangs from its top edge: the edge under the button never moves,
+ * in any frame, and only its foot goes down, as far as the window's margin. From a Check button at
+ * a page's foot, as the line above the Note's input has it, it opens up and hangs from its foot:
+ * nothing in its foot ever moves, and only its top edge goes up, as far as the window's margin. It
+ * never covers the button. Nothing animates the growth. Each test attaches the card's two stills,
+ * before and after.
  */
 
 const TIDES = buildPdf([{ lines: ["Harbour times", "Harbours publish times of high water."] }]);
@@ -104,6 +105,7 @@ type Box = [number, number, number, number];
 interface Shift {
   test: string;
   inside: boolean;
+  inFoot: boolean;
   previous: Box;
   current: Box;
 }
@@ -130,6 +132,7 @@ const watch = (window: Page) =>
           holder.shifts.push({
             test: owner?.getAttribute("data-testid") ?? "",
             inside: element?.closest(".check-card") != null && !element.matches(".check-card"),
+            inFoot: element?.closest('[data-testid="check-card-foot"]') != null,
             previous: box(source.previousRect),
             current: box(source.currentRect),
           });
@@ -161,14 +164,14 @@ async function boxOf(locator: Locator): Promise<Box> {
 
 const same = (a: Box, b: Box) => a.every((value, at) => Math.abs(value - (b[at] ?? 0)) < 0.01);
 
-/** Whether two boxes share any area, as a card over its badge would. */
+/** Whether two boxes share any area, as a card over its Check button would. */
 const overlap = (a: Box, b: Box) =>
   a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] - 0.5 && b[1] < a[1] + a[3] - 0.5;
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [1440, 900]) {
     for (const placement of ["above", "below"] as const) {
-      test(`an empty check card takes its height from what lands, hung from its foot: the Check stays and the badge stays clear (${placement} its badge, ${language}, ${width}px)`, async () => {
+      test(`an empty check card takes its height from what lands, hung from where it opens: nothing in its foot moves and the Check button stays clear (${placement} its Check button, ${language}, ${width}px)`, async () => {
         test.setTimeout(120_000);
         await writeFile(join(sources, "Tides.pdf"), TIDES);
         const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -179,29 +182,27 @@ for (const language of ["en", "zh-CN"] as const) {
         await addDocuments(window, [join(sources, "Tides.pdf")]);
         checkedAt = new Date(Date.now() + 60_000).toISOString();
         await newMind(window);
-        // A badge at a page's foot, as a Note without its controls at the top has it: the card is
+        // A Check button at a page's foot, as the line above the Note's input has it: the card is
         // placed above it.
         if (placement === "above") {
           await window.addStyleTag({
             content:
-              ".check-badge-place { position: fixed !important; top: auto !important; bottom: 72px !important; right: 40px !important; }",
+              ".note-check-frame { position: fixed !important; top: auto !important; bottom: 72px !important; right: 40px !important; }",
           });
         }
         const card = await checkCard(window);
-        const badge = window.locator(".check-badge-place");
+        const place = window.locator(".note-check-frame");
         const still = async (name: string) =>
           test.info().attach(`${placement}-${language}-${width}-${name}`, {
             body: await window.screenshot(),
             contentType: "image/png",
           });
 
-        // At rest: the title only, and the Check in the foot.
+        // At rest: the title only, and no foot: the Check is the Note's button.
         await motionSettled(window);
-        const rest = {
-          card: await boxOf(card),
-          check: await boxOf(card.getByTestId("badge-check-mind")),
-        };
-        const anchor = await boxOf(badge);
+        const rest = { card: await boxOf(card) };
+        await expect(card.getByTestId("check-card-foot")).toHaveCount(0);
+        const anchor = await boxOf(place);
         if (placement === "above")
           expect(rest.card[1] + rest.card[3]).toBeLessThanOrEqual(anchor[1] + 0.5);
         else expect(rest.card[1]).toBeGreaterThanOrEqual(anchor[1] + anchor[3] - 0.5);
@@ -221,8 +222,8 @@ for (const language of ["en", "zh-CN"] as const) {
         const grown = await boxOf(card);
         await still("after");
 
-        // What was drawn: the Check never shifted, and nothing in the card was drawn over the badge.
-        const badgeNow = await boxOf(badge);
+        // What was drawn: nothing in the foot shifted, and nothing in the card was drawn over the Check button.
+        const placeNow = await boxOf(place);
         const trail = shifts
           .map(
             (shift) =>
@@ -230,16 +231,15 @@ for (const language of ["en", "zh-CN"] as const) {
           )
           .join("  >  ");
         for (const shift of shifts) {
-          if (placement === "above")
-            expect(shift.test, `the Check shifted: ${trail}`).not.toBe("badge-check-mind");
+          if (placement === "above") expect(shift.inFoot, `the foot shifted: ${trail}`).toBe(false);
           if (shift.inside)
-            expect(overlap(shift.current, badgeNow), `the card covered its badge: ${trail}`).toBe(
-              false,
-            );
+            expect(
+              overlap(shift.current, placeNow),
+              `the card covered its Check button: ${trail}`,
+            ).toBe(false);
         }
         if (placement === "above") {
-          expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
-          // Only its top edge moved.
+          // Only its top edge moved: the foot hangs where it was.
           expect(grown[1] + grown[3]).toBeCloseTo(rest.card[1] + rest.card[3], 0);
         } else {
           // Only its foot moved.
@@ -272,8 +272,6 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(card.getByTestId("health-look")).toContainText("6");
         await motionSettled(window);
         expect(same(await boxOf(card), grown)).toBe(true);
-        if (placement === "above")
-          expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
         await app.close();
       });
     }

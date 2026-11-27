@@ -456,6 +456,7 @@ describe("exporting a Mind", () => {
       myComments: 0,
       myCommentsShown: true,
       myCommentsOptional: false,
+      fileComments: 0,
     });
   });
 

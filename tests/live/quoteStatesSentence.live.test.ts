@@ -26,11 +26,9 @@ import { scriptedModel } from "../helpers/models";
 import {
   answering,
   type Case,
-  CHINESE,
   DECOY_CHINESE,
   DECOY_ENGLISH,
   documentOf,
-  ENGLISH,
   holds,
   STATED_CHINESE,
   STATED_ENGLISH,
@@ -105,9 +103,10 @@ async function judged(
   return answer.citations.find((citation) => citation.marker === 1);
 }
 
+// Under ADR-0028 (#3081), Answer sentence checks judge the sentence whole against its Passages and
+// no longer overturn a Supported verdict when the quote itself stops short. Keep the held-out
+// stated cases and wrong-figure decoys that match today's contract.
 const SETS = [
-  ["the ten, in English", ENGLISH, false],
-  ["the ten, in Chinese", CHINESE, true],
   ["held out, stated, English Documents", STATED_ENGLISH, false],
   ["held out, stated, Chinese Documents", STATED_CHINESE, true],
   ["held out, a figure given to the wrong thing, English", DECOY_ENGLISH, false],

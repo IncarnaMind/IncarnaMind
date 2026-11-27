@@ -247,13 +247,18 @@ export function unlinkedFiles(listing: string): UnlinkedFile[] {
 /** lsof's exit status when some of what it was asked for isn't there, such as a pid that has ended. */
 const SOME_NOT_FOUND = 1;
 
-/** A read stopped at its deadline (a killed lsof, a hung `/proc`): the disk is unknown this turn. */
+/** A read stopped at its deadline (a killed lsof, ps, or hung `/proc`): unknown this turn. */
 export class DiskTimeout extends Error {
   constructor() {
     super("A disk read didn't finish in time.");
     this.name = "DiskTimeout";
   }
 }
+
+const isCommandTimeout = (error: unknown): boolean => {
+  const { killed, signal } = error as { killed?: unknown; signal?: unknown };
+  return killed === true || typeof signal === "string";
+};
 
 async function macUnlinked(
   command: MeterCommand,
@@ -265,14 +270,9 @@ async function macUnlinked(
   try {
     return unlinkedFiles(await command("/usr/sbin/lsof", args));
   } catch (error) {
-    const { code, stdout, killed, signal } = error as {
-      code?: unknown;
-      stdout?: unknown;
-      killed?: unknown;
-      signal?: unknown;
-    };
+    const { code, stdout } = error as { code?: unknown; stdout?: unknown };
     if (code === SOME_NOT_FOUND && typeof stdout === "string") return unlinkedFiles(stdout);
-    if (killed === true || typeof signal === "string") throw new DiskTimeout();
+    if (isCommandTimeout(error)) throw new DiskTimeout();
     throw new DiskReadError(errnoOf(error), "lsof", pids[0] ?? 0, { cause: error });
   }
 }
@@ -970,7 +970,15 @@ export function createMeters(options: MetersOptions = {}): Meters {
       if (platform === "linux") listedAt = await reader.ticks();
     } catch (error) {
       report(programs, null, false);
-      reportAll(programs, error);
+      // A single ps killed at COMMAND_MS under heavy memory pressure is transient like DiskTimeout;
+      // report it once unknown turns actually outlast UNKNOWN_DISK_MS, and report non-timeouts at once.
+      if (isCommandTimeout(error)) {
+        for (const each of programs) {
+          if (watched.has(each) && each.folderUse === "unknown") each.unmeasured(error);
+        }
+      } else {
+        reportAll(programs, error);
+      }
       return;
     }
     report(programs, { listed, listedAt }, platform !== "darwin" || !footprintTurn);
