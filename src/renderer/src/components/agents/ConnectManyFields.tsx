@@ -242,8 +242,8 @@ export function ConnectManyFields({
                 className={`${checkBoxClass} accent-ink`}
               />
               <span className="min-w-0 flex-1">
-                <span className="font-semibold text-ink">{clientName(client, t)}</span>
-                <span className="text-[12px] leading-5 text-ink-meta">
+                <span className="text-ink">{clientName(client, t)}</span>
+                <span className="text-small leading-5 text-ink-meta">
                   {" · "}
                   {setupWords(client, t)}
                 </span>
@@ -264,7 +264,7 @@ export function ConnectManyFields({
       )}
       <p className={dialogTextClass}>{t("agents.connectAll.eachOwn")}</p>
       <details data-testid="connect-many-details" className="flex flex-col">
-        <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
+        <summary className="cursor-pointer text-ui leading-5 text-ink-secondary">
           {t("agents.connect.details")}
         </summary>
         <div className="mt-2 flex flex-col gap-2.5 border-t border-rule pt-2">
@@ -296,9 +296,7 @@ export function ConnectManyFields({
                 data-client={client.id}
                 className="flex flex-col gap-1"
               >
-                <p className="text-[12px] leading-[18px] font-semibold text-ink">
-                  {clientName(client, t)}
-                </p>
+                <p className="text-small leading-[18px] text-ink">{clientName(client, t)}</p>
                 {client.setup === "file" ? (
                   preview && <FileChangePreview preview={preview} testIdPrefix="connect-many" />
                 ) : (

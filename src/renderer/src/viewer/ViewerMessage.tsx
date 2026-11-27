@@ -210,8 +210,8 @@ function DocumentGone({ quote, reason }: { quote?: string | undefined; reason: G
       )}
       {quote && (
         <figure className="w-full max-w-sm">
-          <figcaption className="text-label text-ink-meta">{t("viewer.removed.quote")}</figcaption>
-          <blockquote className="mt-2 rounded-lg bg-frame px-4 py-3 font-serif text-[15px] leading-6 break-words whitespace-pre-wrap text-ink-answer">
+          <figcaption className="text-small text-ink-meta">{t("viewer.removed.quote")}</figcaption>
+          <blockquote className="mt-2 rounded-lg bg-frame px-4 py-3 font-serif text-ui leading-6 break-words whitespace-pre-wrap text-ink-answer">
             {quote}
           </blockquote>
         </figure>

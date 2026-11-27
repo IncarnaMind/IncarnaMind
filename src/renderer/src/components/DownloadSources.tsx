@@ -58,13 +58,13 @@ export function useDownloadSources(
       aria-expanded={open}
       aria-controls={id}
       onClick={() => setOpen(!open)}
-      className="rounded-sm font-semibold text-ink-secondary hover:text-ink"
+      className="rounded-sm text-ink-secondary hover:text-ink"
     >
       {t("modelSource.details")}
     </button>
   );
   const panel = open && (
-    <div id={id} data-testid={`${testId}-sources`} className="text-[12px] leading-4 text-ink-meta">
+    <div id={id} data-testid={`${testId}-sources`} className="text-small leading-4 text-ink-meta">
       <ul className="my-1">
         {tried.map((each) => (
           <li key={each.source} className="break-words">

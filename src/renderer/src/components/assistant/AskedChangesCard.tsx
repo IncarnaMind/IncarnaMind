@@ -30,7 +30,7 @@ import {
   useWaitingBesidesApplied,
   type WaitingRow,
 } from "../../mindChanges";
-import { PencilLineIcon } from "../lineIcons";
+import { PencilLineIcon } from "../icons";
 import { useReadMindId } from "./readMind";
 
 /**

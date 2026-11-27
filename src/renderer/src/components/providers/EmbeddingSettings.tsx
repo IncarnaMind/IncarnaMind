@@ -407,7 +407,7 @@ export function SwitchConfirmation({
               {cloudService ? (
                 <p
                   data-testid="embedding-confirm-cloud"
-                  className="rounded-lg border border-rule bg-frame px-3 py-2 text-ui font-semibold text-ink"
+                  className="rounded-lg border border-rule bg-frame px-3 py-2 text-ui text-ink"
                 >
                   {t("embeddingProviders.confirm.cloud", { service: cloudService })}
                 </p>

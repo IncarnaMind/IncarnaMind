@@ -1,4 +1,5 @@
 import { DOCKS, dockCommandId } from "../../commands/assistant";
+import { commandIcon, isDestructive } from "../../commands/commandIcons";
 import { commands, labelOf } from "../../commands/registry";
 import { useConversations } from "../../conversations";
 import { useT } from "../../i18n";
@@ -6,13 +7,21 @@ import { useAppStore } from "../../store";
 import {
   CheckLineIcon,
   ChevronRightLineIcon,
+  CollapseIcon,
   DockBottomLineIcon,
   DockLeftLineIcon,
   DockRightLineIcon,
   FloatLineIcon,
   MoreLineIcon,
-} from "../lineIcons";
-import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "../ui";
+} from "../icons";
+import { MenuItemParts } from "../MenuItemParts";
+import {
+  dangerItemClass,
+  menuClass,
+  menuItemClass,
+  menuItemUnavailableClass,
+  menuRuleClass,
+} from "../ui";
 import { usePopoverMenu, useSubmenu } from "../usePopoverMenu";
 
 const ICONS = {
@@ -51,7 +60,7 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
         title={t("assistant.more")}
         className="assistant-button"
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -68,9 +77,9 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
               data-testid="assistant-menu-move"
               className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
             >
-              <HereIcon className="size-4 shrink-0 text-ink-meta" />
+              <HereIcon className="shrink-0" />
               <span className="flex-1">{t("assistant.moveMenu")}</span>
-              <ChevronRightLineIcon className="size-3.5 text-ink-meta" />
+              <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
             </button>
             {withFold && (
               <button
@@ -78,9 +87,9 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
                 role="menuitem"
                 data-testid="assistant-menu-fold"
                 onClick={() => run("assistant.fold")}
-                className={`${menuItemClass} pl-8`}
+                className={`${menuItemClass} pl-2`}
               >
-                {t("assistant.fold")}
+                <MenuItemParts icon={CollapseIcon} label={t("assistant.fold")} />
               </button>
             )}
             <div className={menuRuleClass} />
@@ -112,9 +121,9 @@ export function AssistantMenu({ withFold = false }: { withFold?: boolean }) {
               onClick={() => run(dockCommandId(dock))}
               className={`${menuItemClass} pl-2`}
             >
-              <Icon className="size-4 shrink-0 text-ink-meta" />
+              <Icon className="shrink-0" />
               <span className="flex-1">{t(label)}</span>
-              {chosen === dock && <CheckLineIcon className="size-4 shrink-0 text-ink-meta" />}
+              {chosen === dock && <CheckLineIcon className="shrink-0" />}
             </button>
           );
         })}
@@ -154,9 +163,9 @@ function ConversationItem({
       onClick={() => {
         if (enabled === true) onRun(id);
       }}
-      className={`${menuItemClass} ${enabled === true ? "" : menuItemUnavailableClass} pl-8`}
+      className={`${menuItemClass} ${enabled === true ? "" : menuItemUnavailableClass} pl-2${isDestructive(command) ? ` ${dangerItemClass}` : ""}`}
     >
-      {label}
+      <MenuItemParts icon={commandIcon(command)} label={label} />
     </button>
   );
 }

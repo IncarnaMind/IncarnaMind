@@ -24,7 +24,7 @@ import { partsOf, speakerName, type TranscriptLine, withLineSplit } from "../../
 import { TURN_PAUSE_MS } from "../../../shared/transcriptTurns";
 import { timeAt } from "../../../shared/wordTimes";
 import { transcriptHandle, useHandle, useViewerHandle } from "../commands/handles";
-import { MicOffLineIcon } from "../components/lineIcons";
+import { MicOffLineIcon } from "../components/icons";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction, ProblemLine } from "../components/ProblemLine";
 import { Popover } from "../editor/Popover";
@@ -897,7 +897,7 @@ function TranscriptContent({
         <ProblemLine
           role="status"
           testId="viewer-citation-changed"
-          className="shrink-0 px-4 pb-2 text-[13px] leading-5"
+          className="shrink-0 px-4 pb-2 text-ui leading-5"
         >
           {placeGoneLine}
         </ProblemLine>
@@ -996,7 +996,7 @@ function TranscriptContent({
                         as="div"
                         parts={[
                           <span key="since">
-                            <MicOffLineIcon className="mr-1.5 inline size-3.5 align-[-2px]" />
+                            <MicOffLineIcon className="mr-1.5 inline align-[-2px]" />
                             {t("meetings.mic.pausedSince", { time: paddedClockTime(row.fromMs) })}
                           </span>,
                           <LineAction
@@ -1022,7 +1022,7 @@ function TranscriptContent({
                       <span>
                         {row.gap.reason === "muted" ? (
                           <>
-                            <MicOffLineIcon className="mr-1.5 inline size-3.5 align-[-2px]" />
+                            <MicOffLineIcon className="mr-1.5 inline align-[-2px]" />
                             {t("meetings.mic.pausedSpan", {
                               from: paddedClockTime(row.gap.fromMs),
                               to: paddedClockTime(row.gap.toMs),

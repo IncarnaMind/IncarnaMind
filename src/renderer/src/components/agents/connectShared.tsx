@@ -103,10 +103,10 @@ export function FileChangePreview({
         />
       </p>
       <details data-testid={`${testIdPrefix}-change-lines`}>
-        <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
+        <summary className="cursor-pointer text-ui leading-5 text-ink-secondary">
           {t("agents.connect.showChange")}
         </summary>
-        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink">
+        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-frame p-2 font-mono text-small leading-[18px] break-all whitespace-pre-wrap text-ink">
           {preview.change}
         </pre>
       </details>

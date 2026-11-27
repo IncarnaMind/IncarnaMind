@@ -33,7 +33,7 @@ import {
   saveComment,
   useCommentsUi,
 } from "../comments";
-import { CommentLineIcon } from "../components/lineIcons";
+import { CommentLineIcon } from "../components/icons";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { useLanguage, useT } from "../i18n";
 import { COMMENTS_REDRAWN, commentRuns } from "./commentSchema";
@@ -670,7 +670,7 @@ export function CommentsButton({
         title={t("comments.fold", { count: comments.length })}
         onClick={() => showList(open ? null : mindId)}
       >
-        <CommentLineIcon className="size-4 flex-none" aria-hidden="true" />
+        <CommentLineIcon className="flex-none" aria-hidden="true" />
         <span className="tabular-nums">{comments.length}</span>
       </button>
       {open && button.current && (

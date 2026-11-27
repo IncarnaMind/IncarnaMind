@@ -3,7 +3,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { useClaudeAccount } from "../../claudeSignIn";
 import { useLanguage, useT } from "../../i18n";
 import { ROUTE_LABELS } from "../../transcriptionServices";
-import { MicLineIcon } from "../lineIcons";
+import { MicLineIcon } from "../icons";
 import { useOfferedWay } from "../providers/CopilotPlan";
 import { ProviderLogo } from "../providers/ProviderLogo";
 import { keyProviderName } from "../providers/shared";
@@ -115,7 +115,7 @@ export function ServiceDirectory({
         className="h-8 shrink-0"
       />
       {groups.length === 0 ? (
-        <p className="px-1 text-[13px] leading-5 text-ink-meta">
+        <p className="px-1 text-ui leading-5 text-ink-meta">
           {t("models.directory.noMatch", { query: query.trim() })}
         </p>
       ) : (
@@ -129,7 +129,7 @@ export function ServiceDirectory({
             >
               <h3
                 id={`directory-${group}`}
-                className="mb-1 px-1 text-[12px] leading-[18px] font-semibold text-ink-secondary"
+                className="mb-1 px-1 text-small leading-[18px] text-ink-secondary"
               >
                 {t(GROUP_NAMES[group])}
               </h3>
@@ -191,22 +191,20 @@ function Entry({
     >
       <ProviderLogo
         id={logo}
-        fallback={
-          entry.kind === "transcription" ? <MicLineIcon className="size-[18px]" /> : undefined
-        }
+        fallback={entry.kind === "transcription" ? <MicLineIcon /> : undefined}
       />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-ui text-ink" title={name}>
           {name}
         </span>
-        {line && <span className="truncate text-[12px] leading-[18px] text-ink-meta">{line}</span>}
+        {line && <span className="truncate text-small leading-[18px] text-ink-meta">{line}</span>}
       </span>
       <span className="flex shrink-0 flex-wrap justify-end gap-1">
         {jobsOf(entry).map((job) => (
           <span
             key={job}
             data-testid="provider-directory-job"
-            className="inline-flex h-[18px] items-center rounded-sm bg-chip px-1.5 text-[11px] leading-[18px] font-semibold text-ink-secondary"
+            className="inline-flex h-[18px] items-center rounded-sm bg-chip px-1.5 text-small leading-[18px] text-ink-secondary"
           >
             {t(JOB_NAMES[job])}
           </span>
@@ -252,13 +250,13 @@ export function AddSheet({
       {open && (
         <>
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 pt-5 pb-3">
-            <h2 id="ai-add-sheet-title" className="text-[17px] leading-6 font-semibold text-ink">
+            <h2 id="ai-add-sheet-title" className="text-body leading-6 text-ink">
               {t("ai.add.title")}
             </h2>
             <ServiceDirectory offered={offered} added={added} onOpen={onOpen} searchRef={search} />
           </div>
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-rule px-6 py-3">
-            <p className="text-[12px] leading-[18px] text-ink-meta">{t("ai.add.foot")}</p>
+            <p className="text-small leading-[18px] text-ink-meta">{t("ai.add.foot")}</p>
             <button
               type="button"
               data-testid="ai-add-sheet-cancel"

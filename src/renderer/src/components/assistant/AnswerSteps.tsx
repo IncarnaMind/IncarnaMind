@@ -53,7 +53,6 @@ import { CallStartsContext } from "../../callStarts";
 import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
 import { CallRow, SkillRow } from "../../editor/AnswerView";
-import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
 import { useCitedOrigin } from "../../editor/mindContext";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
 import { useLanguage, useT } from "../../i18n";
@@ -69,15 +68,17 @@ import { useRateLimitResumes } from "../../rateLimitWaits";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
 import { useAppStore } from "../../store";
-import { SearchIcon } from "../icons";
 import {
   CalculatorLineIcon,
+  CheckMarkIcon,
   ChevronRightLineIcon,
   CloseLineIcon,
   DocumentLineIcon,
   MindLineIcon,
+  RegenerateSmallIcon,
+  SearchLineIcon,
   SparkLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { LineAction, ProblemLine } from "../ProblemLine";
 import { askCallText } from "./AskCall";
 import { CheckTheRest } from "./CheckTheRest";
@@ -201,7 +202,7 @@ export function AnswerSteps({
             onClick={onRegenerate}
             className="answer-steps-regenerate"
           >
-            <RegenerateSmallIcon className="size-3.5" />
+            <RegenerateSmallIcon />
             {t("answer.regenerate")}
           </button>
         </>
@@ -640,7 +641,7 @@ function FoldedToggle({
     ) : line.kind === "answered" ? (
       <SparkLineIcon className="answer-steps-icon" />
     ) : (
-      <SearchIcon className="answer-steps-icon" />
+      <SearchLineIcon className="answer-steps-icon" />
     );
   const parts =
     step && !step.mind.deleted
@@ -827,7 +828,7 @@ function StepItem({
       return <SearchStep row={row} scope={scope} />;
     case "stopped-search":
       return (
-        <Step kind={row.kind} icon={<SearchIcon />}>
+        <Step kind={row.kind} icon={<SearchLineIcon />}>
           <p className="answer-step-title">
             {t("steps.search.stopped", { scope, query: field(row.call, "query") })}
           </p>
@@ -980,7 +981,7 @@ function SearchStep({ row, scope }: { row: Extract<StepRow, { kind: "search" }>;
   const queries = searches.map((call) => field(call, "query"));
   const current = row.calls.at(-1);
   return (
-    <Step kind={row.kind} icon={<SearchIcon />} running={row.running}>
+    <Step kind={row.kind} icon={<SearchLineIcon />} running={row.running}>
       <p className="answer-step-title">
         {row.running
           ? current?.tool === "read_document"

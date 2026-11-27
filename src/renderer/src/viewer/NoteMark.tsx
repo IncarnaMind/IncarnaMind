@@ -1,5 +1,5 @@
 /** A note's small mark in text a view draws as React (#327), which opens its note on hover or focus. */
-import { NoteLineIcon } from "../components/lineIcons";
+import { NoteLineIcon } from "../components/icons";
 import { translateNow } from "../i18n";
 
 export function NoteMark({ annotationId, hasNote }: { annotationId: string; hasNote: boolean }) {
@@ -13,7 +13,7 @@ export function NoteMark({ annotationId, hasNote }: { annotationId: string; hasN
       title={label}
       className="annotation-note-mark"
     >
-      <NoteLineIcon className="size-[11px]" />
+      <NoteLineIcon />
     </button>
   );
 }

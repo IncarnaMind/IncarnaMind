@@ -20,7 +20,7 @@ import {
 } from "../pictureViewer";
 import { useAppStore } from "../store";
 import { createWheelZoom, MAX_ZOOM, MIN_ZOOM, stepZoom } from "../viewer/zoom";
-import { CloseLineIcon } from "./lineIcons";
+import { CloseLineIcon } from "./icons";
 import { buttonStyle, iconButtonClass } from "./ui";
 import { useModal } from "./useModal";
 
@@ -386,7 +386,7 @@ export function PictureViewer() {
             <p
               id={captionId}
               data-testid="picture-viewer-source"
-              className="mr-auto min-w-0 truncate text-[13px] leading-5 text-ink-secondary"
+              className="mr-auto min-w-0 truncate text-ui leading-5 text-ink-secondary"
               title={source}
             >
               {source}
@@ -394,7 +394,7 @@ export function PictureViewer() {
             {target.pictures.length > 1 && (
               <span
                 data-testid="picture-viewer-count"
-                className="shrink-0 pr-1 text-[13px] leading-5 text-ink-meta"
+                className="shrink-0 pr-1 text-ui leading-5 text-ink-meta"
               >
                 {t("pictureViewer.count", {
                   at: target.index + 1,
@@ -426,7 +426,7 @@ export function PictureViewer() {
               onClick={finish}
               className={iconButtonClass}
             >
-              <CloseLineIcon className="size-4" />
+              <CloseLineIcon />
             </button>
           </div>
           <div

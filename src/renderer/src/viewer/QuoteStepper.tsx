@@ -2,7 +2,7 @@ import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useMemo } from "react";
 import { useViewerHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
-import { ChevronDownLineIcon, ChevronUpLineIcon } from "../components/lineIcons";
+import { ChevronDownLineIcon, ChevronUpLineIcon } from "../components/icons";
 import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
 
@@ -57,7 +57,7 @@ export function QuoteStepper({
           disabled={at === 0}
           onClick={() => onStep(-1)}
         >
-          <ChevronUpLineIcon className="size-4" />
+          <ChevronUpLineIcon />
         </button>
         <button
           type="button"
@@ -68,7 +68,7 @@ export function QuoteStepper({
           disabled={at === total - 1}
           onClick={() => onStep(1)}
         >
-          <ChevronDownLineIcon className="size-4" />
+          <ChevronDownLineIcon />
         </button>
       </div>
     </div>

@@ -482,7 +482,7 @@ function RerankConfirm({
         onCancel();
       }}
     >
-      <p data-testid="rerank-confirm-sends" className="text-[12px] leading-5 text-ink-meta">
+      <p data-testid="rerank-confirm-sends" className="text-small leading-5 text-ink-meta">
         {t("rerank.settings.sends", { service: t(`rerank.kind.${kind}`) })}
       </p>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -500,7 +500,7 @@ function RerankConfirm({
           type="button"
           data-testid="rerank-confirm-cancel"
           onClick={onCancel}
-          className="text-[13px] leading-5 font-semibold text-ink-secondary hover:text-ink"
+          className="text-ui leading-5 text-ink-secondary hover:text-ink"
         >
           {t("library.cancel")}
         </button>

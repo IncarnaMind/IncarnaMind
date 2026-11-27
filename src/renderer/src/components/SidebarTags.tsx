@@ -12,8 +12,15 @@ import { createTagNamed, editTag } from "../tagChanges";
 import { useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { InlineName } from "./InlineName";
+import {
+  ChevronRightLineIcon,
+  MoreLineIcon,
+  PaletteIcon,
+  PlusLineIcon,
+  TagLineIcon,
+} from "./icons";
 import { useFolds } from "./LibraryFolders";
-import { ChevronRightLineIcon, MoreLineIcon, PlusLineIcon } from "./lineIcons";
+import { MenuItemParts } from "./MenuItemParts";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import { SidebarSection } from "./SidebarSection";
 import {
@@ -94,7 +101,7 @@ export function SidebarTags() {
             onClick={startNew}
             className={rowActionButtonClass}
           >
-            <PlusLineIcon className="size-4" />
+            <PlusLineIcon />
           </button>
           <SectionMenu />
         </>
@@ -133,7 +140,7 @@ function SectionMenu() {
         title={label}
         className={rowActionButtonClass}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -153,7 +160,7 @@ function SectionMenu() {
             }}
             className={`${menuItemClass} pl-2`}
           >
-            <span className="flex-1">{t("tags.menu.manage")}</span>
+            <MenuItemParts icon={TagLineIcon} label={t("tags.menu.manage")} />
           </button>
         )}
       </div>
@@ -299,7 +306,7 @@ function TagRow({
               </span>
               <span
                 data-testid="browse-count"
-                className="text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
+                className="text-small tabular-nums text-ink-meta actions-shown:hidden"
               >
                 {count}
               </span>
@@ -321,8 +328,9 @@ function TagRow({
                     data-testid="tag.colour"
                     className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
                   >
+                    <PaletteIcon className="shrink-0" />
                     <span className="flex-1">{t("tag.color")}</span>
-                    <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+                    <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
                   </button>
                 ),
               }}

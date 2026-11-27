@@ -1,7 +1,7 @@
 import { type ReactNode, useId } from "react";
 import type { DropEffect, DropProps } from "../dragDrop";
 import { useT } from "../i18n";
-import { ChevronDownLineIcon, ChevronRightLineIcon } from "./lineIcons";
+import { ChevronDownLineIcon, ChevronRightLineIcon } from "./icons";
 import { dropIntoClass } from "./sidebarRows";
 
 /**
@@ -44,7 +44,7 @@ export function SidebarSection({
         data-testid={`${testId}-heading`}
         data-drop-target={drop?.over ? "true" : undefined}
         title={tooltip}
-        className={`group/section flex h-7 items-end gap-2 rounded-md pr-0.5 pb-1 pl-2 text-label ${
+        className={`group/section flex h-7 items-end gap-2 rounded-md pr-0.5 pb-1 pl-2 text-small ${
           drop?.over ? dropIntoClass : ""
         }`}
       >
@@ -55,7 +55,7 @@ export function SidebarSection({
             aria-expanded={open}
             title={t("sidebar.section.toggle", { name: title })}
             onClick={fold.toggle}
-            className="flex min-w-0 items-center gap-0.5 rounded-sm font-semibold text-ink-meta hover:text-ink"
+            className="flex min-w-0 items-center gap-0.5 rounded-sm text-ink-meta hover:text-ink"
           >
             <span id={id} className="truncate">
               {title}
@@ -66,11 +66,11 @@ export function SidebarSection({
           <h3
             id={id}
             data-testid={headingTestId}
-            className="flex min-w-0 flex-1 items-baseline gap-1.5 truncate font-semibold text-ink-meta"
+            className="flex min-w-0 flex-1 items-baseline gap-1.5 truncate text-ink-meta"
           >
             <span className="truncate">{title}</span>
             {count !== undefined && (
-              <span data-testid="sidebar-section-count" className="text-[12px] tabular-nums">
+              <span data-testid="sidebar-section-count" className="text-small tabular-nums">
                 {count}
               </span>
             )}

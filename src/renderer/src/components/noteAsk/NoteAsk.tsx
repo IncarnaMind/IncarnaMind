@@ -37,7 +37,7 @@ import {
   useNoteColumns,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { ChevronRightLineIcon, ConversationLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon, ConversationLineIcon } from "../icons";
 import { useTabPlace } from "../tabs/tabItems";
 import { WindowColumnContext } from "../tabs/windowColumn";
 import { ConversationMenu } from "./ConversationMenu";
@@ -430,7 +430,7 @@ function ConversationHandle({ line, onOpen }: { line: ReactNode; onOpen(): void 
         onClick={onOpen}
         className="note-ask-chevron"
       >
-        <ChevronRightLineIcon className="size-3.5 -rotate-90" />
+        <ChevronRightLineIcon className="-rotate-90" />
       </button>
     </div>
   );
@@ -534,7 +534,7 @@ export function NoteConversationButton({ mindId }: { mindId: string }) {
       onClick={() => setColumnOpen(mindId, !open)}
       className="note-conversation-button"
     >
-      <ConversationLineIcon className="size-4" />
+      <ConversationLineIcon />
     </button>
   );
 }

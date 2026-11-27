@@ -11,7 +11,7 @@ import { type AddState, keyLines, useFindSources } from "../findSources";
 import { useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
 import { useAppStore } from "../store";
-import { CloseLineIcon } from "./lineIcons";
+import { CloseLineIcon } from "./icons";
 import { MetaLine } from "./MetaLine";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { SourceKeyField } from "./SourceKeyField";
@@ -99,10 +99,10 @@ export function FindSourcesPanel() {
           onClick={close}
           className={iconButtonClass}
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </div>
-      <p className="mt-0.5 text-[13px] leading-5 text-ink-meta">{t("sources.intro")}</p>
+      <p className="mt-0.5 text-ui leading-5 text-ink-meta">{t("sources.intro")}</p>
       <form
         className="mt-3 flex flex-wrap items-center gap-2"
         onSubmit={(event) => {
@@ -129,7 +129,7 @@ export function FindSourcesPanel() {
           {t(searching ? "sources.searching" : "sources.search")}
         </button>
       </form>
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] leading-5 text-ink-secondary">
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-ui leading-5 text-ink-secondary">
         <label className="flex items-center gap-2">
           {t("sources.since")}
           <select
@@ -176,9 +176,9 @@ export function FindSourcesPanel() {
                   data-testid="find-sources-provider"
                   title={t(`sources.provider.${provider.id}.about` as MessageKey)}
                   onClick={() => toggleProvider(provider.id)}
-                  className={`h-6 rounded-sm px-2 text-[13px] ${
+                  className={`h-6 rounded-sm px-2 text-ui ${
                     on
-                      ? "bg-chip font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
+                      ? "bg-chip text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
                       : "text-ink-meta line-through hover:bg-chip"
                   }`}
                 >
@@ -234,7 +234,7 @@ export function FindSourcesPanel() {
           <p
             role="status"
             data-testid="find-sources-count"
-            className="text-[13px] leading-5 text-ink-meta"
+            className="text-ui leading-5 text-ink-meta"
           >
             {result.works.length === 0
               ? t("sources.none")
@@ -336,24 +336,21 @@ function ResultRow({ work }: { work: FoundSource }) {
       className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-t border-rule py-3"
     >
       <div className="min-w-0">
-        <p data-testid="find-sources-result-title" className="font-semibold break-words text-ink">
+        <p data-testid="find-sources-result-title" className="break-words text-ink">
           {fields.title}
         </p>
         {byline.length > 0 && (
-          <MetaLine
-            parts={byline}
-            className="text-[13px] leading-5 break-words text-ink-secondary"
-          />
+          <MetaLine parts={byline} className="text-ui leading-5 break-words text-ink-secondary" />
         )}
         <MetaLine
           parts={facts}
           data-testid="find-sources-result-facts"
-          className="text-[13px] leading-5 break-words text-ink-meta"
+          className="text-ui leading-5 break-words text-ink-meta"
         />
         {work.notice && (
           <p
             data-testid="find-sources-result-notice"
-            className="text-[13px] leading-5 break-words text-ink-meta"
+            className="text-ui leading-5 break-words text-ink-meta"
           >
             {t("sources.notice", { notice: work.notice })}
           </p>

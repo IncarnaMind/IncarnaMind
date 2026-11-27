@@ -1,9 +1,9 @@
 import type { Editor } from "@tiptap/core";
 import type { WorkbookCheck } from "../../../shared/verification";
+import { ClaimMarkIcon } from "../components/icons";
 import { MetaLine } from "../components/MetaLine";
 import { useLanguage, useT } from "../i18n";
 import { shownPair } from "./formulaShown";
-import { ClaimMarkIcon } from "./icons";
 
 /**
  * What a formula's cell is, as its table in the Note names it (#3493): its row's first cell and its

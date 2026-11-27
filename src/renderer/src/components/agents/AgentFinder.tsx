@@ -36,7 +36,7 @@ export function AgentFinder({
         />
       </div>
       {unmatched && (
-        <p data-testid={`${testId}-none`} className="px-1 text-[13px] leading-5 text-ink-meta">
+        <p data-testid={`${testId}-none`} className="px-1 text-ui leading-5 text-ink-meta">
           {t("agents.find.none", { query: query.trim() })}
         </p>
       )}

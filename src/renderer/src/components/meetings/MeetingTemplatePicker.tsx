@@ -6,7 +6,7 @@ import type { SlashItem } from "../../editor/slashItems";
 import { useT } from "../../i18n";
 import { skillsInListOrder, skillTitle } from "../../skillText";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, ChevronDownLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronDownLineIcon } from "../icons";
 import { menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
@@ -88,7 +88,7 @@ export function MeetingTemplateRows({
             onClick={() => onChoose(row.id)}
           >
             <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center">
-              {selected && <CheckLineIcon className="size-4" />}
+              {selected && <CheckLineIcon />}
             </span>
             <span className="min-w-0 truncate">{row.title}</span>
           </button>
@@ -145,7 +145,7 @@ export function MeetingTemplatePicker({ meeting }: { meeting: Meeting }) {
         className="meeting-button meeting-button--words max-w-40"
       >
         <span className="meeting-button-label">{label}</span>
-        <ChevronDownLineIcon className="size-3 shrink-0" />
+        <ChevronDownLineIcon className="shrink-0" />
       </button>
       <div
         {...menu.menuProps}

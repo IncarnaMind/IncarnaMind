@@ -3,7 +3,7 @@ import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { chipsOf, hiddenTagsLine } from "../tagEditing";
 import { DocumentTagFooter } from "./DocumentTags";
-import { TagLineIcon } from "./lineIcons";
+import { TagLineIcon } from "./icons";
 import { tagChipColour } from "./TagColour";
 import { chipClass, pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "./TagPicker";
 import { useFittingChips } from "./useFittingChips";
@@ -61,7 +61,7 @@ export function DocumentTagChips({
           title={more}
           aria-label={more}
           onClick={() => popover.buttonProps.ref.current?.click()}
-          className="h-5 shrink-0 rounded-sm px-1 text-[12px] text-ink-meta hover:bg-hover hover:text-ink"
+          className="h-5 shrink-0 rounded-sm px-1 text-small text-ink-meta hover:bg-hover hover:text-ink"
         >
           +{hidden.length}
         </button>
@@ -74,13 +74,13 @@ export function DocumentTagChips({
         title={t("tags.edit", { name: document.name })}
         className={
           peek
-            ? `h-6 shrink-0 rounded-sm px-1.5 text-[12px] text-ink-meta hover:bg-hover hover:text-ink ${
+            ? `h-6 shrink-0 rounded-sm px-1.5 text-small text-ink-meta hover:bg-hover hover:text-ink ${
                 chips.length === 0 ? "-ml-1.5" : ""
               }`
             : "viewer-icon-button"
         }
       >
-        {peek ? t("peek.addTags") : <TagLineIcon className="size-4" />}
+        {peek ? t("peek.addTags") : <TagLineIcon />}
       </button>
       <div
         {...popover.popoverProps}

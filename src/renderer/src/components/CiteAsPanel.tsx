@@ -216,10 +216,10 @@ export function CiteAsPanel({
       }}
       className={`${
         inPopover ? "" : "mt-3 ml-6 max-w-[720px] border-t border-rule pt-3"
-      } text-[13px] leading-5`}
+      } text-ui leading-5`}
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-label font-semibold text-ink-meta">{t("reference.citeAs")}</h3>
+        <h3 className="text-small text-ink-meta">{t("reference.citeAs")}</h3>
         {identifier && (
           <button
             type="button"
@@ -310,7 +310,7 @@ export function CiteAsPanel({
       {toCheck.length > 0 && (
         <p
           data-testid="reference-check"
-          className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] leading-[18px] text-ink-meta"
+          className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-small leading-[18px] text-ink-meta"
         >
           <span className="inline-flex items-center gap-1.5">
             <ReviewRing />
@@ -327,7 +327,7 @@ export function CiteAsPanel({
         </p>
       )}
       {!identifier && missing.length > 0 && (
-        <p className="mt-2 text-[12px] leading-[18px] text-ink-meta">
+        <p className="mt-2 text-small leading-[18px] text-ink-meta">
           {t("reference.addIdentifier")}
         </p>
       )}
@@ -358,7 +358,7 @@ function TypeField({
         const type = referenceTypes.find((each) => each === event.target.value);
         if (type) onChange(type);
       }}
-      className="-ml-1.5 h-7 max-w-full rounded-md border-0 bg-transparent px-1 text-[13px] text-ink hover:bg-hover"
+      className="-ml-1.5 h-7 max-w-full rounded-md border-0 bg-transparent px-1 text-ui text-ink hover:bg-hover"
     >
       {referenceTypes.map((type) => (
         <option key={type} value={type}>
@@ -466,10 +466,10 @@ function TextValue({
             }
           }}
           onBlur={() => finish(true, false)}
-          className="block w-full resize-none rounded-sm border border-accent bg-sheet px-1.5 py-1 text-[13px] leading-5 text-ink outline-1 outline-accent aria-invalid:border-warning [field-sizing:content]"
+          className="block w-full resize-none rounded-sm border border-accent bg-sheet px-1.5 py-1 text-ui leading-5 text-ink outline-1 outline-accent aria-invalid:border-warning [field-sizing:content]"
         />
         {problem && (
-          <p id={problemId} role="alert" className="mt-1 text-[12px] leading-[18px] text-ink">
+          <p id={problemId} role="alert" className="mt-1 text-small leading-[18px] text-ink">
             <ProblemMark />
             {problem}
           </p>

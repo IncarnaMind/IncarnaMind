@@ -156,7 +156,7 @@ function Row({
           <span
             data-testid="setup-install-line"
             role="status"
-            className="text-[12px] leading-[18px] text-ink-meta"
+            className="text-small leading-[18px] text-ink-meta"
           >
             {line}
             {more && (

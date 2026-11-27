@@ -164,6 +164,13 @@ function firstItem(menu: HTMLElement | null, first = false): HTMLElement | undef
   return checked ?? all[0];
 }
 
+/** Whether the User last pressed the pointer rather than a key, for a menu that opens now. */
+let pointerLast = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("pointerdown", () => (pointerLast = true), true);
+  window.addEventListener("keydown", () => (pointerLast = false), true);
+}
+
 function focusFirst(menu: HTMLElement | null, first = false): void {
   firstItem(menu, first)?.focus();
 }
@@ -466,6 +473,7 @@ export function usePopoverMenu({
 
   const onKeyDown = (event: KeyboardEvent) => {
     touched.current = true;
+    menu.current?.removeAttribute("data-pointer-open");
     if (event.key === "Escape") {
       // Handled here, so the Document viewer's Esc doesn't close it too.
       event.preventDefault();
@@ -528,6 +536,9 @@ export function usePopoverMenu({
           returnWanted.current = false;
           typed.current = { text: "", at: 0 };
           focusReturn.remember();
+          // Opened with the pointer, its first item takes the focus but shows it only once a key
+          // is pressed (DESIGN.md, Menus; #3761).
+          menu.current?.toggleAttribute("data-pointer-open", pointerLast);
         }
         setOpen(event.newState === "open");
       },

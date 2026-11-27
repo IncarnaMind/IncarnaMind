@@ -1,9 +1,10 @@
 import type { ExampleGroup } from "../../../core/api";
 import { useT } from "../i18n";
 import { allExamples, useAppStore } from "../store";
-import { MoreLineIcon } from "./lineIcons";
+import { MindLineIcon, MoreLineIcon, TrashLineIcon } from "./icons";
+import { MenuItemParts } from "./MenuItemParts";
 import { rowActionButtonClass } from "./sidebarRows";
-import { menuClass, menuItemClass, menuRuleClass } from "./ui";
+import { dangerItemClass, menuClass, menuItemClass, menuRuleClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
 const NONE: readonly ExampleGroup[] = [];
@@ -34,7 +35,7 @@ export function ExampleChoices({
           onClick={choose(() => openExample(group))}
           className={`${menuItemClass} pl-2`}
         >
-          {t(`examples.group.${group}`)}
+          <MenuItemParts icon={MindLineIcon} label={t(`examples.group.${group}`)} />
         </button>
       ))}
       {more.length > 0 && <div className={menuRuleClass} />}
@@ -43,9 +44,9 @@ export function ExampleChoices({
         role="menuitem"
         data-testid="examples-remove"
         onClick={choose(removeExamples)}
-        className={`${menuItemClass} pl-2`}
+        className={`${menuItemClass} pl-2 ${dangerItemClass}`}
       >
-        {t("examples.banner.remove")}
+        <MenuItemParts icon={TrashLineIcon} label={t("examples.banner.remove")} />
       </button>
     </>
   );
@@ -68,7 +69,7 @@ export function ExamplesMenu() {
         title={label}
         className={rowActionButtonClass}
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}

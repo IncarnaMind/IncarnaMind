@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { FolderPlusLineIcon, PlusLineIcon } from "./lineIcons";
+import { FolderPlusLineIcon, PlusLineIcon } from "./icons";
 import { menuClass, menuItemClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
@@ -39,7 +39,7 @@ export function useAddYourDocuments(testId: string): {
         onClick={choose(() => void useAppStore.getState().pickDocuments())}
         className={`${menuItemClass} pl-2`}
       >
-        <PlusLineIcon className="size-4 shrink-0 text-ink-meta" />
+        <PlusLineIcon className="shrink-0" />
         <span className="flex-1">{t("startGuide.documents.addFiles")}</span>
       </button>
       <button
@@ -49,7 +49,7 @@ export function useAddYourDocuments(testId: string): {
         onClick={choose(() => void useAppStore.getState().addLinkedFolder())}
         className={`${menuItemClass} pl-2`}
       >
-        <FolderPlusLineIcon className="size-4 shrink-0 text-ink-meta" />
+        <FolderPlusLineIcon className="shrink-0" />
         <span className="flex-1">{t("startGuide.documents.linkFolder")}</span>
       </button>
     </div>

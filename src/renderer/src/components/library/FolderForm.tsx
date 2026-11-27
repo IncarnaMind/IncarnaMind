@@ -105,7 +105,7 @@ export function FolderForm({
         />
         <span>
           <span className="text-ink">{t("library.countsOwnFiles")}</span>
-          <span className="block text-[13px] text-ink-meta">
+          <span className="block text-ui text-ink-meta">
             {t(leftOut ? "library.countsOwnFiles.hint" : "library.countsOwnFiles.everywhere")}
           </span>
         </span>
@@ -137,8 +137,8 @@ export function StarterFolders({ close }: { close(): void }) {
       aria-label={t("library.chooseStarters")}
       className="mt-4 max-w-xl border-y border-rule py-4"
     >
-      <h2 className="mb-1 font-semibold">{t("library.chooseStarters")}</h2>
-      <p className="mb-3 text-[13px] text-ink-meta">{t("library.startersHint")}</p>
+      <h2 className="mb-1">{t("library.chooseStarters")}</h2>
+      <p className="mb-3 text-ui text-ink-meta">{t("library.startersHint")}</p>
       {libraryPresetKeys.map((key) => (
         <label key={key} className="flex cursor-pointer items-start gap-3 py-2">
           <input
@@ -152,8 +152,8 @@ export function StarterFolders({ close }: { close(): void }) {
             className="mt-1 size-4 accent-ink"
           />
           <span>
-            <span className="font-semibold">{t(`library.preset.${key}`)}</span>
-            <span className="block text-[13px] text-ink-meta">
+            <span>{t(`library.preset.${key}`)}</span>
+            <span className="block text-ui text-ink-meta">
               {t(`library.preset.${key}.description`)}
             </span>
           </span>

@@ -4,7 +4,7 @@ import { isInsideFolder } from "../folders";
 import { useT } from "../i18n";
 import { matchName, queryWords } from "../matcher";
 import { useAppStore } from "../store";
-import { FolderLineIcon, FolderPlusLineIcon } from "./lineIcons";
+import { FolderLineIcon, FolderPlusLineIcon } from "./icons";
 import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPicker";
 
 type Choice = string | null | { newFolder: string };
@@ -22,7 +22,7 @@ function treeOptions(
     keywords: option.keywords,
     ...(option.detail && { detail: option.detail }),
     data: { "data-folder-id": option.folder.id },
-    icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
+    icon: <FolderLineIcon className="shrink-0 text-ink-meta" />,
   }));
 }
 
@@ -78,7 +78,7 @@ export function MoveToPicker({
     id: null,
     label: t("library.unsorted"),
     data: { "data-folder-id": "" },
-    icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta opacity-60" />,
+    icon: <FolderLineIcon className="shrink-0 text-ink-meta opacity-60" />,
   };
   const topLevel: PickerOption<Choice>[] = offeredFolderIds
     ? includeUnfiled && !forFolder
@@ -90,7 +90,7 @@ export function MoveToPicker({
             id: null,
             label: t("folder.topLevel"),
             data: { "data-folder-id": "" },
-            icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
+            icon: <FolderLineIcon className="shrink-0 text-ink-meta" />,
           },
         ]
       : [unfiledOption];
@@ -118,7 +118,7 @@ export function MoveToPicker({
               id: { newFolder: query },
               label: t("move.newFolder", { name: query }),
               data: { "data-new-folder": "true" },
-              icon: <FolderPlusLineIcon className="size-4 shrink-0 text-ink-meta" />,
+              icon: <FolderPlusLineIcon className="shrink-0 text-ink-meta" />,
             },
           ]
         : [];

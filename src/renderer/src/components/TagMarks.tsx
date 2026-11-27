@@ -50,7 +50,7 @@ export function TagMarks({
       {more > 0 && (
         <span
           data-testid="tag-marks-more"
-          className="pl-1 text-[12px] leading-4 text-ink-meta tabular-nums"
+          className="pl-1 text-small leading-4 text-ink-meta tabular-nums"
         >
           +{more}
         </span>
@@ -136,7 +136,7 @@ export function TagNamesTip() {
       popover="manual"
       aria-hidden="true"
       data-testid="tag-names-tip"
-      className="pointer-events-none inset-auto m-0 w-max max-w-64 flex-col rounded-md border-0 bg-sheet px-2 py-1 text-[12px] leading-5 text-ink shadow-popover open:flex"
+      className="pointer-events-none inset-auto m-0 w-max max-w-64 flex-col rounded-md border-0 bg-sheet px-2 py-1 text-small leading-5 text-ink shadow-popover open:flex"
     >
       {visible &&
         chips.map(({ tag }) => (

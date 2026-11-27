@@ -486,7 +486,7 @@ test("Open beside opens the live Transcript next to the meeting, closing its tab
       spread: Math.max(red, green, blue) - Math.min(red, green, blue),
     };
   });
-  expect(label).toMatchObject({ size: "12px", weight: "600" });
+  expect(label).toMatchObject({ size: "12px", weight: "400" });
   expect(label.spread).toBeLessThan(24);
   // A tab of its own in the group beside the meeting's Mind, which stays where it was.
   await expect(window.getByTestId("tab-group")).toHaveCount(2);

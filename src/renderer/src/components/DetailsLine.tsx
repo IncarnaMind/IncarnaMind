@@ -31,7 +31,7 @@ export function DetailsLine({
             aria-expanded={open}
             aria-controls={panel}
             onClick={() => setOpen(!open)}
-            className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+            className="rounded-sm text-accent underline-offset-2 hover:underline"
           >
             {t("details.label")}
           </button>

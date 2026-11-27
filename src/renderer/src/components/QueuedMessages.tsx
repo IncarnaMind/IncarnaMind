@@ -1,9 +1,9 @@
 import type { Task } from "../../../core/api";
 import { cutTitle } from "../../../shared/naming";
-import { RemoveIcon } from "../editor/icons";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { takeBack } from "../taskTell";
+import { RemoveIcon } from "./icons";
 
 /**
  * What the User told a Task that it hasn't read yet (DESIGN.md, Task tray ›
@@ -32,7 +32,7 @@ export function QueuedMessages({ task }: { task: Task }) {
             onClick={() => takeBack(task, message).catch(report)}
             className="task-queued-remove"
           >
-            <RemoveIcon className="size-2.5" />
+            <RemoveIcon />
           </button>
         </li>
       ))}

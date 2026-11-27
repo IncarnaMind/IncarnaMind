@@ -1,8 +1,7 @@
-import { DocumentLineIcon } from "../components/lineIcons";
+import { ChevronDownLineIcon, DocumentLineIcon, RemoveIcon } from "../components/icons";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { linesOf, type Paste } from "../composer";
 import { useT } from "../i18n";
-import { ChevronDownSmallIcon, RemoveIcon } from "./icons";
 
 /** "Pasted text · 74 lines": by lines, or by characters for one long line. */
 export function usePasteLabel() {
@@ -53,7 +52,7 @@ export function PasteChip({
       >
         <DocumentLineIcon kind="text" className="paste-chip-icon" />
         <span className="truncate">{label}</span>
-        <ChevronDownSmallIcon className="composer-model-chevron" />
+        <ChevronDownLineIcon className="composer-model-chevron" />
       </button>
       <button
         type="button"
@@ -63,7 +62,7 @@ export function PasteChip({
         onClick={onRemove}
         className="scope-chip-remove"
       >
-        <RemoveIcon className="size-2.5" />
+        <RemoveIcon />
       </button>
       <div
         {...menu.menuProps}

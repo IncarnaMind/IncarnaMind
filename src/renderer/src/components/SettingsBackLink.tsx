@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { ChevronLeftLineIcon } from "./lineIcons";
+import { ChevronLeftLineIcon } from "./icons";
 
 /** Named by the page it goes up to (interaction rule 3). */
 export function SettingsBackLink({
@@ -25,9 +25,9 @@ export function SettingsBackLink({
       type="button"
       data-testid={testId}
       onClick={onBack}
-      className="inline-flex items-center gap-1 self-start rounded-sm text-[12px] leading-[18px] text-ink-meta hover:text-ink"
+      className="inline-flex items-center gap-1 self-start rounded-sm text-small leading-[18px] text-ink-meta hover:text-ink"
     >
-      <ChevronLeftLineIcon className="size-3" />
+      <ChevronLeftLineIcon />
       {label}
     </button>
   );

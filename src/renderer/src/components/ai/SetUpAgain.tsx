@@ -11,7 +11,7 @@ export function SetUpAgain() {
         type="button"
         data-testid="ai-set-up-again"
         onClick={openSetup}
-        className="rounded-sm text-[13px] leading-5 font-semibold text-accent-strong underline-offset-2 hover:underline"
+        className="rounded-sm text-ui leading-5 text-accent-strong underline-offset-2 hover:underline"
       >
         {t("setupPage.again")}
       </button>

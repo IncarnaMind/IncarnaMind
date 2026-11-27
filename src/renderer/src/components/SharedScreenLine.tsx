@@ -6,7 +6,7 @@ import { useLanguage, useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { loadSavedProviders, useSavedProviders } from "../savedProviders";
 import { useAppStore } from "../store";
-import { ScreenLineIcon } from "./lineIcons";
+import { ScreenLineIcon } from "./icons";
 import { providerName } from "./providers/shared";
 
 interface LineAction {

@@ -83,7 +83,7 @@ export function JobsSection({
                 type="button"
                 data-testid="ai-jobs-install-claude-code"
                 onClick={focusClaudeCodeInstallOffer}
-                className="rounded-sm text-[13px] font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+                className="rounded-sm text-ui text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
               >
                 {t("agents.install.action")}
               </button>

@@ -8,7 +8,16 @@ import type { Verification } from "../../../shared/verification";
 import { offersReview, reviewApplied } from "../appliedEdits";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { ExampleChoices } from "../components/ExamplesMenu";
-import { ChevronRightLineIcon } from "../components/lineIcons";
+import {
+  ChevronRightLineIcon,
+  CommentLineIcon,
+  FolderOpenIcon,
+  OpenBesideLineIcon,
+  QuoteIcon,
+  SparkLineIcon,
+  TextIcon,
+} from "../components/icons";
+import { MenuItemParts } from "../components/MenuItemParts";
 import { MindStyleChoices, useStyleValue } from "../components/MindStyle";
 import { MoveToPicker } from "../components/MoveToPicker";
 import { ObjectMenu } from "../components/ObjectMenu";
@@ -134,11 +143,12 @@ export function PageMenu({
                           data-testid="page-style"
                           className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
                         >
+                          <TextIcon className="shrink-0" />
                           <span className="flex-1">{t("mindStyle.title")}</span>
-                          <span className="max-w-32 truncate pl-4 text-[13px] text-ink-meta">
+                          <span className="max-w-32 truncate pl-4 text-small text-ink-meta">
                             {styleValue}
                           </span>
-                          <ChevronRightLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+                          <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
                         </button>
                       )}
                       {!readOnly && (
@@ -155,7 +165,7 @@ export function PageMenu({
                           }}
                           className={`${menuItemClass} pl-2`}
                         >
-                          <span className="flex-1">{t("citationStyle.command")}</span>
+                          <MenuItemParts icon={QuoteIcon} label={t("citationStyle.command")} />
                         </button>
                       )}
                       {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
@@ -173,6 +183,7 @@ export function PageMenu({
                           }}
                           className={`${menuItemClass} pl-2`}
                         >
+                          <SparkLineIcon className="shrink-0" />
                           <span className="min-w-0 flex-1 truncate">
                             {t("edit.applied.review")}
                           </span>
@@ -193,6 +204,7 @@ export function PageMenu({
                               }}
                               className={`${menuItemClass} pl-2`}
                             >
+                              <CommentLineIcon className="shrink-0" />
                               <span className="min-w-0 flex-1 truncate">
                                 {t("review.menuItem")}
                               </span>
@@ -217,6 +229,7 @@ export function PageMenu({
                             }}
                             className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
                           >
+                            <OpenBesideLineIcon className="shrink-0" />
                             <span className="min-w-0 flex-1 truncate">
                               {t(origin.word ? "wordImport.from" : "verify.from", {
                                 name: origin.name,
@@ -239,7 +252,10 @@ export function PageMenu({
                               }}
                               className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
                             >
-                              {t(showFileLabelKey(navigator.platform))}
+                              <MenuItemParts
+                                icon={FolderOpenIcon}
+                                label={t(showFileLabelKey(navigator.platform))}
+                              />
                             </button>
                           )}
                         </>

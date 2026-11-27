@@ -1053,7 +1053,7 @@ test("an empty conversation says once what it reads and searches, following focu
   const actions = answer.getByTestId("answer-actions");
   await expect(actions).toHaveText("Write as a noteAdd to “Beta”Copy");
   await expect(actions).not.toContainText(MODEL_NAME);
-  await expect(answer.getByTestId("answer-copy")).toHaveCSS("font-size", "13px");
+  await expect(answer.getByTestId("answer-copy")).toHaveCSS("font-size", "14px");
   await expect(answer.getByTestId("answer-copy")).toHaveCSS("font-weight", "400");
   await app.close();
 });

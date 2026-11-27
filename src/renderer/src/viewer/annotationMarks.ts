@@ -7,6 +7,7 @@
  */
 import type { Annotation, AnnotationColour } from "../../../core/api";
 import { findQuote, findQuoteOccurrences, type TextRange } from "../../../shared/quoteMatch";
+import { iconMarkup } from "../components/icons";
 import { markText, piecesOf, textNodes } from "./domQuote";
 
 /** The words of `text` that fall inside a highlight, with the highlight that holds them. */
@@ -71,8 +72,7 @@ export function noteMarkElement(
   button.title = label;
   button.className = "annotation-note-mark";
   button.dataset.hasNote = annotation.note === null ? "false" : "true";
-  button.innerHTML =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-[11px]"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3h8L19 7.5v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5z"/><path d="M14 3v5h5M8.5 12h7M8.5 15.5h5"/></svg>';
+  button.innerHTML = iconMarkup("note");
   return button;
 }
 

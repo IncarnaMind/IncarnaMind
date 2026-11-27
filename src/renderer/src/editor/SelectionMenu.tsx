@@ -14,8 +14,14 @@ import {
 } from "react";
 import type { MessageKey } from "../../../shared/i18n";
 import { keysHere, shortcutLabel } from "../commands/keymap";
-import { ChevronIcon, CommentIcon } from "../components/icons";
-import { PageBreakLineIcon } from "../components/lineIcons";
+import {
+  ChevronIcon,
+  ClearFormatIcon,
+  CommentLineIcon,
+  LinkLineIcon,
+  PageBreakLineIcon,
+  SumIcon,
+} from "../components/icons";
 import { useT } from "../i18n";
 import { commentCommandName, commentKeyshortcuts } from "./commentButton";
 import { isComposing } from "./composing";
@@ -593,7 +599,7 @@ export function SelectionMenu({
               >
                 <span className="editor-menu-icon">T</span>
                 <span className="flex-1 truncate">{t(state.turn)}</span>
-                <ChevronIcon className="size-4 text-ink-meta" />
+                <ChevronIcon className="text-ink-meta" />
               </button>
               <hr className="selection-rule" />
             </>
@@ -643,7 +649,7 @@ export function SelectionMenu({
               }}
               className="selection-format"
             >
-              <span aria-hidden="true">↗</span>
+              <LinkLineIcon />
             </button>
             {MARKS.slice(4, 5).map((each) => (
               <FormatButton
@@ -670,7 +676,7 @@ export function SelectionMenu({
               }
               className="selection-format"
             >
-              <span aria-hidden="true">∑</span>
+              <SumIcon />
             </button>
             <button
               type="button"
@@ -703,7 +709,7 @@ export function SelectionMenu({
               }}
               className="selection-format"
             >
-              <PageBreakLineIcon className="size-4" />
+              <PageBreakLineIcon />
             </button>
             {MARKS.slice(5).map((each) => (
               <FormatButton
@@ -724,7 +730,7 @@ export function SelectionMenu({
               onClick={() => act(() => clearFormatting(editor))}
               className="selection-format"
             >
-              <span aria-hidden="true">T×</span>
+              <ClearFormatIcon />
             </button>
             {comment && commentName && (
               <button
@@ -743,7 +749,7 @@ export function SelectionMenu({
                 }}
                 className="selection-format"
               >
-                <CommentIcon className="size-4" />
+                <CommentLineIcon />
               </button>
             )}
           </div>
@@ -783,7 +789,7 @@ export function SelectionMenu({
                     <span className="editor-menu-icon">{action.icon}</span>
                     <span className="flex-1 truncate">{t(action.label)}</span>
                     {action.keys && <span className="editor-menu-shortcut">{action.keys}</span>}
-                    {action.choices && <ChevronIcon className="size-4 text-ink-meta" />}
+                    {action.choices && <ChevronIcon className="text-ink-meta" />}
                   </button>
                 ))}
                 {edit && state.editable && (

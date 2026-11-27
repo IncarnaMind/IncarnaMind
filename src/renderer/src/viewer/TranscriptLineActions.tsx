@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { clockTime } from "../../../shared/clock";
-import { MoreLineIcon } from "../components/lineIcons";
+import { CircleCheckIcon, ListAddIcon, MoreLineIcon } from "../components/icons";
+import { MenuItemParts } from "../components/MenuItemParts";
 import { menuClass, menuItemClass } from "../components/ui";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { useT } from "../i18n";
@@ -51,7 +52,7 @@ export function TranscriptLineActions({
         style={{ marginTop: top }}
         className="transcript-add transcript-line-actions"
       >
-        <MoreLineIcon className="size-3.5" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -67,7 +68,7 @@ export function TranscriptLineActions({
           onClick={() => select(onAddToNote)}
           className={`${menuItemClass} pl-2`}
         >
-          {t("transcript.addToNote")}
+          <MenuItemParts icon={ListAddIcon} label={t("transcript.addToNote")} />
         </button>
         <button
           type="button"
@@ -75,7 +76,7 @@ export function TranscriptLineActions({
           onClick={() => select(onAddAction)}
           className={`${menuItemClass} pl-2`}
         >
-          {t("transcript.action.add")}
+          <MenuItemParts icon={CircleCheckIcon} label={t("transcript.action.add")} />
         </button>
       </div>
     </>

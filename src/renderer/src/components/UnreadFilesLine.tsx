@@ -91,7 +91,7 @@ function UnreadFileRow({ file }: { file: UnreadFile }) {
     <li
       data-testid="unread-file"
       data-reason={file.reason}
-      className="font-sans text-[13px] leading-5 break-words text-ink-meta"
+      className="font-sans text-ui leading-5 break-words text-ink-meta"
     >
       <MetaLine
         as="div"

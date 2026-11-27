@@ -5,7 +5,7 @@ import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useNoteAsks } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, ChevronRightLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronRightLineIcon } from "../icons";
 import { menuClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
@@ -96,9 +96,7 @@ export function NoteModeChoice({ mindId }: { mindId: string }) {
       onClick={onPick}
       className="note-column-model-item"
     >
-      <span className="note-column-model-check">
-        {ticked && <CheckLineIcon className="size-3.5" />}
-      </span>
+      <span className="note-column-model-check">{ticked && <CheckLineIcon />}</span>
       <span className="flex min-w-0 flex-col items-start">
         <span className="text-ink">{name}</span>
         <span className="text-ink-meta">{about}</span>
@@ -118,7 +116,7 @@ export function NoteModeChoice({ mindId }: { mindId: string }) {
         className="note-ask-model note-ask-model--button"
       >
         <span className="note-ask-model-name">{nameOf(mode)}</span>
-        <ChevronRightLineIcon className="size-3 flex-none rotate-90" aria-hidden="true" />
+        <ChevronRightLineIcon className="flex-none rotate-90" aria-hidden="true" />
       </button>
       <div
         {...menu.menuProps}

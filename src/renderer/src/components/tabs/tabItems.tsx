@@ -7,7 +7,7 @@ import { clockTime } from "../../meetingTime";
 import { useMindStatus } from "../../mindStatus";
 import { useAppStore } from "../../store";
 import { tabTitle } from "../../tabs";
-import { DocumentLineIcon, HomeLineIcon, LooseDocumentsLineIcon, MindLineIcon } from "../lineIcons";
+import { DocumentLineIcon, HomeLineIcon, LooseDocumentsLineIcon, MindLineIcon } from "../icons";
 
 /** The tab a piece of UI is in, and its group: a Citation in a Mind opens beside that group. */
 export interface TabPlace {

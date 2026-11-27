@@ -261,10 +261,7 @@ export function CommandApprovalCard({
               <li key={index} data-testid="approval-file">
                 {name}
                 {fresh.includes(name) && (
-                  <span
-                    data-testid="approval-file-new"
-                    className="ml-2 font-semibold text-ink-meta"
-                  >
+                  <span data-testid="approval-file-new" className="ml-2 text-ink-meta">
                     {t("commands.ask.export.new")}
                   </span>
                 )}

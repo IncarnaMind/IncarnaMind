@@ -131,7 +131,7 @@ export function SetupPage({
       {/* The window's top moves it, as the app's band does. */}
       <div aria-hidden="true" className="title-bar absolute inset-x-0 top-0 h-11" />
       <main className="flex flex-1 flex-col items-center gap-6 px-4 pt-[clamp(3rem,9vh,6.5rem)] pb-10">
-        <p className="flex items-center gap-2.5 text-[15px] leading-6 font-semibold text-ink">
+        <p className="flex items-center gap-2.5 text-ui leading-6 text-ink">
           <img src={appIcon} alt="" className="size-9" />
           IncarnaMind
         </p>

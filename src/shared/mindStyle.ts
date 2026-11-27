@@ -152,7 +152,7 @@ export interface WritingType {
   family: string;
   body: TypeSize;
   heading: TypeSize;
-  display: TypeSize;
+  title: TypeSize;
   /** Footnotes, References and table text: a step below the writing, at every size. */
   note: TypeSize;
 }
@@ -172,7 +172,7 @@ const BODY: Record<"serif" | "other", Record<TextSize, TypeSize>> = {
   },
 };
 const HEADING: TypeSize = { size: 22, leading: 30 };
-const DISPLAY: TypeSize = { size: 34, leading: 42 };
+const TITLE: TypeSize = { size: 32, leading: 40 };
 /** The headings and the title grow with the writing, by the default body size's share. */
 const SCALE: Record<TextSize, number> = { small: 14 / 16, default: 1, large: 18 / 16 };
 
@@ -213,7 +213,7 @@ export function writingType(style: MindStyle, installed: boolean): WritingType {
         ? body
         : { size: body.size, leading: Math.round(body.size * SINGLE_LINE * lineSpacing) },
     heading: scaled(HEADING, factor),
-    display: scaled(DISPLAY, factor),
+    title: scaled(TITLE, factor),
     note: { size: body.size - NOTE_STEP.size, leading: body.leading - NOTE_STEP.leading },
   };
 }
@@ -231,8 +231,8 @@ export function writingProperties(type: WritingType): Record<`--${string}`, stri
     "--text-body--line-height": `${type.body.leading}px`,
     "--text-heading": `${type.heading.size}px`,
     "--text-heading--line-height": `${type.heading.leading}px`,
-    "--text-display": `${type.display.size}px`,
-    "--text-display--line-height": `${type.display.leading}px`,
+    "--text-title": `${type.title.size}px`,
+    "--text-title--line-height": `${type.title.leading}px`,
     "--text-note": `${type.note.size}px`,
     "--text-note--line-height": `${type.note.leading}px`,
   };

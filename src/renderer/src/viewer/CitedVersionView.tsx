@@ -197,7 +197,7 @@ function AsCitedBar({
   return (
     <div
       data-testid="viewer-as-cited"
-      className="shrink-0 border-b border-rule px-4 py-1.5 text-[13px] leading-5 text-ink-meta"
+      className="shrink-0 border-b border-rule px-4 py-1.5 text-ui leading-5 text-ink-meta"
     >
       <MetaLine
         as="div"
@@ -354,7 +354,7 @@ function CitedVersionContent({
                 {picturePlace && (
                   <p
                     data-testid="viewer-cited-place"
-                    className="mb-2 font-sans text-label font-semibold text-ink-meta"
+                    className="mb-2 font-sans text-small text-ink-meta"
                   >
                     {picturePlace}
                   </p>
@@ -371,7 +371,7 @@ function CitedVersionContent({
                   {(place ?? label) && (
                     <p
                       data-testid="viewer-cited-place"
-                      className="mb-2 font-sans text-label font-semibold text-ink-meta"
+                      className="mb-2 font-sans text-small text-ink-meta"
                     >
                       {place ?? label}
                     </p>

@@ -3,7 +3,7 @@ import { captureLines, unsavedAudioMs } from "../captureHealth";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { clockTime, durationLabel } from "../meetingTime";
-import { ChevronDownLineIcon, ChevronRightLineIcon, PulseLineIcon } from "./lineIcons";
+import { ChevronDownLineIcon, ChevronRightLineIcon, PulseLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 
 /*
@@ -37,7 +37,7 @@ export function CaptureDetailsToggle({ meeting }: { meeting: Meeting }) {
       onClick={() => useMeetings.getState().showDetails(meeting.id)}
       className="meeting-button meeting-button--icon"
     >
-      <PulseLineIcon className="size-4" />
+      <PulseLineIcon />
     </button>
   );
 }

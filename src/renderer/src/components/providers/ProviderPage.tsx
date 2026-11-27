@@ -26,8 +26,8 @@ import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { EstimateTip, estimateTip, PricingLink } from "../EstimateSource";
+import { PlusLineIcon, TrashLineIcon } from "../icons";
 import { KeyCharacterLine } from "../KeyCharacterLine";
-import { PlusLineIcon, TrashLineIcon } from "../lineIcons";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsBackLink } from "../SettingsBackLink";
@@ -257,7 +257,7 @@ export function ProviderPage({
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h4
             data-testid="provider-page-title"
-            className="truncate text-[17px] leading-6 font-semibold text-ink"
+            className="truncate text-body leading-6 text-ink"
             title={name}
           >
             {name}
@@ -265,7 +265,7 @@ export function ProviderPage({
           {address && (
             <span
               data-testid="provider-page-address"
-              className="truncate text-[13px] leading-5 text-ink-meta"
+              className="truncate text-ui leading-5 text-ink-meta"
               title={address}
             >
               {address}
@@ -336,7 +336,7 @@ export function ProviderPage({
                         target="_blank"
                         rel="noreferrer"
                         data-testid="provider-page-get-key"
-                        className="text-[13px] leading-5 text-accent underline-offset-2 hover:underline"
+                        className="text-ui leading-5 text-accent underline-offset-2 hover:underline"
                       >
                         {t("models.provider.getKey")} ↗
                       </a>
@@ -430,7 +430,7 @@ export function ProviderPage({
               label={t("providers.settings.remove")}
               testId="provider-remove"
               onClick={() => void remove()}
-              trailing={<TrashLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
+              trailing={<TrashLineIcon className="shrink-0 text-ink-placeholder" />}
             />
           </SettingsGroup>
         </SettingsSection>
@@ -546,7 +546,7 @@ function ModelsList({
               }
               control={
                 <>
-                  <span className="text-[12px] leading-5 text-ink-meta">
+                  <span className="text-small leading-5 text-ink-meta">
                     <CostText
                       cost={about?.cost ?? null}
                       provider={name}
@@ -625,7 +625,7 @@ function AddModelId({
             label={t("models.provider.addModel")}
             testId="provider-add-model"
             onClick={() => setOpen(true)}
-            trailing={<PlusLineIcon className="size-4 shrink-0 text-ink-placeholder" />}
+            trailing={<PlusLineIcon className="shrink-0 text-ink-placeholder" />}
           />
         </SettingsGroup>
       </SettingsSection>
@@ -701,7 +701,7 @@ function ProviderCostLine({ providerId }: { providerId: string }) {
   const setAside = setAsideText(used.setAside, t, language);
   const tokens = new Intl.NumberFormat(language).format(used.unpricedTokens);
   return (
-    <span data-testid="chat-provider-cost" className="text-[13px] leading-5 text-ink-meta">
+    <span data-testid="chat-provider-cost" className="text-ui leading-5 text-ink-meta">
       {spent ? t("cost.provider.thisMonth", { spent }) : t("cost.provider.unpriced", { tokens })}
       {setAside && (
         <>

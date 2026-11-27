@@ -32,7 +32,7 @@
 }
 /* "Ask about this slide" on hover or focus, over the slide's top right corner (#118). */
 .viewer-slide-ask {
-  @apply absolute z-[2] flex items-center gap-1.5 rounded-md bg-sheet px-2.5 text-[13px] font-semibold text-ink;
+  @apply absolute z-[2] flex items-center gap-1.5 rounded-md bg-sheet px-2.5 text-ui text-ink;
   top: 10px;
   right: 10px;
   height: 28px;
@@ -67,7 +67,7 @@
   box-shadow: 0 0 0 1px var(--color-rule);
 
   summary {
-    @apply flex h-7 cursor-pointer items-center gap-1.5 px-3 text-label text-ink-meta select-none;
+    @apply flex h-7 cursor-pointer items-center gap-1.5 px-3 text-small text-ink-meta select-none;
     list-style: none;
 
     &::-webkit-details-marker {
@@ -113,6 +113,7 @@
   overflow: hidden;
   color: #000000;
   font-family: "Carlito", "Helvetica Neue", Arial, sans-serif;
+  /* biome-ignore lint/plugin/noRawFontSizeCss: the slide's own drawing, at PowerPoint's default size. */
   font-size: 24px;
   font-weight: 400;
   line-height: 1.2;
@@ -152,7 +153,7 @@
 }
 /* A picture a browser can't show (EMF, WMF, TIFF): its place, labelled. */
 .slide-picture-missing {
-  @apply absolute inset-0 flex items-center justify-center bg-frame font-sans text-[16px] text-ink-meta;
+  @apply absolute inset-0 flex items-center justify-center bg-frame font-sans text-body text-ink-meta;
   box-shadow: inset 0 0 0 1px var(--color-rule-strong);
 }
 .slide-chart {
@@ -163,11 +164,11 @@
 }
 /* A chart of a kind not drawn: its box, labelled, with its title and figures. */
 .slide-chart-missing {
-  @apply absolute inset-0 overflow-hidden bg-frame p-4 font-sans text-[16px] leading-6 text-ink-secondary;
+  @apply absolute inset-0 overflow-hidden bg-frame p-4 font-sans text-body leading-6 text-ink-secondary;
   box-shadow: inset 0 0 0 1px var(--color-rule-strong);
 
   figcaption {
-    @apply mb-1 text-[14px] font-semibold text-ink-meta;
+    @apply mb-1 text-ui font-semibold text-ink-meta;
   }
 }
 
@@ -282,7 +283,7 @@
 }
 /* Why a deck isn't edited by hand (signed, final, a password to modify), said once over its slides. */
 .viewer-deck-refusal {
-  @apply px-6 text-[13px] text-ink-meta;
+  @apply px-6 text-ui text-ink-meta;
 }
 /* Live on-slide outline of shapes touched by a waiting AI Proposal (#149 part 2). */
 .slide-proposal-outline {
@@ -327,16 +328,16 @@
   @apply flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5;
 }
 .viewer-deck-proposal-title {
-  @apply text-[13px] font-medium text-ink;
+  @apply text-ui font-normal text-ink;
 }
 .viewer-deck-proposal-place {
-  @apply text-[12px] text-ink-secondary;
+  @apply text-small text-ink-secondary;
 }
 .viewer-deck-proposal-controls {
   @apply flex items-center gap-2;
 }
 .viewer-deck-proposal-link {
-  @apply cursor-pointer border-0 bg-transparent p-0 text-[12px] font-medium text-ink-secondary;
+  @apply cursor-pointer border-0 bg-transparent p-0 text-small text-ink-secondary;
   &:hover {
     color: var(--color-ink);
     text-decoration: underline;
@@ -352,13 +353,13 @@
   border-bottom: 1px solid var(--color-rule);
 }
 .viewer-deck-proposal-summary {
-  @apply m-0 text-[12px] text-ink-secondary;
+  @apply m-0 text-small text-ink-secondary;
 }
 .viewer-deck-proposal-items {
   @apply m-0 flex list-none flex-col gap-2 p-0;
 }
 .viewer-deck-proposal-item {
-  @apply flex flex-col gap-1 rounded-lg p-2 text-[12px];
+  @apply flex flex-col gap-1 rounded-lg p-2 text-small;
   background: var(--color-page-backdrop);
   border: 1px solid var(--color-rule);
 }
@@ -366,7 +367,7 @@
   @apply flex flex-wrap items-center justify-between gap-2 text-ink-meta;
 }
 .viewer-deck-proposal-overflow {
-  @apply text-[12px] font-medium;
+  @apply text-small;
   color: var(--color-warning);
 }
 .viewer-deck-proposal-diff {
@@ -374,18 +375,18 @@
 }
 .viewer-deck-proposal-before,
 .viewer-deck-proposal-after {
-  @apply flex flex-col gap-0.5 rounded-md px-2 py-1 text-[12px] whitespace-pre-wrap;
+  @apply flex flex-col gap-0.5 rounded-md px-2 py-1 text-small whitespace-pre-wrap;
   background: var(--color-sheet);
   border: 1px solid var(--color-rule);
 }
 .viewer-deck-proposal-label {
-  @apply text-[11px] font-medium text-ink-meta;
+  @apply text-small text-ink-meta;
 }
 .viewer-deck-proposal-actions {
   @apply flex flex-wrap items-center gap-1.5;
 }
 .viewer-deck-proposal-btn {
-  @apply cursor-pointer rounded-full px-3 py-1 text-[12px] font-medium text-ink;
+  @apply cursor-pointer rounded-full px-3 py-1 text-small text-ink;
   background: var(--color-sheet);
   border: 1px solid var(--color-rule-strong);
   &:hover:not(:disabled) {
@@ -411,7 +412,7 @@
 }
 .viewer-deck-working,
 .viewer-deck-receipt {
-  @apply flex w-full items-center justify-between gap-3 py-0.5 text-[13px] text-ink;
+  @apply flex w-full items-center justify-between gap-3 py-0.5 text-ui text-ink;
 }
 .viewer-deck-working-text {
   @apply min-w-0 flex-1 text-ink-secondary;
@@ -420,12 +421,12 @@
   @apply min-w-0 flex-1 text-ink;
 }
 .viewer-deck-proposal-error {
-  @apply mx-3 mt-2 rounded-lg px-3 py-1.5 text-[12px] text-ink;
+  @apply mx-3 mt-2 rounded-lg px-3 py-1.5 text-small text-ink;
   background: var(--color-warning-wash);
   border: 1px solid var(--color-warning);
 }
 .viewer-deck-agent-select {
-  @apply max-w-36 cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[12px] text-ink-secondary;
+  @apply max-w-36 cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-small text-ink-secondary;
   &:hover {
     background: var(--color-hover);
     color: var(--color-ink);

@@ -98,9 +98,10 @@ const BUTTONS = [IDS.searchAll, IDS.keep];
 
 /**
  * Every other action, under the card's one ⋯ in the order the card has always had them, then Find
- * sources…, the check's own command, after them as every object menu lists its kind's.
+ * sources…, the check's own command, after them as every object menu lists its kind's; what takes
+ * something away last, in red.
  */
-const IN_MENU = [IDS.chooseCitation, IDS.cut, IDS.searchWeb, IDS.remove, IDS.findSources];
+const IN_MENU = [IDS.chooseCitation, IDS.searchWeb, IDS.findSources, IDS.cut, IDS.remove];
 
 /** How many lines a control's label takes. */
 const labelLines = (control: Locator) =>

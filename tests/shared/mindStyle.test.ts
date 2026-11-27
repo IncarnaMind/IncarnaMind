@@ -101,9 +101,9 @@ describe("the type a Mind is written in", () => {
     });
   });
 
-  test("keeps the title 34/42 and the headings 22/30 at the default size", () => {
+  test("keeps the title 32/40 and the headings 22/30 at the default size", () => {
     const type = writingType(DEFAULT_MIND_STYLE, true);
-    expect(type.display).toEqual({ size: 34, leading: 42 });
+    expect(type.title).toEqual({ size: 32, leading: 40 });
     expect(type.heading).toEqual({ size: 22, leading: 30 });
   });
 
@@ -131,8 +131,8 @@ describe("the type a Mind is written in", () => {
     expect(large.body.size).toBeGreaterThan(16);
     expect(small.heading.size).toBeLessThan(22);
     expect(large.heading.size).toBeGreaterThan(22);
-    expect(small.display.size).toBeLessThan(34);
-    expect(large.display.size).toBeGreaterThan(34);
+    expect(small.title.size).toBeLessThan(32);
+    expect(large.title.size).toBeGreaterThan(32);
     // The line keeps its room as the text grows.
     expect(large.body.leading / large.body.size).toBeCloseTo(26 / 16, 1);
     expect(small.body.leading / small.body.size).toBeCloseTo(26 / 16, 1);
@@ -166,7 +166,7 @@ describe("the type a Mind is written in", () => {
       "--text-body": "17px",
       "--text-body--line-height": "28px",
       "--text-heading": "22px",
-      "--text-display": "34px",
+      "--text-title": "32px",
       "--text-note": "16px",
       "--text-note--line-height": "26px",
     });

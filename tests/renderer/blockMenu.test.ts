@@ -11,7 +11,7 @@ import { DOMParser } from "linkedom";
 import { afterEach, beforeAll, expect, test } from "vitest";
 import { INCLUDE_IN_CONTEXT_ATTRIBUTE, QUESTION_BLOCK } from "../../src/core/api";
 import { readMindHandle } from "../../src/renderer/src/commands/handles";
-import { buildMenu, isMenuItem } from "../../src/renderer/src/commands/menus";
+import { buildMenu, isMenuItem, menuLeavesOut } from "../../src/renderer/src/commands/menus";
 import "../../src/renderer/src/commands/objectMenus";
 import { isInTable } from "@tiptap/pm/tables";
 import {
@@ -66,6 +66,7 @@ const editors: Editor[] = [];
 let NoteKeymap: Extension;
 let blockCommands: readonly Command[];
 let blockIn: typeof import("../../src/renderer/src/commands/blocks").blockIn;
+let notInBlockMenu: typeof import("../../src/renderer/src/commands/blocks").notInBlockMenu;
 // The commands and the note's keys reach the bridge as they load, so they load once it is set.
 beforeAll(async () => {
   const [keymap, blocks, footnotes, tables] = await Promise.all([
@@ -77,6 +78,7 @@ beforeAll(async () => {
   NoteKeymap = keymap.NoteKeymap;
   blockCommands = blocks.blockCommands;
   blockIn = blocks.blockIn;
+  notInBlockMenu = blocks.notInBlockMenu;
   for (const command of [
     ...blocks.blockCommands,
     ...footnotes.footnoteCommands,
@@ -156,6 +158,51 @@ test("a menu lists a table's items for the table it is about, not for one the cu
   expect(idsOf(menuOf("t"))).toContain("table.delete");
   await commands.run("table.delete", menuOf("a"));
   expect(editor.state.doc.childCount).toBe(2);
+});
+
+test("a table's ⋯ menu is for editing it: rows and columns, the heading row, then deleting, in three groups", async () => {
+  const table = { ...emptyTable(2, 2), attrs: { id: "t" } };
+  const editor = await editorWith([paragraph("a", "First"), table]);
+  editor.commands.setTextSelection(editor.state.doc.child(0).nodeSize + 4);
+  // As the ⋯ button's menu (TableMenu) offers `only` the table's own, through ObjectMenu's filter.
+  const { TABLE_MENU } = await import("../../src/renderer/src/commands/tables");
+  const ids = buildMenu("block", menuOf("t"), menuLeavesOut("block", [], TABLE_MENU)).map(
+    (entry) => (isMenuItem(entry) ? entry.command.id : "—"),
+  );
+  expect(ids).toEqual([
+    "table.rowAbove",
+    "table.rowBelow",
+    "table.columnLeft",
+    "table.columnRight",
+    "—",
+    "table.headerRow",
+    "—",
+    "table.deleteRow",
+    "table.deleteColumn",
+    "table.delete",
+  ]);
+});
+
+test("a table's right-click menu has no Question context switch and no totals, which the Figure schedule has", async () => {
+  const table = { ...emptyTable(2, 2), attrs: { id: "t" } };
+  const editor = await editorWith([paragraph("a", "First"), table]);
+  editor.commands.setTextSelection(editor.state.doc.child(0).nodeSize + 4);
+  const tableNode = editor.state.doc.child(1);
+  const ids = buildMenu("block", menuOf("t"), notInBlockMenu(tableNode)).map((entry) =>
+    isMenuItem(entry) ? entry.command.id : "—",
+  );
+  expect(ids).toContain("table.rowBelow");
+  expect(ids).toContain("footnote.insert");
+  expect(ids).not.toContain("block.includeInContext");
+  expect(ids).not.toContain("table.totalRow");
+  expect(ids).not.toContain("table.totalColumn");
+  expect(ids.at(-1)).toBe("table.delete");
+  // ⌘K still offers the totals in the table.
+  const listed = commands.list(paletteIn(editor)).map((command) => command.id);
+  expect(listed).toContain("table.totalRow");
+  expect(listed).toContain("table.totalColumn");
+  // Any other Block keeps its Question context switch.
+  expect(notInBlockMenu(editor.state.doc.child(0))).toEqual([]);
 });
 
 test("a Question has no context flag, so its menu is Delete and Insert footnote", async () => {

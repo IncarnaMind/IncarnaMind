@@ -151,7 +151,7 @@ export function OllamaProgress({ ollama }: { ollama: Ollama }) {
   return (
     <div data-testid="ollama" className="flex flex-col gap-1.5">
       {pulling && (
-        <div className="text-[13px] leading-5 text-ink-secondary">
+        <div className="text-ui leading-5 text-ink-secondary">
           <p>
             {t("providers.ollama.pulling", {
               model: modelName(
@@ -169,7 +169,7 @@ export function OllamaProgress({ ollama }: { ollama: Ollama }) {
             />
           </div>
           {progress && (
-            <p className="mt-1 text-[12px] text-ink-meta">
+            <p className="mt-1 text-small text-ink-meta">
               {progress.status}
               {percent === null ? "" : ` · ${percent}%`}
             </p>

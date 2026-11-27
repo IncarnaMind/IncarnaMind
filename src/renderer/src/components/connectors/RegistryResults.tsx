@@ -38,7 +38,7 @@ export function RegistryResults({
           {t("connectors.registry.title")}
           <span
             data-testid="connectors-registry-badge"
-            className="ml-1.5 rounded-sm bg-frame px-1.5 text-[11px] leading-[18px] font-normal text-ink-secondary"
+            className="ml-1.5 rounded-sm bg-frame px-1.5 text-small leading-[18px] font-normal text-ink-secondary"
           >
             {t("connectors.registry.badge")}
           </span>
@@ -47,7 +47,7 @@ export function RegistryResults({
       help={t("connectors.registry.note")}
     >
       {search === null ? (
-        <p role="status" className="px-4 text-[13px] leading-5 text-ink-meta">
+        <p role="status" className="px-4 text-ui leading-5 text-ink-meta">
           {t("connectors.registry.searching")}
         </p>
       ) : search.outcome === "failed" ? (
@@ -80,7 +80,7 @@ export function RegistryResults({
           />
         </SettingsGroup>
       ) : search.servers.length === 0 ? (
-        <p className="px-4 text-[13px] leading-5 text-ink-meta">
+        <p className="px-4 text-ui leading-5 text-ink-meta">
           {t("connectors.registry.none", { query: words })}
         </p>
       ) : (

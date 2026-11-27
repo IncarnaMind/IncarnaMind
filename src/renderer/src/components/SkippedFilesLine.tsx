@@ -158,7 +158,7 @@ function SkippedFileRow({ file, converter }: { file: SkippedFileInfo; converter:
   return (
     <li
       data-testid="skipped-file"
-      className="font-sans text-[13px] leading-5 break-words text-ink-meta"
+      className="font-sans text-ui leading-5 break-words text-ink-meta"
     >
       <MetaLine
         as="div"

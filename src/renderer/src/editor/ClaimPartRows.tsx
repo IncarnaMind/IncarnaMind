@@ -37,6 +37,7 @@ import {
   openKind,
 } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
+import { CircleCheckIcon, ClaimMarkIcon, PencilLineIcon, QuoteIcon } from "../components/icons";
 import { MetaLine } from "../components/MetaLine";
 import { dotAfter } from "../components/metaDot";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
@@ -52,7 +53,6 @@ import type { CardAction } from "./cardActions";
 import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { placeWords } from "./claimSentenceMarks";
-import { ClaimMarkIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
 import { SignOffsContext, useCitedOrigin } from "./mindContext";
 import { PropertySource, showFileProperties } from "./PropertySource";
@@ -778,6 +778,7 @@ export function partFix(
       : {
           key: `anyway:${row.key}`,
           testId: "claim-part-check-anyway",
+          icon: CircleCheckIcon,
           label: t("claim.checkAnyway"),
           disabled: checking,
           onClick: () => onCheck(part.span),
@@ -787,6 +788,7 @@ export function partFix(
     return {
       key: `correct:${row.key}`,
       testId: "claim-part-correct",
+      icon: PencilLineIcon,
       label: correctionLabel(correction, t),
       primary: true,
       onClick: () => onCorrect(part.span),
@@ -798,6 +800,7 @@ export function partFix(
     return {
       key: `wording:${row.key}`,
       testId: "claim-use-wording",
+      icon: QuoteIcon,
       label: t("claim.useDocumentWording"),
       onClick: () => onUseWording(part),
     };

@@ -7,14 +7,14 @@ import {
   FolderLineIcon,
   LockLineIcon,
   MindLineIcon,
+  RemoveIcon,
   TagLineIcon,
-} from "../components/lineIcons";
+} from "../components/icons";
 import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { treeCounts } from "../libraryPage";
 import { DELETED_NAMES, type ScopeChip, scopeChips } from "../scope";
 import { useAppStore } from "../store";
-import { RemoveIcon } from "./icons";
 import { ScopeCountMenu } from "./ScopeCountMenu";
 import { useChipFloors } from "./useChipFloors";
 
@@ -229,7 +229,7 @@ export function ScopeChips({
                 onClick={remove.run}
                 className="scope-chip-remove"
               >
-                <RemoveIcon className="size-2.5" />
+                <RemoveIcon />
               </button>
             )}
           </li>

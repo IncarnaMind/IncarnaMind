@@ -59,7 +59,7 @@ export function ApprovalsSettings() {
                       <>
                         {policy.ownerName}
                         <span className="text-ink-meta"> · </span>
-                        <span className="font-mono text-[13px] font-medium">{subject.tool}</span>
+                        <span className="font-mono text-ui">{subject.tool}</span>
                       </>
                     ) : (
                       name

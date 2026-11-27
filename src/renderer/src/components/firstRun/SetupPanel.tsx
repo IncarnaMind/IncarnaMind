@@ -7,7 +7,7 @@ import {
   ChevronLeftLineIcon,
   ChevronRightLineIcon,
   CloseLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { OnThisComputer } from "../OnThisComputer";
 
 export type SetupStep = "work" | "ai" | "sorting" | "meetings";
@@ -106,8 +106,8 @@ export function SetupPanel({
               key={step}
               data-testid="setup-progress-step"
               aria-current={index === place.at ? "step" : undefined}
-              className={`flex min-w-0 flex-col gap-[7px] text-[12px] leading-4 ${
-                index === place.at ? "font-semibold text-ink" : "text-ink-meta"
+              className={`flex min-w-0 flex-col gap-[7px] text-small leading-4 ${
+                index === place.at ? "text-ink" : "text-ink-meta"
               }`}
             >
               <span
@@ -125,14 +125,14 @@ export function SetupPanel({
             type="button"
             data-testid="setup-crumb"
             onClick={crumb.onClick}
-            className="-ml-1 inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-1.5 pl-0.5 text-[13px] leading-5 font-semibold text-ink-secondary hover:bg-hover hover:text-ink"
+            className="-ml-1 inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-1.5 pl-0.5 text-ui leading-5 text-ink-secondary hover:bg-hover hover:text-ink"
           >
-            <ChevronLeftLineIcon aria-hidden="true" className="size-4" />
+            <ChevronLeftLineIcon aria-hidden="true" />
             {crumb.label}
           </button>
         )}
         <div className="flex flex-col gap-1">
-          <h1 id="setup-title" className="text-[20px] leading-7 font-semibold text-ink">
+          <h1 id="setup-title" className="text-heading leading-7 font-semibold text-ink">
             {title}
           </h1>
           {lead && <p className="text-ui text-ink-secondary">{lead}</p>}
@@ -165,7 +165,7 @@ export function SetupPanel({
           onClick={place.close}
           className="absolute top-3.5 right-4 inline-flex size-8 items-center justify-center rounded-md text-ink-secondary hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       )}
     </section>
@@ -220,8 +220,8 @@ export function SetupChoice({
         </span>
       )}
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="text-ui font-semibold text-ink">{title}</span>
-        {line && <span className="text-[13px] leading-5 text-ink-secondary">{line}</span>}
+        <span className="text-ui text-ink">{title}</span>
+        {line && <span className="text-ui leading-5 text-ink-secondary">{line}</span>}
       </span>
     </label>
   );
@@ -252,7 +252,7 @@ export function QuietLine({
       aria-expanded={expanded}
       aria-controls={controls}
       onClick={onClick}
-      className="-mt-1 flex w-fit items-center gap-1 rounded-sm text-[13px] leading-5 font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+      className="-mt-1 flex w-fit items-center gap-1 rounded-sm text-ui leading-5 text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
     >
       {children}
       <Chevron aria-hidden="true" className="size-3 shrink-0" />
@@ -264,7 +264,7 @@ export function QuietLine({
 export function KeysStay() {
   const t = useT();
   return (
-    <p data-testid="setup-keys-stay" className="mt-1 text-[12px] leading-[18px]">
+    <p data-testid="setup-keys-stay" className="mt-1 text-small leading-[18px]">
       <OnThisComputer>{t("setupPage.keysStay")}</OnThisComputer>
     </p>
   );
@@ -283,10 +283,10 @@ export function WorksRow({
   return (
     <div
       data-testid={testId}
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-chip py-2 pr-2 pl-3 text-[13px] leading-5"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-chip py-2 pr-2 pl-3 text-ui leading-5"
     >
-      <span className="mr-auto inline-flex min-w-0 items-center gap-2 font-semibold text-ink">
-        <CheckLineIcon aria-hidden="true" className="size-4 shrink-0" />
+      <span className="mr-auto inline-flex min-w-0 items-center gap-2 text-ink">
+        <CheckLineIcon aria-hidden="true" className="shrink-0" />
         <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
       </span>
       {children}

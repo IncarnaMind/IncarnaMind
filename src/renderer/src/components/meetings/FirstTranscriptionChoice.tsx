@@ -19,7 +19,7 @@ import { ReadProblem } from "../ReadProblem";
 import { fieldClass, fieldLabelClass } from "../ui";
 import { CloudLine } from "./CloudLine";
 
-const lineClass = "text-[12px] leading-5 text-ink-meta";
+const lineClass = "text-small leading-5 text-ink-meta";
 
 /**
  * Where meeting audio is turned into text, for a User who hasn't chosen yet: first run's last
@@ -148,7 +148,7 @@ export function FirstTranscriptionChoiceFields({
         <div data-testid="setup-cloud" className="flex flex-col gap-3">
           {!withKey && (
             <label className={`${fieldLabelClass} flex flex-col gap-1`} htmlFor={`${id}-service`}>
-              <span className="font-semibold">{t("setupPage.meetings.service")}</span>
+              <span>{t("setupPage.meetings.service")}</span>
               <select
                 id={`${id}-service`}
                 data-testid="setup-transcription-service"

@@ -78,21 +78,16 @@ export function MeetingSummary({
       }
     >
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <h2
-          ref={heading}
-          id={id}
-          tabIndex={-1}
-          className="text-[13px] leading-5 font-semibold text-ink"
-        >
+        <h2 ref={heading} id={id} tabIndex={-1} className="text-ui leading-5 text-ink">
           {t("meetings.summary.title")}
         </h2>
         {summary.editedContent && (
-          <span className="text-[12px] text-ink-meta">{t("meetings.summary.item.edited")}</span>
+          <span className="text-small text-ink-meta">{t("meetings.summary.item.edited")}</span>
         )}
       </div>
       {needsRecovery && <MeetingSummaryProblem meeting={meeting} summary={summary} />}
       {(progress || coverage) && (
-        <p role="status" className="text-[13px] leading-5 text-ink-meta">
+        <p role="status" className="text-ui leading-5 text-ink-meta">
           {[progress, coverage].filter(Boolean).join(" · ")}
         </p>
       )}

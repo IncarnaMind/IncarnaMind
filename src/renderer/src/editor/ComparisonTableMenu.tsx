@@ -4,6 +4,8 @@ import { showColumn } from "../comparisonColumns";
 import { ownComparisonCells } from "../comparisonRefill";
 import { comparisonCellsInTable } from "../comparisonSelection";
 import type { ComparisonTableHandle } from "../comparisonStructure";
+import { EyeLineIcon } from "../components/icons";
+import { MenuItemParts } from "../components/MenuItemParts";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { menuItemClass, menuTitleClass } from "../components/ui";
 import { useT } from "../i18n";
@@ -58,9 +60,10 @@ export function ComparisonTableMenu({
                       void showColumn(handle, question.id);
                     }}
                   >
-                    <span className="flex-1">
-                      {t("comparison.column.show", { label: comparisonLabelOf(question) })}
-                    </span>
+                    <MenuItemParts
+                      icon={EyeLineIcon}
+                      label={t("comparison.column.show", { label: comparisonLabelOf(question) })}
+                    />
                   </button>
                 ))}
               </>

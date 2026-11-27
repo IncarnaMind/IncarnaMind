@@ -12,11 +12,11 @@ import { formatLocation } from "../../../shared/locations";
 import { deleteAnnotation, editAnnotation, exportAnnotations } from "../annotationActions";
 import { useAnnotationDrafts } from "../annotationDrafts";
 import { useAnnotations, useDocumentAnnotations } from "../annotations";
-import { CloseLineIcon, ExportLineIcon, PencilLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
+import { CloseLineIcon, ExportLineIcon, PencilLineIcon } from "./icons";
 
 function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: Annotation): void }) {
   const t = useT();
@@ -157,7 +157,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
               onClick={beginEdit}
               className="annotation-row-edit-button"
             >
-              <PencilLineIcon className="size-[12px]" />
+              <PencilLineIcon />
             </button>
           )}
         </span>
@@ -268,7 +268,7 @@ export function AnnotationsPanel({
           onClick={() => void exportAnnotations(document)}
           className="annotation-row-edit-button"
         >
-          <ExportLineIcon className="size-4" />
+          <ExportLineIcon />
         </button>
         <button
           type="button"
@@ -278,7 +278,7 @@ export function AnnotationsPanel({
           onClick={onClose}
           className="annotation-row-edit-button"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </header>
       {notHere && (

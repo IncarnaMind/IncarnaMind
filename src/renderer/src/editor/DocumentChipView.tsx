@@ -1,5 +1,5 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
-import { DocumentLineIcon } from "../components/lineIcons";
+import { DocumentLineIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { openChipDocument } from "./documentChipKeys";
@@ -28,7 +28,7 @@ export function DocumentChipView({ node }: ReactNodeViewProps) {
         className="document-chip"
         onClick={() => openChipDocument(documentId)}
       >
-        <DocumentLineIcon kind={document?.kind ?? "text"} className="size-3.5 flex-none" />
+        <DocumentLineIcon kind={document?.kind ?? "text"} className="flex-none" />
         <span className="document-chip-name">{name}</span>
       </button>
     </NodeViewWrapper>

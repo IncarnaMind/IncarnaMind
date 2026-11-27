@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
-import { ChatLineIcon } from "../lineIcons";
+import { ChatLineIcon } from "../icons";
 import type { AssistantDragging } from "./useAssistantDrag";
 
 const ZONE_LABELS: Record<AssistantDragging["zones"][number]["dock"], MessageKey> = {
@@ -53,7 +53,7 @@ export function SnapZones({
         }}
       >
         <div className="assistant-stand-in-head">
-          <ChatLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <ChatLineIcon className="shrink-0 text-ink-meta" />
           <span className="truncate">{t("conversation.untitled")}</span>
         </div>
         <div className="assistant-stand-in-body">{t("assistant.floatHere")}</div>

@@ -14,7 +14,7 @@ import { chipOf, needsYou, taskGroups } from "../taskGroups";
 import { useTaskMenu } from "../taskMenu";
 import { loadTasks, showTask, useTasks } from "../tasks";
 import { resultLine, stepLine, taskName } from "../taskText";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon } from "./icons";
 import { buttonStyle } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 

@@ -55,7 +55,7 @@ function Line({
       data-testid={testId}
       data-state={state}
       parts={parts}
-      className="mt-2 min-h-6 items-center text-[13px] leading-5 text-ink-secondary"
+      className="mt-2 min-h-6 items-center text-ui leading-5 text-ink-secondary"
     >
       {children}
     </MetaLine>
@@ -292,7 +292,7 @@ function TaggingFailedLine() {
             aria-expanded={open}
             aria-controls={panel}
             onClick={() => setOpen(!open)}
-            className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+            className="rounded-sm text-accent underline-offset-2 hover:underline"
           >
             {t("error.details")}
           </button>
@@ -347,7 +347,7 @@ function FailedLine() {
             aria-expanded={open}
             aria-controls={panel}
             onClick={() => setOpen(!open)}
-            className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+            className="rounded-sm text-accent underline-offset-2 hover:underline"
           >
             {t("error.details")}
           </button>

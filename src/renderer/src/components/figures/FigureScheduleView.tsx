@@ -21,7 +21,7 @@ import { useNotices } from "../../notices";
 import { extendThroughRows, useSelectedOn, useSelection, useSelectionOrder } from "../../selection";
 import { useAppStore } from "../../store";
 import { moveThroughRows } from "../../treeKeys";
-import { SortLineIcon } from "../lineIcons";
+import { SortLineIcon } from "../icons";
 import { buttonStyle } from "../ui";
 import { FigureScheduleRowView } from "./FigureScheduleRowView";
 import "./figureSchedule.css";
@@ -388,7 +388,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
                     onClick={() => setStatusSort(!statusSort)}
                   >
                     {t("figures.status")}
-                    <SortLineIcon className="size-3" />
+                    <SortLineIcon />
                   </button>
                 </th>
                 <th scope="col" className="figure-checked-by">

@@ -8,8 +8,7 @@ import {
   numberingMarker,
 } from "../../../shared/numbering";
 import { keysHere } from "../commands/keymap";
-import { ChevronIcon } from "../components/icons";
-import { CheckLineIcon } from "../components/lineIcons";
+import { CheckLineIcon, ChevronIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { type ClipboardEdit, clipboardEdit, clipboardEdits } from "./clipboardItems";
 import { caretAnchor } from "./LinkField";
@@ -94,7 +93,7 @@ export function NumberingChoices({
             className="editor-menu-item"
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
-              {state.scheme === scheme && <CheckLineIcon className="size-4" />}
+              {state.scheme === scheme && <CheckLineIcon />}
             </span>
             <span className="numbering-preview">{schemePreview(scheme)}</span>
             <span className="editor-menu-shortcut">{t(SCHEME_NAMES[scheme])}</span>
@@ -271,7 +270,7 @@ export function ListMenu({ editor }: { editor: Editor }) {
           className="editor-menu-item"
         >
           <span className="min-w-0 flex-1 truncate">{t("numbering.menu")}</span>
-          <ChevronIcon className="size-3 shrink-0 text-ink-meta" />
+          <ChevronIcon className="shrink-0 text-ink-meta" />
         </button>
         <OrderItems editor={editor} state={state} onChosen={() => close(true)} indent={false} />
       </div>

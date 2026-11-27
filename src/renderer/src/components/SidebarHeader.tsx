@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AppMark, PlusLineIcon } from "./lineIcons";
+import { AppMark, PlusLineIcon } from "./icons";
 import { iconButtonClass } from "./ui";
 
 /**
@@ -30,7 +30,7 @@ export function SidebarHeader({ toggle, children }: { toggle?: ReactNode; childr
 export function PlusMenuPlaceholder() {
   return (
     <span aria-hidden="true" className={`${iconButtonClass} text-ink-secondary`}>
-      <PlusLineIcon className="size-4" />
+      <PlusLineIcon />
     </span>
   );
 }

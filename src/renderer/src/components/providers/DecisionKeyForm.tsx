@@ -178,7 +178,7 @@ export function DecisionKeyForm({
           data-testid="decision-key-cancel"
           onClick={onCancel}
           disabled={busy}
-          className="text-[13px] leading-5 font-semibold text-ink-secondary hover:text-ink"
+          className="text-ui leading-5 text-ink-secondary hover:text-ink"
         >
           {t("library.cancel")}
         </button>

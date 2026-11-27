@@ -13,7 +13,7 @@ import { moveFromMenu, rowDrag } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { useRename } from "../../useRename";
 import { InlineName } from "../InlineName";
-import { MindLineIcon } from "../lineIcons";
+import { MindLineIcon } from "../icons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { draggedRowClass } from "../sidebarRows";
 
@@ -34,7 +34,7 @@ export function RecentMinds({
   if (minds.length === 0) return null;
   return (
     <section data-testid="home-recent" className="mb-7">
-      <h2 className="mb-1.5 text-label font-semibold text-ink-meta">{t("home.recent")}</h2>
+      <h2 className="mb-1.5 text-small text-ink-meta">{t("home.recent")}</h2>
       {/* biome-ignore lint/a11y/useSemanticElements: rows of a list that selects as the sidebar does, not a table. */}
       <div
         role="grid"
@@ -58,7 +58,7 @@ export function RecentMinds({
           data-testid="home-recent-all"
           aria-expanded={all}
           onClick={() => useHomeView.setState({ all: !all })}
-          className="mt-2 rounded-sm text-[13px] font-semibold text-ink-secondary hover:text-ink"
+          className="mt-2 rounded-sm text-ui text-ink-secondary hover:text-ink"
         >
           {all ? t("home.showFewer") : t("home.seeAll", { count: minds.length })}
         </button>
@@ -139,7 +139,7 @@ function RecentRow({
     >
       {rename.renaming ? (
         <span className="flex min-w-0 flex-1 items-center gap-3 px-2">
-          <MindLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <MindLineIcon className="shrink-0 text-ink-meta" />
           <InlineName
             value={mind.title}
             label={t("mind.renameLabel", { title })}
@@ -160,9 +160,9 @@ function RecentRow({
           onKeyDown={rename.nameProps.onKeyDown}
           className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 rounded-sm py-1.5 pr-1 pl-2 text-left -outline-offset-2"
         >
-          <MindLineIcon className="size-4 shrink-0 text-ink-meta" />
+          <MindLineIcon className="shrink-0 text-ink-meta" />
           <span className="flex min-w-0 flex-1 flex-col">
-            <span data-testid="row-text" className="truncate font-semibold text-ink">
+            <span data-testid="row-text" className="truncate text-ink">
               {title}
             </span>
             {state ? (
@@ -170,7 +170,7 @@ function RecentRow({
                 data-testid="home-recent-state"
                 data-state={state.kind}
                 data-tone={state.tone}
-                className="home-recent-state truncate text-[13px] leading-[18px]"
+                className="home-recent-state truncate text-ui leading-[18px]"
               >
                 {stateLine(state, exportedWord, t, language)}
               </span>
@@ -178,7 +178,7 @@ function RecentRow({
               snippet && (
                 <span
                   data-testid="home-recent-snippet"
-                  className="truncate text-[13px] leading-[18px] text-ink-meta"
+                  className="truncate text-ui leading-[18px] text-ink-meta"
                 >
                   {snippet}
                 </span>
@@ -187,13 +187,13 @@ function RecentRow({
           </span>
           <span
             data-testid="home-recent-folder"
-            className="max-w-[180px] min-w-0 shrink truncate text-right text-[13px] text-ink-meta @max-[760px]/home:hidden"
+            className="max-w-[180px] min-w-0 shrink truncate text-right text-ui text-ink-meta @max-[760px]/home:hidden"
           >
             {folder}
           </span>
           <span
             data-testid="home-recent-time"
-            className="w-[76px] shrink-0 text-right text-[13px] whitespace-nowrap text-ink-meta @max-[480px]/home:hidden"
+            className="w-[76px] shrink-0 text-right text-ui whitespace-nowrap text-ink-meta @max-[480px]/home:hidden"
           >
             {timeAgo(new Date(mind.updatedAt), now, language, t)}
           </span>

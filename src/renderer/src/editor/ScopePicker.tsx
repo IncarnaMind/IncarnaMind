@@ -26,7 +26,7 @@ import {
   LockLineIcon,
   MindLineIcon,
   TagLineIcon,
-} from "../components/lineIcons";
+} from "../components/icons";
 import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { useTextSearch } from "../libraryTextSearch";

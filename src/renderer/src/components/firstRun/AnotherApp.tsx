@@ -2,7 +2,7 @@ import type { AgentClient } from "../../../../core/api";
 import { useT } from "../../i18n";
 import { clientName } from "../agents/agentWords";
 import { ConnectAgentFields, useAgentConnection } from "../agents/ConnectAgentFields";
-import { ChevronRightLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon } from "../icons";
 import { buttonStyle } from "../ui";
 import { SetupPanel, type StepPlace } from "./SetupPanel";
 import { AppMark, type Choice, type Done } from "./yourAiParts";
@@ -96,10 +96,7 @@ export function AnotherApp({
                 <span className="min-w-0 flex-1 truncate" title={name}>
                   {name}
                 </span>
-                <ChevronRightLineIcon
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-ink-meta"
-                />
+                <ChevronRightLineIcon aria-hidden="true" className="shrink-0 text-ink-meta" />
               </button>
             </li>
           );

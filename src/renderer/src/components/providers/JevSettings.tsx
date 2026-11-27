@@ -208,7 +208,7 @@ export function JevForm({
         <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
       )}
 
-      <details className="text-[13px] leading-5 text-ink-secondary">
+      <details className="text-ui leading-5 text-ink-secondary">
         <summary className="cursor-pointer select-none hover:text-ink">
           {t("jev.form.advanced")}
         </summary>

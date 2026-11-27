@@ -5,7 +5,7 @@ import { usePruneSelection } from "../selection";
 import { linksIn, useWebPages } from "../webPages";
 import { CopiedLine } from "./CopiedLine";
 import { DocumentsSection } from "./DocumentsSection";
-import { SettingsLineIcon } from "./lineIcons";
+import { SettingsLineIcon } from "./icons";
 import { NewMenu } from "./NewMenu";
 import { NudgeSlot } from "./NudgeSlot";
 import { SidebarHeader } from "./SidebarHeader";

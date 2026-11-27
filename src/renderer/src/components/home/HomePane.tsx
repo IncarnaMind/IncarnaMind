@@ -59,7 +59,7 @@ export function HomePane() {
           {/* Adding files is the buttons above, and asking is their input or its line, unless a
               model in IncarnaMind is the way to ask (#3791). */}
           {next && next.kind !== "add" && !(next.kind === "ask" && asksHere) && (
-            <div className="mb-6 text-[13px] leading-5">
+            <div className="mb-6 text-ui leading-5">
               <HomeNextStep step={next} />
             </div>
           )}

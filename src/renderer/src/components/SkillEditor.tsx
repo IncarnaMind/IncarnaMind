@@ -122,8 +122,8 @@ export function SkillEditor({
       className="flex flex-col gap-3 rounded-lg border border-rule bg-sheet p-4 font-sans text-ui text-ink"
     >
       <p className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-semibold">{title}</span>
-        {note && <span className="text-[13px] text-ink-meta">{note}</span>}
+        <span>{title}</span>
+        {note && <span className="text-ui text-ink-meta">{note}</span>}
       </p>
 
       <div>
@@ -140,7 +140,7 @@ export function SkillEditor({
           onBlur={() => change({ name: skillNameFrom(draft.name) || draft.name })}
           spellCheck={false}
           autoComplete="off"
-          className={`${inputClass} font-mono text-[13px]`}
+          className={`${inputClass} font-mono text-ui`}
         />
         {problemOf("name") ?? <span className={hintClass}>{t("skills.edit.name.hint")}</span>}
       </div>

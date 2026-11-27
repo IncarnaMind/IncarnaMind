@@ -11,7 +11,7 @@ import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
 import { CaptureDetails, CaptureDetailsLine, CaptureProblem } from "./CaptureDetails";
-import { CloseLineIcon, RecordingLineIcon } from "./lineIcons";
+import { CloseLineIcon, RecordingLineIcon } from "./icons";
 import { MeetingBar, MeetingBarRoom } from "./MeetingBar";
 import { MeetingFillLine } from "./MeetingFillLine";
 import { actionParts, MetaLine } from "./MetaLine";
@@ -162,7 +162,7 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
           onClick={() => void discard(meeting.id)}
           className="ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-md text-ink-meta hover:bg-chip hover:text-ink"
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </div>
       {microphoneOnly && (
@@ -178,10 +178,10 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
           onClick={() => void start(meeting.id, systemAudio && !microphoneOnly)}
           className={buttonStyle("primary", "lg")}
         >
-          <RecordingLineIcon className="size-4" />
+          <RecordingLineIcon />
           {t("meetings.start.record")}
         </button>
-        <div className="min-w-0 flex-1 basis-64 text-[13px] leading-5">
+        <div className="min-w-0 flex-1 basis-64 text-ui leading-5">
           <p className="text-ink-strong">
             {t("meetings.start.tell")}
             <span aria-hidden="true"> · </span>
@@ -189,7 +189,7 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
               type="button"
               data-testid="meeting-start-copy-notice"
               onClick={() => void copyNotice()}
-              className="font-semibold text-accent underline-offset-2 hover:underline"
+              className="text-accent underline-offset-2 hover:underline"
             >
               {t("meetings.start.copyNotice")}
             </button>
@@ -199,7 +199,7 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
               </span>
             )}
           </p>
-          <p className="text-[12px] leading-[18px] text-ink-meta">{t(keptKey)}</p>
+          <p className="text-small leading-[18px] text-ink-meta">{t(keptKey)}</p>
         </div>
       </div>
       {problem && <ProblemLine testId="meeting-start-problem">{problem}</ProblemLine>}
@@ -255,7 +255,7 @@ export function MeetingAudioLine({
           event.preventDefault();
           keepAudio(meeting.id);
         }}
-        className={`font-sans text-[13px] leading-5 break-words text-ink-meta ${className}`}
+        className={`font-sans text-ui leading-5 break-words text-ink-meta ${className}`}
       >
         {t("meetings.audio.confirm")}
         {gap(t("meetings.audio.confirm"), t("meetings.audio.deleteConfirm"))}
@@ -268,7 +268,7 @@ export function MeetingAudioLine({
             keepAudio(meeting.id);
             void deleteAudio(meeting.id);
           }}
-          className="rounded-sm font-semibold text-ink underline underline-offset-2"
+          className="rounded-sm text-ink underline underline-offset-2"
         >
           {t("meetings.audio.deleteConfirm")}
         </button>
@@ -276,7 +276,7 @@ export function MeetingAudioLine({
         <button
           type="button"
           onClick={() => keepAudio(meeting.id)}
-          className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+          className="rounded-sm text-accent underline-offset-2 hover:underline"
         >
           {t("meetings.audio.keep")}
         </button>
@@ -297,7 +297,7 @@ export function MeetingAudioLine({
     <MetaLine
       role="status"
       data-testid="meeting-audio"
-      className={`font-sans text-[13px] leading-5 break-words text-ink-meta ${className}`}
+      className={`font-sans text-ui leading-5 break-words text-ink-meta ${className}`}
       parts={[
         meeting.status === "stopped" &&
           t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) }),
