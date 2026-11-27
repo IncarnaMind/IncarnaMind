@@ -99,10 +99,11 @@ function answer(
       const chosen = choose(one);
       return {
         ref: document.ref,
+        purpose: "",
         kind: chosen.map(kindOfName).find((each) => each !== null) ?? "none",
-        tags: (data.tags ?? [])
+        tagJudgements: (data.tags ?? [])
           .filter((tag) => chosen.includes(tag.name) && document.tags?.includes(tag.id))
-          .map((tag) => tag.id),
+          .map((tag) => ({ id: tag.id, relation: "subject" })),
         topic: name(one)[0] ?? { name: "", description: "" },
       };
     }),

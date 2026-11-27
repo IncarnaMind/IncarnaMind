@@ -26,7 +26,7 @@ import { createFakeChatModel } from "../../src/main/fakeChatModel";
 import { createTempDataFolder, startCore } from "../../tests/helpers/core";
 import { addAndProcess, writeSourceFile } from "../../tests/helpers/documents";
 import { chatModelSpecOf, chatSettings } from "../lib/config";
-import { hardCases } from "./hardCases";
+import { hardCases, singletonDocuments } from "./hardCases";
 import { combinedHeldout, type SetDocument } from "./heldout";
 
 interface Tagged {
@@ -297,25 +297,71 @@ test("Tags from content, and Organize's Folders", async () => {
   const panel = env.INCARNAMIND_TAGGING_PANEL;
   if (panel) {
     const results: Record<string, unknown> = { model: chat.label, panel };
-    if (panel === "full" || panel === "pilot") {
+    if (panel === "full" || panel === "pilot" || panel === "heldout40") {
       const docs =
         panel === "pilot"
           ? set.documents.filter((doc) => doc.split === "tune").slice(0, 3)
-          : await combinedHeldout(root, set.documents);
+          : panel === "heldout40"
+            ? (
+                JSON.parse(
+                  await readFile(join(root, "eval", "tagging", "heldout40.json"), "utf8"),
+                ) as { documents: SetDocument[] }
+              ).documents
+            : await combinedHeldout(root, set.documents);
       for (const language of ["en", "zh-CN"] as const) {
         const group = docs.filter((doc) => doc.language === (language === "en" ? "en" : "zh"));
         if (panel === "full" && group.length !== 40)
           throw new Error("Expected 40 held-out Documents per language");
+        if (panel === "heldout40" && group.length < 40)
+          throw new Error("Expected at least 40 held-out Documents per language");
         if (group.length) results[language] = (await tagGroup(chat.model, group, language)).tagged;
       }
-    } else if (panel !== "hard" && panel !== "publisher") throw new Error(`Unknown panel ${panel}`);
+    } else if (panel !== "hard" && panel !== "publisher" && panel !== "extended")
+      throw new Error(`Unknown panel ${panel}`);
+    if (panel === "heldout40") {
+      const singletons: Record<string, unknown> = {};
+      for (const language of ["en", "zh-CN"] as const) {
+        const rows = [];
+        for (const item of singletonDocuments[language]) {
+          const run = await tagInRun({
+            tagger: chatClassifier(chat.model, { language }),
+            subjects: [
+              {
+                id: item.name,
+                excerpt: {
+                  name: item.name,
+                  kind: item.kind,
+                  pageCount: item.kind === "pptx" ? 4 : item.kind === "pdf" ? 10 : null,
+                  text: item.text,
+                },
+              },
+            ],
+            offered: new Map(),
+            language,
+            signal: AbortSignal.timeout(120_000),
+            progress: () => {},
+          });
+          const proposed = run.proposed.get(item.name) ?? [];
+          rows.push({
+            name: item.name,
+            role: item.role,
+            tags: proposed.map((tag) =>
+              "kind" in tag ? kindName(tag.kind, language) : "name" in tag ? tag.name : tag.tagId,
+            ),
+            kind: proposed.find((tag) => "kind" in tag)?.kind ?? null,
+          });
+        }
+        singletons[language] = rows;
+      }
+      results.singletons = singletons;
+    }
     if (panel !== "pilot") {
       const hard: Record<string, unknown> = {};
       for (const language of ["en", "zh-CN"] as const)
         hard[language] = await hardCases(chat.model, language);
       results.hard = hard;
     }
-    if (panel === "publisher") {
+    if (panel === "publisher" || panel === "extended" || panel === "heldout40") {
       const publisher: Record<string, unknown> = {};
       for (const language of ["en", "zh-CN"] as const) {
         const documents = await hardCases(chat.model, language, "publisher");
@@ -330,6 +376,12 @@ test("Tags from content, and Organize's Folders", async () => {
         };
       }
       results.publisher = publisher;
+    }
+    if (panel === "extended" || panel === "heldout40") {
+      const extended: Record<string, unknown> = {};
+      for (const language of ["en", "zh-CN"] as const)
+        extended[language] = await hardCases(chat.model, language, "extended");
+      results.extended = extended;
     }
     results.tokens = chat.tokens();
     const folder = join(

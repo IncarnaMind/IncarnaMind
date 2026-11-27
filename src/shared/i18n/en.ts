@@ -3250,6 +3250,8 @@ export const en = {
   "tags.kind.book.description": "A book, a chapter of one, or a manual.",
   "tags.kind.slides": "Slides",
   "tags.kind.slides.description": "A presentation deck.",
+  "tags.kind.pitchDeck": "Pitch deck",
+  "tags.kind.pitchDeck.description": "A fundraising presentation or business plan for investors.",
   "tags.kind.meetingNotes": "Meeting notes",
   "tags.kind.meetingNotes.description":
     "Notes or minutes of a meeting, a call, an interview or a debrief.",

@@ -80,8 +80,9 @@ function perProvider() {
           : {
               tagged: (data.documents ?? []).map((document) => ({
                 ref: document.ref,
+                purpose: "",
                 kind: "report",
-                tags: [],
+                tagJudgements: [],
                 topic: { name: "", description: "" },
               })),
             };
