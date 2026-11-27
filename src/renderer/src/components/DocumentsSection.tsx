@@ -41,7 +41,7 @@ import { useTreeKeyboard } from "../useTreeKeyboard";
 import { DocumentTagMenu } from "./DocumentTags";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
-import { DocumentLineIcon, MoreLineIcon } from "./icons";
+import { DocumentLineIcon, LibraryLineIcon, MoreLineIcon } from "./icons";
 import { Contents, LibraryFolders } from "./LibraryFolders";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
@@ -56,7 +56,6 @@ import {
   rowActionsClass,
   rowButtonClass,
   rowClass,
-  rowIconClass,
   rowPadding,
 } from "./sidebarRows";
 import { TagMarks, TagNamesTip, tagNamesTipListProps } from "./TagMarks";
@@ -218,7 +217,7 @@ export function DocumentsSection() {
             }
             className={`${rowButtonClass} ${clearsActions.menu}`}
           >
-            <DocumentLineIcon kind="text" className="shrink-0" />
+            <LibraryLineIcon className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t("library.title")}</span>
             {waiting > 0 ? (
               // What waits to be confirmed, as Mail counts unread (#1569).
@@ -395,7 +394,6 @@ const DocumentRow = memo(function DocumentRow({
           className="flex h-full w-full min-w-0 items-center gap-2 pr-1"
           style={rowPadding(depth)}
         >
-          <DocumentLineIcon kind={item.kind} className={rowIconClass(false)} />
           <InlineName
             value={item.name}
             label={t("documents.renameLabel", { name: item.name })}
@@ -425,7 +423,6 @@ const DocumentRow = memo(function DocumentRow({
           className={`${rowButtonClass} ${clearsActions.tagsAndMenu}`}
           style={rowPadding(depth)}
         >
-          <DocumentLineIcon kind={item.kind} className={rowIconClass(lit)} />
           {/* Takes what the status leaves; in it, the name gives way before the colours. */}
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span className="flex min-w-0 items-center gap-2">
@@ -447,6 +444,11 @@ const DocumentRow = memo(function DocumentRow({
             />
           </span>
           <DocumentStatusLabel item={item} />
+          <DocumentLineIcon
+            kind={item.kind}
+            data-testid="row-file-mark"
+            className="row-file-mark shrink-0 text-ink-placeholder"
+          />
         </button>
       )}
       {!rename.renaming && (

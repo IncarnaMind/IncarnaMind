@@ -29,7 +29,7 @@ import {
   YourNoteLabel,
 } from "../DocumentsSection";
 import { InlineName } from "../InlineName";
-import { ChevronDownLineIcon, DocumentLineIcon, FolderLineIcon, NoteLineIcon } from "../icons";
+import { ChevronDownLineIcon, FolderLineIcon, NoteLineIcon } from "../icons";
 import { LibrarySelectBox } from "../LibrarySelection";
 import { Marked } from "../Marked";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
@@ -284,7 +284,6 @@ export const LibraryRow = memo(function LibraryRow({
             <div className="flex min-w-0 items-center gap-2">
               {rename.renaming ? (
                 <span className="flex min-w-0 flex-1 items-center gap-2">
-                  <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />
                   <InlineName
                     value={doc.name}
                     label={t("documents.renameLabel", { name: doc.name })}
@@ -304,7 +303,6 @@ export const LibraryRow = memo(function LibraryRow({
                   ].join("\n")}
                   className="flex min-w-0 items-center gap-2 text-left focus-visible:outline-0"
                 >
-                  <DocumentLineIcon kind={doc.kind} className="shrink-0 text-ink-meta" />
                   <span className="flex min-w-0 items-center gap-2">
                     <span
                       data-testid="library-document-name"
