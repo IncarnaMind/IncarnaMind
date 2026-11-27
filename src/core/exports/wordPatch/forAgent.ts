@@ -1,27 +1,19 @@
 /**
  * A Word file written into the file a Note came from, made fit for an outside agent (#3751). It
  * keeps only what it knows makes the file's look and what the agent was given: the text and its
- * notes, headers and footers, styles, numbering, theme, fonts, pictures, charts' cached values, the
- * settings that make the layout, and a custom property a field in the text shows, holding what the
- * field shows. Everything else goes: other people's comments, tracked changes and names, the
- * file's data no text shows, parts and relationships of kinds not known here, and whatever nothing
- * points at once the rest is gone. A part it can't clean with certainty makes the whole file
- * unkept, and the agent's file is written new from the Note instead.
+ * notes, headers and footers, styles, numbering, theme, fonts, pictures, charts' cached values and
+ * the settings that make the layout. Everything else goes: other people's comments, tracked
+ * changes and names, the file's properties and data no text shows, parts and relationships of
+ * kinds not known here, and whatever nothing points at once the rest is gone. A part it can't
+ * clean with certainty makes the whole file unkept, and the agent's file is written new from the
+ * Note instead.
  */
 import { deflateRawSync } from "node:zlib";
 import { relationshipsPartOf } from "../../documents/formats/officePackage";
-import {
-  elements,
-  local,
-  parseXml,
-  textOf,
-  walk,
-  type XmlElement,
-} from "../../documents/formats/xml";
+import { elements, local, parseXml, type XmlElement } from "../../documents/formats/xml";
 import { openPackage, resolvePart } from "../../documents/formats/zip";
 import { checkWellFormed, PackageWriter } from "../packagePatch/package";
 import { applySplices, endOf, type Splice, startOf } from "../packagePatch/text";
-import { escapeXml } from "../wordml";
 import {
   checkNamespaces,
   emptyLinks,
@@ -37,7 +29,6 @@ const KEPT = new Set([
   "officeDocument",
   "core-properties",
   "extended-properties",
-  "custom-properties",
   "styles",
   "stylesWithEffects",
   "numbering",
@@ -92,6 +83,8 @@ const BINARY_TYPES = [
   /^application\/(?:vnd\.openxmlformats-officedocument\.obfuscatedFont|x-fontdata|x-font-ttf|vnd\.ms-opentype)$/,
 ];
 const kindOf = (type: string) => type.slice(type.lastIndexOf("/") + 1);
+/** What the package's root keeps: the document and its properties' counts and dates. */
+const ROOT_KEPT = new Set(["officeDocument", "core-properties", "extended-properties"]);
 const MAIN = "officeDocument";
 
 /** The core properties kept: when the file was made and saved, and how often. */
@@ -179,50 +172,6 @@ const SETTINGS_KEPT = new Set([
   "w15:chartTrackingRefBased",
 ]);
 
-const FIELD = /^\s*DOCPROPERTY\s+(?:"([^"]*)"|([^\s\\]+))/i;
-/** Elements whose content is gone from the agent's file: a field there shows nothing. */
-const GOING = new Set(["w:del", "w:ins", "w:moveFrom"]);
-
-/**
- * What each custom property's field shows, by the property's name in lower case: the first such
- * field's result, read where the text stays.
- */
-function readShown(root: XmlElement, shown: Map<string, string>): void {
-  const keep = (element: XmlElement) => !GOING.has(element.name);
-  const show = (instruction: string, result: string) => {
-    const match = FIELD.exec(instruction);
-    const name = (match?.[1] ?? match?.[2] ?? "").trim().toLowerCase();
-    if (name && !shown.has(name)) shown.set(name, result);
-  };
-  const open: { instruction: string; result: string; separated: boolean }[] = [];
-  for (const element of walk(root, keep)) {
-    if (GOING.has(element.name)) continue;
-    if (element.name === "w:fldSimple") {
-      show(
-        element.attrs["w:instr"] ?? "",
-        [...walk(element, keep)]
-          .filter((each) => each.name === "w:t")
-          .map(textOf)
-          .join(""),
-      );
-    } else if (element.name === "w:fldChar") {
-      const type = element.attrs["w:fldCharType"];
-      const top = open.at(-1);
-      if (type === "begin") open.push({ instruction: "", result: "", separated: false });
-      else if (type === "separate" && top) top.separated = true;
-      else if (type === "end" && top) {
-        open.pop();
-        show(top.instruction, top.result);
-      }
-    } else if (element.name === "w:instrText") {
-      const top = open.at(-1);
-      if (top && !top.separated) top.instruction += textOf(element);
-    } else if (element.name === "w:t") {
-      for (const each of open) if (each.separated) each.result += textOf(element);
-    }
-  }
-}
-
 interface Listed {
   element: XmlElement;
   id: string;
@@ -241,11 +190,12 @@ export type AgentWordFile =
       /** Every link outside the file, by the part that holds it. */
       links: { part: string; target: string }[];
     }
-  | { kind: "unkept"; part: string; why: string };
+  /** `error`: a failure that isn't the cleaning's own, for the log. */
+  | { kind: "unkept"; part: string; why: string; error?: unknown };
 
 export interface ForAgentOptions {
-  /** Headers and footers whose Blocks the User deleted from the Note: the file has them no more. */
-  furniture: readonly ("header" | "footer")[];
+  /** The header and footer parts whose Blocks the User deleted from the Note: the file has them no more. */
+  furniture: readonly string[];
 }
 
 const removal = (element: XmlElement): Splice => ({
@@ -274,7 +224,7 @@ export async function forAgent(data: Uint8Array, options: ForAgentOptions): Prom
     });
   } catch (error) {
     if (error instanceof UnkeptPart) return { kind: "unkept", part: at, why: error.message };
-    return { kind: "unkept", part: at, why: "it couldn't be cleaned" };
+    return { kind: "unkept", part: at, why: "it couldn't be cleaned", error };
   }
 }
 
@@ -336,10 +286,12 @@ async function cleaned(
   const dropped = new Set<XmlElement>();
   for (const [owner, relationships] of listed) {
     for (const each of relationships) {
-      const furniture = owner === main && options.furniture.some((kind) => kind === each.kind);
+      const furniture = owner === main && !each.external && options.furniture.includes(each.target);
       const kept = each.external
         ? each.kind === "hyperlink" && isWebLink(each.target)
-        : KEPT.has(each.kind);
+        : owner === ""
+          ? ROOT_KEPT.has(each.kind)
+          : KEPT.has(each.kind);
       if (!kept || furniture) dropped.add(each.element);
     }
   }
@@ -365,9 +317,7 @@ async function cleaned(
       .get("")
       ?.find((each) => each.kind === kind && !each.external && !dropped.has(each.element))?.target;
   const properties = new Set(
-    ["core-properties", "extended-properties", "custom-properties"].flatMap(
-      (kind) => ofKind(kind) ?? [],
-    ),
+    ["core-properties", "extended-properties"].flatMap((kind) => ofKind(kind) ?? []),
   );
 
   // The parts to clean, by the kinds that reach them and their content types, whatever their names.
@@ -390,17 +340,6 @@ async function cleaned(
     checkNamespaces(root);
     texts.set(name, { text, root });
   }
-
-  const shown = new Map<string, string>();
-  for (const { root } of texts.values()) readShown(root, shown);
-  const custom = listed
-    .get("")
-    ?.find((each) => each.kind === "custom-properties" && !dropped.has(each.element));
-  const customPart = custom ? await writer.part(custom.target) : null;
-  const customKept = customPart
-    ? elements(customPart.root).filter((each) => shown.has((each.attrs.name ?? "").toLowerCase()))
-    : [];
-  if (custom && customKept.length === 0) dropped.add(custom.element);
 
   const settings = listed
     .get(main)
@@ -489,24 +428,6 @@ async function cleaned(
         .map(removal),
     );
   }
-  if (custom && customPart && reached.has(custom.target)) {
-    await splice(custom.target, ({ root, text }) =>
-      elements(root).map((each) => {
-        const value = shown.get((each.attrs.name ?? "").toLowerCase());
-        if (value === undefined) return removal(each);
-        const from = startOf(each);
-        const opening = text.slice(from, each.openEnd ?? from);
-        const typed = elements(each)[0]?.name ?? "vt:lpwstr";
-        const string = typed.includes(":") ? `${typed.split(":")[0]}:lpwstr` : "lpwstr";
-        return {
-          from,
-          to: endOf(each),
-          text: `${opening}<${string}>${escapeXml(value)}</${string}></${each.name}>`,
-        };
-      }),
-    );
-  }
-
   for (const name of removed) writer.remove(name);
   at("");
   return {

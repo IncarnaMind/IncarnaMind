@@ -108,6 +108,11 @@ export interface AgentWordFilesDeps {
   log: Logger;
 }
 
+const LINK = /\b(?:https?|ftp):\/\/[^\s<>()[\]"']+|\b(?:mailto|tel):[^\s<>()[\]"']+/gi;
+/** The links a Note holds as the agent reads it: its links' targets, and addresses in its words. */
+const linksIn = (markdown: string): Set<string> =>
+  new Set([...markdown.matchAll(LINK)].map(([link]) => link.replace(/[.,;:!?]+$/, "")));
+
 /** A tracked deletion or move imported from a Word file, by its Proposal's id. */
 const MOVED_OR_DELETED = new RegExp(`^${WORD_CHANGE_ID}w:(?:del|moveFrom|moveTo)#`);
 
@@ -121,13 +126,14 @@ function unconfirmed(
   also: readonly string[],
 ): { part: string; why: string } | null {
   const vocabulary = vocabularyOf([given, ...also]);
+  const links = linksIn(given);
   for (const { part, texts } of file.texts) {
     if (!texts.every((text) => knownIn(text, vocabulary))) {
       return { part, why: "a text the agent wasn't given" };
     }
   }
   for (const { part, target } of file.links) {
-    if (!given.includes(target)) return { part, why: "a link the Note doesn't hold" };
+    if (!links.has(target)) return { part, why: "a link the Note doesn't hold" };
   }
   return null;
 }
@@ -177,8 +183,16 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
     if (report?.notKept.some((each) => each.kind === "edit")) {
       return writtenNew("document", "an edit the export couldn't write");
     }
-    const file = await forAgent(exported.data, { furniture: report?.keptFurniture ?? [] });
-    if (file.kind === "unkept") return writtenNew(file.part, file.why);
+    const file = await forAgent(exported.data, { furniture: report?.furnitureParts ?? [] });
+    if (file.kind === "unkept") {
+      if (file.error !== undefined) {
+        deps.log.warn("agentWordFile.cleaningFailed", {
+          part: file.part,
+          message: file.error instanceof Error ? file.error.message : String(file.error),
+        });
+      }
+      return writtenNew(file.part, file.why);
+    }
     const given = deps.given(mindId);
     if (unconfirmed(file, given, []) === null) return { data: file.data, named: [] };
     // Words IncarnaMind writes of the Note in any Word file, such as a Citation's footnote.

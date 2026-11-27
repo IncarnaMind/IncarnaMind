@@ -1781,7 +1781,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     expect(partsOf(await savedFile(saved)).footnotes).toEqual(["Quay notes, § Quay notes"]);
   });
 
-  // protects=a Note imported from someone's Word file is written into that file, as Export › Word writes it, so the agent's file keeps the file's styles, numbering, header, footer, contents list and cross-reference; and it holds nothing the agent was never given: no comment or the parts naming its people, no tracked change's author but a neutral one in the User's language, no name or words of the file's properties, variables or custom XML, no template or first-page picture, while a property a field in the text shows stays, holding what the field shows; Export › Word by hand still writes the file's comments and people as it did (#3751); fails_when=the agent's file is a new file without the original's styles or numbering, or any of those names or words is in any of its parts, or Export › Word by hand loses a comment
+  // protects=a Note imported from someone's Word file is written into that file, as Export › Word writes it, so the agent's file keeps the file's styles, numbering, header, footer, contents list and cross-reference; and it holds nothing the agent was never given: no comment or the parts naming its people, no tracked change's author but a neutral one in the User's language, no name or words of the file's properties, variables or custom XML, no template or first-page picture, and a field that shows a property is written as what it shows, with no property kept; Export › Word by hand still writes the file's comments and people as it did (#3751); fails_when=the agent's file is a new file without the original's styles or numbering, or any of those names or words is in any of its parts, or Export › Word by hand loses a comment
   it.each(["en", "zh-CN"] as const)(
     "writes a Note imported from Word into its own file, without what the agent was never given (%s)",
     async (language) => {
@@ -1805,15 +1805,18 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       const files = unzip(await savedFile(saved));
       expectOnlyGiven(files, given);
       const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
-      // The file's look: its own styles, numbering and footer, its clauses' styles and numbers.
-      for (const name of ["word/styles.xml", "word/numbering.xml", "word/footer1.xml"]) {
+      // The file's look: its own styles and numbering, its clauses' styles and numbers.
+      for (const name of ["word/styles.xml", "word/numbering.xml"]) {
         expect(files.get(name)?.toString("utf8")).toBe(original.get(name)?.toString("utf8"));
       }
       const document = part(files, "word/document.xml");
       const header = part(files, "word/header1.xml");
       for (const clause of part(original, "word/document.xml").match(/<w:p>.*?<\/w:p>/gs) ?? []) {
         if (/comment|w:ins |rPrChange|w:object/.test(clause)) continue;
-        expect(document).toContain(clause);
+        // A drawing's name in the selection pane, which anyone can type, is written empty.
+        expect(document).toContain(
+          clause.replace(/(<(?:wp:docPr|\w+:cNvPr)\b[^>]*?\sname=")[^"]*"/g, '$1"'),
+        );
       }
       // An embedded object is the picture it shows; a chart draws what it drew, its workbook gone.
       expect(document).toContain(
@@ -1832,7 +1835,10 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       expect(header).not.toMatch(/dataBinding|placeholder|docPart|altChunk|w:alias|w:tag/);
       expect(document).toContain('TOC \\o "1-3" \\h \\z \\u');
       expect(document).toMatch(/REF _Ref[0-9]+ \\r \\h/);
-      expect(part(files, "word/footer1.xml")).toContain("DOCPROPERTY Client");
+      // A field that shows a property is what it shows: the file keeps no property.
+      const footer = part(files, "word/footer1.xml");
+      expect(footer).toContain(run(contract.words.client));
+      expect(footer).not.toMatch(/DOCPROPERTY|fldChar/);
       // No tracked change of anyone's: a deletion stands, an insertion goes, a format is as it is.
       expect(header).toContain(run(contract.words.header));
       expect(header).not.toContain(escapeXml(contract.words.headerAdded));
@@ -1851,10 +1857,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         expect(all).not.toContain(escapeXml(words));
       }
       expect(all).not.toMatch(/commentRangeStart|commentReference|<w:comment |attachedTemplate/);
-      // The property the footer shows holds what it shows, not what was stored since.
-      expect(part(files, "docProps/custom.xml")).toContain(
-        `name="Client"><vt:lpwstr>${escapeXml(contract.words.client)}</vt:lpwstr>`,
-      );
+      expect(files.has("docProps/custom.xml")).toBe(false);
       expect(part(files, "docProps/app.xml")).not.toContain("<Template>");
       expect(part(files, "[Content_Types].xml")).not.toMatch(
         /people|commentsExtended|customXml|reviewNotes/,
@@ -1911,7 +1914,8 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
       expect([...files.keys()].filter((name) => name.startsWith("word/"))).toEqual([]);
       expect(part(files, "content/document.xml")).toContain('TOC \\o "1-3" \\h \\z \\u');
-      expect(part(files, "content/footer1.xml")).toBe(part(moved, "content/footer1.xml"));
+      expect(part(files, "content/footer1.xml")).toContain(run(contract.words.client));
+      expect(part(files, "content/styles.xml")).toBe(part(moved, "content/styles.xml"));
       expect(part(files, "content/header1.xml")).toContain(run(contract.words.header));
       expect(all).not.toMatch(/w:author=|<w:ins |<w:del /);
       expect(

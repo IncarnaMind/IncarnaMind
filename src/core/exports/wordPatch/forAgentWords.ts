@@ -4,12 +4,150 @@
  * whether it did, so a file it didn't clean wholly is written new instead.
  */
 import { textOf, walk, type XmlElement } from "../../documents/formats/xml";
+import { parentsOf } from "../packagePatch/text";
+import { relationshipPrefixes } from "./forAgentParts";
 
 /** Elements whose text a file shows or keeps. */
 const TEXTS = new Set(["w:t", "w:delText", "a:t", "c:v"]);
-/** Attributes that hold words: pictures' and tables' descriptions, links' tips, a field's instruction. */
-const WORDED = new Set(["descr", "title", "alt", "o:title", "w:tooltip", "w:instr"]);
-const WORDED_VALUES = new Set(["w:tblCaption", "w:tblDescription"]);
+
+/**
+ * Attributes that hold no one's words, by name: ids, sizes, measures, colours, kinds and switches,
+ * dates, languages, and the names of fonts, styles and themes, which are the file's look. Any
+ * other attribute is read as words, so one nobody listed sends the file new.
+ */
+const NON_WORD = new Set(
+  [
+    // The package's own: content types, relationships, markup compatibility, spaces.
+    "ContentType Extension PartName Id Type Target TargetMode Requires mc:Ignorable xsi:type",
+    "mc:PreserveAttributes mc:ProcessContent mc:MustUnderstand xml:space xml:lang uri",
+    // WordprocessingML.
+    "w:type w:id w:color w:themeColor w:themeTint w:themeShade w:fill w:themeFill w:themeFillTint",
+    "w:themeFillShade w:ascii w:hAnsi w:eastAsia w:cs w:asciiTheme w:hAnsiTheme w:eastAsiaTheme",
+    "w:cstheme w:hint w:bidi w:lineRule w:fldCharType w:hRule w:hAnchor w:vAnchor w:horzAnchor",
+    "w:vertAnchor w:xAlign w:yAlign w:tblpXSpec w:tblpYSpec w:wrap w:leader w:orient w:offsetFrom",
+    "w:display w:zOrder w:usb0 w:usb1 w:usb2 w:usb3 w:csb0 w:csb1 w:characterSet w:char w:font",
+    "w:fmt w:tplc w:displacedByCustomXml w:spelling w:grammar w:date w:fullDate w:edGrp w:uri",
+    "w:default w:customStyle w:styleId w:t1 w:t2 w:bg1 w:bg2 w:accent1 w:accent2 w:accent3",
+    "w:accent4 w:accent5 w:accent6 w:hyperlink w:followedHyperlink w:appName w:dirty w:lock",
+    "w:fldLock w:space w:shadow w:frame w:chapStyle w:chapSep w:dropCap w:lines w:hSpace",
+    "w:vSpace w:x w:y w:w w:h w:val2 w:shapeid w:pos w:restart w:start w:end w:lang",
+    "w:firstRow w:lastRow w:firstColumn w:lastColumn w:noHBand w:noVBand w:history w:vMerge",
+    "w14:paraId w14:textId w14:anchorId w14:editId w14:font w15:paraId w15:paraIdParent",
+    "w15:done wp14:anchorId wp14:editId wp14:pctWidth wp14:pctHeight w16cid:paraId",
+    "w16cid:durableId w16cex:durableId w16cex:dateUtc w16du:dateUtc",
+    // VML and Office's drawing attributes.
+    "id type style fillcolor filled strokecolor stroked strokeweight coordsize coordorigin path",
+    "adj eqn joinstyle gradientshapeok connectlocs extrusionok textpathok on fitshape fitpath",
+    "trim xscale arrowok aspectratio shadowcolor color color2 opacity origin",
+    "position focus focussize focusposition method angle wrapcoords v:ext o:spid o:spt",
+    "o:allowincell o:allowoverlap o:connecttype o:extrusionok o:preferrelative o:hr o:hrstd",
+    "o:hrnoshade o:hrpct o:hralign o:bullet o:bwmode o:userdrawn o:dgmlayout o:dgmnodekind",
+    "o:oned o:regroupid o:insetmode o:connectortype o:button o:hralign o:relid o:clip",
+    "inset anchorx anchory weight",
+    // DrawingML, charts and diagrams.
+    "algn anchor anchorCtr arg axis bwMode cap cmpd dir cxnId destId srcId fact for forName from",
+    "to func horzOverflow vertOverflow idx lastClr loCatId loTypeId csCatId csTypeId qsCatId",
+    "qsTypeId max min meth minVer modelId mods op presAssocID presId presName presStyleLbl",
+    "presStyleIdx presStyleCnt parTransId sibTransId prst ptType refType relativeFrom relId rig",
+    "rotWithShape scaled script side strike styleLbl symbol typeface panose pitchFamily charset",
+    "u uniqueId vert vid wrap wrapText cstate formatCode lang x y cx cy rot flipH flipV sz spc",
+    "baseline dirty err noProof smtClean smtId kern fontAlgn latinLnBrk hangingPunct rtl eaLnBrk",
+    "indent marL marR lvl defTabSz numCol rtlCol spcFirstLastPara lIns tIns rIns bIns forceAA",
+    "upright compatLnSpc distT distB distL distR simplePos relativeHeight behindDoc locked",
+    "layoutInCell allowOverlap hidden editAs noChangeAspect noChangeArrowheads noGrp noSelect",
+    "noRot noMove noResize noEditPoints noAdjustHandles noChangeShapeType noTextEdit noCrop",
+    "thresh amt lum bright contrast pos ang rad prstMaterial contourW extrusionH sx sy kx ky",
+    "blurRad dist endPos stPos endA stA w h l t r b fLocksText fPublished",
+    "roundtripDataSignature anchorId editId",
+  ]
+    .join(" ")
+    .split(" "),
+);
+
+/**
+ * Elements whose `w:val` (or `val`, `m:val`, `w14:val`) is a kind, a switch, a measure, a colour,
+ * a language, a date's format or the name of a style, a font or a numbering format; an element
+ * not listed is read as holding words in it.
+ */
+const VALUED = new Set(
+  [
+    "w:pStyle w:rStyle w:tblStyle w:basedOn w:next w:link w:aliases w:numStyleLink w:styleLink",
+    "w:lvlText w:numFmt w:lvlJc w:suff w:multiLevelType w:nsid w:tmpl w:jc w:highlight w:u w:shd",
+    "w:vertAlign w:em w:effect w:textDirection w:textAlignment w:vAlign w:vMerge w:hMerge w:type",
+    "w:color w:lang w:lid w:calendar w:dateFormat w:storeMappedDataAs w:docPartGallery",
+    "w:docPartCategory w:gallery w:behavior w:family w:pitch w:charset w:panose1 w:altName",
+    "w:encoding w:view w:zoom w:characterSpacingControl w:themeFontLang w:defaultTableStyle",
+    "w:stylePaneFormatFilter w:stylePaneSortMethod w:targetScreenSz w:rsid w:rsidRoot w:formProt",
+    "w:tab w:top w:bottom w:left w:right w:insideH w:insideV w:between w:bar w:start w:end",
+    "w:tl2br w:tr2bl w:bdr w:b w:bCs w:i w:iCs w:caps w:smallCaps w:strike w:dstrike w:outline",
+    "w:shadow w:emboss w:imprint w:vanish w:specVanish w:webHidden w:noProof w:snapToGrid w:rtl",
+    "w:cs w:keepNext w:keepLines w:pageBreakBefore w:widowControl w:suppressLineNumbers",
+    "w:suppressAutoHyphens w:kinsoku w:wordWrap w:overflowPunct w:topLinePunct w:autoSpaceDE",
+    "w:autoSpaceDN w:bidi w:adjustRightInd w:contextualSpacing w:mirrorIndents w:suppressOverlap",
+    "w:cantSplit w:tblHeader w:hidden w:noWrap w:tcFitText w:hideMark w:outlineLvl w:position",
+    "w:kern w:sz w:szCs w:autoHyphenation w:bordersDoNotSurroundFooter",
+    "w:bordersDoNotSurroundHeader w:evenAndOddHeaders w:trackRevisions w:gutterAtTop",
+    "w:mirrorMargins w:titlePg w:noEndnote w:numRestart w:numStart w:cnfStyle w:tblLook",
+    "w:tblStyleRowBandSize w:tblStyleColBandSize w:uiPriority w:qFormat w:semiHidden",
+    "w:unhideWhenUsed w:locked w:personal w:personalCompose w:personalReply w:rsidRoot",
+    "w:defaultTabStop w:proofState w:doNotTrackMoves w:doNotTrackFormatting w:updateFields",
+    "w:hideSpellingErrors w:hideGrammaticalErrors w:decimalSymbol w:listSeparator w:ilvl w:numId",
+    "w:abstractNumId w:lvlRestart w:isLgl w:legacy w:pos w:fitText w:w w:spacing w:effect",
+    "w:docGrid w:pgNumType w:lnNumType w:cols w:textboxTightWrap w:doNotUseHTMLParagraphAutoSpacing",
+    "w:styleLockTheme w:styleLockQFSet w:autoFormatOverride w:embedTrueTypeFonts",
+    "w:saveSubsetFonts w:displayBackgroundShape w:doNotShadeFormData w:noPunctuationKerning",
+    "w:alignBordersAndEdges w:doNotDisplayPageBoundaries w:removePersonalInformation",
+    "w:removeDateAndTime w:doNotIncludeSubdocsInStats w:doNotAutoCompressPictures",
+    "w:consecutiveHyphenLimit w:hyphenationZone w:doNotHyphenateCaps w:bookFoldRevPrinting",
+    "w:bookFoldPrinting w:bookFoldPrintingSheets w:drawingGridHorizontalSpacing",
+    "w:drawingGridVerticalSpacing w:displayHorizontalDrawingGridEvery",
+    "w:displayVerticalDrawingGridEvery w:doNotUseMarginsForDrawingGridOrigin",
+    "w:drawingGridHorizontalOrigin w:drawingGridVerticalOrigin w:printTwoOnOne",
+    "w:strictFirstAndLastChars w:embedSystemFonts w:compatSetting w:showingPlcHdr w:temporary",
+    "w:docPartUnique w:richText w:sdtLocked w:checked w:size w:sizeAuto w:maxLength",
+    "w:numFmt w:footnotePr w:endnotePr w:pgMar w:pgSz w:ind w:framePr",
+    "w14:ligatures w14:numForm w14:numSpacing w14:cntxtAlts w14:checked w14:checkedState",
+    "w14:uncheckedState w14:docId w14:defaultImageDpi w14:discardImageEditingData",
+    "w15:chartTrackingRefBased w15:collapsed w15:appearance w15:color w15:docId w15:webExtensionLinked",
+    "w15:webExtensionCreated",
+  ]
+    .join(" ")
+    .split(" "),
+);
+const VALUES = new Set(["w:val", "val", "m:val", "w14:val", "w15:val"]);
+/** Namespaces whose `val` is a kind, a measure or a colour wherever it is: charts, drawings, diagrams, maths. */
+const VALUED_NAMESPACE = /^(?:a|c|cs|dgm|c14|c15|c16|c16r2|c16r3|a14|a16|m|thm15):/;
+/** Attributes whose names are a font's, which are its look: a font in the fonts' table, a setting's own name. */
+const NAMED = new Set(["w:font", "w:compatSetting", "w:lsdException", "w:latentStyles"]);
+/** Elements whose `name` is a theme's or one of its schemes', the look the file was made with. */
+const THEMED = new Set([
+  "a:theme",
+  "a:fontScheme",
+  "a:clrScheme",
+  "a:fmtScheme",
+  "thm15:themeFamily",
+]);
+/** Where a `w:name` element names a style or a list's numbering, the file's look. */
+const LOOK_NAMED = new Set(["w:style", "w:abstractNum"]);
+
+/** Whether an attribute holds anyone's words, by its name, its element's and its element's parent's. */
+function isWorded(
+  element: XmlElement,
+  parent: string,
+  name: string,
+  relationships: readonly string[],
+): boolean {
+  if (name === "xmlns" || name.startsWith("xmlns:")) return false;
+  if (relationships.some((prefix) => name.startsWith(prefix))) return false;
+  if (name.startsWith("w:rsid")) return false;
+  // A style's name is the file's look; a legacy form field's, under w:ffData, is someone's words.
+  if (VALUES.has(name) && element.name === "w:name") return !LOOK_NAMED.has(parent);
+  if (VALUES.has(name)) return !(VALUED.has(element.name) || VALUED_NAMESPACE.test(element.name));
+  if (name === "w:name") return !NAMED.has(element.name);
+  // A diagram's layout names its own nodes and rules.
+  if (name === "name") return !(THEMED.has(element.name) || element.name.startsWith("dgm:"));
+  return !NON_WORD.has(name);
+}
 
 /** Word's own fields, whose names are its words rather than anyone's. */
 const FIELD_NAMES = new Set(
@@ -26,8 +164,7 @@ const TOKENS = /"[^"]*"|\S+/g;
 
 /**
  * What of a field's instruction is anyone's words: not the field's name, its switches and their
- * formats, the bookmarks Word names itself, a table of contents' levels, or the name of the
- * property a DOCPROPERTY field shows, which the file keeps holding what the field shows.
+ * formats, the bookmarks Word names itself, or a table of contents' levels.
  */
 function instructionWords(instruction: string): string {
   const tokens = [...instruction.matchAll(TOKENS)].map(([token]) => token);
@@ -39,15 +176,19 @@ function instructionWords(instruction: string): string {
     const bare = token.replace(/^"|"$/g, "");
     if (token.startsWith("\\")) {
       if (FORMAT_SWITCHES.has(token) || name === "TOC") at++;
-    } else if (bare.startsWith("_") || (name === "DOCPROPERTY" && at === 1)) {
-      // Word's own bookmark, or the property's name.
-    } else words.push(bare);
+    } else if (!bare.startsWith("_")) words.push(bare);
   }
   return words.join(" ");
 }
 
-/** Every text a part holds, in its elements and in the attributes that hold words. */
+/**
+ * Every text a part holds, in its elements and in every attribute not known to hold none: a value
+ * with no letter in it is a number or a measure, and a bookmark Word names itself, from "_", is no
+ * one's words.
+ */
 export function textsOf(root: XmlElement): string[] {
+  const relationships = relationshipPrefixes(root);
+  const parents = parentsOf(root);
   const texts: string[] = [];
   // A field's instruction can be written in several runs: it is read whole.
   const instructions: string[] = [];
@@ -63,15 +204,12 @@ export function textsOf(root: XmlElement): string[] {
       else texts.push(textOf(element));
     } else if (TEXTS.has(element.name)) texts.push(textOf(element));
     for (const [name, value] of Object.entries(element.attrs)) {
-      if (value === "" || !WORDED.has(name)) continue;
-      texts.push(name === "w:instr" ? instructionWords(value) : value);
-    }
-    const value = element.attrs["w:val"];
-    if (value && WORDED_VALUES.has(element.name)) texts.push(value);
-    const bookmark = element.attrs["w:name"];
-    // Word names its own bookmarks from "_" (headings, references, links); a person names the rest.
-    if (element.name === "w:bookmarkStart" && bookmark && !bookmark.startsWith("_")) {
-      texts.push(bookmark);
+      const parent = parents.get(element)?.name ?? "";
+      if (!/\p{L}/u.test(value) || !isWorded(element, parent, name, relationships)) continue;
+      if (name === "w:instr") texts.push(instructionWords(value));
+      // Word names its own bookmarks from "_" (headings, references, links); a person names the rest.
+      else if ((name === "w:name" || name === "w:anchor") && value.startsWith("_")) continue;
+      else texts.push(value);
     }
   }
   return [...texts, ...instructions];

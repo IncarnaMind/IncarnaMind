@@ -2,9 +2,11 @@
  * One part of the Word file written for an outside agent (#3751), made to hold only what the
  * agent was given: what someone deleted goes as if accepted, what someone inserted and every other
  * tracked change's mark goes, as do comments' marks, a person's editing permission, content
- * controls' ties and names, smart tags' and custom XML's data, embedded objects (their picture
- * stays), fields that read another file or program (their result stays), a chart's tie to its
- * workbook (its cached values stay) and whatever points at a relationship that goes.
+ * controls' ties, names and choices not shown, smart tags' and custom XML's data, legacy form
+ * fields' names, help and lists, watermarks, links' tips, drawings' names, embedded objects (their
+ * picture stays), fields that read another file, program or the file's properties (their result
+ * stays), a chart's tie to its workbook (its cached values stay) and whatever points at a
+ * relationship that goes.
  */
 import { elements, textOf, walk, type XmlElement } from "../../documents/formats/xml";
 import { endOf, parentsOf, type Splice, startOf } from "../packagePatch/text";
@@ -53,7 +55,7 @@ export function checkNamespaces(root: XmlElement): void {
 }
 
 /** The prefixes, with their colon, a part names its relationships by. */
-function relationshipPrefixes(root: XmlElement): string[] {
+export function relationshipPrefixes(root: XmlElement): string[] {
   const prefixes = new Set<string>();
   for (const element of [root, ...walk(root)]) {
     for (const [name, value] of Object.entries(element.attrs)) {
@@ -118,6 +120,8 @@ const REMOVED = new Set([
   "w:alias",
   "w:smartTagPr",
   "w:customXmlPr",
+  // A legacy form field's name, help, status text and list, should one be left outside its field.
+  "w:ffData",
   // A chart's workbook and the pivot table it was drawn from.
   "c:externalData",
   "c:pivotSource",
@@ -128,8 +132,13 @@ const UNWRAPPED = new Set(["w:moveTo", "w:smartTag", "w:customXml"]);
 /** What an embedded object holds rather than shows, in Word's two ways of writing one. */
 const EMBEDDED = new Set(["o:OLEObject", "w:objectEmbed", "w:objectLink", "w:control", "w:movie"]);
 
-/** A field that reads another file or program, by its instruction. */
-const OUTSIDE_FIELD = /^\s*(?:LINK|INCLUDETEXT|INCLUDEPICTURE|INCLUDE|IMPORT|DDE|DDEAUTO)\b/i;
+/**
+ * A field written as its result, by its instruction: one that reads another file or program, the
+ * file's properties or variables (which the agent's file doesn't keep), or a legacy form field,
+ * whose name, help and list are no one's words the agent was given.
+ */
+const OUTSIDE_FIELD =
+  /^\s*(?:LINK|INCLUDETEXT|INCLUDEPICTURE|INCLUDE|IMPORT|DDE|DDEAUTO|DOCPROPERTY|DOCVARIABLE|AUTHOR|TITLE|SUBJECT|KEYWORDS|COMMENTS|LASTSAVEDBY|FILENAME|TEMPLATE|USERNAME|USERINITIALS|USERADDRESS|INFO|FORMTEXT|FORMCHECKBOX|FORMDROPDOWN)\b/i;
 const HYPERLINK_FIELD = /^\s*HYPERLINK\s+(?!\\l)"?([^"\s]+)/i;
 /** A link's target that is a place on the web or an address, not a file on someone's computer. */
 export const isWebLink = (target: string): boolean => /^(?:https?|mailto|ftp|tel):/i.test(target);
@@ -203,6 +212,65 @@ function chartLiteral(
   return null;
 }
 
+/** Attributes that go wherever they are: links' tips, a picture's packed copy, a diagram's prompt. */
+const DROPPED_ATTRIBUTES = new Set(["w:tooltip", "tooltip", "o:gfxdata", "phldrT"]);
+/** A drawing's name in the selection pane, which anyone can type: written empty. */
+const NAMED = /^(?:wp:docPr|\w+:cNvPr)$/;
+// The names are this file's own, with no character a pattern reads as more than itself.
+const attributeAt = (name: string) => new RegExp(`\\s${name}\\s*=\\s*(?:"[^"]*"|'[^']*')`);
+
+/** An element's opening tag without `DROPPED_ATTRIBUTES`, and with a drawing's name empty; null when it keeps all. */
+function openingCleaned(element: XmlElement, text: string): Splice | null {
+  const from = startOf(element);
+  const to = element.openEnd ?? from;
+  const opening = text.slice(from, to);
+  let written = opening;
+  for (const name of Object.keys(element.attrs)) {
+    if (DROPPED_ATTRIBUTES.has(name)) written = written.replace(attributeAt(name), "");
+    else if (name === "name" && NAMED.test(element.name) && element.attrs.name !== "") {
+      written = written.replace(attributeAt(name), ' name=""');
+    }
+  }
+  return written === opening ? null : { from, to, text: written };
+}
+
+/** The words a content control shows. */
+const shownIn = (sdt: XmlElement | undefined): string => {
+  const content = sdt && elements(sdt).find((each) => each.name === "w:sdtContent");
+  return content
+    ? [...walk(content)]
+        .filter((each) => each.name === "w:t")
+        .map(textOf)
+        .join("")
+    : "";
+};
+
+/** A content control's list of choices with only the one it shows. */
+function shownChoice(list: XmlElement, parents: Map<XmlElement, XmlElement>): string {
+  const shown = shownIn(parents.get(parents.get(list) ?? list));
+  const chosen = elements(list).some(
+    (each) =>
+      each.name === "w:listItem" &&
+      shown !== "" &&
+      (each.attrs["w:displayText"] ?? each.attrs["w:value"]) === shown,
+  );
+  const item = chosen
+    ? `<w:listItem w:displayText="${escapeXml(shown)}" w:value="${escapeXml(shown)}"/>`
+    : "";
+  return `<${list.name}>${item}</${list.name}>`;
+}
+
+/**
+ * What a watermark or WordArt in VML is in: the run that holds it, else its shape. When it is the
+ * older program's copy of a drawing, only that copy goes and the drawing stays.
+ */
+function shapeOfText(path: XmlElement, parents: Map<XmlElement, XmlElement>): XmlElement {
+  for (let at = parents.get(path); at; at = parents.get(at)) {
+    if (at.name === "w:r" || at.name === "mc:Fallback") return at;
+  }
+  return parents.get(path) ?? path;
+}
+
 /** Whether a hyperlink, once cleaned, shows nothing: no text, picture, tab or symbol. */
 const showsNothing = (element: XmlElement) =>
   ![...walk(element)].some((each) =>
@@ -248,6 +316,9 @@ export function partSplices(
     else if (REMOVED.has(element.name) || points) removed.add(element);
     else if (UNWRAPPED.has(element.name)) unwrapped.add(element);
     else if (element.name === "w:object") replaced.set(element, picture(element, text));
+    else if (element.name === "w:dropDownList" || element.name === "w:comboBox") {
+      replaced.set(element, shownChoice(element, parents));
+    } else if (element.name === "v:textpath") removed.add(shapeOfText(element, parents));
     else if (element.name === "w:commentReference") {
       const run = parents.get(element);
       // Word gives the mark a run of its own: the run goes with it, but never another's text.
@@ -290,6 +361,12 @@ export function partSplices(
     return false;
   };
   const splices: Splice[] = [];
+  for (const element of [root, ...walk(root)]) {
+    if (removed.has(element) || replaced.has(element) || unwrapped.has(element)) continue;
+    if (within(element)) continue;
+    const opening = openingCleaned(element, text);
+    if (opening) splices.push(opening);
+  }
   for (const element of removed) {
     if (!within(element)) splices.push({ from: startOf(element), to: endOf(element), text: "" });
   }

@@ -16,9 +16,11 @@ import { editMind } from "../helpers/minds";
 import {
   CHART,
   DECLARATION,
+  expectNoneOf,
   expectOnlyGiven,
   HEADER_TYPE,
   type Language,
+  plantedIn,
   REL,
   reviewed,
   W,
@@ -182,6 +184,51 @@ describe.each(LANGUAGES)("the agent's Word file of a reviewed contract (%s)", (l
     for (const text of [words.company, words.base]) {
       expect(saved.all).not.toContain(escapeXml(text));
     }
+    expect(saved.files.has("docProps/rootpic.png")).toBe(false);
+    expect(part(saved.files, "_rels/.rels")).not.toMatch(/custom-properties|image/);
+  });
+
+  // protects=no part of the agent's file holds a word planted where the Note doesn't show it, read as bytes and whatever holds it, element or attribute (#3751); fails_when=any planted word is found in any part's bytes
+  it("holds none of the words the Note doesn't show, in any part's bytes", async () => {
+    const saved = await reviewedFile();
+    expectNoneOf(saved.files, plantedIn(words));
+  });
+
+  // protects=a drop-down keeps only the choice it shows, its other choices and values gone (#3751); fails_when=another choice, a value or the last value is in the agent's file
+  it("keeps only the choice a drop-down shows", async () => {
+    const saved = await reviewedFile();
+    const document = part(saved.files, "word/document.xml");
+    expect(document).toContain(
+      `<w:dropDownList><w:listItem w:displayText="${escapeXml(words.choice)}" w:value="${escapeXml(words.choice)}"/></w:dropDownList>`,
+    );
+    expect(document).toContain(run(words.choice));
+    expect(document).not.toContain("w:lastValue");
+  });
+
+  // protects=a legacy form field is written as what it shows, in the file the Note came from, without its name, help, status text, default or list (#3751); fails_when=any of those, or the field, is in the agent's file, or what it shows is not, or the file is written new
+  it("writes a legacy form field as what it shows", async () => {
+    const saved = await reviewedFile();
+    expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+    const document = part(saved.files, "word/document.xml");
+    expect(document).toContain(run(words.formAnswer));
+    expect(document).not.toMatch(/FORMTEXT|FORMDROPDOWN|w:ffData|w:ddList/);
+    for (const text of [words.formName, words.formHelp, words.formStatus, words.formOther]) {
+      expect(saved.all).not.toContain(escapeXml(text));
+    }
+  });
+
+  // protects=a watermark goes from the header with its words, and a link keeps its text and target without its tip (#3751); fails_when=the watermark's words or shape, or the link's tip, are in the agent's file, or the link is not
+  it("leaves out a watermark and a link's tip", async () => {
+    const saved = await reviewedFile();
+    const header = part(saved.files, "word/header1.xml");
+    expect(header).toContain(run(words.header));
+    expect(header).not.toMatch(/v:textpath|PowerPlusWaterMarkObject/);
+    expect(saved.all).not.toContain(escapeXml(words.watermark));
+    const document = part(saved.files, "word/document.xml");
+    expect(document).toMatch(/<w:hyperlink r:id="[^"]+">/);
+    expect(document).toContain(run(words.webText));
+    expect(part(saved.files, "word/_rels/document.xml.rels")).toContain(words.web);
+    expect(saved.all).not.toContain(escapeXml(words.linkTip));
   });
 });
 
@@ -212,6 +259,31 @@ function headerPrefixed(words: Words): Buffer {
       "word/header9.xml": `${DECLARATION}<x:hdr xmlns:x="${W}"><x:p><x:r><x:t>${escapeXml(words.header)}</x:t></x:r><x:ins x:id="5" x:author="${escapeXml(words.formattedBy)}" x:date="2026-10-02T09:00:00Z"><x:r><x:t>${escapeXml(words.headerAdded)}</x:t></x:r></x:ins><x:del x:id="6" x:author="${escapeXml(words.deletedBy)}" x:date="2026-10-02T09:00:00Z"><x:r><x:delText>${escapeXml(words.deleted)}</x:delText></x:r></x:del></x:p></x:hdr>`,
     },
     `<Override PartName="/word/header9.xml" ContentType="${HEADER_TYPE}"/>`,
+  );
+}
+
+/** A link whose place in another file is someone's words, in an attribute nothing lists. */
+function linkPlaced(words: Words): Buffer {
+  return wordFile({
+    body: paragraph(
+      `${run(words.kept)}<w:hyperlink w:docLocation="${escapeXml(words.formHelp)}">${run(words.webText)}</w:hyperlink>`,
+    ),
+  });
+}
+
+/** A first-page header the Note shows, holding `alias`, and a later section's own header that holds `kept`. */
+function twoHeaders(words: Words): Buffer {
+  return withParts(
+    wordFile({
+      body: `<w:p><w:pPr><w:sectPr><w:headerReference w:type="first" r:id="rIdHF"/><w:titlePg/></w:sectPr></w:pPr>${run(words.kept)}</w:p>${paragraph(run(words.control))}`,
+      sectPr: '<w:headerReference w:type="default" r:id="rIdHD"/><w:pgSz w:w="11906" w:h="16838"/>',
+      rels: `<Relationship Id="rIdHF" Type="${REL}/header" Target="header1.xml"/><Relationship Id="rIdHD" Type="${REL}/header" Target="header2.xml"/>`,
+    }),
+    {
+      "word/header1.xml": `${DECLARATION}<w:hdr xmlns:w="${W}"><w:p>${run(words.alias)}</w:p></w:hdr>`,
+      "word/header2.xml": `${DECLARATION}<w:hdr xmlns:w="${W}"><w:p>${run(words.kept)}</w:p></w:hdr>`,
+    },
+    `<Override PartName="/word/header1.xml" ContentType="${HEADER_TYPE}"/><Override PartName="/word/header2.xml" ContentType="${HEADER_TYPE}"/>`,
   );
 }
 
@@ -283,6 +355,28 @@ describe.each(LANGUAGES)(
         part(saved.original, "word/styles.xml"),
       );
       expect(saved.all).not.toContain(escapeXml(words.title));
+    });
+
+    // protects=the check reads every attribute as words unless it is known to hold none, so words in one nobody listed make the agent's file be written new from the Note (#3751); fails_when=the attribute's words are in the agent's file
+    it("writes the file new when an attribute nobody listed holds words", async () => {
+      const saved = await savedFor(language, linkPlaced(words));
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
+      );
+      expect(part(saved.files, "word/document.xml")).toContain(escapeXml(words.webText));
+      expectNoneOf(saved.files, [words.formHelp]);
+    });
+
+    // protects=deleting the header the Note shows takes out that header's part alone; another section's header stays (#3751); fails_when=the deleted header's part or words stay, or the other header goes
+    it("leaves out only the header the User deleted from the Note", async () => {
+      const saved = await savedFor(language, twoHeaders(words), without(words.alias));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      expect(saved.files.has("word/header1.xml")).toBe(false);
+      expect(part(saved.files, "word/header2.xml")).toContain(run(words.kept));
+      const document = part(saved.files, "word/document.xml");
+      expect(document).not.toContain('w:type="first"');
+      expect(document).toContain('<w:headerReference w:type="default"');
+      expectNoneOf(saved.files, [words.alias]);
     });
 
     // protects=an edit of the User's that the export can't write into the original, such as one in a field's result, makes the agent's file be written new from the Note, never the original's words kept (#3751); fails_when=the agent's file holds the words the User changed, not the Note's

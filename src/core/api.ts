@@ -2474,6 +2474,8 @@ export interface WordExportReport {
   unknownParts: string[];
   /** The header and the footer, kept in the file though their Blocks were deleted from the Mind. */
   keptFurniture: ("header" | "footer")[];
+  /** The parts, by their names in the package, of the headers and footers `keptFurniture` names. */
+  furnitureParts: string[];
 }
 
 /**
