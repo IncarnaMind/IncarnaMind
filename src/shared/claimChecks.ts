@@ -235,6 +235,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     ...(read && { read }),
     ...(text(value.fromAnswer) !== null && { fromAnswer: text(value.fromAnswer) as string }),
     ...(value.citedOnly === true && { citedOnly: true }),
+    ...(value.outside === true && { outside: true }),
     ...(text(value.judgedWith) !== null && { judgedWith: text(value.judgedWith) as string }),
   };
   if (value.parts !== undefined && value.parts !== null) {
@@ -913,6 +914,56 @@ function reliedOn(check: ClaimCheckAttributes): string[] {
 }
 
 /**
+ * Whether a stored result rests on the User's own Library lists (whole-Library, walled `left-out`
+ * count, or a User Check inside a walled Folder — never an outside agent's scoped grant), so an
+ * outside agent may neither read nor overwrite it (#2525).
+ */
+export function isUserLibraryCheck(check: ClaimCheckAttributes): boolean {
+  const hasLibraryCitation = restsOn(check).some(
+    (each) => each.documentId === LIBRARY_FACTS && each.location?.kind === "library",
+  );
+  const hasLibraryWorking = [...resultsIn(check)].some((each) =>
+    (each.parts ?? []).some((part) => part.working?.library != null),
+  );
+  if (!hasLibraryCitation && !hasLibraryWorking) return false;
+  if (check.outside !== true) return true;
+  const nonScopeCitation = restsOn(check).some(
+    (each) =>
+      each.documentId === LIBRARY_FACTS &&
+      each.location?.kind === "library" &&
+      each.location.source.kind !== "scope",
+  );
+  if (nonScopeCitation) return true;
+  return [...resultsIn(check)].some((each) =>
+    (each.parts ?? []).some(
+      (part) => part.working?.library != null && part.working.library.source.kind !== "scope",
+    ),
+  );
+}
+
+/**
+ * Whether a result's reliance on the Library's own lists stands for a reader with `reach` (#2525):
+ * only when the reader has a scoped version of those lists, every Library Citation matches that
+ * version, and each carries a scoped source (never a User check's whole-Library or `left-out`
+ * wall count).
+ */
+function libraryInReach(
+  check: ClaimCheckAttributes,
+  now: Pick<ClaimCheckNow, "versions">,
+): boolean {
+  const current = now.versions?.get(LIBRARY_FACTS);
+  if (current === undefined || isUserLibraryCheck(check)) return false;
+  return restsOn(check)
+    .filter((each) => each.documentId === LIBRARY_FACTS)
+    .every(
+      (each) =>
+        each.contentHash === current &&
+        each.location?.kind === "library" &&
+        each.location.source.kind === "scope",
+    );
+}
+
+/**
  * How a stored result shows now, for whoever reads it: the one reading of whether it still stands
  * (#3412). It stands while its words and what frames them read the same, the Documents it
  * read are at the versions it read, and each Document it rests on is one the reader reaches.
@@ -926,8 +977,23 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
     return { state: "needs-recheck", why: "context" };
   }
   const { reach } = now;
-  if (reach && reliedOn(check).some((documentId) => !reach.has(documentId))) {
-    return { state: "needs-recheck", why: "reach" };
+  if (reach) {
+    const relied = reliedOn(check);
+    const usesLibrary =
+      relied.includes(LIBRARY_FACTS) ||
+      [...resultsIn(check)].some(
+        (each) =>
+          each.versions.some((version) => version.documentId === LIBRARY_FACTS) ||
+          (each.parts ?? []).some((part) =>
+            part.versions.some((version) => version.documentId === LIBRARY_FACTS),
+          ),
+      );
+    if (
+      relied.some((documentId) => documentId !== LIBRARY_FACTS && !reach.has(documentId)) ||
+      (usesLibrary && !libraryInReach(check, now))
+    ) {
+      return { state: "needs-recheck", why: "reach" };
+    }
   }
   return shown;
 }

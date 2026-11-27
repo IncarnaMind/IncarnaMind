@@ -809,7 +809,7 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     );
   });
 
-  // protects=with Claude Code able to run it, one press checks in the background: no link opens and nothing is copied, the line says it is checking to a screen reader with no Stop of its own (Stop takes Check's place in the card's foot, #3756), stopping it stops it, and the line goes when the core says the marks landed (#3606); fails_when=the press opens Claude Code, the line waits for a request the User needn't send, says Stop a second time, or stays after the run ended
+  // protects=with Claude Code able to run it, one press checks in the background: no link opens and nothing is copied, the line says it is checking to a screen reader with no Stop of its own (the Note's button has it, #3756, #3840), stopping it stops it, and the line goes when the core says the marks landed (#3606); fails_when=the press opens Claude Code, the line waits for a request the User needn't send, says Stop a second time, or stays after the run ended
   test.each([
     ["en", "Checking this note in Claude Code."],
     ["zh-CN", "Claude Code 正在核对这篇笔记。"],

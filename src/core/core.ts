@@ -25,6 +25,7 @@ import { figureScheduleChange } from "../shared/figureSchedule";
 import { graphemeBoundary } from "../shared/graphemes";
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
+import { versionsWithLibrary } from "../shared/libraryFacts";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { isListedMind } from "../shared/listedMinds";
 import { formatLocation, parseCitedArea, parseLocation, type Translate } from "../shared/locations";
@@ -2327,6 +2328,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     requireMind: (mindId) => writableMind(mindId).id,
     recordAiUse: (inputs) => void aiUse.record(inputs),
+    checkpoint: (mindId) => checkpoints.save(mindId, "accept"),
     reportError: (mindId, error) =>
       console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });
@@ -3209,41 +3211,16 @@ export function createCore(adapters: CoreAdapters): Core {
   const documentVersions = () =>
     new Map(documents.rows().map((document) => [document.id, document.contentHash]));
 
-  // One object for the life of the core: a total's source footing is cached by it (#2998).
-  const scheduleDocuments = {
-    citationSource: (passageId: string) => documents.citationSource(passageId),
-    documentDate: (documentId: string) => documents.documentDate(documentId),
-    pageTexts: (documentId: string, contentHash: string, from: number | null, to: number | null) =>
-      documents.pageTexts(documentId, contentHash, from, to),
-  };
-
-  function readFigureSchedule(mindId: string) {
-    const mind = minds.get(mindId);
-    const scope = content.readSettings(mind.id, mindScopeIn);
-    return content.read(mind.id, (blocks) => {
-      return figureSchedule({
-        mindId: mind.id,
-        name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
-        basis: fingerprintOfBlocks(blocks),
-        blocks,
-        versions: documentVersions(),
-        folderId: mind.folderId,
-        scope,
-        personId: settings.get().user.personId,
-        language: settings.get().language,
-        keptInside: (documentId) =>
-          mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
-        documents: scheduleDocuments,
-      });
-    });
-  }
-
   // A walled Folder's Documents, Folders and notes are listed only for a Note inside that wall.
   const libraryListsOf = (mindId: string | null) => {
     const ownWall = walledFolder(mindId);
     const sees = (folderId: string | null) => walledFolderId(folderId) === ownWall;
-    const listed = new Set(documents.ids({ listed: true }));
-    const seen = (scopeDocuments(null, mindId) ?? [...listed]).filter((id) => listed.has(id));
+    const listedRows = documents.rows({ listed: true });
+    const scoped = scopeDocuments(null, mindId);
+    const scopedSet = scoped === null ? null : new Set(scoped);
+    const seen =
+      scopedSet === null ? listedRows : listedRows.filter((row) => scopedSet.has(row.id));
+    const docTags = tags.linksByDocument();
     const walls = library.folders().filter((folder) => folder.keepInside).length;
     return libraryLists({
       source:
@@ -3256,7 +3233,7 @@ export function createCore(adapters: CoreAdapters): Core {
           : walls > 0
             ? { kind: "left-out", folders: walls }
             : { kind: "library" },
-      documents: documents.getMany(seen),
+      documents: seen.map((row) => ({ ...row, tags: docTags.get(row.id) ?? [] })),
       folders: library.folders().filter((folder) => sees(folder.id)),
       folderOf: new Map(
         library
@@ -3275,6 +3252,39 @@ export function createCore(adapters: CoreAdapters): Core {
         })),
     });
   };
+  const userLibraryVersion = (mindId: string | null) => libraryVersion(libraryListsOf(mindId));
+  const versionsFor = (mindId: string | null) =>
+    versionsWithLibrary(documentVersions(), userLibraryVersion(mindId));
+
+  // One object for the life of the core: a total's source footing is cached by it (#2998).
+  const scheduleDocuments = {
+    citationSource: (passageId: string) => documents.citationSource(passageId),
+    documentDate: (documentId: string) => documents.documentDate(documentId),
+    pageTexts: (documentId: string, contentHash: string, from: number | null, to: number | null) =>
+      documents.pageTexts(documentId, contentHash, from, to),
+  };
+
+  function readFigureSchedule(mindId: string) {
+    const mind = minds.get(mindId);
+    const scope = content.readSettings(mind.id, mindScopeIn);
+    return content.read(mind.id, (blocks) => {
+      return figureSchedule({
+        mindId: mind.id,
+        name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+        basis: fingerprintOfBlocks(blocks),
+        blocks,
+        versions: versionsFor(mind.id),
+        folderId: mind.folderId,
+        scope,
+        personId: settings.get().user.personId,
+        language: settings.get().language,
+        keptInside: (documentId) =>
+          mayRecheckIn(mind.id, documentId) ? null : (walledFolderName(documentId) ?? documentId),
+        documents: scheduleDocuments,
+      });
+    });
+  }
+
   /**
    * The Library's lists as an outside agent may count them (#3363): its Documents, its Folders and
    * the Notes it reaches. A Document is filed under the deepest of its Folders that holds it, as
@@ -3294,23 +3304,28 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       return null;
     };
-    const trees = granted.map((folder) => ({
-      id: folder.id,
-      holds: new Set(library.treeDocumentIds(folder.id)),
-    }));
+    const assigned = new Map(
+      library
+        .snapshot()
+        .assignments.flatMap(({ documentId, groupId }) =>
+          groupId === null ? [] : [[documentId, groupId] as const],
+        ),
+    );
+    // A meeting is counted once, as its Note (#2528, #3384).
+    const grantedIds = new Set(documentIds);
+    const docTags = tags.linksByDocument();
+    const listed = documents
+      .rows()
+      .filter((document) => grantedIds.has(document.id) && document.meetingMindId === null)
+      .map((document) => ({ ...document, tags: docTags.get(document.id) ?? [] }));
     return libraryLists({
       source,
-      // A meeting is counted once, as its Note, as the Library counts it (#2528, #3384).
-      documents: documents
-        .getMany([...documentIds])
-        .filter((document) => document.meetingMindId === null),
+      documents: listed,
       folders: granted.map((folder) => ({ ...folder, parentId: grantedAbove(folder.parentId) })),
       folderOf: new Map(
-        documentIds.flatMap((documentId) => {
-          const [deepest] = trees
-            .filter((tree) => tree.holds.has(documentId))
-            .sort((a, b) => a.holds.size - b.holds.size);
-          return deepest ? [[documentId, deepest.id] as const] : [];
+        listed.flatMap(({ id: documentId }) => {
+          const folder = grantedAbove(assigned.get(documentId) ?? null);
+          return folder ? [[documentId, folder] as const] : [];
         }),
       ),
       tagNames: new Map(tags.list().map((tag) => [tag.id, tag.name])),
@@ -3584,6 +3599,7 @@ export function createCore(adapters: CoreAdapters): Core {
     entries: (mindId) => aiUse.list(mindId),
     providers: () => chat.list(),
     documents: () => documents.list(),
+    libraryVersion: userLibraryVersion,
     keptCitationTexts: () => documents.keptCitationTexts(),
     language: () => settings.get().language,
     createMind: makeMind,
@@ -3633,6 +3649,7 @@ export function createCore(adapters: CoreAdapters): Core {
     mind: (mindId) => notes.mind(mindId),
     read: (mindId, look) => notes.read(mindId, look),
     liveDocuments: () => documents.list(),
+    libraryVersion: userLibraryVersion,
     keptCitationTexts: () => documents.keptCitationTexts(),
     readableQuote: quoteAsRead,
     language: () => settings.get().language,
@@ -3686,6 +3703,7 @@ export function createCore(adapters: CoreAdapters): Core {
     read: (mindId, look) => content.peek(mindId, look),
     providers: () => chat.list(),
     documents: () => documents.list(),
+    libraryVersion: userLibraryVersion,
     keptCitationTexts: () => documents.keptCitationTexts(),
     readableQuote: ({ documentId, contentHash, pageFrom, pageTo, quote }) =>
       documentId && quote
@@ -6900,7 +6918,7 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       }
       const reading = readingOf(fragment, {
-        versions: documentVersions(),
+        versions: reach === null ? versionsFor(mindId) : documentVersions(),
         folderId: minds.get(mindId).folderId,
         scope: fragment.doc ? mindScopeOf(fragment.doc) : null,
         reach,
@@ -7095,7 +7113,7 @@ export function createCore(adapters: CoreAdapters): Core {
       ...(adapters.pictures && { pictures: adapters.pictures }),
       language: () => settings.get().language,
       libraryLists: agentLibraryLists,
-      libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
+      libraryVersion: userLibraryVersion,
       citing,
       citeFile: (path, quote, agent, reaches) => fileCiting.cite(path, quote, agent, reaches),
       citedOutside: (documentId) => (documents.getMany([documentId])[0]?.citedBy ?? null) !== null,
@@ -7157,13 +7175,16 @@ export function createCore(adapters: CoreAdapters): Core {
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
-      checkNote: (mindId, documentIds) =>
-        inFlow("check-mind", () => checks.checkMindOutside(mindId, new Set(documentIds))),
+      checkNote: (mindId, documentIds, outsideLists) =>
+        inFlow("check-mind", () =>
+          checks.checkMindOutside(mindId, new Set(documentIds), outsideLists),
+        ),
       checkTask: (mindId, documentIds, every) =>
         checks.checkTaskOutside(mindId, documentIds, every),
       landJudged: (mindId, documentIds, agent, task, judged) =>
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
-      checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),
+      checkRecord: (mindId, reach, libVersion) =>
+        checkRecord.build(mindId, reach, libVersion ?? null),
       show: (place) => events.emit("agents.citationShown", place),
       opened: (opened) => events.emit("agents.opened", opened),
       canvases,
@@ -7564,6 +7585,7 @@ export function createCore(adapters: CoreAdapters): Core {
     conversationGrant: (pairingId, front, hears) =>
       agents.conversationGrant(pairingId, front, hears),
     citationsOf: (pairingId, tokens) => agents.citationsOf(pairingId, tokens),
+    documentNamed: (pairingId, ref) => agents.documentNamed(pairingId, ref),
     consented: (pairing) => hostedConsent(pairing, HOSTED_FLOW_SENDS),
     heldBack: hostedHeldBack,
     onReachChange: onHostedReachChange,
@@ -7996,7 +8018,6 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
-      const versions = documentVersions();
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
           throw new InvalidInputError("A Note id must be text.");
@@ -8009,6 +8030,7 @@ export function createCore(adapters: CoreAdapters): Core {
           if (error instanceof NotFoundError) continue;
           throw error;
         }
+        const versions = versionsFor(mind.id);
         const snapshot = await content.inspectStored(
           mindId,
           async ({ state, blocks, settings, yieldTurn }) => {
@@ -8063,6 +8085,7 @@ export function createCore(adapters: CoreAdapters): Core {
     redoAskedChanges: async (undoId) => askedChanges.redo(undoId),
     undoAgentChange: async (step) => agentChanges.undo(step),
     redoAgentChange: async (step) => agentChanges.redo(step),
+    claimAgentChange: async (step) => agentChanges.claim(step),
     releaseAskedChanges: async (undoId) => askedChanges.release(undoId),
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),
@@ -8798,7 +8821,7 @@ export function createCore(adapters: CoreAdapters): Core {
     holdMindCheck: async (input) => checks.holdMindCheck(input),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
-    libraryListsVersion: async (mindId) => libraryVersion(libraryListsOf(mindId)),
+    libraryListsVersion: async (mindId) => userLibraryVersion(mindId),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     judgedWithNow: async (mindId) => {

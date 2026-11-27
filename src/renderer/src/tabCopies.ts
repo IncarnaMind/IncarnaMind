@@ -10,7 +10,8 @@ import { defaultDeleteFilter, defaultProtectedNodes, ySyncPluginKey } from "@tip
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, type WindowLayout } from "../../core/api";
 import { core } from "./core";
-import { keepHistory } from "./editor/keptHistories";
+import { takeAgentOwnChanges } from "./editor/agentOwnUndo";
+import { historyEditor, keepHistory } from "./editor/keptHistories";
 import { keepOthersWords } from "./editor/othersWords";
 import { type OpenedCopy, openMindCopy } from "./mindCopies";
 import { useAppStore } from "./store";
@@ -52,6 +53,28 @@ const keyOf = (tabId: string, mindId: string) => `${tabId}\n${mindId}`;
 /** The tab's copy of the Note once its state has arrived: an editor shown again draws it at once. */
 export const tabCopyNow = (tabId: string, mindId: string): TabCopy | null =>
   kept.get(keyOf(tabId, mindId))?.ready ?? null;
+
+/** An open tab's editable copy and kept Undo history for `mindId`, preferring `preferredTabId`. */
+export function keptTabCopy(
+  mindId: string,
+  preferredTabId?: string,
+): { tabId: string; doc: Y.Doc; history: Y.UndoManager } | null {
+  const pick = (entry: Kept | undefined) => {
+    const ready = entry?.ready;
+    if (!entry || !ready?.copy.doc || !ready.history) return null;
+    return { tabId: entry.tabId, doc: ready.copy.doc, history: ready.history };
+  };
+  if (preferredTabId) {
+    const exact = pick(kept.get(keyOf(preferredTabId, mindId)));
+    if (exact) return exact;
+  }
+  for (const entry of kept.values()) {
+    if (entry.mindId !== mindId) continue;
+    const found = pick(entry);
+    if (found) return found;
+  }
+  return null;
+}
 
 /**
  * Holds the tab's copy of the Note, opening it the first time: `opened` hears it once its state has
@@ -99,8 +122,10 @@ function open(tabId: string, mindId: string): Kept {
       if (history && copy.doc) {
         const end = keepHistory(history, tabId, mindId);
         const unguard = keepOthersWords(copy.doc, history);
+        const stopAgentOwn = takeAgentOwnChanges(mindId, copy.doc, history);
         endAppRedoOnNewStep(history);
         entry.endHistory = () => {
+          stopAgentOwn();
           unguard();
           end();
           history.destroy();
@@ -145,7 +170,7 @@ const historyOf = (doc: Y.Doc) =>
  */
 function endAppRedoOnNewStep(history: Y.UndoManager): void {
   const made = ({ origin }: { origin: unknown }) => {
-    if (origin === history || useUndo.getState().running) return;
+    if (origin === history || useUndo.getState().running || historyEditor(history) === null) return;
     useUndo.setState(({ line }) => ({
       undone: [],
       ...(line?.told && line.redoes && { line: null }),

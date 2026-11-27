@@ -3,8 +3,8 @@
  * editor that asked takes the core's updates in as its own change, then
  * accepts them, all one step of its Undo.
  */
-import type { Editor } from "@tiptap/core";
-import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { type Editor, getSchema } from "@tiptap/core";
+import { Fragment, type Node as ProseMirrorNode, type Schema } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import {
   absolutePositionToRelativePosition,
@@ -22,11 +22,17 @@ import {
   MIND_CONTENT_FIELD,
   type ProposalRef,
 } from "../../core/api";
-import { waitsForUser } from "../../shared/askedChanges";
+import { checkpointBeforeAccept, waitsForUser } from "../../shared/askedChanges";
 import { originMaps } from "../../shared/blockOrigins";
 import { fingerprintOfMind } from "../../shared/mindState";
 import { mindName } from "../../shared/naming";
-import { aiUseOfAccepted, proposalRequestOf, resolveProposals } from "../../shared/proposals";
+import {
+  aiUseOfAccepted,
+  outOfDateProposals,
+  pendingProposals,
+  proposalRequestOf,
+  resolveProposals,
+} from "../../shared/proposals";
 import { nameOlderCitations } from "../../shared/signOffs";
 import { type ChangeCounts, changeFact } from "./changeFacts";
 import { core } from "./core";
@@ -58,15 +64,19 @@ import {
   asOneStep,
   type FollowedSteps,
   followSteps,
+  followStepsInHistory,
   historyOwnerOf,
   keepInSight,
   offerEditorUndo,
+  offerHistoryUndo,
   onTakenOut,
   takeOutOfHistory,
+  type UndoStack,
   type UndoStep,
   undoStackOf,
 } from "./editor/editorUndo";
 import { historyEditor, keptHistory, onHistoryEnd, onHistoryShown } from "./editor/keptHistories";
+import { noteExtensions } from "./editor/noteSchema";
 import {
   applyingIn,
   editorDoc,
@@ -115,36 +125,58 @@ export interface Applying {
   forget(): void;
 }
 
-const latest = new WeakMap<object, Applying>();
+/** An edit held by a tab's kept history, whose editor may not be mounted while hidden (#3839). */
+type KeptApplying = Omit<Applying, "editor"> & { editor: Editor | null };
+
+const latest = new WeakMap<object, KeptApplying>();
 /**
  * The last edit that applied in each editor, which Review changes shows
  * after its line has gone (#1795), for as long as the editor lives, or its
  * tab, where the tab keeps the Note's history: a newer edit that fails or
  * waits leaves it the last.
  */
-const lastApplied = new WeakMap<object, Applying>();
+const lastApplied = new WeakMap<object, KeptApplying>();
 
 /** Hears the edit's Note leave: its tab closed, or, outside a tab, its editor ended. */
-function onceGone(edit: Applying, listener: () => void): () => void {
+function onceGone(edit: KeptApplying, listener: () => void): () => void {
   if (edit.kept) return onHistoryEnd(edit.kept, listener);
   const { editor } = edit;
+  if (!editor) return () => undefined;
   editor.on("destroy", listener);
   return () => void editor.off("destroy", listener);
 }
 
-const isGone = (edit: Applying) =>
-  edit.kept ? keptHistory(edit.kept) === undefined : edit.editor.isDestroyed;
+const isGone = (edit: KeptApplying) =>
+  edit.kept ? keptHistory(edit.kept) === undefined : (edit.editor?.isDestroyed ?? true);
 
 /** The line an editor of a kept history showed as it stopped showing, for the tab's next one. */
 const lineWhenHidden = new WeakMap<object, AppliedLine>();
+type PendingHidden =
+  | {
+      kind: "applied";
+      edit: KeptApplying;
+      planned: ReturnType<typeof planChanges>;
+      facts: ChangeCounts;
+      turn?: string;
+    }
+  | {
+      kind: "held";
+      mindId: string;
+      requests: readonly string[];
+      facts: ChangeCounts;
+    };
+/** An edit applied or held while its tab had no mounted editor, waiting to draw its line (#3839). */
+const pendingHidden = new WeakMap<object, PendingHidden>();
 const historiesFollowed = new WeakSet<object>();
+let cachedHiddenSchema: Schema | null = null;
+const hiddenNoteSchema = () => (cachedHiddenSchema ??= getSchema(noteExtensions()));
 
 /**
  * A tab switch is no change to an edit (#3115): its line goes with the editor, and the tab's next
  * editor takes over its last applied edit and its line, while the edit's steps are still on top,
  * and the edit asked last, in whatever state it is: being written, held back or applied.
  */
-function followHistory(history: object, editor: Editor): void {
+function followHistory(history: object, editor: Editor | null): void {
   if (historiesFollowed.has(history)) return;
   historiesFollowed.add(history);
   let shownIn: Editor | null = editor;
@@ -169,20 +201,61 @@ function followHistory(history: object, editor: Editor): void {
       // Being written, its Proposals aren't the User's to accept or reject one by one.
       if (asking.drawing) drawApplying(next, asking.drawing, true);
     }
+    const pending = pendingHidden.get(history);
+    if (pending) {
+      pendingHidden.delete(history);
+      if (pending.kind === "applied") {
+        pending.edit.editor = next;
+        if (pending.edit.followed?.onTop()) {
+          const changes = appliedChanges(next.state, anchorChanges(next.state, pending.planned));
+          pending.edit.changes = changes;
+          setAppliedLine(next, {
+            kind: "applied",
+            blockId: firstBlockOf(next.state, changes),
+            blocks: {
+              paragraphs: pending.facts.changed + pending.facts.wrote,
+              tables: pending.facts.tables,
+            },
+            facts: pending.facts,
+            reason: null,
+            changes,
+            kept: null,
+            ...(pending.turn && { turn: pending.turn }),
+          });
+        }
+      } else {
+        const requests = new Set(pending.requests);
+        const first = proposalsIn(next.state.doc).find((each) => requests.has(each.request));
+        if (first) {
+          setAppliedLine(next, {
+            kind: "held",
+            blockId: topBlockAt(next.state, first.from),
+            request: first.request,
+            asked: {
+              mindId: pending.mindId,
+              requests: pending.requests,
+              facts: pending.facts,
+            },
+          });
+        }
+      }
+      return;
+    }
     if (line && lineHolds(line, applied)) setAppliedLine(next, line);
   });
   onHistoryEnd(history, () => {
     historiesFollowed.delete(history);
     lineWhenHidden.delete(history);
+    pendingHidden.delete(history);
   });
 }
 
 /** A line taken from an editor still says what is so: its edit still on top, or its changes waiting. */
-const lineHolds = (line: AppliedLine, applied: Applying | undefined) =>
+const lineHolds = (line: AppliedLine, applied: KeptApplying | undefined) =>
   line.kind === "held" || (applied?.followed?.onTop() ?? false);
 
-function asEditStep(edit: Applying, change: () => void): void {
-  const stack = undoStackOf(edit.editor);
+function asEditStep(edit: KeptApplying, editor: Editor, change: () => void): void {
+  const stack = undoStackOf(editor);
   const last = edit.steps.at(-1);
   if (stack && last && stack.undoStack.at(-1) === last) {
     // Yjs joins a change to the last step when it comes soon after that step's last change.
@@ -198,8 +271,8 @@ function asEditStep(edit: Applying, change: () => void): void {
   }
 }
 
-function foldSteps(edit: Applying): void {
-  const stack = undoStackOf(edit.editor);
+function foldSteps(edit: KeptApplying, editor: Editor): void {
+  const stack = undoStackOf(editor);
   const last = edit.steps.at(-1);
   const earlier = edit.steps.slice(0, -1);
   if (!stack || !last || earlier.length === 0) return;
@@ -239,7 +312,7 @@ export function startApplying(editor: Editor, mindId: string, requestId: string)
       edit.drawing = cause.request;
       drawApplying(edit.editor, cause.request, true);
     }
-    asEditStep(edit, () => Y.applyUpdate(edit.doc, update, EDIT_FROM_CORE));
+    asEditStep(edit, edit.editor, () => Y.applyUpdate(edit.doc, update, EDIT_FROM_CORE));
   });
   return edit;
 }
@@ -250,6 +323,7 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
   if (!doc || !stack || editor.isDestroyed) return null;
   const owner = historyOwnerOf(editor);
   latest.get(owner)?.forget();
+  pendingHidden.delete(owner);
   setAppliedLine(editor, null);
   stack.addTrackedOrigin(EDIT_FROM_CORE);
   stack.addTrackedOrigin(AcceptingEdit);
@@ -257,14 +331,16 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
   stack.addToScope(originMaps(doc));
   const popped = ({ stackItem }: { stackItem: UndoStep }) => {
     if (!edit.steps.includes(stackItem) || latest.get(owner) !== edit) return;
-    setAppliedLine(edit.editor, null);
+    if (!edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
     lineWhenHidden.delete(owner);
+    pendingHidden.delete(owner);
   };
   // Someone else's words in what it wrote take its steps out of the Note's history, its line too.
   const takenOut = (steps: ReadonlySet<UndoStep>) => {
     if (!edit.steps.some((step) => steps.has(step)) || latest.get(owner) !== edit) return;
     if (!edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
     lineWhenHidden.delete(owner);
+    pendingHidden.delete(owner);
   };
   const kept = owner === editor ? null : owner;
   if (kept) followHistory(kept, editor);
@@ -438,18 +514,17 @@ function keptLineOf(leftOut: readonly LeftOutPart[]): KeptLine | null {
 export const appliedMessage = (blocks: ChangedBlocks) => appliedText(t, blocks);
 
 /** Accepts the edit's Proposals as part of its Undo step, and shows the line over it. Returns what changed. */
-function apply(edit: Applying, request: string, parts?: number): ChangedBlocks {
-  const { editor } = edit;
+function apply(edit: KeptApplying, editor: Editor, request: string, parts?: number): ChangedBlocks {
   const places = changesOf(editor.state, request);
   const blocks = edit.doc.getXmlFragment(MIND_CONTENT_FIELD);
   let resolved: ReturnType<typeof resolveProposals> = [];
   nameOlderCitations(blocks);
-  asEditStep(edit, () => {
+  asEditStep(edit, editor, () => {
     edit.doc.transact(() => {
       resolved = resolveProposals(blocks, (ref: ProposalRef) => ref.request === request, "accept");
     }, new AcceptingEdit());
   });
-  foldSteps(edit);
+  foldSteps(edit, editor);
   drawApplying(editor, request, false);
   const entries = aiUseOfAccepted(edit.doc, edit.mindId, resolved, new Date().toISOString());
   if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
@@ -842,9 +917,13 @@ export function applyArrived(
     }
     edit.followed = followCoreUndo(edit, application, current);
   } else {
+    // Checkpoint before the change is sent: FIFO IPC runs it before applyMindUpdate (#3839).
+    if (holds && checkpointBeforeAccept(edit.doc, requests)) {
+      core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+    }
     planned = planChanges(editor.state, requests);
     let resolved: ReturnType<typeof writeAccepted> = [];
-    asEditStep(edit, () => {
+    asEditStep(edit, editor, () => {
       resolved = writeAccepted(
         edit.doc,
         requests,
@@ -887,6 +966,127 @@ export function applyArrived(
   } else {
     offerEditorUndo(editor, (t) => changeFact(t, facts, null), pageUndoPlace);
   }
+  return "applied";
+}
+
+/**
+ * Applies asked-for changes directly onto a hidden tab's kept Yjs document and Undo stack
+ * (#3839): one Undo step in that tab's history, a Checkpoint before it, and its line drawn once
+ * the tab shows again.
+ */
+export function applyArrivedInHistory(
+  doc: Y.Doc,
+  history: UndoStack,
+  mindId: string,
+  requests: ReadonlySet<string>,
+  facts: ChangeCounts,
+  { holds = true, turn }: { holds?: boolean; turn?: string } = {},
+): "applied" | "held" | null {
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  const stale = outOfDateProposals(blocks);
+  const pending = pendingProposals(blocks).filter(
+    (each) => requests.has(each.request) && !stale.has(each.id),
+  );
+  if (pending.length === 0) return null;
+  if (holds && waitsForUser(doc, requests)) {
+    pendingHidden.set(history, {
+      kind: "held",
+      mindId,
+      requests: [...requests],
+      facts,
+    });
+    followHistory(history, null);
+    return "held";
+  }
+  const request = pending[0]?.request;
+  if (!request) return null;
+  latest.get(history)?.forget();
+  lineWhenHidden.delete(history);
+  pendingHidden.delete(history);
+  history.addTrackedOrigin(EDIT_FROM_CORE);
+  history.addTrackedOrigin(AcceptingEdit);
+  history.addToScope(originMaps(doc));
+  const popped = ({ stackItem }: { stackItem: UndoStep }) => {
+    if (!edit.steps.includes(stackItem) || latest.get(history) !== edit) return;
+    if (edit.editor && !edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
+    lineWhenHidden.delete(history);
+    pendingHidden.delete(history);
+  };
+  const takenOut = (steps: ReadonlySet<UndoStep>) => {
+    if (!edit.steps.some((step) => steps.has(step)) || latest.get(history) !== edit) return;
+    if (edit.editor && !edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
+    lineWhenHidden.delete(history);
+    pendingHidden.delete(history);
+  };
+  followHistory(history, null);
+  const edit: KeptApplying = {
+    requestId: `assistant:${request}`,
+    mindId,
+    editor: null,
+    kept: history,
+    doc,
+    request: null,
+    drawing: null,
+    steps: [],
+    more: [],
+    followed: null,
+    leftOut: [],
+    changes: [],
+    byAssistant: true,
+    restored: new Map(),
+    stopTaking: () => undefined,
+    forget: () => {
+      edit.stopTaking();
+      history.off("stack-item-popped", popped);
+      stopTaken();
+      if (latest.get(history) === edit) latest.delete(history);
+    },
+  };
+  history.on("stack-item-popped", popped);
+  const stopTaken = onTakenOut(history, takenOut);
+  latest.set(history, edit);
+  // Checkpoint before the change is sent: FIFO IPC runs it before applyMindUpdate (#3839).
+  if (checkpointBeforeAccept(doc, requests)) {
+    core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+  }
+  const schema = hiddenNoteSchema();
+  const planned = planChanges(yXmlFragmentToProseMirrorRootNode(blocks, schema), requests);
+  let resolved: ReturnType<typeof writeAccepted> = [];
+  history.stopCapturing();
+  const before = history.undoStack.at(-1);
+  try {
+    resolved = writeAccepted(doc, requests, new SettingAside(), new AcceptingEdit(), schema);
+  } finally {
+    const after = history.undoStack.at(-1);
+    if (after && after !== before) edit.steps.push(after);
+    history.stopCapturing();
+  }
+  const entries = aiUseOfAccepted(doc, mindId, resolved, new Date().toISOString());
+  if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
+  const accepted = resolved.map((each) => each.id);
+  edit.followed = followStepsInHistory(history, edit.steps);
+  lastApplied.set(history, edit);
+  pendingHidden.set(history, {
+    kind: "applied",
+    edit,
+    planned,
+    facts,
+    ...(turn && { turn }),
+  });
+  const { followed } = edit;
+  if (followed) {
+    for (const listener of applied) listener(mindId, requests, { followed, accepted });
+  }
+  offerHistoryUndo(
+    history,
+    (t) => changeFact(t, facts, null),
+    pageUndoPlace,
+    undefined,
+    undefined,
+    {
+      silent: true,
+    },
+  );
   return "applied";
 }
 
@@ -936,7 +1136,7 @@ export async function finishApplying(
     });
     return "held";
   }
-  return { applied: apply(edit, result.request, result.parts) };
+  return { applied: apply(edit, edit.editor, result.request, result.parts) };
 }
 
 function undoEdit(editor: Editor): void {
@@ -948,7 +1148,7 @@ function undoEdit(editor: Editor): void {
   setAppliedLine(editor, null);
 }
 
-const restoredIn = (edit: Applying) => (change: AppliedChange) =>
+const restoredIn = (edit: KeptApplying) => (change: AppliedChange) =>
   edit.restored.get(change)?.state() === "done";
 
 // Redo of a Restore finishes its step after the editor took the change in: drawn again once it has.
@@ -1092,7 +1292,7 @@ function resolveHeld(editor: Editor, outcome: "accept" | "reject"): void {
     return;
   }
   if (outcome === "accept" && edit?.request === line.request) {
-    const changed = apply(edit, line.request);
+    const changed = apply(edit, editor, line.request);
     if (changed.paragraphs + changed.tables > 0) speak(edit.mindId, appliedMessage(changed));
     return;
   }

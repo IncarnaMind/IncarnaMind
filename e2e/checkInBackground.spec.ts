@@ -170,8 +170,8 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     const asked = window.getByTestId("checks-asked");
 
     // While it runs: the button says so, naming it in its tooltip, with Stop right after it for a
-    // keyboard User, and no card opens by the press; the card, opened from the button, keeps Stop
-    // in its foot with no Check beside it (its words for the run read only to a screen reader);
+    // keyboard User, and no card opens by the press; the card, opened from the button, says it in
+    // its head with no Stop or Check of its own: the button's Stop is the run's one (#3840);
     // nothing opens or is copied.
     await nextRun("wait");
     const button = noteCheck(window);
@@ -190,14 +190,19 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     await pointAndClick(window, button);
     await expect(asked).toHaveText("Checking this note in Claude Code.");
     await expect(asked).toHaveClass(/\bsr-only\b/);
-    const foot = window.getByTestId("check-card-foot");
-    await expect(foot.getByTestId("checks-asked-stop")).toHaveText("Stop");
-    await expect(foot.getByRole("button", { name: "Check", exact: true })).toHaveCount(0);
+    const card = window.getByTestId("check-card");
+    await expect(card.getByTestId("check-card-head")).toHaveText(
+      "Checking this note in Claude Code.",
+    );
+    await expect(card.getByTestId("check-card-foot")).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Check", exact: true })).toHaveCount(0);
+    await expect(stop).toHaveAccessibleName("Stop");
     await both(app, window, "background-running", async () => {
       await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
-      await expect(window.getByTestId("checks-asked-stop")).toHaveText("停止");
+      await expect(stop).toHaveAccessibleName("停止");
     });
-    await pointAndClick(window, window.getByTestId("checks-asked-stop"));
+    await pointAndClick(window, stop);
     await expect(asked).toHaveCount(0);
     await expect(button).toHaveAttribute("data-state", "check");
     await expect(window.locator('[data-testid="claim-mark"]')).toHaveCount(0);
@@ -339,13 +344,14 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     await expect(button).toHaveAttribute("title", "Checking this note in Codex.");
     await pointAndClick(window, button);
     await expect(asked).toHaveText("Checking this note in Codex.");
-    await expect(window.getByTestId("checks-asked-stop")).toHaveText("Stop");
+    const stop = window.getByTestId("note-check-stop");
+    await expect(stop).toHaveAccessibleName("Stop");
     await both(app, window, "codex-running", async () => {
       await expect(asked).toHaveText("Codex 正在核对这篇笔记。");
     });
     await expect.poll(() => existsSync(join(bin, "pids"))).toBe(true);
     const pids = (await readFile(join(bin, "pids"), "utf8")).split(" ").map(Number);
-    await pointAndClick(window, window.getByTestId("checks-asked-stop"));
+    await pointAndClick(window, stop);
     await expect(asked).toHaveCount(0);
     await expect.poll(() => pids.filter(processRunning)).toEqual([]);
     await expect(window.locator('[data-testid="claim-mark"]')).toHaveCount(0);

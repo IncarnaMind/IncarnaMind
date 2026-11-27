@@ -55,7 +55,7 @@ const WORDS = {
     line: "This passage backs the sentence, but the sentence doesn’t cite it yet.",
     row: "2 can be cited",
     addAll: "Add all",
-    button: "2 can be cited",
+    button: "Checked",
     found: "Found by a check of this sentence",
     mixed: {
       look: "1 needs a look",
@@ -70,7 +70,7 @@ const WORDS = {
     line: "这个段落支持这句话，但尚未添加为引用。",
     row: "2 句可添加引用",
     addAll: "全部添加",
-    button: "2 句可添加引用",
+    button: "已核对",
     found: "核对这句话时找到",
     mixed: { look: "1 句需要留意", supported: "1 句有依据", waiting: "1 句可添加引用" },
     mixedButton: "需要留意 1 处",
@@ -208,7 +208,7 @@ async function checkFromCard(window: Page) {
   const card = await checkCard(window);
   await checkNote(window);
   await expect(noteCheck(window)).not.toHaveAttribute("data-state", "check");
-  await expect(card.getByTestId("card-foot-stop")).toHaveCount(0, { timeout: 30_000 });
+  await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 30_000 });
   return card;
 }
 
@@ -245,12 +245,15 @@ for (const [language, width] of [
     await shownInBody(panel, row);
     await expect(row.getByTestId("found-passages-add")).toHaveText(words.addAll);
     await expect(panel.getByTestId("health-toCheck")).toHaveCount(0);
-    await expect(panel.getByTestId("health-supported")).toHaveCount(0);
+    await expect(panel.getByTestId("mind-health").getByTestId("health-supported")).toHaveCount(0);
     await screenshot(window, `${language}-panel`);
     await window.keyboard.press("Escape");
+    // The Note's button says the check is done, with the margin's ring and "+" and no ✓; what can
+    // be cited is counted once, in the card's row, never on the button or its tooltip (#3840).
     const button = noteCheck(window);
-    await expect(button).toHaveAttribute("data-state", "said");
-    await expect(button.locator(".note-check-words")).toContainText(words.button);
+    await expect(button).toHaveAttribute("data-state", "checked");
+    await expect(button).toHaveAttribute("data-tone", "neutral");
+    await expect(button.locator(".note-check-words")).toHaveText(words.button);
     await expect(button).toHaveAttribute("title", words.button);
     await screenshot(window, `${language}-page`);
     await screenshot(window, `${language}-button`, button);
@@ -341,10 +344,10 @@ for (const [language, width] of [
     await writeNote(window, [SPRING]);
 
     // The card opened with a row for the sentence to check; the check ends with no row for what is
-    // left, and its summary at the top of the body is brought into view (#3019).
+    // left, and its head, All supported, at the top of the body is brought into view (#3019, #3840).
     const panel = await checkFromCard(window);
-    const summary = panel.getByTestId("health-all-checked");
-    await expect(summary).toBeVisible();
+    const summary = panel.getByTestId("check-card-head");
+    await expect(summary).toHaveAttribute("data-stage", "clean");
     await shownInBody(panel, summary);
     await app.close();
   });
@@ -362,13 +365,16 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeNote(window, [NEAP, HARBOUR]);
 
       // The card opens before the check, and is still open when it ends: what the end brings
-      // lands in the card's body, not in a taller card (#2313), and is brought into view (#3019).
+      // lands in the card's body, which keeps its height (#2313), and is brought into view
+      // (#3019); the one thing added is the foot under the body, with its quiet Check again (#3840).
       const panel = await checkCard(window);
+      const panelBody = panel.locator(".check-card-body");
       const before = await panel.boundingBox();
-      if (!before) throw new Error("The card isn't drawn.");
+      const beforeBody = await panelBody.boundingBox();
+      if (!before || !beforeBody) throw new Error("The card isn't drawn.");
       await checkNote(window);
       await expect(noteCheck(window)).not.toHaveAttribute("data-state", "check");
-      await expect(panel.getByTestId("card-foot-stop")).toHaveCount(0, { timeout: 30_000 });
+      await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 30_000 });
       const row = panel.getByTestId("health-notYetCited");
       await expect(row).toContainText(words.row);
       await shownInBody(panel, row);
@@ -378,9 +384,12 @@ for (const language of ["en", "zh-CN"] as const) {
         contentType: "image/png",
       });
       const ended = await panel.boundingBox();
-      if (!ended) throw new Error("The card went at the check's end.");
-      expect(ended.height).toBeCloseTo(before.height, 0);
+      const endedBody = await panelBody.boundingBox();
+      if (!ended || !endedBody) throw new Error("The card went at the check's end.");
       expect(ended.y).toBeCloseTo(before.y, 0);
+      expect(endedBody.y).toBeCloseTo(beforeBody.y, 0);
+      expect(endedBody.height).toBeCloseTo(beforeBody.height, 0);
+      await expect(panel.getByTestId("check-card-again")).toBeVisible();
       await app.close();
     });
   }

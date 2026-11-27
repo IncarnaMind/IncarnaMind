@@ -55,6 +55,8 @@ export interface CheckRecordDependencies {
   figures(mindId: string): readonly FigureScheduleRow[];
   /** The User, whose own check marks are theirs (#1933); null before they make one. */
   personId(): string | null;
+  /** The version of the Library's own lists on this Note's side of the Folder walls (#2525). */
+  libraryVersion?(mindId: string): string;
   /** The walled Folder that keeps a Document inside it, seen from the Mind; null when it may read it. */
   keptInside?(mindId: string, documentId: string): string | null;
 }
@@ -101,11 +103,14 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
   async function build(
     mindId: unknown,
     reach: ReadonlySet<string> | null = null,
+    libraryVersion: string | null = null,
   ): Promise<CheckRecord> {
     const mind = deps.mind(mindId);
     const language = deps.language();
     const providers = await deps.providers();
     const t = translatorFor(language);
+    const resolvedLibraryVersion =
+      reach === null ? (libraryVersion ?? deps.libraryVersion?.(mind.id) ?? null) : libraryVersion;
     const { sentences, citations, recordCites, unread, notChecked } = deps.read(
       mind.id,
       (fragment) => {
@@ -123,6 +128,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
               : null,
           personId: deps.personId(),
           reach,
+          libraryVersion: resolvedLibraryVersion,
           keptInside: deps.keptInside
             ? (documentId) => deps.keptInside?.(mind.id, documentId) ?? null
             : null,

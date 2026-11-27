@@ -57,6 +57,11 @@ test.afterEach(async () => {
 });
 
 const nextRun = (mode: string) => writeFile(join(bin, "mode"), mode);
+/** A Claude Code put in place of the one before, as an update or a downgrade does. */
+const replaceClaude = async () => {
+  const command = join(bin, "claude");
+  await writeFile(command, await readFile(command, "utf8"));
+};
 /** Each start of the stand-in so far: "--version", "auth status", "run", "run --model haiku". */
 const starts = () =>
   readFile(join(bin, "mode.starts"), "utf8").then(
@@ -356,7 +361,8 @@ test("the model in the box comes with the first request's run, and the one chose
     await window.keyboard.type("And when?");
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
-    expect((await starts()).slice(3)).toEqual(["--version", "auth status", "run --model haiku"]);
+    // The same Claude Code: its sign-in is asked again, its version not.
+    expect((await starts()).slice(3)).toEqual(["auth status", "run --model haiku"]);
     // Claude Code named the model it answered on: the one chosen.
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
     const reply = group.getByTestId("note-column-reply").last();
@@ -577,6 +583,7 @@ test("a request that can't start says why where the User typed, whole, with the 
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
     await expect(group.getByTestId("note-ask-panel")).toBeVisible();
     await nextRun("too-old");
+    await replaceClaude();
     await send("Make it shorter");
     await shownWhole(tooOld);
     // The words it didn't send stay in the input, to send again.

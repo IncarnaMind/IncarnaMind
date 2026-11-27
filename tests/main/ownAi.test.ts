@@ -19,7 +19,7 @@ import {
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { OwnAiAsk, OwnAiProgress } from "../../src/core/adapters";
 import type { NoteAnswer } from "../../src/core/api";
 import { runClaudeCodeTurn } from "../../src/main/claudeCode";
@@ -401,6 +401,33 @@ describe("whether Claude Code can run a check", () => {
       "auth status",
       "--version",
       "auth status",
+    ]);
+  });
+
+  // protects=the sign-in is asked before each request, and the version only until it has passed, again once Claude Code is replaced, as an update replaces it, too old said as before (#3677); fails_when=each request starts Claude Code for its version too, the sign-in is taken as given, or an update to a version too old goes unseen
+  it("asks the version only again once Claude Code is replaced, and the sign-in each time", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "own-ai-version-"));
+    onTestFinished(() => rm(folder, { recursive: true, force: true }));
+    const binary = join(folder, "claude");
+    await writeFile(binary, "#!/bin/sh\n");
+    await chmod(binary, 0o755);
+    useClaude();
+    const own = createOwnAi({ command: binary });
+    await expect(own.status("claude-code")).resolves.toEqual({ kind: "ready" });
+    useClaude({ signedIn: false });
+    await expect(own.status("claude-code")).resolves.toEqual({ kind: "signed-out" });
+    await writeFile(binary, "#!/bin/sh\n# another version\n");
+    useClaude({ version: "2.1.100 (Claude Code)" });
+    await expect(own.status("claude-code")).resolves.toEqual({
+      kind: "too-old",
+      found: "2.1.100",
+      lowest: "2.1.248",
+    });
+    expect(launch.mock.calls.map(([, args]) => args.join(" "))).toEqual([
+      "--version",
+      "auth status",
+      "auth status",
+      "--version",
     ]);
   });
 
@@ -1322,7 +1349,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         lines.on("line", (line) => {
           const v = JSON.parse(line);
           if (v.type === "control_request") {
-            hooks = v.request.hooks ?? null;
+            if (v.request.subtype === "initialize") hooks = v.request.hooks ?? null;
             say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [], ...${HOOKS_TAKEN} } } });
           } else if (v.type === "user") {
             say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "acceptEdits", tools: ["Bash", "Write"], mcp_servers: [] });
@@ -1341,6 +1368,53 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       answers: string[];
     };
   }
+
+  /** What a run asked of a stand-in for Claude Code whose effective settings are `settings`. */
+  async function useSettingsAsked(settings: Record<string, unknown> | null) {
+    useClaude({
+      run: `
+        const lines = require("node:readline").createInterface({ input: process.stdin });
+        const say = (value) => console.log(JSON.stringify(value));
+        const seen = [];
+        lines.on("line", (line) => {
+          const v = JSON.parse(line);
+          seen.push(v.type === "control_request" ? v.request : { type: v.type });
+          if (v.type === "control_request" && v.request.subtype === "get_settings") {
+            const settings = ${JSON.stringify(settings)};
+            say({ type: "control_response", response: settings === null ? { subtype: "error", request_id: v.request_id, error: "unknown" } : { subtype: "success", request_id: v.request_id, response: { effective: settings, sources: [] } } });
+          } else if (v.type === "control_request") {
+            say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [], ...${HOOKS_TAKEN} } } });
+          } else if (v.type === "user") {
+            say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "default", tools: [], mcp_servers: [] });
+            say({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(seen) });
+          }
+        });
+      `,
+    });
+    const { end } = await converse(async () => "deny");
+    return JSON.parse(end.kind === "finished" ? end.reply : "[]") as Record<string, unknown>[];
+  }
+
+  // protects=a Note's conversation asks Claude Code for its thinking summarized, after the hook is taken and before the request goes, so the line can show what the AI considers, unless the User's own showThinkingSummaries is off, or Claude Code can't say (#3677); fails_when=the thinking streams with no words, the request goes before the ask, or the User's own setting is overridden
+  it("asks for the AI's thinking in words before the request goes, unless the User's setting says no", async () => {
+    const steps = (seen: Record<string, unknown>[]) =>
+      seen.map((each) => each.subtype ?? each.type);
+    const asked = await useSettingsAsked({ disableAllHooks: false });
+    expect(steps(asked)).toEqual(["initialize", "get_settings", "set_max_thinking_tokens", "user"]);
+    expect(asked[2]).toEqual({
+      subtype: "set_max_thinking_tokens",
+      thinking_display: "summarized",
+    });
+    expect(steps(await useSettingsAsked({ showThinkingSummaries: true }))).toContain(
+      "set_max_thinking_tokens",
+    );
+    expect(steps(await useSettingsAsked({ showThinkingSummaries: false }))).toEqual([
+      "initialize",
+      "get_settings",
+      "user",
+    ]);
+    expect(steps(await useSettingsAsked(null))).toEqual(["initialize", "get_settings", "user"]);
+  });
 
   // protects=a write or a change to Claude Code's own steering files (CLAUDE.md, CLAUDE.local.md, .mcp.json, anything under a .claude folder, its memory there included), by a file tool or a command that names one, always asks, through a PreToolUse hook registered at initialize that runs before Claude Code's mode and rules; an ordinary file or command goes on as before; fails_when=a text the AI read can have it rewrite its own instructions unasked under a mode or rule the User allowed
   it("registers a hook that makes every write to Claude Code's own steering files ask", async () => {
@@ -2508,5 +2582,91 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
     expect(launch.mock.calls.at(-1)?.[2]).toMatchObject({
       env: expect.objectContaining({ CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1" }),
     });
+  });
+
+  // protects=the words of what the AI thinks, the Passage of the quote it writes and the paragraph of the change it writes reach IncarnaMind as they stream, a call's input once whole, and none more often than once a second (#3677); fails_when=the line stands on "Thinking", "Checking quotes" or "Writing the change" while the stream carries what the AI is at, or changes faster than it can be read
+  it("says what the AI thinks and writes as its stream carries it", async () => {
+    const steps: unknown[] = [];
+    const part = (event: unknown) => ({ type: "stream_event", event });
+    const delta = (index: number, value: Record<string, unknown>) =>
+      part({ type: "content_block_delta", index, delta: value });
+    const thought = "**Grouping the clinics**\n\nI'm sorting what each clinic said.";
+    useClaude({
+      run: session([
+        init(),
+        part({ type: "message_start", message: {} }),
+        part({ type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
+        delta(0, { type: "thinking_delta", thinking: thought }),
+        delta(0, { type: "thinking_delta", thinking: " Then the quotes." }),
+        part({ type: "content_block_stop", index: 0 }),
+        part({
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "tool_use", name: "mcp__incarnamind__cite", input: {} },
+        }),
+        delta(1, {
+          type: "input_json_delta",
+          partial_json: '{"citations":[{"passageId":"p-one","quote":"the kick',
+        }),
+        delta(1, { type: "input_json_delta", partial_json: 'off call"}]}' }),
+        part({ type: "content_block_stop", index: 1 }),
+        part({
+          type: "content_block_start",
+          index: 2,
+          content_block: { type: "tool_use", name: "mcp__incarnamind__propose_changes", input: {} },
+        }),
+        delta(2, {
+          type: "input_json_delta",
+          partial_json:
+            '{"mindId":"m1","version":"v1","changes":[{"paragraph":"¶0+","text":"# Onboarding\\n\\nData migration was hard',
+        }),
+        done,
+      ]),
+    });
+    await ask((step) => steps.push(step));
+    // The thought's last sentence came within the second: it is told as its thinking ends, before
+    // the call it led to.
+    expect(steps.filter((step) => (step as { kind: string }).kind !== "heard")).toEqual([
+      { kind: "thinking", text: "" },
+      { kind: "thinking", text: thought },
+      { kind: "thinking", text: `${thought} Then the quotes.` },
+      { kind: "tool", name: "cite" },
+      { kind: "quoting", passageId: "p-one" },
+      {
+        kind: "tool",
+        name: "cite",
+        input: { citations: [{ passageId: "p-one", quote: "the kickoff call" }] },
+      },
+      { kind: "tool", name: "propose_changes" },
+      { kind: "writing", tool: "propose_changes", text: "Data migration was hard" },
+    ]);
+  });
+
+  // protects=words of a thought held back by the once-a-second limit are told once it allows, though nothing more comes: a summary streams in bursts seconds apart (#3677); fails_when=the line stands on a thought's first words, cut mid-sentence, until the next burst
+  it("tells the rest of a burst of thought once the limit allows, though no more comes", async () => {
+    const steps: unknown[] = [];
+    const part = (event: unknown) => ({ type: "stream_event", event });
+    const delta = (thinking: string) =>
+      part({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking } });
+    const whole = "I'm sorting what each clinic said. Then I'll group the quotes by clinic.";
+    useClaude({
+      run: session(
+        [
+          init(),
+          part({ type: "message_start", message: {} }),
+          part({ type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
+          delta("I'm sorting what each clinic said. Then I'll"),
+          delta(" group the quotes by clinic."),
+        ],
+        false,
+        `setTimeout(() => console.log(JSON.stringify(${JSON.stringify(done)})), 1500);`,
+      ),
+    });
+    await ask((step) => steps.push(step));
+    expect(steps.filter((step) => (step as { kind: string }).kind !== "heard")).toEqual([
+      { kind: "thinking", text: "" },
+      { kind: "thinking", text: "I'm sorting what each clinic said." },
+      { kind: "thinking", text: whole },
+    ]);
   });
 });

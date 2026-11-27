@@ -35,7 +35,7 @@ import {
   startAgentsCore,
 } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -391,7 +391,11 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       await pause();
       request.progress?.({ kind: "thinking" });
       await pause();
-      await agent.callTool({ name: "read_passages", arguments: { documentId: found?.documentId } });
+      // As Claude Code's stream gives a call's input, whole, before IncarnaMind runs it.
+      const read = { documentId: found?.documentId };
+      request.progress?.({ kind: "tool", name: "read_passages", input: read });
+      await pause();
+      await agent.callTool({ name: "read_passages", arguments: read });
       await pause();
       return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
     });
@@ -422,13 +426,15 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(last?.documentsFound).toBe(1);
   });
 
-  // protects=with no words of the AI's own between its steps, the line moves with each step it takes, from the step itself: a call as it starts, what it names once it ends, thinking between them, then the reply's first words; and the AI isn't asked to write a line before each step, which made each request slower (#3753); fails_when=the line stands on one step while the AI takes the next, or the instructions ask for a line before each step again
+  // protects=with no words of the AI's own between its steps, the line moves with each step it takes, from the step itself: a call as it starts, what it names once its input is whole, thinking once it has ended, then the reply's first words; and the AI isn't asked to write a line before each step, which made each request slower (#3753); fails_when=the line stands on one step while the AI takes the next, or the instructions ask for a line before each step again
   it("moves the line with each step when the AI writes nothing between them", async () => {
     const run = runner(async (agent, request) => {
       const mindId = mindIdOf(request);
       request.progress?.({ kind: "thinking" });
       await pause(300);
       request.progress?.({ kind: "tool", name: "read_mind" });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "read_mind", input: { mindId, named: true } });
       await pause(300);
       const read = structured<{ version: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
@@ -438,14 +444,14 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       await pause(300);
       request.progress?.({ kind: "tool", name: "propose_changes" });
       await pause(300);
-      await agent.callTool({
-        name: "propose_changes",
-        arguments: {
-          mindId,
-          version: read.version,
-          changes: [{ paragraph: "¶2", text: "Fares rose by twelve percent." }],
-        },
-      });
+      const change = {
+        mindId,
+        version: read.version,
+        changes: [{ paragraph: "¶2", text: "Fares rose by twelve percent." }],
+      };
+      request.progress?.({ kind: "tool", name: "propose_changes", input: change });
+      await pause(300);
+      await agent.callTool({ name: "propose_changes", arguments: change });
       await pause(300);
       request.progress?.({ kind: "said", text: "I changed the fares to twelve percent." });
       await pause(300);
@@ -465,6 +471,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       { kind: "thinking" },
       { kind: "call", tool: "propose_changes", summary: "", count: 0 },
       { kind: "call", tool: "propose_changes", summary: "Ferry notes", count: 1 },
+      { kind: "thinking" },
       { kind: "said", text: "I changed the fares to twelve percent." },
     ].map((step) => JSON.stringify(step));
     let from = 0;
@@ -474,6 +481,136 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       from = at + 1;
     }
     expect(run.runs[0]?.instructions).not.toMatch(/before each step/i);
+  });
+
+  // protects=the line says what the AI is at from what its stream carries: the words of its thinking, which a tick keeps, the paragraph of a change it writes, and the Document of the quote it writes by its name, only one the connection reaches; once IncarnaMind's call has ended it says the AI is thinking, never the call (#3677); fails_when=the line stands still while the stream carries words, names a Document the connection doesn't reach, or names as going on a call that has ended
+  it("says what the AI thinks, writes and quotes, and that it thinks once a call has ended", async () => {
+    let inReach = "";
+    let outOfReach = "";
+    const run = runner(async (agent, request) => {
+      await agent.callTool({ name: "search", arguments: { query: "ferry passengers" } });
+      await pause(300);
+      request.progress?.({ kind: "thinking", text: "" });
+      request.progress?.({
+        kind: "thinking",
+        text: "**Weighing the ferry figures**\n\nComparing the two years.",
+      });
+      await pause(300);
+      request.progress?.({ kind: "thinking" });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "cite" });
+      request.progress?.({ kind: "quoting", passageId: outOfReach });
+      await pause(300);
+      request.progress?.({ kind: "quoting", passageId: inReach });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "propose_changes" });
+      request.progress?.({
+        kind: "writing",
+        tool: "propose_changes",
+        text: "The ferry carried 212,000 passengers.",
+      });
+      await pause(300);
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, dataDir, sources, reportId, mindId, turns, ended } = await written(run.adapter);
+    const [payroll] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Payroll.md", "# Payroll\n\nThe crew's wages rose in May.\n"),
+    ]);
+    const passageOf = (documentId: string) =>
+      queryDatabase<{ id: string }>(
+        dataDir,
+        "SELECT id FROM passages WHERE document_id = ? AND deleted_at IS NULL LIMIT 1",
+        [documentId],
+      )[0]?.id ?? "";
+    inReach = passageOf(reportId);
+    outOfReach = passageOf(payroll?.id ?? "");
+    expect(inReach).not.toBe("");
+    expect(outOfReach).not.toBe("");
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    await ended();
+    const doings = turns
+      .filter((turn) => turn.state === "working")
+      .map((turn) => turn.doing)
+      .filter((doing, at, all) => JSON.stringify(doing) !== JSON.stringify(all[at - 1]));
+    const steps = [
+      { kind: "thinking" },
+      { kind: "thinking", summary: "**Weighing the ferry figures**\n\nComparing the two years." },
+      { kind: "call", tool: "cite", summary: "", count: 0 },
+      { kind: "quoting", document: "Report" },
+      { kind: "writing", tool: "propose_changes", text: "The ferry carried 212,000 passengers." },
+    ].map((step) => JSON.stringify(step));
+    const lines = doings.map((doing) => JSON.stringify(doing));
+    let from = 0;
+    for (const step of steps) {
+      const at = lines.indexOf(step, from);
+      expect(at, `${step} after ${lines.slice(0, from).join(", ")}`).toBeGreaterThanOrEqual(from);
+      from = at + 1;
+    }
+    expect(doings).not.toContainEqual(expect.objectContaining({ kind: "call", tool: "search" }));
+    expect(doings.filter((doing) => doing?.kind === "quoting")).toEqual([
+      { kind: "quoting", document: "Report" },
+    ]);
+  });
+
+  // protects=the AI's latest thought stays on the line through the calls it led to and the start of its next stretch of thinking, until a newer thought or its own words to the User take its place (#3677); fails_when=a call a tenth of a second long, after a thought that came whole as its thinking ended, leaves the line on a bare Thinking for the seconds the AI thinks next
+  it("keeps the AI's latest thought through the calls it led to, until a newer thought or its words", async () => {
+    const thought = "I need wider coverage, so I'll run several searches at once.";
+    const run = runner(async (agent, request) => {
+      request.progress?.({ kind: "thinking", text: "" });
+      request.progress?.({ kind: "thinking", text: thought });
+      request.progress?.({ kind: "tool", name: "search" });
+      await agent.callTool({ name: "search", arguments: { query: "ferry passengers" } });
+      await pause(300);
+      request.progress?.({ kind: "thinking", text: "" });
+      request.progress?.({ kind: "thinking" });
+      await pause(300);
+      request.progress?.({ kind: "said", text: "The ferry carried 212,000 passengers." });
+      request.progress?.({ kind: "tool", name: "search" });
+      await agent.callTool({ name: "search", arguments: { query: "ferry crew" } });
+      await pause(300);
+      request.progress?.({ kind: "thinking", text: "" });
+      await pause(300);
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    await ended();
+    const doings = turns
+      .filter((turn) => turn.state === "working")
+      .map((turn) => turn.doing)
+      .filter((doing, at, all) => JSON.stringify(doing) !== JSON.stringify(all[at - 1]));
+    const kept = { kind: "thinking", summary: thought };
+    const said = { kind: "said", text: "The ferry carried 212,000 passengers." };
+    const from = doings.findIndex((doing) => JSON.stringify(doing) === JSON.stringify(kept));
+    const to = doings.findIndex((doing) => JSON.stringify(doing) === JSON.stringify(said));
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(to).toBeGreaterThan(from);
+    expect(doings.slice(from + 1, to)).not.toContainEqual({ kind: "thinking" });
+    expect(doings.slice(to + 1)).toContainEqual({ kind: "thinking" });
+    expect(doings.slice(to + 1)).not.toContainEqual(kept);
+  });
+
+  // protects=a request asks Claude Code's sign-in before each run: signed out, nothing starts and the line says so at once, which a run ending as signed out takes twice as long to say (#3677); fails_when=a signed-out request starts a run first, or the sign-in is asked once and then taken as given
+  it("asks the sign-in before each request, and starts nothing while signed out", async () => {
+    let status: OwnAiStatus = { kind: "signed-out" };
+    let asked = 0;
+    const run = runner(async () => ({ kind: "finished", reply: "" }));
+    run.adapter.status = async () => {
+      asked += 1;
+      return status;
+    };
+    const { core, mindId, ended } = await written(run.adapter);
+    await expect(
+      core.askInNote({ mindId, words: "shorten the first paragraph" }),
+    ).resolves.toMatchObject({ kind: "problem", problem: "signed-out" });
+    expect(run.runs).toEqual([]);
+    status = { kind: "ready" };
+    await expect(
+      core.askInNote({ mindId, words: "shorten the first paragraph" }),
+    ).resolves.toMatchObject({ kind: "started" });
+    await ended();
+    expect(run.runs).toHaveLength(1);
+    expect(asked).toBe(2);
   });
 
   // protects=the line above the input shows no internal wording: a line of the AI's that names a Tool, an id, one of the Tools' id names or a path isn't what it shows, nor a tool of the AI's own known only by its name, and every request asks for plain words in the User's language (#3762); fails_when=the User reads "read_mind", a mindId or "ToolSearch" while the AI works
@@ -1823,6 +1960,27 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
   });
 
+  // protects=a Stop pressed while a request's checks run, before its run has begun, stops it as it begins and starts nothing of the User's agent: the line shows the request working, with Stop, the moment it is sent (#3677); fails_when=the request starts after its checks and runs on as if Stop was never pressed
+  it("stops a request as it begins when Stop came while its checks ran", async () => {
+    const checks = gate();
+    const run = runner(untilStopped);
+    run.adapter.status = async () => {
+      checks.reached();
+      await checks.shut;
+      return { kind: "ready" };
+    };
+    const { core, mindId, client, ended } = await written(run.adapter);
+    const start = core.askInNote({ mindId, words: "rewrite everything" });
+    await checks.at;
+    await core.stopInNote(mindId);
+    checks.open();
+    await expect(start).resolves.toMatchObject({ kind: "started" });
+    expect(await ended()).toMatchObject({ state: "stopped", applied: [] });
+    expect(run.runs).toEqual([]);
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
+  });
+
   // protects=looking for the models starts nothing of the User's agent, with or without the consent; the list comes from a request's own run, which asks for it, and shows only while a request from the Note could run; the model a Note's last run named is held for that Note alone, so any window shows it and another Note shows none; fails_when=the list starts the agent, shows before a run answered it, or outlives the consent or the connection, or the box names the list's first model for a Note that ran on another
   it("lists the models a request's run heard, and starts nothing to look", async () => {
     let calls = 0;
@@ -2413,6 +2571,58 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     } finally {
       db.close();
     }
+  });
+
+  // protects=a Note the agent wrote, asked from its foot with words selected, still applies a change outside the selection at once with no waiting Proposals and tells the agent what is left to check (#3839); fails_when=an own-Note change outside selection waits for Review or loses `next`
+  it("a Note the agent wrote applies outside selection at once and still reports next to check", async () => {
+    let status = "";
+    let next: string | undefined;
+    const run = runner(async (agent, request) => {
+      const done = (await rewrite(agent, mindIdOf(request), [
+        [FARES, "Fares rose by a tenth."],
+      ])) as { status: string; next?: string };
+      status = done.status;
+      next = done.next;
+      return { kind: "finished", reply: "" };
+    });
+    const { core, claude, ended } = await written(run.adapter);
+    const outside = await connectLegacyAgent(claude.launch);
+    const created = structured<{ mindId: string }>(
+      await outside.callTool({
+        name: "create_mind",
+        arguments: { title: "Agent draft", markdown: `${FERRY}\n\n${FARES}` },
+      }),
+    );
+    const client = await connectToMind(core, created.mindId);
+    await client.settled();
+    const blockId = String(readMind(client).child(0).attrs.id);
+    const at = FERRY.indexOf("212,000 passengers");
+    const changedEvents: unknown[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.mindId === created.mindId && change.kind === "changed") changedEvents.push(change);
+    });
+
+    await core.askInNote({
+      mindId: created.mindId,
+      words: "people",
+      selection: [
+        {
+          blockId,
+          before: FERRY.slice(0, at),
+          after: FERRY.slice(at + "212,000 passengers".length),
+        },
+      ],
+    });
+    const end = await ended();
+    await client.settled();
+    expect(status).toBe("applied");
+    expect(end?.waiting).toEqual([]);
+    expect(end?.applied).toHaveLength(1);
+    expect(end?.applied[0]?.own).toBe(true);
+    expect(changedEvents).toHaveLength(1);
+    expect(shownWithChanges(client).join(" | ")).toContain("Fares rose by a tenth.");
+    expect(shownWithChanges(client).join(" | ")).not.toContain("{+");
+    expect(next).toEqual(expect.any(String));
   });
 });
 

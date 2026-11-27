@@ -14,7 +14,6 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
-  runCommand,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -22,10 +21,11 @@ import {
 
 /*
  * The card counts sentences, each once, by its one state (#2831): what needs a look, what is
- * supported, what is being checked and what isn't checked, each a row a click moves to (#2313),
- * and no row of Citations. "All supported" shows only when nothing is left. A sentence not
- * checked keeps a quiet ring on the page and opens from the card's row for it or from ⇧⌘K too.
- * The checks are written into the page, so no model is involved.
+ * supported and what isn't checked, each a row a click moves to (#2313), and no row of Citations.
+ * "All supported" shows only when nothing is left, at the card's head, its line counting the
+ * sentences in place of a supported row (#3840). A sentence not checked keeps a quiet ring on the
+ * page and opens from the card's row for it or from ⇧⌘K too. The checks are written into the
+ * page, so no model is involved.
  */
 
 const TIDES = buildPdf([
@@ -37,7 +37,8 @@ const WORDS = {
     label: "Checks",
     allChecked: "All supported",
     supported: "4 supported",
-    allSupported: "2 supported",
+    fourChecked: "4 sentences checked",
+    allSupported: "2 sentences checked",
     lookOnly: "2 supported",
     twoLook: "2 need a look",
     needLookRow: "1 needs a look",
@@ -62,7 +63,8 @@ const WORDS = {
     label: "核对结果",
     allChecked: "全部有依据",
     supported: "4 句有依据",
-    allSupported: "2 句有依据",
+    fourChecked: "核对 4 句",
+    allSupported: "核对 2 句",
     lookOnly: "2 句有依据",
     twoLook: "2 句需要留意",
     needLookRow: "1 句需要留意",
@@ -168,13 +170,17 @@ for (const language of ["en", "zh-CN"] as const) {
       paragraph(checked("check-4", "supported", sentences.uncited[2] ?? "", { evidence: passage })),
     ]);
     const card = await checkCard(window);
-    // One noun, sentence, from the title through the rows: four supported, cited or not, in one row,
-    // and a supported sentence with no Citation counts as done (#2831).
-    await expect(card.locator(".check-card-title")).toHaveText(words.label);
-    await expect(card.getByTestId("health-supported")).toContainText(words.supported);
+    // One noun, sentence, from the head through the rows: four supported, cited or not, counted
+    // once on the line under All supported, and a supported sentence with no Citation counts as
+    // done (#2831, #3840).
+    await expect(card).toHaveAccessibleName(words.label);
+    const head = card.getByTestId("check-card-head");
+    await expect(head).toHaveAttribute("data-stage", "clean");
+    await expect(head).toContainText(words.allChecked);
+    await expect(card.getByTestId("check-card-line")).toContainText(words.fourChecked);
+    await expect(card.getByTestId("mind-health").getByTestId("health-supported")).toHaveCount(0);
     await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
     await expect(card.getByTestId("health-found")).toHaveCount(0);
-    await expect(card.getByTestId("health-all-checked")).toHaveText(words.allChecked);
 
     // A contradicted sentence and one whose Citation isn't found each need a look, in one row.
     await insert([
@@ -191,7 +197,7 @@ for (const language of ["en", "zh-CN"] as const) {
     ]);
     await expect(card.getByTestId("health-look")).toContainText(words.twoLook);
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
-    await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
+    await expect(head).toHaveAttribute("data-stage", "done");
 
     // A claim no check covers yet is named in "not checked yet", apart from one a check can't settle (#3270).
     await insert([
@@ -259,8 +265,9 @@ for (const language of ["en", "zh-CN"] as const) {
       ],
     );
     const allCard = await checkCard(window);
-    await expect(allCard.getByTestId("health-all-checked")).toHaveText(words.allChecked);
-    await expect(allCard.getByTestId("health-supported")).toContainText(words.allSupported);
+    await expect(allCard.getByTestId("check-card-head")).toContainText(words.allChecked);
+    await expect(allCard.getByTestId("check-card-line")).toContainText(words.allSupported);
+    await expect(allCard.getByTestId("mind-health").getByTestId("health-supported")).toHaveCount(0);
     await window.keyboard.press("Escape");
     await expect(allCard).toHaveCount(0);
 
@@ -286,12 +293,12 @@ for (const language of ["en", "zh-CN"] as const) {
     const looked = await checkCard(window);
     await expect(looked.getByTestId("health-supported")).toContainText(words.lookOnly);
     await expect(looked.getByTestId("health-look")).toContainText(words.needLookRow);
-    await expect(looked.getByTestId("health-all-checked")).toHaveCount(0);
+    await expect(looked.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
     await app.close();
   });
 }
 
-test("Check again on a Note whose checks keep no time says nothing changed, with Check every sentence again; a writer's own view keeps the card from saying All supported (#3756)", async () => {
+test("Check again on a Note whose checks keep no time says nothing changed, with Check every sentence again; a writer's own view keeps the card from saying All supported (#3756, #3840)", async () => {
   test.setTimeout(180_000);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -320,17 +327,21 @@ test("Check again on a Note whose checks keep no time says nothing changed, with
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
     const card = await checkCard(window);
-    // The card has no Check of its own: nothing changed says so once a Check from ⌘K has run.
-    for (const name of language === "en" ? ["Check", "Check again"] : ["核对", "重新核对"]) {
-      await expect(card.getByRole("button", { name, exact: true })).toHaveCount(0);
-    }
-    await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
+    // The card's one Check is its quiet Check again, once the Note is checked; nothing changed
+    // says so in its place, with no time.
+    await expect(
+      card.getByRole("button", { name: translate(language, "mindCheck.command"), exact: true }),
+    ).toHaveCount(0);
+    const again = card.getByTestId("check-card-again");
+    await expect(again).toHaveAccessibleName(translate(language, "claim.checkAgain"));
+    await pointAndClick(window, again);
     const unchanged = card.getByTestId("mind-check-unchanged");
     await expect(unchanged).toContainText(language === "en" ? "Nothing changed" : "没有改动");
     await expect(unchanged).not.toContainText(language === "en" ? "since" : "起");
     await expect(unchanged.getByTestId("mind-check-every")).toHaveText(
       language === "en" ? "Check every sentence again" : "重新核对每一句",
     );
+    await expect(again).toHaveCount(0);
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
   }
@@ -353,8 +364,9 @@ test("Check again on a Note whose checks keep no time says nothing changed, with
     await setLanguage(window, language);
     const card = await checkCard(window);
     await expect(card.getByTestId("health-ownViews")).toBeVisible();
-    await expect(card.getByTestId("health-all-checked")).toHaveText(
-      language === "en" ? "Everything checked" : "已全部核对",
+    await expect(card.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
+    await expect(card.getByTestId("check-card-head")).toContainText(
+      language === "en" ? "Check done" : "核对完成",
     );
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
@@ -382,6 +394,11 @@ test("the card keeps one height as a result lands, its body taking what it needs
       },
       [
         paragraph(
+          checked("check-8", "supported", "Spring tides happen at new and full moon.", {
+            evidence: passageOf(tides),
+          }),
+        ),
+        paragraph(
           checked("check-9", state, "Harbours publish the times of high water every 6 months.", {
             evidence: passageOf(tides),
             ...extra,
@@ -390,11 +407,14 @@ test("the card keeps one height as a result lands, its body taking what it needs
       ],
     );
 
-  // No line is reserved empty at rest: the card takes its first paint's height (#2313).
+  // No line is reserved empty at rest: the card takes its first paint's height (#2313), with a
+  // result in it, for its head alone is its title. A sentence being checked makes its head say so,
+  // with no row repeating it (#3840).
   await write("checking");
   const card = await checkCard(window);
-  await expect(card.getByTestId("health-checking")).toBeVisible();
-  await expect(card.locator(".mind-health-summary")).toHaveCount(0);
+  await expect(card.getByTestId("check-card-head")).toHaveAttribute("data-stage", "checking");
+  await expect(card.getByTestId("health-checking")).toHaveCount(0);
+  await expect(card.getByTestId("health-supported")).toContainText("1 supported");
   const body = card.locator(".check-card-body");
   const running = await card.boundingBox();
   const runningBody = await body.boundingBox();
@@ -405,9 +425,8 @@ test("the card keeps one height as a result lands, its body taking what it needs
   });
   // The result lands in the same card: its top and its body keep the place and height they opened
   // with, so nothing in it jumps; the body holds what the result needs and scrolls if that is more
-  // (#2313). The one thing added is the fix the check found, as the card's foot under the body,
-  // where the card's own Check used to stand (#3794).
-  await expect(card.locator(".mind-health-summary")).toHaveCount(0);
+  // (#2313). The one thing added is the card's foot under the body: the fix the check found, where
+  // the card's own Check used to stand (#3794), and the quiet Check again (#3840).
   await expect(card.getByTestId("health-look")).toContainText("1 needs a look");
   const foot = card.getByTestId("check-card-foot");
   await expect(foot.getByTestId("badge-fix-sentences")).toBeVisible();

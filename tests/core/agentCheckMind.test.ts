@@ -4,7 +4,10 @@
  * Documents on the User's model, the Note carries the marks, and the agent gets back each claim
  * that needs a look with what the Document says.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
@@ -20,12 +23,16 @@ import { citationState } from "../../src/shared/citations";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingPart } from "../../src/shared/claimParts";
 import { installFigureRuns, keptBinding, retainFigureAnalysis } from "../../src/shared/figureRuns";
+import { versionsWithLibrary } from "../../src/shared/libraryFacts";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import { sortReply } from "../helpers/claimSentences";
+import { createTempDataFolder } from "../helpers/core";
+import { recordRows } from "../helpers/csv";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
-import type { ModelCall } from "../helpers/models";
+import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const TIDES = [
   "# Tides",
@@ -176,27 +183,814 @@ describe("an outside agent has its Note checked (#3317)", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=a check an outside agent started counts none of the Library's own lists, which follow the Note's Folder walls and not what the agent may read: its verdicts would tell the agent the names and counts of Documents outside its Folders (#2525); the User's own Check of the same Note may count them; fails_when=an agent can ask "is there a Document called X" of the whole Library through check_mind.
-  it("is offered no count of the Library's own lists, which the User's own Check is", async () => {
+  // protects=an outside agent's check_mind counts only the Library lists its own grant covers (#2525): Documents outside the grant, in ungranted Folders, in walled Folders (top-level or nested) and soft-deleted items leave the count unchanged, while Not cited workings in granted Folders stay counted like the User's lists; a grant change invalidates and re-counts; a User-made whole-Library mark is never overwritten and reads as not-checked / beyond-reach; and no name outside the grant ever appears in any request the model receives; fails_when=check_mind counts anything outside the grant, misfiles under an empty parent Folder, drops a Not cited working, keeps a stale count after a grant change, overwrites or leaks the User's Library verdict, or sends any ungranted name to the model.
+  it("counts only the Library lists its own grant covers, and updates when the grant changes", async () => {
+    const CLAIM = "Your Library holds 4 Documents across 4 Folders and 2 other Notes.";
+    const CODE =
+      'result("documents", len(inputs["files"]))\nresult("folders", len(inputs["folders"]))\nresult("notes", len(inputs["notes"]))';
     const calls: ModelCall[] = [];
-    const { core, agent } = await paired({ calls, python: true });
-    // A model that can run code, on a service the User allowed checks to send to.
+    const runtime = createFakeAnalysisRuntime({
+      answer: (job) => {
+        const count = (name: string) => {
+          const table = job.inputs.find((each) => each.kind === "table" && each.name === name);
+          return table && table.kind === "table" ? table.rows.length : 0;
+        };
+        return {
+          output: {
+            results: [
+              {
+                kind: "figure",
+                name: "documents",
+                label: "documents",
+                unit: null,
+                value: count("files"),
+              },
+              {
+                kind: "figure",
+                name: "folders",
+                label: "folders",
+                unit: null,
+                value: count("folders"),
+              },
+              { kind: "figure", name: "notes", label: "notes", unit: null, value: count("notes") },
+            ],
+            // Deliberately print names to prove the model never sees printed output either.
+            printed: JSON.stringify(job.inputs),
+          },
+        };
+      },
+    });
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        if (!isCheckRun(call)) return { text: JSON.stringify({ claims: [CLAIM] }) };
+        const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+        if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+          return {
+            calls: [
+              {
+                tool: ANALYSIS_TOOLS.run,
+                input: {
+                  title: "Count Library lists",
+                  inputs: [
+                    { name: "files", library: "documents" },
+                    { name: "folders", library: "folders" },
+                    { name: "notes", library: "notes" },
+                  ],
+                  code: CODE,
+                },
+              },
+            ],
+          };
+        }
+        const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        const folders = Number(/- folders:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        const notes = Number(/- notes:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        if (docs === 4 && folders === 4 && notes === 2) {
+          return {
+            text: "Verdict: supported\nExplanation: The lists show 4 Documents across 4 Folders and 2 other Notes.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.",
+          };
+        }
+        return {
+          text: `Verdict: contradicted\nExplanation: The lists show ${docs} Documents across ${folders} Folders and ${notes} other Notes, not 4, 4 and 2.\nEvidence: []\nWorking: Counted the Documents, Folders and Notes lists.`,
+        };
+      },
+      { generate: (call) => ({ text: sortReply(call.prompt) }) },
+    );
+    const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
     const saved = await core.saveChatProvider({
       kind: "anthropic",
       apiKey: "sk-test",
       modelId: "claude-haiku-5-5",
     });
     if (saved.service) await core.allowDataFlow("checks", saved.service.id);
-    const mindId = await written(agent);
-    const countsLists = () =>
-      calls.some((call) => isCheckRun(call) && call.tools.includes(ANALYSIS_TOOLS.run));
 
-    await check(agent, mindId);
-    expect(calls.some(isCheckRun)).toBe(true);
-    expect(countsLists()).toBe(false);
+    const sources = await createSourceFolder();
+    const added = await addAndProcess(core, [
+      await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides come twice a month.\n"),
+      await writeSourceFile(sources, "Chart.md", "# Chart\n\nSoundings in metres.\n"),
+      await writeSourceFile(sources, "Quays.md", "# Quays\n\nTwo stone quays.\n"),
+      await writeSourceFile(sources, "LooseLeaflet.md", "# Loose\n\nUnfiled outside grant.\n"),
+      await writeSourceFile(sources, "Rivers.md", "# Rivers\n\nInland rivers.\n"),
+      await writeSourceFile(sources, "VaultLedger.md", "# Vault\n\nPrivate vault ledger.\n"),
+      await writeSourceFile(sources, "InnerSecret.md", "# Inner\n\nNested private wall.\n"),
+      await writeSourceFile(sources, "RemovedDoc.md", "# Removed\n\nSoft-deleted doc.\n"),
+      await writeSourceFile(sources, "OwnWorking.md", "# Working\n\nUser's own workings.\n"),
+    ]);
+    const byName = (name: string) => {
+      const doc = added.find((each) => each.name === name);
+      if (!doc) throw new Error(`Missing ${name}`);
+      return doc;
+    };
 
-    await core.checkMind({ requestId: "own", mindId, mode: "all" });
-    expect(countsLists()).toBe(true);
+    // Granted folders: Coast (with subfolder Coves) and Harbour (empty parent holding subfolder
+    // Wharf, which sorts after Harbour so ancestry—not a size tie—must assign Quays to Wharf).
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
+    const coves = await core.createLibraryGroup({
+      name: "Coves",
+      description: "",
+      parentId: coast.id,
+    });
+    const harbour = await core.createLibraryGroup({ name: "Harbour", description: "" });
+    const wharf = await core.createLibraryGroup({
+      name: "Wharf",
+      description: "",
+      parentId: harbour.id,
+    });
+    // Ungranted folder, top-level walled folder, inner walled folder inside Coast, soft-deleted folder inside Coast.
+    const inland = await core.createLibraryGroup({ name: "Inland", description: "" });
+    const vault = await core.createLibraryGroup({ name: "PrivateVault", description: "" });
+    await core.updateLibraryGroup(vault.id, {
+      name: "PrivateVault",
+      description: "",
+      keepInside: true,
+    });
+    const innerWall = await core.createLibraryGroup({
+      name: "InnerWall",
+      description: "",
+      parentId: coast.id,
+    });
+    await core.updateLibraryGroup(innerWall.id, {
+      name: "InnerWall",
+      description: "",
+      keepInside: true,
+    });
+    const removedFolder = await core.createLibraryGroup({
+      name: "RemovedFolder",
+      description: "",
+      parentId: coast.id,
+    });
+
+    await core.assignDocumentGroup(byName("Tides").id, coast.id);
+    await core.assignDocumentGroup(byName("Chart").id, coves.id);
+    // Quays sits only in child Wharf (Harbour has 0 direct Documents): ancestry must assign it to Wharf.
+    await core.assignDocumentGroup(byName("Quays").id, wharf.id);
+    await core.assignDocumentGroup(byName("Rivers").id, inland.id);
+    await core.assignDocumentGroup(byName("VaultLedger").id, vault.id);
+    await core.assignDocumentGroup(byName("InnerSecret").id, innerWall.id);
+    await core.assignDocumentGroup(byName("RemovedDoc").id, coast.id);
+    await core.assignDocumentGroup(byName("OwnWorking").id, coast.id);
+
+    // Notes inside and outside the grant, plus a soft-deleted one inside the grant.
+    await core.createMind({ title: "Coast log", folderId: coast.id });
+    await core.createMind({ title: "Harbour log", folderId: harbour.id });
+    await core.createMind({ title: "Inland brief", folderId: inland.id });
+    await core.createMind({ title: "VaultMemo", folderId: vault.id });
+    await core.createMind({ title: "InnerMemo", folderId: innerWall.id });
+    const removedNote = await core.createMind({ title: "RemovedNote", folderId: coast.id });
+
+    // Soft-delete doc, folder and note, and mark OwnWorking as Not cited (still counted in Coast).
+    await core.deleteDocument(byName("RemovedDoc").id);
+    await core.deleteLibraryGroup(removedFolder.id);
+    await core.deleteMind(removedNote.id);
+    await core.setNotCited(byName("OwnWorking").id, true);
+
+    const OUT_OF_GRANT = [
+      "LooseLeaflet",
+      "Inland",
+      "Rivers",
+      "Inland brief",
+      "PrivateVault",
+      "VaultLedger",
+      "VaultMemo",
+      "InnerWall",
+      "InnerSecret",
+      "InnerMemo",
+      "RemovedDoc",
+      "RemovedFolder",
+      "RemovedNote",
+    ];
+    const assertNoLeak = (
+      seenCalls: readonly ModelCall[],
+      reply: unknown,
+      extra: string[] = [],
+    ) => {
+      const forbidden = [...OUT_OF_GRANT, ...extra];
+      const blobs = [...seenCalls.map((each) => JSON.stringify(each)), JSON.stringify(reply)];
+      for (const blob of blobs) {
+        for (const secret of forbidden) {
+          expect(blob).not.toContain(secret);
+        }
+      }
+    };
+
+    await core.setAgentsEnabled(true);
+    const { launch, pairing } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id, harbour.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Library rundown", folderId: coast.id, markdown: CLAIM },
+      }),
+    );
+
+    // 1. Grant [Coast, Harbour]: counts granted Documents (4, including Not cited OwnWorking), Folders (4) and Notes (2).
+    calls.length = 0;
+    const first = structured<Checked>(await check(agent, mindId));
+    expect(first).toMatchObject({ status: "checked", supported: 1, needLook: 0, notChecked: 0 });
+    expect(runtime.jobs).toHaveLength(1);
+    const job1 = runtime.jobs[0];
+    expect(job1?.inputs).toMatchObject([
+      {
+        name: "files",
+        rows: expect.arrayContaining([
+          ["Tides", "markdown", "Coast", "Coast", ""],
+          ["Chart", "markdown", "Coves", "Coast / Coves", ""],
+          ["Quays", "markdown", "Wharf", "Harbour / Wharf", ""],
+          ["OwnWorking", "markdown", "Coast", "Coast", ""],
+        ]),
+      },
+      {
+        name: "folders",
+        rows: expect.arrayContaining([
+          ["Coast", "", "Coast", 3],
+          ["Coves", "Coast", "Coast / Coves", 1],
+          ["Harbour", "", "Harbour", 1],
+          ["Wharf", "Harbour", "Harbour / Wharf", 1],
+        ]),
+      },
+      {
+        name: "notes",
+        rows: expect.arrayContaining([
+          ["Coast log", "Coast", "Coast"],
+          ["Harbour log", "Harbour", "Harbour"],
+        ]),
+      },
+    ]);
+    expect(job1?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1))).toEqual([
+      4, 4, 2,
+    ]);
+    assertNoLeak(calls, first);
+
+    // Unchanged grant: asking again sends nothing and keeps the verdict.
+    calls.length = 0;
+    const repeated = structured<Checked>(await check(agent, mindId));
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(1);
+    expect(repeated).toMatchObject({ status: "checked", supported: 1, needLook: 0 });
+
+    // 2. Grant narrowed to [Coast]: invalidates the prior Library count and re-checks under [Coast].
+    await core.updateAgent(pairing.id, { folderIds: [coast.id] });
+    calls.length = 0;
+    const narrowed = structured<Checked>(await check(agent, mindId));
+    expect(runtime.jobs).toHaveLength(2);
+    const job2 = runtime.jobs[1];
+    expect(job2?.inputs.map((input) => (input.kind === "table" ? input.rows.length : -1))).toEqual([
+      3, 2, 1,
+    ]);
+    expect(narrowed).toMatchObject({ status: "checked", supported: 0, needLook: 1, notChecked: 0 });
+    expect(narrowed.claims[0]).toMatchObject({
+      sentence: CLAIM,
+      group: "needLook",
+      result: "contradicted",
+      document: "“Coast”",
+      location: "“Coast”: 3 Documents",
+      quote: null,
+      cite: null,
+    });
+    expect(narrowed.claims[0]?.says).toContain("3 Documents across 2 Folders and 1 other Notes");
+    assertNoLeak(calls, narrowed, ["Harbour", "Wharf", "Quays", "Harbour log"]);
+
+    // 3. Grant expanded back to [Coast, Harbour]: updates the count back to Supported.
+    await core.updateAgent(pairing.id, { folderIds: [coast.id, harbour.id] });
+    calls.length = 0;
+    const expanded = structured<Checked>(await check(agent, mindId));
+    expect(runtime.jobs).toHaveLength(3);
+    expect(expanded).toMatchObject({ status: "checked", supported: 1, needLook: 0 });
+    assertNoLeak(calls, expanded);
+
+    // 4. The User runs their own Check (seeing full non-walled Library + left-out wall count),
+    // then the narrowed agent checks again: it never overwrites the User's mark and reports beyond-reach.
+    await core.updateAgent(pairing.id, { folderIds: [coast.id] });
+    const own = await core.checkMind({ requestId: "own-full-check", mindId, mode: "all" });
+    expect(own.kind).toBe("checked");
+    expect(runtime.jobs).toHaveLength(4);
+    calls.length = 0;
+    const afterOwn = structured<Checked>(await check(agent, mindId));
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(4);
+    expect(afterOwn).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 0,
+      notChecked: 1,
+      claims: [
+        {
+          sentence: CLAIM,
+          group: "notChecked",
+          result: "not-checked",
+          reason: "beyond-reach",
+          says: null,
+          document: null,
+          location: null,
+          quote: null,
+          cite: null,
+        },
+      ],
+    });
+    assertNoLeak(calls, afterOwn, ["Harbour", "Wharf", "Quays", "Harbour log"]);
+
+    // The User's own verdict still stands untouched in the Note.
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const userVersions = versionsWithLibrary(
+      await core.listDocuments(),
+      await core.libraryListsVersion(mindId),
+    );
+    expect(
+      claimSpans(readMind(client)).map((span) =>
+        claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions: userVersions,
+          folderId: coast.id,
+          scope: null,
+        }),
+      ),
+    ).toEqual([{ state: "contradicted" }]);
+
+    // Once the Library changes outside the agent's grant so the User's Library check goes stale,
+    // the agent still may not overwrite it: check_mind is refused beyond-reach and sends nothing.
+    const [extraInland] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Estuary.md", "# Estuary\n\nAnother inland document.\n"),
+    ]);
+    if (!extraInland) throw new Error("Missing Estuary");
+    await core.assignDocumentGroup(extraInland.id, inland.id);
+    calls.length = 0;
+    expect(refusal(await check(agent, mindId))).toContain("outside the Folders");
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(4);
+
+    // Editing that sentence in place while the User's Library mark still overlaps it is ALSO
+    // refused beyond-reach instead of queueing as `fresh` and overwriting the User's mark.
+    const edited = await connectToMind(core, mindId);
+    await edited.settled();
+    edited.doc.transact(() => {
+      const paragraph = edited.blocks.get(1);
+      if (paragraph instanceof Y.XmlElement) {
+        const textNode = paragraph.get(0);
+        if (textNode instanceof Y.XmlText) {
+          const plain = (textNode.toDelta() as { insert?: unknown }[])
+            .map((op) => (typeof op.insert === "string" ? op.insert : ""))
+            .join("");
+          const at = plain.indexOf("4");
+          if (at >= 0) {
+            textNode.delete(at, 1);
+            textNode.insert(at, "5");
+          }
+        }
+      }
+    });
+    await edited.settled();
+    expect(readMind(edited).textContent).toContain("5 Documents");
+    calls.length = 0;
+    expect(refusal(await check(agent, mindId))).toContain("outside the Folders");
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(4);
+
+    // 5. Revoking all Folders leaves no grant: check_mind is refused and sends nothing.
+    await core.updateAgent(pairing.id, { folderIds: [] });
+    calls.length = 0;
+    expect(refusal(await check(agent, mindId))).toContain("No such passage");
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(4);
+  });
+
+  // protects=a User Check inside a walled Folder (whose Library source carries kind "scope") is still User-owned so an outside agent can neither read nor overwrite it when stale, while the agent's own stale scoped pairing mark can still be re-checked (#2525); fails_when=isUserLibraryCheck mistakes a User check inside a walled Folder for a pairing check, or blocks an agent from re-checking its own stale pairing mark.
+  it("preserves a User-made Library mark inside a walled Folder while letting an agent re-check its own stale pairing mark", async () => {
+    const CLAIM = "The Library holds 2 Documents.";
+    const CODE = 'result("documents", len(inputs["files"]))';
+    const runtime = createFakeAnalysisRuntime({
+      answer: (job) => {
+        const table = job.inputs.find((each) => each.kind === "table" && each.name === "files");
+        const count = table && table.kind === "table" ? table.rows.length : 0;
+        return {
+          output: {
+            results: [
+              { kind: "figure", name: "documents", label: "documents", unit: null, value: count },
+            ],
+            printed: "",
+          },
+        };
+      },
+    });
+    const calls: string[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(JSON.stringify(call));
+        if (!isCheckRun(call)) return { text: JSON.stringify({ claims: [CLAIM] }) };
+        const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+        if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+          return {
+            calls: [
+              {
+                tool: ANALYSIS_TOOLS.run,
+                input: {
+                  title: "Count Documents",
+                  inputs: [{ name: "files", library: "documents" }],
+                  code: CODE,
+                },
+              },
+            ],
+          };
+        }
+        const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        return {
+          text:
+            docs === 2
+              ? "Verdict: supported\nExplanation: The list has 2 Documents.\nEvidence: []\nWorking: Counted the Documents list."
+              : `Verdict: contradicted\nExplanation: The list has ${docs} Documents.\nEvidence: []\nWorking: Counted the Documents list.`,
+        };
+      },
+      { generate: (call) => ({ text: sortReply(call.prompt) }) },
+    );
+    const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+    const sources = await createSourceFolder();
+    const [secretDoc, publicDoc] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret.md", "# Secret\n\nWalled document.\n"),
+      await writeSourceFile(sources, "Public.md", "# Public\n\nShared sub-folder document.\n"),
+    ]);
+    if (!secretDoc || !publicDoc) throw new Error("Missing fixture Documents.");
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    const pub = await core.createLibraryGroup({
+      name: "Public",
+      description: "",
+      parentId: vault.id,
+    });
+    await core.updateLibraryGroup(vault.id, {
+      name: "Vault",
+      description: "",
+      keepInside: true,
+    });
+    await core.assignDocumentGroup(secretDoc.id, vault.id);
+    await core.assignDocumentGroup(publicDoc.id, pub.id);
+
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [pub.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+
+    // User checks a Note inside the walled Folder (stored with source.kind: "scope", outside absent).
+    const { mindId: userNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Vault count", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    expect(
+      (await core.checkMind({ requestId: "user-wall", mindId: userNote, mode: "all" })).kind,
+    ).toBe("checked");
+
+    // While current, the User's walled-Folder Library mark is masked as beyond-reach (never revealed).
+    calls.length = 0;
+    expect(structured<Checked>(await check(agent, userNote))).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 0,
+      notChecked: 1,
+      claims: [
+        {
+          sentence: CLAIM,
+          group: "notChecked",
+          result: "not-checked",
+          reason: "beyond-reach",
+          says: null,
+          document: null,
+          location: null,
+          quote: null,
+          cite: null,
+        },
+      ],
+    });
+    expect(calls).toEqual([]);
+
+    // Once stale, the agent still may not overwrite the User's walled-Folder Library mark.
+    const [extraVault] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret2.md", "# Secret 2\n\nAnother walled document.\n"),
+    ]);
+    if (!extraVault) throw new Error("Missing Secret2.");
+    await core.assignDocumentGroup(extraVault.id, vault.id);
+    calls.length = 0;
+    expect(refusal(await check(agent, userNote))).toContain("outside the Folders");
+    expect(calls).toEqual([]);
+
+    // Meanwhile, an agent's own pairing mark (outside: true) IS re-checked once its grant changes.
+    const { mindId: agentNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Agent count", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    expect(structured<Checked>(await check(agent, agentNote))).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 1,
+    });
+    const [extraPub] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Public2.md", "# Public 2\n\nSecond shared document.\n"),
+    ]);
+    if (!extraPub) throw new Error("Missing Public2.");
+    await core.assignDocumentGroup(extraPub.id, pub.id);
+    expect(structured<Checked>(await check(agent, agentNote))).toMatchObject({
+      status: "checked",
+      supported: 1,
+      needLook: 0,
+    });
+
+    // An agent's own Library mark written via check_mind_yourself + run_analysis + report_check
+    // also carries `outside: true`, so the same agent can re-check it with check_mind after a change.
+    const { mindId: ownCheckedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Reported count", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    const task = structured<{ task: string; sentences: { n: number }[] }>(
+      await agent.callTool({
+        name: "check_mind_yourself",
+        arguments: { mindId: ownCheckedNote },
+      }),
+    );
+    const analysis = structured<{ id: string }>(
+      await agent.callTool({
+        name: "run_analysis",
+        arguments: {
+          title: "Count Documents",
+          inputs: [{ name: "files", library: "documents" }],
+          code: CODE,
+        },
+      }),
+    );
+    expect(
+      structured<{ marked: number; unconfirmed: number[] }>(
+        await agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId: ownCheckedNote,
+            task: task.task,
+            results: [
+              {
+                n: 1,
+                verdict: "supported",
+                run: analysis.id,
+                explanation: "The list has 2 Documents.",
+              },
+            ],
+          },
+        }),
+      ),
+    ).toMatchObject({ marked: 1, unconfirmed: [] });
+    const [thirdPub] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Public3.md", "# Public 3\n\nThird shared document.\n"),
+    ]);
+    if (!thirdPub) throw new Error("Missing Public3.");
+    await core.assignDocumentGroup(thirdPub.id, pub.id);
+    expect(structured<Checked>(await check(agent, ownCheckedNote))).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 1,
+    });
+
+    // An old Library mark stored before `outside: true` existed (source.kind: "scope", no `outside`
+    // flag) fails closed as User-owned: masked while current, and refused with guidance for the User
+    // to check it in IncarnaMind once stale.
+    const legacyClient = await connectToMind(core, agentNote);
+    await legacyClient.settled();
+    legacyClient.doc.transact(() => {
+      const paragraph = legacyClient.blocks.get(1);
+      if (paragraph instanceof Y.XmlElement) {
+        const textNode = paragraph.get(0);
+        if (textNode instanceof Y.XmlText) {
+          for (const op of textNode.toDelta() as {
+            insert?: string;
+            attributes?: Record<string, unknown>;
+          }[]) {
+            for (const [key, raw] of Object.entries(op.attributes ?? {})) {
+              if (!key.startsWith("claimCheck") || !raw || typeof raw !== "object") continue;
+              const { outside: _drop, ...withoutOutside } = raw as Record<string, unknown>;
+              textNode.format(0, textNode.length, { [key]: withoutOutside });
+            }
+          }
+        }
+      }
+    });
+    await legacyClient.settled();
+    expect(claimSpans(readMind(legacyClient))[0]?.check.outside).toBeUndefined();
+    calls.length = 0;
+    const legacyRefusal = refusal(await check(agent, agentNote));
+    expect(legacyRefusal).toContain("outside the Folders");
+    expect(legacyRefusal).toContain("The User can check it in IncarnaMind.");
+    expect(calls).toEqual([]);
+  });
+
+  // protects=every User-side reader (editor, Word export, check record, AI use statement) reads an agent's grant-only Library check as needs-recheck when the User's Library differs, Not cited workings are counted alike by User and agent, and check_mind names the granted source with sourceWords and libraryRow rather than "library-facts" or "Your Library" (#2525); fails_when=export/check-record/AI-use-statement show an agent's grant-only Library check as Supported, agent and User disagree on Not cited workings, or check_mind leaks "library-facts" or "Your Library".
+  it("flags an agent's grant-only Library check as needs-recheck across User views, counts Not cited workings alike, and names the granted source", async () => {
+    const TWO = "Your Library holds 2 Documents.";
+    const NINE = "Your Library holds 9 Documents.";
+    const CODE = 'result("documents", len(inputs["files"]))';
+    const runtime = createFakeAnalysisRuntime({
+      answer: (job) => {
+        const table = job.inputs.find((each) => each.kind === "table" && each.name === "files");
+        const count = table && table.kind === "table" ? table.rows.length : 0;
+        return {
+          output: {
+            results: [
+              { kind: "figure", name: "documents", label: "documents", unit: null, value: count },
+            ],
+            printed: "",
+          },
+        };
+      },
+    });
+    const model = scriptedModel(
+      (call) => {
+        if (!isCheckRun(call)) {
+          const text = JSON.stringify(call);
+          return { text: JSON.stringify({ claims: [text.includes(NINE) ? NINE : TWO] }) };
+        }
+        const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+        if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+          return {
+            calls: [
+              {
+                tool: ANALYSIS_TOOLS.run,
+                input: {
+                  title: "Count Documents",
+                  inputs: [{ name: "files", library: "documents" }],
+                  code: CODE,
+                },
+              },
+            ],
+          };
+        }
+        const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        const claimed = JSON.stringify(call).includes(NINE) ? 9 : 2;
+        return {
+          text:
+            docs === claimed
+              ? `Verdict: supported\nExplanation: The list has ${docs} Documents.\nEvidence: []\nWorking: Counted the Documents list.`
+              : `Verdict: contradicted\nExplanation: The list has ${docs} Documents, not ${claimed}.\nEvidence: []\nWorking: Counted the Documents list.`,
+        };
+      },
+      { generate: (call) => ({ text: sortReply(call.prompt) }) },
+    );
+    const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+    const sources = await createSourceFolder();
+    const [tides, quays, rivers] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides.\n"),
+      await writeSourceFile(sources, "Quays.md", "# Quays\n\nStone quays.\n"),
+      await writeSourceFile(sources, "Rivers.md", "# Rivers\n\nInland rivers.\n"),
+    ]);
+    if (!tides || !quays || !rivers) throw new Error("Missing fixture Documents.");
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
+    const harbour = await core.createLibraryGroup({ name: "Harbour", description: "" });
+    await core.assignDocumentGroup(tides.id, coast.id);
+    await core.assignDocumentGroup(quays.id, coast.id);
+    await core.assignDocumentGroup(rivers.id, harbour.id);
+    await core.setNotCited(quays.id, true);
+
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+
+    // 1. Agent checks "2 Documents" on [Coast] (Tides + Not cited Quays = 2): Supported for agent,
+    //    but Needs re-check across EVERY User-side view because ungranted Harbour holds Rivers.
+    const { mindId: supportedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Coast count", folderId: coast.id, markdown: TWO },
+      }),
+    );
+    expect(structured<Checked>(await check(agent, supportedNote))).toMatchObject({
+      status: "checked",
+      supported: 1,
+      needLook: 0,
+    });
+
+    // Editor view:
+    const editorClient = await connectToMind(core, supportedNote);
+    await editorClient.settled();
+    const userVersions = versionsWithLibrary(
+      await core.listDocuments(),
+      await core.libraryListsVersion(supportedNote),
+    );
+    expect(
+      claimSpans(readMind(editorClient)).map((span) =>
+        claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions: userVersions,
+          folderId: coast.id,
+          scope: null,
+        }),
+      ),
+    ).toEqual([{ state: "needs-recheck", why: "library" }]);
+
+    // Word export view:
+    const exported = await core.exportMind(supportedNote, {
+      format: "docx",
+      commentFailedChecks: true,
+    });
+    expect(exported.sentenceChecks.needsRecheck).toBe(1);
+
+    // Check record CSV view:
+    const outDir = await createTempDataFolder();
+    await core.setOutputLocation(outDir);
+    const savedRecord = await core.saveCheckRecord(supportedNote);
+    if (savedRecord.status !== "saved") throw new Error(`Not saved: ${savedRecord.status}`);
+    const csvPath = join(outDir, savedRecord.file.name.replace(/\.(pdf|csv)$/, ".csv"));
+    expect(
+      recordRows(readFileSync(csvPath, "utf8"))
+        .filter((row) => row.Kind === "Sentence")
+        .map((row) => row.Result),
+    ).toEqual(["Needs re-check"]);
+
+    // AI use statement view:
+    const statement = await core.createAiUseStatement(supportedNote);
+    const statementClient = await connectToMind(core, statement.id);
+    await statementClient.settled();
+    const statementText = readMind(statementClient).textContent;
+    expect(statementText).toContain("Needs re-check");
+    expect(statementText).not.toContain("Supported: 1");
+
+    // 2. Agent check_mind reply names the granted source with sourceWords and libraryRow (EN + zh-CN).
+    const { mindId: contradictedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Wrong count", folderId: coast.id, markdown: NINE },
+      }),
+    );
+    const contradictedEn = structured<Checked>(await check(agent, contradictedNote));
+    expect(contradictedEn.claims[0]).toMatchObject({
+      result: "contradicted",
+      document: "“Coast”",
+      location: "“Coast”: 2 Documents",
+      quote: null,
+      cite: null,
+    });
+    expect(contradictedEn.claims[0]?.document).not.toContain("library-facts");
+    expect(contradictedEn.claims[0]?.document).not.toContain("Your Library");
+    expect(contradictedEn.claims[0]?.location).not.toContain("Your Library");
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const contradictedZh = structured<Checked>(await check(agent, contradictedNote));
+    expect(contradictedZh.claims[0]).toMatchObject({
+      result: "contradicted",
+      document: "“Coast”",
+      location: "“Coast”：2 个文档",
+      quote: null,
+      cite: null,
+    });
+    await core.updateSettings({ user: { language: "en" } });
+
+    // 3. When Coast is the whole Library (Harbour & Rivers removed), User and agent agree on Not cited Quays (2 Documents).
+    await core.deleteDocument(rivers.id);
+    await core.deleteLibraryGroup(harbour.id);
+    const { mindId: agreedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Agreed count", folderId: coast.id, markdown: TWO },
+      }),
+    );
+    const userRun = await core.checkMind({
+      requestId: "user-agrees-not-cited",
+      mindId: agreedNote,
+      mode: "all",
+    });
+    expect(userRun.kind).toBe("checked");
+    const savedAgreed = await core.saveCheckRecord(agreedNote);
+    if (savedAgreed.status !== "saved") throw new Error(`Not saved: ${savedAgreed.status}`);
+    const agreedCsvPath = join(outDir, savedAgreed.file.name.replace(/\.(pdf|csv)$/, ".csv"));
+    expect(
+      recordRows(readFileSync(agreedCsvPath, "utf8"))
+        .filter((row) => row.Kind === "Sentence")
+        .map((row) => row.Result),
+    ).toEqual(["Supported"]);
   });
 
   // protects=an agent learns which of the claims it wrote the User's Documents don't support, and the User sees the same marks in the Note; fails_when=the Tool checks only Citations, returns nothing of what the Document says, or leaves the Note unmarked

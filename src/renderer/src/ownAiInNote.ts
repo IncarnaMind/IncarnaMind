@@ -193,6 +193,8 @@ function keepTrail(event: NoteTurnEvent): void {
 
 /** The turns this window asked for, whose changes it applies. */
 const askedHere = new Set<string>();
+/** The tab a turn asked here came from, so its changes land on that tab's kept history (#3839). */
+const askedTab = new Map<string, string>();
 /** What this window sent into a running request, by its turn, for when its AI takes it (#3765). */
 const sentHere = new Map<string, NoteAsked>();
 
@@ -254,7 +256,8 @@ function heard(event: NoteTurnEvent): void {
   // never takes the line back (#3765).
   const shown =
     !was ||
-    was.turnId === null ||
+    (was.turnId === null &&
+      (was.state !== "working" || event.startedAt >= (was.startedAt ?? ""))) ||
     was.turnId === event.turnId ||
     ((was.state !== "working" || was.queued.includes(event.turnId)) &&
       (was.startedAt === null || event.startedAt >= was.startedAt));
@@ -262,6 +265,7 @@ function heard(event: NoteTurnEvent): void {
     // Not the line's, an ended request asked here still has its changes applied.
     if (event.state === "stopped") {
       askedHere.delete(event.turnId);
+      askedTab.delete(event.turnId);
       sentHere.delete(event.turnId);
     } else if (event.state !== "working") applyEnded(event);
     return;
@@ -271,6 +275,7 @@ function heard(event: NoteTurnEvent): void {
   // Stopped, the request leaves nothing behind: no line, no reply (#3677).
   if (event.state === "stopped") {
     askedHere.delete(event.turnId);
+    askedTab.delete(event.turnId);
     sentHere.delete(event.turnId);
     put(event.mindId, null);
     return;
@@ -307,6 +312,8 @@ function heard(event: NoteTurnEvent): void {
 /** An ended request asked in this window: its changes in the Notes, applied here once. */
 function applyEnded(event: NoteTurnEvent): void {
   if (!askedHere.delete(event.turnId)) return;
+  const askedTabId = askedTab.get(event.turnId);
+  askedTab.delete(event.turnId);
   sentHere.delete(event.turnId);
   // Claude Code no longer had the Note's conversation, so this request began a new one.
   if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
@@ -328,6 +335,7 @@ function applyEnded(event: NoteTurnEvent): void {
             made: false,
             created: false,
             askedFrom,
+            ...(askedTabId && { askedTabId }),
           });
         }),
       );
@@ -356,6 +364,7 @@ export function listen(): void {
 export async function askInNote(
   mindId: string,
   asked: NoteAsked,
+  tabId?: string,
 ): Promise<"started" | "sent" | "busy" | "problem" | "link"> {
   listen();
   const model = useNoteColumns.getState().model[mindId];
@@ -364,14 +373,29 @@ export async function askInNote(
     const { [mindId]: _shown, ...at } = state.at;
     return { started: { ...state.started, [mindId]: false }, at };
   });
-  const start = await core.askInNote({
-    mindId,
-    words: asked.words,
-    ...(model && { model }),
-    ...(asked.quote !== "" && { quote: asked.quote }),
-    ...(asked.selection && { selection: asked.selection }),
-    ...(asked.caret && !asked.selection && { caret: asked.caret }),
-  });
+  // Sent, the request shows at once, as a chat shows a message sent: the core's answer settles it
+  // once its AI is under way, or puts back the line before it.
+  const before = useNoteAsks.getState().byMind[mindId];
+  const sending = isGoing(before) ? null : sendingAsk(mindId, asked);
+  if (sending) put(mindId, sending);
+  const unsent = () => {
+    if (sending && useNoteAsks.getState().byMind[mindId] === sending) put(mindId, before ?? null);
+  };
+  let start: Awaited<ReturnType<typeof core.askInNote>>;
+  try {
+    start = await core.askInNote({
+      mindId,
+      words: asked.words,
+      ...(model && { model }),
+      ...(asked.quote !== "" && { quote: asked.quote }),
+      ...(asked.selection && { selection: asked.selection }),
+      ...(asked.caret && !asked.selection && { caret: asked.caret }),
+    });
+  } catch (error) {
+    unsent();
+    throw error;
+  }
+  if (start.kind === "link" || start.kind === "busy" || start.kind === "sent") unsent();
   if (start.kind === "link") return "link";
   if (start.kind === "busy") {
     useNotices.getState().confirm("noteAsk.busy", { agent: start.pairing.name }, { look: true });
@@ -379,6 +403,7 @@ export async function askInNote(
   }
   if (start.kind === "sent") {
     askedHere.add(start.turnId);
+    if (tabId) askedTab.set(start.turnId, tabId);
     sentHere.set(start.turnId, asked);
     // Shown at once, whether or not the core's word of it came first.
     const running = useNoteAsks.getState().byMind[mindId];
@@ -392,7 +417,7 @@ export async function askInNote(
     agent: start.pairing.name,
     state: start.kind === "started" ? "working" : "failed",
     doing: null,
-    startedAt: start.kind === "started" ? new Date().toISOString() : null,
+    startedAt: start.kind === "started" ? (sending?.startedAt ?? new Date().toISOString()) : null,
     problem: start.kind === "problem" ? start.problem : null,
     versions: start.kind === "problem" ? (start.versions ?? null) : null,
     reply: "",
@@ -407,12 +432,42 @@ export async function askInNote(
     queued: [],
     asked,
   };
-  if (start.kind === "started") askedHere.add(start.turnId);
+  if (start.kind === "started") {
+    askedHere.add(start.turnId);
+    if (tabId) askedTab.set(start.turnId, tabId);
+  }
   const current = useNoteAsks.getState().byMind[mindId];
   // An event can arrive before the reply to the request: it wins.
   if (current?.turnId !== base.turnId || base.turnId === null) put(mindId, base);
   else put(mindId, { ...current, asked });
   return start.kind;
+}
+
+/** A request as it is sent, before the core answers: working, on the agent the Note's input runs. */
+function sendingAsk(mindId: string, asked: NoteAsked): NoteAsk | null {
+  const agent = agentsToAsk(mindId).find((each) => runsInBackground(each, ownAiRunsHereNow()));
+  if (!agent) return null;
+  return {
+    turnId: null,
+    pairingId: agent.id,
+    agent: agent.name,
+    state: "working",
+    doing: null,
+    startedAt: new Date().toISOString(),
+    problem: null,
+    versions: null,
+    reply: "",
+    changed: 0,
+    waiting: [],
+    made: [],
+    fresh: false,
+    quiet: false,
+    documentsFound: 0,
+    questions: [],
+    mode: null,
+    queued: [],
+    asked,
+  };
 }
 
 export const stopInNote = (mindId: string): Promise<void> => core.stopInNote(mindId);
@@ -421,6 +476,7 @@ export const stopInNote = (mindId: string): Promise<void> => core.stopInNote(min
 export async function discardInNote(mindId: string, turnId: string): Promise<void> {
   await core.discardInNote(mindId, turnId);
   sentHere.delete(turnId);
+  askedTab.delete(turnId);
   askedHere.delete(turnId);
   useNoteColumns.setState((state) => ({
     changed: { ...state.changed, [mindId]: (state.changed[mindId] ?? 0) + 1 },

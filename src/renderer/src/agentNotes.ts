@@ -8,6 +8,7 @@
 import { create } from "zustand";
 import type { AgentChangeStep, AgentNoteChange } from "../../core/api";
 import { core } from "./core";
+import { bindCapturedAgentStep } from "./editor/agentOwnUndo";
 import { groupsMerged, isShown } from "./layoutSlice";
 import type { WordsInLine } from "./lineNames";
 import { useAppStore } from "./store";
@@ -128,5 +129,8 @@ core.on("agents.noteChanged", (change) => {
   useAgentNotes.setState(({ lines }) => ({
     lines: [...lines.filter((line) => line.mindId !== change.mindId), change],
   }));
-  if (change.kind === "changed" && change.step !== null) offerUndo(change, change.step);
+  if (change.kind === "changed" && change.step !== null) {
+    const said: WordsInLine = (t, cut) => agentNoteWords(change, nameOf(change.mindId))(t, cut);
+    if (!bindCapturedAgentStep(change.step, said)) offerUndo(change, change.step);
+  }
 });
