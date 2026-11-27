@@ -1,11 +1,9 @@
 import type { Mind, MindContentSnapshot } from "../../core/api";
-import { noteWriterOf } from "../../shared/noteWriter";
 import {
   type DecodedHomeSnapshot,
   decodeHomeSnapshot,
   type HomeReadingContext,
   type NoteReading,
-  type NoteState,
 } from "./noteState";
 
 export type HomeNoteTarget = Pick<Mind, "id" | "folderId">;
@@ -13,9 +11,21 @@ export type HomeSharedContext = Omit<HomeReadingContext, "folderId">;
 
 interface CachedSnapshot {
   decoded: DecodedHomeSnapshot;
+  snapshot: MindContentSnapshot;
   folderId: string | null;
   gen: number;
 }
+
+const sameBytes = (a: Uint8Array, b: Uint8Array) => {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let at = 0; at < a.byteLength; at++) if (a[at] !== b[at]) return false;
+  return true;
+};
+
+/** Whether a Note read again holds what was decoded already, so it needn't be decoded again. */
+const sameSnapshot = (a: MindContentSnapshot, b: MindContentSnapshot) =>
+  JSON.stringify([a.cellFigures, a.footing]) === JSON.stringify([b.cellFigures, b.footing]) &&
+  sameBytes(a.state, b.state);
 
 export interface HomeNoteStateReaderOptions {
   readMindContents: (mindIds: readonly string[]) => Promise<MindContentSnapshot[]>;
@@ -122,9 +132,13 @@ export function createHomeNoteStateReader({
             if (readings.delete(mindId)) changed = true;
             continue;
           }
+          const known = snapshots.get(mindId);
           let decoded: DecodedHomeSnapshot;
           try {
-            decoded = await decode(snapshot);
+            decoded =
+              known && sameSnapshot(known.snapshot, snapshot)
+                ? known.decoded
+                : await decode(snapshot);
           } catch (error) {
             console.warn(
               `Couldn't read the state of Mind ${mindId}; its row shows the snippet.`,
@@ -133,13 +147,15 @@ export function createHomeNoteStateReader({
             if (readings.delete(mindId)) changed = true;
             continue;
           }
+          const current = snapshots.get(mindId);
           if (disposed || requestedGen.get(mindId) !== gen || !folders.has(mindId)) {
-            decoded.dispose();
+            if (current?.decoded !== decoded) decoded.dispose();
             continue;
           }
-          snapshots.get(mindId)?.decoded.dispose();
+          if (current && current.decoded !== decoded) current.decoded.dispose();
           const entry: CachedSnapshot = {
             decoded,
+            snapshot,
             folderId: folders.get(mindId) ?? null,
             gen,
           };
@@ -189,6 +205,10 @@ export function createHomeNoteStateReader({
           context.keptCitationTexts !== nextContext.keptCitationTexts ||
           context.library !== nextContext.library);
       if (contextChanged) contextGen++;
+      // Table figures are read against the Documents' versions and the Library (#3822).
+      const tablesReadAgain =
+        hasSynced &&
+        (context.documents !== nextContext.documents || context.library !== nextContext.library);
       hasSynced = true;
       minds = nextMinds;
       context = nextContext;
@@ -237,7 +257,8 @@ export function createHomeNoteStateReader({
           }
           continue;
         }
-        if (contextChanged) toReevaluate.push(mind.id);
+        if (tablesReadAgain && entry.decoded.hasTables) toFetch.push(mind.id);
+        else if (contextChanged) toReevaluate.push(mind.id);
       }
 
       if (removed && toReevaluate.length === 0) emit();
@@ -260,154 +281,6 @@ export function createHomeNoteStateReader({
       readings.clear();
       requestedGen.clear();
       evalGenByMind.clear();
-    },
-  };
-}
-
-export type AgentNoteCandidate = Pick<Mind, "id" | "folderId">;
-
-export interface AgentNoteCacheOptions {
-  readMindContents: (mindIds: readonly string[]) => Promise<MindContentSnapshot[]>;
-  decode?: typeof decodeHomeSnapshot;
-}
-
-interface AgentNoteEntry {
-  decoded: DecodedHomeSnapshot;
-  pairingId?: string;
-}
-
-/**
- * Decoded candidate cache for `useAgentNote`: clears a dirty flag and disposes the previous
- * decoded `Y.Doc` only after a replacement read and decode succeed, keeping failed refreshes
- * retryable with the last valid entry intact (#3822).
- */
-export function createAgentNoteCache({
-  readMindContents,
-  decode = decodeHomeSnapshot,
-}: AgentNoteCacheOptions) {
-  const entries = new Map<string, AgentNoteEntry>();
-  const dirty = new Set<string>();
-  const dirtySeq = new Map<string, number>();
-  const inFlight = new Map<string, Promise<void>>();
-  const requestedGen = new Map<string, number>();
-  let active = new Set<string>();
-  let genSeq = 0;
-  let disposed = false;
-
-  return {
-    markDirty(mindId: string) {
-      if (disposed) return;
-      dirty.add(mindId);
-      dirtySeq.set(mindId, (dirtySeq.get(mindId) ?? 0) + 1);
-    },
-
-    async read(
-      candidates: readonly AgentNoteCandidate[],
-      pairingIds: ReadonlySet<string>,
-      context: HomeSharedContext,
-    ): Promise<{ mindId: string; state: NoteState | null } | null> {
-      if (disposed) return null;
-      const keep = new Set(candidates.map((mind) => mind.id));
-      active = keep;
-      for (const [id, entry] of [...entries.entries()]) {
-        if (!keep.has(id)) {
-          entry.decoded.dispose();
-          entries.delete(id);
-          requestedGen.delete(id);
-        }
-      }
-      if (candidates.length === 0) {
-        dirty.clear();
-        return null;
-      }
-
-      const toFetch: string[] = [];
-      const waitFor: Promise<void>[] = [];
-      for (const mind of candidates) {
-        if (dirty.has(mind.id)) {
-          toFetch.push(mind.id);
-        } else {
-          const existing = inFlight.get(mind.id);
-          if (existing) waitFor.push(existing);
-          else if (!entries.has(mind.id)) toFetch.push(mind.id);
-        }
-      }
-
-      if (toFetch.length > 0) {
-        const gen = ++genSeq;
-        const dirtyAtStart = new Map(toFetch.map((id) => [id, dirtySeq.get(id) ?? 0]));
-        const clearDirtyIfCurrent = (mindId: string) => {
-          if ((dirtySeq.get(mindId) ?? 0) === dirtyAtStart.get(mindId)) dirty.delete(mindId);
-        };
-        for (const mindId of toFetch) requestedGen.set(mindId, gen);
-        const job = (async () => {
-          const snapshots = await readMindContents(toFetch);
-          if (disposed) return;
-          const byId = new Map(snapshots.map((snapshot) => [snapshot.mindId, snapshot]));
-          for (const mindId of toFetch) {
-            if (disposed) return;
-            if (requestedGen.get(mindId) !== gen || !active.has(mindId)) continue;
-            const snapshot = byId.get(mindId);
-            if (!snapshot) {
-              entries.get(mindId)?.decoded.dispose();
-              entries.delete(mindId);
-              clearDirtyIfCurrent(mindId);
-              continue;
-            }
-            const decoded = await decode(snapshot);
-            if (disposed || requestedGen.get(mindId) !== gen || !active.has(mindId)) {
-              decoded.dispose();
-              continue;
-            }
-            const writer = noteWriterOf(decoded.doc);
-            // A copy carries its source's record: only the Note the record names is the agent's.
-            const pairingId = writer?.mindId === mindId ? writer.pairingId : undefined;
-            entries.get(mindId)?.decoded.dispose();
-            entries.set(mindId, { decoded, pairingId });
-            clearDirtyIfCurrent(mindId);
-          }
-        })().finally(() => {
-          for (const mindId of toFetch) {
-            if (inFlight.get(mindId) === job) inFlight.delete(mindId);
-          }
-        });
-        for (const mindId of toFetch) inFlight.set(mindId, job);
-        waitFor.push(job);
-      }
-
-      if (waitFor.length > 0) await Promise.all(waitFor);
-      if (disposed) return null;
-
-      for (const mind of candidates) {
-        const entry = entries.get(mind.id);
-        if (!entry || entry.pairingId === undefined || !pairingIds.has(entry.pairingId)) continue;
-        const reading = await entry.decoded.read({
-          ...context,
-          folderId: mind.folderId,
-        });
-        return { mindId: mind.id, state: reading.state };
-      }
-      return null;
-    },
-
-    has(mindId: string): boolean {
-      return entries.has(mindId);
-    },
-
-    isDirty(mindId: string): boolean {
-      return dirty.has(mindId);
-    },
-
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      for (const entry of entries.values()) entry.decoded.dispose();
-      entries.clear();
-      dirty.clear();
-      dirtySeq.clear();
-      inFlight.clear();
-      requestedGen.clear();
-      active.clear();
     },
   };
 }
