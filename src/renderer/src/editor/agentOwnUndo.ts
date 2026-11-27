@@ -38,6 +38,20 @@ function forgetCaptured(stepId: string, entry: Captured): void {
   if (set.size === 0) capturedByStep.delete(stepId);
 }
 
+function textTouchedByStep(
+  events: readonly Y.YEvent<Y.AbstractType<unknown>>[],
+  steps: readonly UndoStep[],
+): boolean {
+  for (const event of events) {
+    if (!(event.target instanceof Y.Text)) continue;
+    if (!event.delta.some((op) => op.insert !== undefined || op.delete !== undefined)) continue;
+    for (let item = event.target._start; item; item = item.right) {
+      if (steps.some((step) => Y.isDeleted(step.insertions, item.id))) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Captures outside-agent immediate changes (`ownChanges`) for `mindId` onto the tab's kept
  * `history` as one step each, until the returned function is called.
@@ -50,7 +64,12 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
   const touched = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
     if (tracked.size === 0 || transaction.origin !== FROM_CORE) return;
     for (const item of [...tracked]) {
-      if (stepsWrittenIn(events, item.entry.steps.inNote(), () => true).size > 0) {
+      const inNote = item.entry.steps.inNote();
+      if (inNote.length === 0) continue;
+      if (
+        stepsWrittenIn(events, inNote, () => true).size > 0 ||
+        textTouchedByStep(events, inNote)
+      ) {
         toDrop.add(item.entry.steps);
       }
     }
@@ -94,7 +113,7 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
       forgetCaptured(cause.request, entry);
     };
     record.stop = steps.observe(() => {
-      if (steps.state() === "gone") cleanup();
+      if (!steps.held()) cleanup();
     });
     tracked.add(record);
     const set = capturedByStep.get(cause.request) ?? new Set<Captured>();

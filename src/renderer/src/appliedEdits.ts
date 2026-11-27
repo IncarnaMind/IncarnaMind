@@ -28,6 +28,7 @@ import { fingerprintOfMind } from "../../shared/mindState";
 import { mindName } from "../../shared/naming";
 import {
   aiUseOfAccepted,
+  outOfDateProposals,
   pendingProposals,
   proposalRequestOf,
   resolveProposals,
@@ -980,7 +981,10 @@ export function applyArrivedInHistory(
   { holds = true, turn }: { holds?: boolean; turn?: string } = {},
 ): "applied" | "held" | null {
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
-  const pending = pendingProposals(blocks).filter((each) => requests.has(each.request));
+  const stale = outOfDateProposals(blocks);
+  const pending = pendingProposals(blocks).filter(
+    (each) => requests.has(each.request) && !stale.has(each.id),
+  );
   if (pending.length === 0) return null;
   if (holds && waitsForUser(doc, requests)) {
     pendingHidden.set(history, {
@@ -994,7 +998,6 @@ export function applyArrivedInHistory(
   }
   const request = pending[0]?.request;
   if (!request) return null;
-  const accepted = pending.map((each) => each.id);
   latest.get(history)?.forget();
   lineWhenHidden.delete(history);
   pendingHidden.delete(history);
@@ -1056,6 +1059,7 @@ export function applyArrivedInHistory(
   }
   const entries = aiUseOfAccepted(doc, mindId, resolved, new Date().toISOString());
   if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
+  const accepted = resolved.map((each) => each.id);
   edit.followed = followStepsInHistory(history, edit.steps);
   lastApplied.set(history, edit);
   pendingHidden.set(history, {

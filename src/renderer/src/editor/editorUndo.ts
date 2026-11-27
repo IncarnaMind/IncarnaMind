@@ -322,6 +322,8 @@ export interface NoteSteps extends FollowedSteps {
   drop(): void;
   /** Taken back, and what puts them back is the next ⇧⌘Z. */
   redoesNext(): boolean;
+  /** Still reachable on the note's undo or redo stack. */
+  held(): boolean;
 }
 
 /** What hears one history's steps move for one `followSteps`. */
@@ -483,6 +485,9 @@ function followWith(manager: UndoStack, reach: Reach, first: readonly UndoStep[]
     redoesNext() {
       const next = manager.redoStack.at(-1);
       return next !== undefined && undone.has(next);
+    },
+    held() {
+      return !ended() && held();
     },
     drop() {
       const steps = new Set([...done, ...undone]);

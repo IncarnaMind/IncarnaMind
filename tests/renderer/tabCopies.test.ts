@@ -8,6 +8,8 @@ import {
   type EditWithAiResult,
   MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
+  PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
   type WindowLayout,
 } from "../../src/core/api";
 import { fingerprintOfMind } from "../../src/shared/mindState";
@@ -1051,5 +1053,76 @@ describe("AI writes into a kept tab history (#3839)", () => {
     await settled(shown.editor, ["Original by user", "Added by agent elsewhere"]);
     expect(shown.editor.commands.undo()).toBe(true);
     await settled(shown.editor, ["Original", "Added by agent elsewhere"]);
+  });
+
+  // protects=an out-of-date Proposal on a hidden tab returns null without saving a Checkpoint (#3839); fails_when=a stale Proposal saves an accept Checkpoint or reports applied
+  test("a stale Proposal on a hidden tab returns null and saves no Checkpoint", async () => {
+    serverWith([ORIGINAL]);
+    const first = await showInTab("tab-1", true);
+    await first.away();
+
+    fromCore((note) =>
+      writeAs(note, [
+        {
+          ...ORIGINAL,
+          content: [
+            {
+              type: "text",
+              text: "Original changed",
+              marks: [
+                {
+                  type: PROPOSAL_DELETE_MARK,
+                  attrs: { id: "stale-change", request: "request", target: "wrong-hash" },
+                },
+              ],
+            },
+            {
+              type: "text",
+              text: "Replacement",
+              marks: [
+                {
+                  type: PROPOSAL_INSERT_MARK,
+                  attrs: { id: "stale-change", request: "request", target: "wrong-hash" },
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
+    bridge.calls.length = 0;
+    expect(
+      applyArrivedInHistory(first.doc, first.history, MIND, new Set(["request"]), WROTE_ONE, {
+        turn: "turn-stale",
+      }),
+    ).toBeNull();
+    expect(bridge.calls).not.toContain(`saveCheckpoint:${MIND}:accept`);
+  });
+
+  // protects=an outside agent's in-place rewrite of an existing paragraph drops from this tab's Undo stack when another copy edits that paragraph (#3839); fails_when=an edited in-place agent rewrite stays on the Undo stack
+  test("an outside agent's in-place paragraph rewrite drops on another copy's text edit", async () => {
+    serverWith([ORIGINAL]);
+    const shown = await showInTab("tab-1", true);
+    typeIn(shown.editor, "Original", " before");
+    shown.history.stopCapturing();
+    await flushMindUpdates(MIND);
+
+    // Agent rewrites existing paragraph 0 in place (keeping its Y.XmlText).
+    fromCore(
+      (note) => {
+        const text = firstText(note, 0);
+        text.delete(0, text.length);
+        text.insert(0, "Rewritten by agent");
+      },
+      { requestId: agentOwnChangeRequestId(MIND), request: "step-rewrite" },
+    );
+    await settled(shown.editor, ["Rewritten by agent"]);
+
+    // Another copy edits that same paragraph; the agent's step leaves this tab's history, so Undo
+    // skips it without removing the agent's words.
+    fromCore((note) => firstText(note, 0).insert("Rewritten by agent".length, " plus other"));
+    await settled(shown.editor, ["Rewritten by agent plus other"]);
+    expect(shown.editor.commands.undo()).toBe(true);
+    await settled(shown.editor, ["Rewritten by agent plus other"]);
   });
 });

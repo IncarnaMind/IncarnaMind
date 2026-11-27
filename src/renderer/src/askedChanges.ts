@@ -585,8 +585,7 @@ export async function applyTurn(
   const preferredHistory = askedTabId
     ? (tabCopyNow(askedTabId, row.mindId)?.history ?? null)
     : null;
-  const editor =
-    (preferredHistory ? historyEditor(preferredHistory) : null) ?? mindEditor(row.mindId);
+  const editor = preferredHistory ? historyEditor(preferredHistory) : mindEditor(row.mindId);
   if (!editor) {
     const kept = keptTabCopy(row.mindId, askedTabId);
     if (kept) {
@@ -657,7 +656,7 @@ export async function applyTurn(
       currentTabOf(useAppStore.getState().layout)?.item ?? null,
       askedFrom,
     );
-    const behind = made && (!created || !stillThere);
+    const behind = askedTabId !== undefined || (made && (!created || !stillThere));
     if (!(await openBeside(row.mindId, behind))) return;
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
     // Undone on the card while the Note opened, and that Undo's entry gone since with a newer
