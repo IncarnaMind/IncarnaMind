@@ -71,6 +71,11 @@ describe("files an outside agent hands over", () => {
     });
     const firstMind = first.mindId;
     if (!firstMind) throw new Error("No Note was made of the deck.");
+    const firstClient = await connectToMind(core, firstMind);
+    await firstClient.settled();
+    const firstSpans = claimSpans(readMind(firstClient));
+    expect(firstSpans.length).toBeGreaterThan(0);
+    expect(firstSpans.every((span) => span.check.outside === true)).toBe(true);
 
     // The same bytes again: the same version, and how its check went.
     const again = structured<Handed>(await handOver(agent, { path }));

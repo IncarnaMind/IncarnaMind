@@ -530,11 +530,14 @@ describe("an outside agent has its Note checked (#3317)", () => {
     const edited = await connectToMind(core, mindId);
     await edited.settled();
     edited.doc.transact(() => {
-      const paragraph = edited.doc.getXmlFragment("blocks").get(0);
+      const paragraph = edited.blocks.get(1);
       if (paragraph instanceof Y.XmlElement) {
         const textNode = paragraph.get(0);
         if (textNode instanceof Y.XmlText) {
-          const at = textNode.toString().indexOf("2");
+          const plain = (textNode.toDelta() as { insert?: unknown }[])
+            .map((op) => (typeof op.insert === "string" ? op.insert : ""))
+            .join("");
+          const at = plain.indexOf("4");
           if (at >= 0) {
             textNode.delete(at, 1);
             textNode.insert(at, "5");
@@ -543,6 +546,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       }
     });
     await edited.settled();
+    expect(readMind(edited).textContent).toContain("5 Documents");
     calls.length = 0;
     expect(refusal(await check(agent, mindId))).toContain("outside the Folders");
     expect(calls).toEqual([]);
@@ -706,6 +710,91 @@ describe("an outside agent has its Note checked (#3317)", () => {
       supported: 1,
       needLook: 0,
     });
+
+    // An agent's own Library mark written via check_mind_yourself + run_analysis + report_check
+    // also carries `outside: true`, so the same agent can re-check it with check_mind after a change.
+    const { mindId: ownCheckedNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Reported count", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    const task = structured<{ task: string; sentences: { n: number }[] }>(
+      await agent.callTool({
+        name: "check_mind_yourself",
+        arguments: { mindId: ownCheckedNote },
+      }),
+    );
+    const analysis = structured<{ id: string }>(
+      await agent.callTool({
+        name: "run_analysis",
+        arguments: {
+          title: "Count Documents",
+          inputs: [{ name: "files", library: "documents" }],
+          code: CODE,
+        },
+      }),
+    );
+    expect(
+      structured<{ marked: number; unconfirmed: number[] }>(
+        await agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId: ownCheckedNote,
+            task: task.task,
+            results: [
+              {
+                n: 1,
+                verdict: "supported",
+                run: analysis.id,
+                explanation: "The list has 2 Documents.",
+              },
+            ],
+          },
+        }),
+      ),
+    ).toMatchObject({ marked: 1, unconfirmed: [] });
+    const [thirdPub] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Public3.md", "# Public 3\n\nThird shared document.\n"),
+    ]);
+    if (!thirdPub) throw new Error("Missing Public3.");
+    await core.assignDocumentGroup(thirdPub.id, pub.id);
+    expect(structured<Checked>(await check(agent, ownCheckedNote))).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 1,
+    });
+
+    // An old Library mark stored before `outside: true` existed (source.kind: "scope", no `outside`
+    // flag) fails closed as User-owned: masked while current, and refused with guidance for the User
+    // to check it in IncarnaMind once stale.
+    const legacyClient = await connectToMind(core, agentNote);
+    await legacyClient.settled();
+    legacyClient.doc.transact(() => {
+      const paragraph = legacyClient.blocks.get(1);
+      if (paragraph instanceof Y.XmlElement) {
+        const textNode = paragraph.get(0);
+        if (textNode instanceof Y.XmlText) {
+          for (const op of textNode.toDelta() as {
+            insert?: string;
+            attributes?: Record<string, unknown>;
+          }[]) {
+            for (const [key, raw] of Object.entries(op.attributes ?? {})) {
+              if (!key.startsWith("claimCheck") || !raw || typeof raw !== "object") continue;
+              const { outside: _drop, ...withoutOutside } = raw as Record<string, unknown>;
+              textNode.format(0, textNode.length, { [key]: withoutOutside });
+            }
+          }
+        }
+      }
+    });
+    await legacyClient.settled();
+    expect(claimSpans(readMind(legacyClient))[0]?.check.outside).toBeUndefined();
+    calls.length = 0;
+    const legacyRefusal = refusal(await check(agent, agentNote));
+    expect(legacyRefusal).toContain("outside the Folders");
+    expect(legacyRefusal).toContain("The User can check it in IncarnaMind.");
+    expect(calls).toEqual([]);
   });
 
   // protects=every User-side reader (editor, Word export, check record, AI use statement) reads an agent's grant-only Library check as needs-recheck when the User's Library differs, Not cited workings are counted alike by User and agent, and check_mind names the granted source with sourceWords and libraryRow rather than "library-facts" or "Your Library" (#2525); fails_when=export/check-record/AI-use-statement show an agent's grant-only Library check as Supported, agent and User disagree on Not cited workings, or check_mind leaks "library-facts" or "Your Library".

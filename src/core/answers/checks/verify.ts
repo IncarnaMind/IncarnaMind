@@ -579,6 +579,7 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          ...(reach !== null && { outside: true as const }),
           judgedWith: judgedWithOf(sentence, verification),
         };
         // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
@@ -647,6 +648,7 @@ export function createVerify(options: VerifyOptions) {
       queued,
       scope: check.scope,
       prepared: ready.prepared,
+      ...(reach !== null && { outside: true }),
       thirdParty: [{ via: "read", source: "checked-document" }],
       signal,
     });
