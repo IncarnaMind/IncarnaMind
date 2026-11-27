@@ -180,9 +180,15 @@ export function useKeymap(): void {
 }
 
 /** Whether a key pressed is a command's shortcut, for a place that takes the keys itself. */
-export function pressesShortcut(id: CommandId, event: KeyboardEvent): boolean {
+export function pressesShortcut(id: CommandId, event: Parameters<typeof pressed>[1]): boolean {
   const shortcut = commands.get(id)?.shortcut;
-  return shortcut !== undefined && pressed(keysOn(shortcut.keys, isMac), event, isMac);
+  if (!shortcut) return false;
+  const keys = [
+    keysOn(shortcut.keys, isMac),
+    ...(!isMac && shortcut.alsoOther ? [shortcut.alsoOther] : []),
+    ...(shortcut.also ? [shortcut.also] : []),
+  ];
+  return keys.some((each) => pressed(each, event, isMac));
 }
 
 /** Keys as this system writes them. */

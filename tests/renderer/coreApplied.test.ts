@@ -148,6 +148,7 @@ const delegatedBridge = {
   },
   applyAskedChanges: (input: ApplyAskedChangesInput) => activeApply(input),
   recordAiUse: async () => undefined,
+  saveCheckpoint: async () => undefined,
   changeLayout: (_windowId: string, change: LayoutChange) => activeLayout(change),
   undoAskedChanges: (undoId: string) => {
     if (!activeUndoBridge) throw new Error("No Undo bridge.");

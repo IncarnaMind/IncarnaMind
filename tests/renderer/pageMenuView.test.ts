@@ -25,7 +25,7 @@ const TAB = "meeting-tab";
 const ui = vi.hoisted(() => ({ close: vi.fn(), word: false }));
 
 vi.mock("../../src/renderer/src/core", () => ({
-  core: { recordAiUse: async () => undefined },
+  core: { recordAiUse: async () => undefined, saveCheckpoint: async () => undefined },
   files: {},
 }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({ speak: () => undefined }));

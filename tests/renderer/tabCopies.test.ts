@@ -3,11 +3,16 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
+import { createOwnChanges } from "../../src/core/agents/ownChanges";
 import {
+  type AgentChangeStep,
+  type AgentNoteChange,
   DEFAULT_ASSISTANT,
   type EditWithAiResult,
   MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
+  PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
   type WindowLayout,
 } from "../../src/core/api";
 import { fingerprintOfMind } from "../../src/shared/mindState";
@@ -26,8 +31,12 @@ type MindUpdate = { mindId: string; update: Uint8Array; cause?: unknown };
 
 const bridge = vi.hoisted(() => ({
   listeners: new Set<(payload: MindUpdate) => void>(),
+  noteChangedListeners: new Set<(payload: AgentNoteChange) => void>(),
   openMind: async (_mindId: string): Promise<unknown> => null,
   applyMindUpdate: async (_mindId: string, _update: Uint8Array): Promise<void> => undefined,
+  claimAgentChange: async (_step: string): Promise<boolean> => true,
+  undoAgentChange: async (_step: string): Promise<AgentChangeStep> => "unavailable",
+  redoAgentChange: async (_step: string): Promise<AgentChangeStep> => "unavailable",
   opened: 0,
   closed: 0,
   /** What else was asked of the core, in order. */
@@ -36,10 +45,17 @@ const bridge = vi.hoisted(() => ({
 
 vi.mock("../../src/renderer/src/core", () => ({
   core: {
-    on: (name: string, listener: (payload: MindUpdate) => void) => {
-      if (name !== "mind.update") return () => undefined;
-      bridge.listeners.add(listener);
-      return () => bridge.listeners.delete(listener);
+    on: (name: string, listener: (payload: never) => void) => {
+      if (name === "mind.update") {
+        bridge.listeners.add(listener as (payload: MindUpdate) => void);
+        return () => bridge.listeners.delete(listener as (payload: MindUpdate) => void);
+      }
+      if (name === "agents.noteChanged") {
+        bridge.noteChangedListeners.add(listener as (payload: AgentNoteChange) => void);
+        return () =>
+          bridge.noteChangedListeners.delete(listener as (payload: AgentNoteChange) => void);
+      }
+      return () => undefined;
     },
     openMind: (mindId: string) => {
       bridge.opened++;
@@ -49,6 +65,9 @@ vi.mock("../../src/renderer/src/core", () => ({
     closeMind: async () => {
       bridge.closed++;
     },
+    claimAgentChange: (step: string) => bridge.claimAgentChange(step),
+    undoAgentChange: (step: string) => bridge.undoAgentChange(step),
+    redoAgentChange: (step: string) => bridge.redoAgentChange(step),
     settleUnfinished: async (mindId: string) => {
       bridge.calls.push(`settleUnfinished:${mindId}`);
     },
@@ -61,7 +80,9 @@ vi.mock("../../src/renderer/src/core", () => ({
       bridge.calls.push(`releaseAskedChanges:${undoId}`);
     },
     recordAiUse: async () => undefined,
-    saveCheckpoint: async () => undefined,
+    saveCheckpoint: async (mindId: string, reason: string) => {
+      bridge.calls.push(`saveCheckpoint:${mindId}:${reason}`);
+    },
     undoComparisonStructure: async ({ step }: { step: string }) => {
       bridge.calls.push(`undoComparisonStructure:${step}`);
       return { moved: true };
@@ -91,9 +112,11 @@ const { ProposalReview, proposalsIn } = await import(
 const { AppliedEditLine, appliedLineIn } = await import(
   "../../src/renderer/src/editor/appliedEditLine"
 );
-const { actOnAppliedEdit, applyArrived, finishApplying, startApplying } = await import(
-  "../../src/renderer/src/appliedEdits"
-);
+const { actOnAppliedEdit, applyArrived, applyArrivedInHistory, finishApplying, startApplying } =
+  await import("../../src/renderer/src/appliedEdits");
+const { bindCapturedAgentStep } = await import("../../src/renderer/src/editor/agentOwnUndo");
+await import("../../src/renderer/src/agentNotes");
+const { agentOwnChangeRequestId } = await import("../../src/shared/agentOwnChanges");
 
 let server: Y.Doc;
 const cleanups: (() => void)[] = [];
@@ -117,6 +140,14 @@ beforeEach(() => {
     Y.applyUpdate(server, update);
     send(update);
   };
+  const claimedSteps = new Set<string>();
+  bridge.claimAgentChange = async (step) => {
+    if (claimedSteps.has(step)) return false;
+    claimedSteps.add(step);
+    return true;
+  };
+  bridge.undoAgentChange = async () => "unavailable";
+  bridge.redoAgentChange = async () => "unavailable";
   useUndo.setState({ done: [], undone: [], aside: [], line: null });
   showTabs(["tab-1", "tab-2"]);
 });
@@ -968,5 +999,315 @@ describe("an edit that ends with nothing to keep", () => {
     expect(undoNoteHistory(shown.editor)).toBe(true);
     await vi.waitFor(() => expect(bridge.calls).toContain("undoComparisonStructure:column"));
     expect(linesOf(shown.editor)[0]).toBe("Original typed");
+  });
+});
+
+describe("AI writes into a kept tab history (#3839)", () => {
+  // protects=an asked-for AI write that finishes while the Note's tab is hidden lands on that tab's kept history as one step with a Checkpoint before it, stays intact when the User undoes something unrelated elsewhere, and shows its applied line on return so ⌘Z takes back the AI write first and older typing second (#3839); fails_when=the hidden tab's step is lost, withdrawn by an unrelated Undo, skips Checkpoint, or reverses undo order
+  test("a hidden-tab AI write lands on the kept history newest-first and survives an unrelated Undo", async () => {
+    serverWith([ORIGINAL]);
+    const first = await showInTab("tab-1", true);
+    typeIn(first.editor, "Original", " typed");
+    first.history.stopCapturing();
+    await flushMindUpdates(MIND);
+    await first.away();
+
+    fromCore((note) => {
+      writeAs(note, [{ ...ORIGINAL, content: [made("Original typed")] }, PROPOSED]);
+      if (note.doc) {
+        recordProposalRequest(note.doc, "request", {
+          source: "outside-agent",
+          agent: "Claude Code",
+          pairingId: "pairing-1",
+          createdAt: "2026-11-27T00:00:00.000Z",
+          requested: "edit",
+        });
+      }
+    });
+    expect(
+      applyArrivedInHistory(first.doc, first.history, MIND, new Set(["request"]), WROTE_ONE, {
+        turn: "turn-1",
+      }),
+    ).toBe("applied");
+    await flushMindUpdates(MIND);
+    expect(bridge.calls).toContain(`saveCheckpoint:${MIND}:accept`);
+
+    // An unrelated change done and undone elsewhere must not touch the hidden tab's step.
+    let otherCount = 1;
+    useUndo.getState().push({
+      said: () => "Moved another note",
+      undo: async () => {
+        otherCount -= 1;
+      },
+      redo: async () => {
+        otherCount += 1;
+      },
+    });
+    await useUndo.getState().undo();
+    expect(otherCount).toBe(0);
+
+    const back = await showInTab("tab-1", true);
+    await ticked();
+    await settled(back.editor, ["Original typed", "AI text"]);
+    expect(appliedLineIn(back.editor.state)?.kind).toBe("applied");
+
+    expect(back.editor.commands.undo()).toBe(true);
+    await settled(back.editor, ["Original typed"]);
+    expect(back.editor.commands.undo()).toBe(true);
+    await settled(back.editor, ["Original"]);
+    expect(back.editor.commands.redo()).toBe(true);
+    await settled(back.editor, ["Original typed"]);
+    expect(back.editor.commands.redo()).toBe(true);
+    await settled(back.editor, ["Original typed", "AI text"]);
+  });
+
+  // protects=an outside agent's immediate change to its own Note lands on the tab's kept Undo stack as one step (newest-first across User typing and agent writes) and leaves the stack if another copy later writes into its Blocks (#3839); fails_when=⌘Z undoes older User typing before the newer agent change or leaves a conflicting step in history
+  test("an outside agent's own-note change lands on the tab's kept history newest-first and drops on conflict", async () => {
+    serverWith([ORIGINAL]);
+    const shown = await showInTab("tab-1", true);
+    typeIn(shown.editor, "Original", " by user");
+    shown.history.stopCapturing();
+    await flushMindUpdates(MIND);
+
+    fromCore((note) => note.push([paragraph("Added by agent")]), {
+      requestId: agentOwnChangeRequestId(MIND),
+      request: "step-1",
+    });
+    await settled(shown.editor, ["Original by user", "Added by agent"]);
+
+    expect(shown.editor.commands.undo()).toBe(true);
+    await settled(shown.editor, ["Original by user"]);
+    expect(shown.editor.commands.undo()).toBe(true);
+    await settled(shown.editor, ["Original"]);
+    expect(shown.editor.commands.redo()).toBe(true);
+    await settled(shown.editor, ["Original by user"]);
+    expect(shown.editor.commands.redo()).toBe(true);
+    await settled(shown.editor, ["Original by user", "Added by agent"]);
+
+    // Another copy writing into the agent's added Block takes that step out of this tab's history.
+    fromCore((note) => firstText(note, 1).insert("Added by agent".length, " elsewhere"));
+    await settled(shown.editor, ["Original by user", "Added by agent elsewhere"]);
+    expect(shown.editor.commands.undo()).toBe(true);
+    await settled(shown.editor, ["Original", "Added by agent elsewhere"]);
+  });
+
+  // protects=an out-of-date Proposal on a hidden tab returns null without saving a Checkpoint (#3839); fails_when=a stale Proposal saves an accept Checkpoint or reports applied
+  test("a stale Proposal on a hidden tab returns null and saves no Checkpoint", async () => {
+    serverWith([ORIGINAL]);
+    const first = await showInTab("tab-1", true);
+    await first.away();
+
+    fromCore((note) =>
+      writeAs(note, [
+        {
+          ...ORIGINAL,
+          content: [
+            {
+              type: "text",
+              text: "Original changed",
+              marks: [
+                {
+                  type: PROPOSAL_DELETE_MARK,
+                  attrs: { id: "stale-change", request: "request", target: "wrong-hash" },
+                },
+              ],
+            },
+            {
+              type: "text",
+              text: "Replacement",
+              marks: [
+                {
+                  type: PROPOSAL_INSERT_MARK,
+                  attrs: { id: "stale-change", request: "request", target: "wrong-hash" },
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
+    bridge.calls.length = 0;
+    expect(
+      applyArrivedInHistory(first.doc, first.history, MIND, new Set(["request"]), WROTE_ONE, {
+        turn: "turn-stale",
+      }),
+    ).toBeNull();
+    expect(bridge.calls).not.toContain(`saveCheckpoint:${MIND}:accept`);
+  });
+
+  // protects=an outside agent's in-place rewrite of an existing paragraph drops from this tab's Undo stack when another copy edits that paragraph (#3839); fails_when=an edited in-place agent rewrite stays on the Undo stack
+  test("an outside agent's in-place paragraph rewrite drops on another copy's text edit", async () => {
+    serverWith([ORIGINAL]);
+    const shown = await showInTab("tab-1", true);
+    typeIn(shown.editor, "Original", " before");
+    shown.history.stopCapturing();
+    await flushMindUpdates(MIND);
+
+    // Agent rewrites existing paragraph 0 in place (keeping its Y.XmlText).
+    fromCore(
+      (note) => {
+        const text = firstText(note, 0);
+        text.delete(0, text.length);
+        text.insert(0, "Rewritten by agent");
+      },
+      { requestId: agentOwnChangeRequestId(MIND), request: "step-rewrite" },
+    );
+    await settled(shown.editor, ["Rewritten by agent"]);
+
+    // Another copy edits that same paragraph; the agent's step leaves this tab's history, so Undo
+    // skips it without removing the agent's words.
+    fromCore((note) => firstText(note, 0).insert("Rewritten by agent".length, " plus other"));
+    await settled(shown.editor, ["Rewritten by agent plus other"]);
+    expect(shown.editor.commands.undo()).toBe(true);
+    await settled(shown.editor, ["Rewritten by agent plus other"]);
+  });
+
+  // protects=an assistant answer-added request already checkpointed by core does not trigger a second saveCheckpoint when applied on a hidden tab (#3839); fails_when=applyArrivedInHistory saves a duplicate Checkpoint for built-in assistant proposals
+  test("a hidden-tab assistant proposal does not save a duplicate Checkpoint", async () => {
+    serverWith([ORIGINAL]);
+    const first = await showInTab("tab-1", true);
+    await first.away();
+    fromCore((note) => {
+      writeAs(note, [ORIGINAL, PROPOSED]);
+      if (note.doc) {
+        recordProposalRequest(note.doc, "request", {
+          source: "answer-added",
+          providerId: "anthropic",
+          modelId: "claude-haiku-5-5",
+          createdAt: "2026-11-27T00:00:00.000Z",
+          requested: "write",
+        });
+      }
+    });
+    bridge.calls.length = 0;
+    expect(
+      applyArrivedInHistory(first.doc, first.history, MIND, new Set(["request"]), WROTE_ONE),
+    ).toBe("applied");
+    expect(bridge.calls).not.toContain(`saveCheckpoint:${MIND}:accept`);
+  });
+
+  // protects=only one tab copy captures an outside-agent own-Note step so undoing a removed paragraph across two tabs never brings it back twice (#3839); fails_when=both tabs capture the step and undo restores the removed paragraph twice
+  test("two tabs on one AI-made Note: undoing a removed paragraph in both tabs restores it once", async () => {
+    const one = await showInTab("tab-1", true);
+    const two = await showInTab("tab-2", true);
+    fromCore((note) => note.delete(1, 1), {
+      requestId: agentOwnChangeRequestId(MIND),
+      request: "step-remove",
+    });
+    await settled(one.editor, ["Mine:"]);
+    await settled(two.editor, ["Mine:"]);
+    expect(one.editor.commands.undo()).toBe(true);
+    await settled(one.editor, ["Mine:", "Theirs:"]);
+    await settled(two.editor, ["Mine:", "Theirs:"]);
+    expect(two.editor.commands.undo()).toBe(false);
+    await flushMindUpdates(MIND);
+    await ticked();
+    expect(linesOf(two.editor)).toEqual(["Mine:", "Theirs:"]);
+    expect(linesOf(one.editor)).toEqual(["Mine:", "Theirs:"]);
+  });
+
+  // protects=when another window wins core.claimAgentChange, this window drops the captured step and does not fall back to core Undo (#3839); fails_when=a losing window keeps a duplicate Undo step or offers a stale core Undo
+  test("a window that loses claimAgentChange drops its captured step without offering core Undo", async () => {
+    bridge.claimAgentChange = async () => false;
+    const shown = await showInTab("tab-1", true);
+    fromCore((note) => note.delete(1, 1), {
+      requestId: agentOwnChangeRequestId(MIND),
+      request: "step-lost",
+    });
+    await settled(shown.editor, ["Mine:"]);
+    await ticked();
+    expect(shown.editor.commands.undo()).toBe(false);
+    expect(linesOf(shown.editor)).toEqual(["Mine:"]);
+    expect(bindCapturedAgentStep("step-lost", () => "Agent edit")).toBe(true);
+  });
+
+  // protects=an own-Note step that landed with no tab open stays undoable in core after a later step lands in an open tab and is claimed, so Cmd+Z undoes newest-first across tab and core without refusal (#3839); fails_when=the tab-claimed step stays on top of core's stack and blocks undoing the earlier core step
+  test("mixed core-then-tab agent steps undo newest first without refusal", async () => {
+    let nextId = 0;
+    let currentCause: unknown;
+    const broadcast = (update: Uint8Array, origin: unknown) => {
+      if (origin === "from-client") return;
+      send(update, currentCause);
+    };
+    server.on("update", broadcast);
+    cleanups.push(() => server.off("update", broadcast));
+    bridge.applyMindUpdate = async (_mindId, update) => {
+      Y.applyUpdate(server, update, "from-client");
+      send(update);
+    };
+    const ownChanges = createOwnChanges(
+      {
+        read: (_mindId, reader) => reader(server.getXmlFragment(MIND_CONTENT_FIELD)),
+        edit: (_mindId, writer, origin, cause) => {
+          let out: { value: ReturnType<typeof writer> } | null = null;
+          currentCause = cause;
+          try {
+            server.transact(() => {
+              out = { value: writer(server.getXmlFragment(MIND_CONTENT_FIELD)) };
+            }, origin);
+          } finally {
+            currentCause = undefined;
+          }
+          if (!out) throw new Error("Writer did not run.");
+          return (out as { value: ReturnType<typeof writer> }).value;
+        },
+        isLoaded: () => true,
+        requireWritable: () => undefined,
+      },
+      () => `own-${++nextId}`,
+    );
+    const coreUndone: string[] = [];
+    bridge.claimAgentChange = async (step) => ownChanges.claim(step);
+    bridge.undoAgentChange = async (step) => {
+      const done = ownChanges.undo(step);
+      coreUndone.push(`${step}:${done}`);
+      return done;
+    };
+    bridge.redoAgentChange = async (step) => ownChanges.redo(step);
+    const emitNoteChanged = (step: string) => {
+      const payload: AgentNoteChange = {
+        mindId: MIND,
+        agent: "Claude Code",
+        kind: "changed",
+        changed: 0,
+        added: 1,
+        tables: 0,
+        step,
+      };
+      for (const listener of [...bridge.noteChangedListeners]) listener(payload);
+    };
+
+    // Step 1 lands with NO tab open: stays in core and on useUndo via offerUndo.
+    showTabs([]);
+    const first = ownChanges.write(MIND, (blocks) => blocks.push([paragraph("First by agent")]));
+    if (!first.step) throw new Error("Missing first step.");
+    emitNoteChanged(first.step);
+
+    // Now Note opens in tab-1; User types; then Step 2 lands and is claimed by tab-1.
+    showTabs(["tab-1"]);
+    const shown = await showInTab("tab-1", true);
+    await settled(shown.editor, ["Mine:", "Theirs:", "First by agent"]);
+    typeIn(shown.editor, "Mine:", " user");
+    shown.history.stopCapturing();
+    await flushMindUpdates(MIND);
+
+    const second = ownChanges.write(MIND, (blocks) => blocks.push([paragraph("Second by agent")]));
+    if (!second.step) throw new Error("Missing second step.");
+    emitNoteChanged(second.step);
+    await ticked();
+    await settled(shown.editor, ["Mine: user", "Theirs:", "First by agent", "Second by agent"]);
+
+    // Cmd+Z #1: undoes Step 2 (in tab-1).
+    await undoInNote(shown.editor);
+    await settled(shown.editor, ["Mine: user", "Theirs:", "First by agent"]);
+
+    // Cmd+Z #2: undoes User typing (in tab-1).
+    await undoInNote(shown.editor);
+    await settled(shown.editor, ["Mine:", "Theirs:", "First by agent"]);
+
+    // Cmd+Z #3: tab-1 history empty -> falls through to useUndo -> core.undoAgentChange(step-1) succeeds!
+    await undoInNote(shown.editor);
+    await settled(shown.editor, ["Mine:", "Theirs:"]);
+    expect(coreUndone).toEqual(["own-1:done"]);
   });
 });

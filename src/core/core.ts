@@ -2327,6 +2327,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     requireMind: (mindId) => writableMind(mindId).id,
     recordAiUse: (inputs) => void aiUse.record(inputs),
+    checkpoint: (mindId) => checkpoints.save(mindId, "accept"),
     reportError: (mindId, error) =>
       console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });
@@ -8064,6 +8065,7 @@ export function createCore(adapters: CoreAdapters): Core {
     redoAskedChanges: async (undoId) => askedChanges.redo(undoId),
     undoAgentChange: async (step) => agentChanges.undo(step),
     redoAgentChange: async (step) => agentChanges.redo(step),
+    claimAgentChange: async (step) => agentChanges.claim(step),
     releaseAskedChanges: async (undoId) => askedChanges.release(undoId),
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),

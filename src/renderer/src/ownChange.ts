@@ -103,6 +103,9 @@ export function acceptChange(
     if (checked) tr.addMark(edit.from, end, checked);
     if (generated) tr.addMark(edit.from, end, generated.create());
   }
+  core
+    .saveCheckpoint(mindId, "accept")
+    .catch((error: unknown) => useNotices.getState().showError(error));
   asOneStep(editor, () => editor.view.dispatch(tr));
   const again = () => {
     if (!recheck) return;

@@ -2414,6 +2414,58 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       db.close();
     }
   });
+
+  // protects=a Note the agent wrote, asked from its foot with words selected, still applies a change outside the selection at once with no waiting Proposals and tells the agent what is left to check (#3839); fails_when=an own-Note change outside selection waits for Review or loses `next`
+  it("a Note the agent wrote applies outside selection at once and still reports next to check", async () => {
+    let status = "";
+    let next: string | undefined;
+    const run = runner(async (agent, request) => {
+      const done = (await rewrite(agent, mindIdOf(request), [
+        [FARES, "Fares rose by a tenth."],
+      ])) as { status: string; next?: string };
+      status = done.status;
+      next = done.next;
+      return { kind: "finished", reply: "" };
+    });
+    const { core, claude, ended } = await written(run.adapter);
+    const outside = await connectLegacyAgent(claude.launch);
+    const created = structured<{ mindId: string }>(
+      await outside.callTool({
+        name: "create_mind",
+        arguments: { title: "Agent draft", markdown: `${FERRY}\n\n${FARES}` },
+      }),
+    );
+    const client = await connectToMind(core, created.mindId);
+    await client.settled();
+    const blockId = String(readMind(client).child(0).attrs.id);
+    const at = FERRY.indexOf("212,000 passengers");
+    const changedEvents: unknown[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.mindId === created.mindId && change.kind === "changed") changedEvents.push(change);
+    });
+
+    await core.askInNote({
+      mindId: created.mindId,
+      words: "people",
+      selection: [
+        {
+          blockId,
+          before: FERRY.slice(0, at),
+          after: FERRY.slice(at + "212,000 passengers".length),
+        },
+      ],
+    });
+    const end = await ended();
+    await client.settled();
+    expect(status).toBe("applied");
+    expect(end?.waiting).toEqual([]);
+    expect(end?.applied).toHaveLength(1);
+    expect(end?.applied[0]?.own).toBe(true);
+    expect(changedEvents).toHaveLength(1);
+    expect(shownWithChanges(client).join(" | ")).toContain("Fares rose by a tenth.");
+    expect(shownWithChanges(client).join(" | ")).not.toContain("{+");
+    expect(next).toEqual(expect.any(String));
+  });
 });
 
 describe("what the User's own AI asks in a Note's conversation, and does with its own tools (#3653)", () => {
