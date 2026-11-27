@@ -254,6 +254,16 @@ function numberWords(picture: string): string {
 }
 
 /**
+ * Whether a table of contents' switch argument is Word's own: levels and separators with no letter,
+ * a bookmark Word names itself, or the one letter \f picks entries by. A bookmark, a caption's label
+ * and any other argument are someone's words.
+ */
+const contentsOwn = (switchName: string, argument: string): boolean =>
+  !/\p{L}/u.test(argument) ||
+  argument.startsWith("_") ||
+  (switchName.toLowerCase() === "\\f" && /^\p{L}$/u.test(argument));
+
+/**
  * What of a field's instruction is anyone's words: not the field's name, its switches, Word's own
  * formats and what of a picture is Word's, the bookmarks Word names itself, a table of contents'
  * levels, or a style's name that is Word's or one written here.
@@ -274,7 +284,9 @@ function instructionWords(instruction: string): string {
       else if (token === "\\#") words.push(numberWords(argument));
       else if (token === "\\*") {
         if (!FORMATS.has(argument.toLowerCase())) words.push(argument);
-      } else if (name !== "TOC") continue;
+      } else if (name === "TOC") {
+        if (token.toLowerCase() !== "\\t" && !contentsOwn(token, argument)) words.push(argument);
+      } else continue;
       at++;
     } else if (named) named = false;
     else if (!bareOf(token).startsWith("_")) words.push(bareOf(token));

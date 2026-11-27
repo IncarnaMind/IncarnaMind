@@ -651,6 +651,36 @@ describe.each(LANGUAGES)(
       expectNoneOf(saved.files, [words.styleName, words.styleId]);
     });
 
+    // protects=the check reads a table of contents' switch arguments as words unless they are levels, separators or Word's own, so a bookmark someone named or a caption's label the Note doesn't hold makes the agent's file be written new (#3751); fails_when=the bookmark's name or the label is in the agent's file
+    it.each([
+      ["a bookmark", (each: Words) => `\\b ${each.bookmark}`, (each: Words) => each.bookmark],
+      [
+        "a caption's label",
+        (each: Words) => `\\c "${each.captionLabel}"`,
+        (each: Words) => each.captionLabel,
+      ],
+    ])(
+      "writes the file new when a table of contents names %s the agent wasn't given",
+      async (_, switched, planted) => {
+        const saved = await savedFor(
+          language,
+          fielded(words, `TOC \\o "1-3" \\h \\z ${switched(words)}`, words.street),
+        );
+        expect(part(saved.files, "word/styles.xml")).not.toBe(
+          part(saved.original, "word/styles.xml"),
+        );
+        expectNoneOf(saved.files, [planted(words)]);
+      },
+    );
+
+    // protects=a table of contents with only Word's own switches, levels and separators is written into the original (#3751); fails_when=the file is written new
+    it("keeps a table of contents of Word's own switches", async () => {
+      const instruction = 'TOC \\o "1-3" \\h \\z \\u \\p "-" \\f C \\l "1-2"';
+      const saved = await savedFor(language, fielded(words, instruction, words.street));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      expect(part(saved.files, "word/document.xml")).toContain(escapeXml(instruction));
+    });
+
     // protects=a style's name a field holds that is no style the file renames makes the agent's file be written new (#3751); fails_when=the name is in the agent's file
     it("writes the file new when a table of contents names a style the file doesn't have", async () => {
       const saved = await savedFor(language, contentsByStyle(words, false));
