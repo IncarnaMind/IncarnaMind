@@ -79,6 +79,12 @@ async function savedFor(
 
 const LANGUAGES = ["en", "zh-CN"] as const;
 
+/** Words before a field a link holds part of, and those the User typed over them in the Note. */
+const EDITED = {
+  en: ["See the schedule on page", "Read the schedule on page"],
+  "zh-CN": ["见附表第", "读附表第"],
+};
+
 beforeAll(async () => {
   await buildAgentShim();
 }, 60_000);
@@ -277,6 +283,26 @@ describe.each(LANGUAGES)(
         part(saved.original, "word/styles.xml"),
       );
       expect(saved.all).not.toContain(escapeXml(words.title));
+    });
+
+    // protects=an edit of the User's that the export can't write into the original, such as one in a field's result, makes the agent's file be written new from the Note, never the original's words kept (#3751); fails_when=the agent's file holds the words the User changed, not the Note's
+    it("writes the file new when the User's edit can't be written into it", async () => {
+      const [was, now] = EDITED[language];
+      // A field that starts in a link and ends after it can only be written as it was, and the words beside it with it.
+      const bytes = wordFile({
+        body: paragraph(
+          `${run(words.kept)}<w:hyperlink w:anchor="_Toc1">${run(`${was} `)}<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc1 \\h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${run("2")}</w:hyperlink><w:r><w:fldChar w:fldCharType="end"/></w:r>`,
+        ),
+      });
+      const saved = await savedFor(language, bytes, (blocks) =>
+        JSON.parse(JSON.stringify(blocks).replaceAll(was, now)),
+      );
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
+      );
+      const document = part(saved.files, "word/document.xml");
+      expect(document).toContain(now);
+      expect(document).not.toContain(was);
     });
   },
 );
