@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
+import type { Core } from "../../src/core";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { hashBytes } from "../../src/core/documents/files";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
@@ -48,6 +49,25 @@ import { type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 import { plainDeck } from "../helpers/pptx";
 import { paragraph, table, wordFile } from "../helpers/word";
+
+// Each file the core opens to read, by its path: what a start reads of the handed files.
+const opened = vi.hoisted(() => [] as string[]);
+vi.mock("node:fs", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs")>();
+  const createReadStream = ((...args: Parameters<typeof real.createReadStream>) => {
+    opened.push(String(args[0]));
+    return real.createReadStream(...args);
+  }) as typeof real.createReadStream;
+  return { ...real, createReadStream };
+});
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs/promises")>();
+  const readFile = ((...args: Parameters<typeof real.readFile>) => {
+    opened.push(String(args[0]));
+    return real.readFile(...args);
+  }) as typeof real.readFile;
+  return { ...real, readFile };
+});
 
 const en = translate.bind(null, "en") as (
   key: Parameters<typeof translate>[1],
@@ -450,6 +470,78 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     } finally {
       await chmod(folder, 0o755);
     }
+  });
+
+  // protects=a take-back a quit cut short after its records, its Document still holding the refused version, is finished at the next start: the version before written back into the Document and read, and only then the refused version's copy removed; the agent's refusal stands as it was (#3751); fails_when=the start leaves the Document holding a version its item no longer has
+  it("finishes at the next start a take-back a quit cut short after its records", async () => {
+    const cut = await cutAfterRecords();
+    const { document, first, folder, before, restart } = cut;
+
+    const reopened = await restart();
+    await afterTheStart(reopened, cut, before, 1);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(before));
+    const now = (await reopened.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.contentHash).toBe(hashBytes(before));
+    expect(
+      (await reopened.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+    ).toEqual([1]);
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1"]);
+    reopened.close();
+  });
+
+  // protects=a take-back a quit cut short is left as it is at the next start once its Document's file changed since: nothing is written, the file keeps the new bytes, and both versions' copies stay (#3751); fails_when=the start writes the version before over bytes another app saved, or removes the copy of the version the take-back hadn't finished
+  it("leaves a take-back a quit cut short as it is when the file changed before the next start", async () => {
+    const cut = await cutAfterRecords();
+    const { document, folder, before, restart, log } = cut;
+    const theirs = plainDeck([{ title: "Harbour review" }, { lines: [NORTH, NEVER_CLOSES] }]);
+    await writeFile(document.path, theirs);
+
+    const reopened = await restart();
+    await afterTheStart(reopened, cut, before, 1);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(theirs));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+    expect(hashBytes(new Uint8Array(readFileSync(join(folder, "v1", "Harbour review.pptx"))))).toBe(
+      hashBytes(before),
+    );
+    expect(notFinished(log.lines)).toEqual([expect.stringContaining('"why":"file-changed"')]);
+    reopened.close();
+  });
+
+  // protects=a take-back a quit cut short whose version before's copy is gone is left as it is at the next start, and one log line says why (#3751); fails_when=the start says nothing of it, writes something, or removes the refused version's copy
+  it("leaves a take-back a quit cut short as it is when the version before's copy is gone, and says so once", async () => {
+    const cut = await cutAfterRecords();
+    const { document, folder, before, restart, log } = cut;
+    await rm(join(folder, "v1"), { recursive: true });
+
+    const reopened = await restart();
+    await afterTheStart(reopened, cut, before, 1);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v2"]);
+    expect(notFinished(log.lines)).toEqual([expect.stringContaining('"why":"copy-missing"')]);
+    reopened.close();
+  });
+
+  // protects=a start with no take-back cut short reads no file of an item whose Document holds its newest version, and changes nothing (#3751); fails_when=each start hashes every handed file's Document or copies
+  it("starts with no take-back cut short reading no handed file and changing nothing", async () => {
+    const waiting = await secondVersionWaiting();
+    const { dataDir, document, first, asked, restart, log } = waiting;
+    waiting.held.open();
+    expect(structured<Handed>(await asked)).toMatchObject({ fileId: first.fileId, version: 2 });
+    const folder = join(dataDir, "Handed files", first.fileId);
+    const listed = readdirSync(folder).sort();
+    const logged = log.lines.length;
+    opened.length = 0;
+
+    const reopened = await restart();
+    await afterTheStart(reopened, waiting, DECK, 2);
+    expect(opened.filter((path) => path.startsWith(folder))).toEqual([]);
+    expect(readdirSync(folder).sort()).toEqual(listed);
+    const now = (await reopened.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.contentHash).toBe(hashBytes(DECK));
+    expect(log.lines.slice(logged).filter((line) => line.includes("handedFile.takeBack"))).toEqual(
+      [],
+    );
+    reopened.close();
   });
 
   // protects=a hand-over refused after the User tagged its Document while the check ran keeps the Document with the Tag, its version and its check Note, and nothing is deleted for good (#3751); fails_when=the take-back deletes the tagged Document because its bytes, name and Folder are as the call left them
@@ -1226,6 +1318,62 @@ async function secondVersionWaiting() {
   if (!document || !checkNote) throw new Error("The second version wasn't made.");
   return { ...waiting, first, asked, document, checkNote };
 }
+
+/**
+ * `secondVersionWaiting`'s call refused, its take-back stopped after the records as a quit there
+ * leaves it: the item back on its first version, its Document still holding the second's bytes,
+ * both versions' copies in its `folder`, and the first version's bytes (`before`).
+ */
+async function cutAfterRecords() {
+  const waiting = await secondVersionWaiting();
+  const { core, dataDir, document, first, asked } = waiting;
+  const folder = join(dataDir, "Handed files", first.fileId);
+  const before = new Uint8Array(readFileSync(join(folder, "v1", "Harbour review.pptx")));
+  // The write back fails, and so does standing the version again: the take-back stops there.
+  const mend = refuseChangesOf(
+    dataDir,
+    "agent_file_versions",
+    "deleted_at",
+    "NEW.deleted_at IS NULL",
+  );
+  await chmod(folder, 0o555);
+  try {
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+  } finally {
+    await chmod(folder, 0o755);
+    mend();
+  }
+  expect(
+    (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+  ).toEqual([1]);
+  expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+  expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+  return { ...waiting, folder, before };
+}
+
+/**
+ * Waits out the start of the core opened again: a hand-over of the item's newest version's bytes,
+ * which only finds that version, comes after the start in the hand-overs' turn.
+ */
+async function afterTheStart(
+  reopened: Core,
+  waiting: Awaited<ReturnType<typeof secondVersionWaiting>>,
+  bytes: Uint8Array,
+  version: number,
+) {
+  await reopened.setAgentsEnabled(true);
+  await reopened.updateAgent(waiting.writer.pairing.id, { folderIds: [waiting.coast.id] });
+  await writeFile(waiting.path, bytes);
+  const again = await handOver(await connectLegacyAgent(waiting.writer.launch), {
+    path: waiting.path,
+  });
+  expect(structured<Handed>(again)).toMatchObject({ fileId: waiting.first.fileId, version });
+}
+
+/** The log's lines that say a start left a take-back a quit cut short as it was. */
+const notFinished = (lines: readonly string[]) =>
+  lines.filter((line) => line.includes("handedFile.takeBack.notFinished"));
 
 /** A Note's table cells, in order. */
 function cellsOf(parent: Y.XmlFragment | Y.XmlElement): Y.XmlElement[] {

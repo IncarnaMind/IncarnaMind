@@ -152,6 +152,22 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
 
     versions,
 
+    /** The newest version numbered `number` that a take-back took back, holding these bytes. */
+    takenBack: (
+      fileId: string,
+      number: number,
+      contentHash: string,
+    ): StoredHandedVersion | null => {
+      const row = db.get<VersionRow>(
+        `SELECT id, number, content_hash, size, file, mind_id, unread, checked_at, agent, created_at
+         FROM agent_file_versions
+         WHERE file_id = ? AND number = ? AND content_hash = ? AND deleted_at IS NOT NULL
+         ORDER BY deleted_at DESC LIMIT 1`,
+        [fileId, BigInt(number), contentHash],
+      );
+      return row ? toVersion(row) : null;
+    },
+
     /** Every version's check Note, each item's in order of its versions. */
     versionNotes: (): { fileId: string; mindId: string }[] =>
       db

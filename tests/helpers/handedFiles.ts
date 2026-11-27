@@ -188,6 +188,7 @@ export async function started(
   return {
     core,
     dataDir: started.dataDir,
+    log: started.log,
     coast,
     writer,
     reader,

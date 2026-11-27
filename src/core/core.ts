@@ -6668,17 +6668,19 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     readKept: async (path) => new Uint8Array(await readFile(path)),
     // In the hand-overs' turn: a freed version number's copy and file are written there again.
-    startUp: async () => {
+    startUp: async (keep) => {
       await Promise.all([
         documents.dropPurged().catch((error: unknown) => console.error(error)),
         dropTakenBackCopies({
           db,
           dataDir,
+          keep,
           signal: lifetime.signal,
           reportError: (error) => console.error(error),
         }),
       ]);
     },
+    signal: lifetime.signal,
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),

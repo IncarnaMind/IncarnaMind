@@ -14,7 +14,7 @@ import type { FoundClaim, HandedCheck, HandOverDone } from "../agents/handedFile
 import { AgentRefusedError } from "../agents/refusals";
 import type { UnaskedCheck, UnaskedOptions } from "../answers/checks/verify";
 import type { Document, HandedFile, VerifyDocumentResult } from "../api";
-import { hashBytes, hashFile } from "../documents/files";
+import { hashBytes, hashFile, isGone } from "../documents/files";
 import { type WrittenFile, writeWholeFile } from "../documents/writeWhole";
 import type { AgentFiles, StoredHandedFile, StoredHandedVersion } from "./index";
 
@@ -114,9 +114,12 @@ export interface HandOverDeps {
   noteAt(mindId: string): { title: string; folderId: string | null; content: string } | null;
   /**
    * The start's removal of what the data folder keeps of what was deleted for good, and of the
-   * copies a take-back cut short left: the first job of the hand-overs' turn, before any writes one.
+   * copies a take-back cut short left, but the version folders in `keep`: in the hand-overs' turn,
+   * before any hand-over writes one.
    */
-  startUp(): Promise<void>;
+  startUp(keep: readonly string[]): Promise<void>;
+  /** Aborted once the core closes: the start writes nothing after. */
+  signal: AbortSignal;
   nameMind(mindId: string, title: string): void;
   /** Tells the windows the Notes changed: which of them a later version's check now stands for. */
   notesChanged(): void;
@@ -129,6 +132,14 @@ export interface HandOverDeps {
   /** Whether what is written is checked as it lands (Settings › AI); off, a version waits for the User's Check. */
   checksWritten(): boolean;
   log: Logger;
+}
+
+/** A take-back a quit cut short: the item, its own Document, its newest version and the one taken back. */
+interface CutShort {
+  file: StoredHandedFile;
+  documentId: string;
+  standing: StoredHandedVersion;
+  taken: StoredHandedVersion;
 }
 
 /** A check started on a version's Note, with what it was given, to start it again. */
@@ -295,9 +306,9 @@ export function createHandOver(deps: HandOverDeps) {
   const { store } = deps;
   /** Each check started, by its Note, while this run of IncarnaMind lasts. */
   const runs = new Map<string, CheckRun>();
-  // The turn starts with the start-up's clean-up, called now: it reads what it removes before the
-  // core can close, and every hand-over and hand edit waits for it.
-  let queue: Promise<unknown> = deps.startUp().catch((error: unknown) =>
+  // The turn starts with the start, called now: it reads the tables before the core can close, and
+  // every hand-over and hand edit waits for it.
+  let queue: Promise<unknown> = start().catch((error: unknown) =>
     deps.log.error("handedFile.startUp.failed", {
       message: error instanceof Error ? error.message : String(error),
     }),
@@ -482,7 +493,7 @@ export function createHandOver(deps: HandOverDeps) {
    * fails keeps all of it, as the User would find a hand-over that was built on. Then the bytes it
    * wrote into the item's Document, the earlier check Note's name, its check Note, the Document it
    * added and its copies, each standing alone, in an order that keeps what a quit leaves part way
-   * something the User sees and can delete.
+   * something the User sees and can delete; bytes a quit left unwritten, the next start writes back.
    */
   async function takeBack(file: StoredHandedFile, made: Made): Promise<void> {
     const { version, checked, added, rewrote } = made;
@@ -575,6 +586,127 @@ export function createHandOver(deps: HandOverDeps) {
     }
     await step("copies", () => deps.discard({ documentIds: [], mindIds: [], copies: made.copies }));
     deps.notesChanged();
+  }
+
+  /**
+   * The start: the take-backs a quit cut short finished, then the clean-up. The tables are read at
+   * once, so a core closed as it starts reads nothing closed and removes nothing.
+   */
+  function start(): Promise<void> {
+    let cut: CutShort[];
+    try {
+      cut = cutShortTakeBacks();
+    } catch (error) {
+      // Which copies a cut-short take-back still needs isn't known: the clean-up waits for a start
+      // that can tell.
+      return Promise.reject(error);
+    }
+    if (cut.length === 0) return deps.startUp([]);
+    return finishTakeBacks(cut).then((keep) =>
+      deps.signal.aborted ? undefined : deps.startUp(keep),
+    );
+  }
+
+  /**
+   * The take-backs a quit cut short after their records (#3751), told apart by what is kept: the
+   * item back on its newest version, its own Document still holding the version taken back, whose
+   * row has its bytes' hash. An item whose Document holds its newest version is passed by with no
+   * file read.
+   */
+  function cutShortTakeBacks(): CutShort[] {
+    return store.list().flatMap((file) => {
+      const { documentId } = file;
+      if (documentId === null || !deps.liveDocument(documentId)) return [];
+      const document = deps.document(documentId);
+      const standing = store.versions(file.id).at(-1);
+      if (
+        !standing ||
+        document.linkedFolderId !== null ||
+        document.contentHash === standing.contentHash
+      )
+        return [];
+      const taken = store.takenBack(file.id, standing.number + 1, document.contentHash);
+      return taken ? [{ file, documentId, standing, taken }] : [];
+    });
+  }
+
+  /** Finishes each take-back a quit cut short; returns the version folders of those left as they are. */
+  async function finishTakeBacks(cut: readonly CutShort[]): Promise<string[]> {
+    const keep: string[] = [];
+    for (const each of cut) {
+      if (deps.signal.aborted) break;
+      let why: string | null;
+      try {
+        why = await finishTakeBack(each);
+      } catch (error) {
+        why = "failed";
+        deps.log.error("handedFile.takeBack.finishFailed", {
+          fileId: each.file.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (why === null) continue;
+      // Its copy stays with the version's row, for a later start or the User to finish it from.
+      keep.push(dirname(join(deps.dataDir, each.taken.file)));
+      deps.log.warn("handedFile.takeBack.notFinished", {
+        fileId: each.file.id,
+        version: each.taken.number,
+        why,
+      });
+    }
+    return keep;
+  }
+
+  /**
+   * Writes the item's newest version back into its Document, as the take-back would have: only
+   * while the file holds just the version taken back and that version's copy holds just its own
+   * bytes, read again before the write. Null once done; otherwise why it wrote nothing.
+   */
+  async function finishTakeBack({
+    file,
+    documentId,
+    standing,
+    taken,
+  }: CutShort): Promise<string | null> {
+    const document = deps.document(documentId);
+    let onDisk: string;
+    try {
+      onDisk = (await hashFile(document.path)).contentHash;
+    } catch {
+      return "file-unreadable";
+    }
+    // Holding the version before already (a quit after the write, before the read), it is only read.
+    if (onDisk !== standing.contentHash) {
+      if (onDisk !== taken.contentHash) return "file-changed";
+      let before: Uint8Array;
+      try {
+        before = await deps.readKept(join(deps.dataDir, standing.file));
+      } catch (error) {
+        return isGone(error) ? "copy-missing" : "copy-unreadable";
+      }
+      if (hashBytes(before) !== standing.contentHash) return "copy-changed";
+      if (!(await holds(document.path, taken.contentHash))) return "file-changed";
+      if (deps.signal.aborted) return "closed";
+      await writeWholeFile(document.path, before, deps.now());
+    }
+    try {
+      await deps.readAgain(document.path);
+      const read = await versionRead(documentId, standing.contentHash, document);
+      if (read !== true) {
+        deps.log.warn("handedFile.takeBack.unread", { fileId: file.id, why: read });
+      }
+      // The records gave the item its title before back; the hand-over named its Document by it.
+      if (deps.document(documentId).name !== file.title) deps.rename(documentId, file.title);
+    } catch (error) {
+      deps.log.error("handedFile.takeBack.failed", {
+        fileId: file.id,
+        version: taken.number,
+        step: "read again",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    deps.log.info("handedFile.takeBack.finished", { fileId: file.id, version: taken.number });
+    return null;
   }
 
   /**

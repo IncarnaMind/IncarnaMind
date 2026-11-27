@@ -80,17 +80,19 @@ export function endPurgedHanded(db: Database, at: string): void {
 /**
  * Removes the copy of each version a refused hand-over took back (#3751) in an item that goes on,
  * left behind when IncarnaMind quit before the take-back's last step: its version's own folder,
- * unless a version that stands has its copy there. Run at start, before any hand-over, so no copy
- * being written for a version not yet recorded is taken for one; the database is read before
- * anything is awaited, and a core closed meanwhile (`signal`) removes nothing.
+ * unless a version that stands has its copy there or it is in `keep` (a take-back the start
+ * couldn't finish). Run at start, before any hand-over, so no copy being written for a version not
+ * yet recorded is taken for one; the database is read before anything is awaited, and a core
+ * closed meanwhile (`signal`) removes nothing.
  */
 export async function dropTakenBackCopies(options: {
   db: Database;
   dataDir: string;
+  keep: readonly string[];
   signal: AbortSignal;
   reportError(error: unknown): void;
 }): Promise<void> {
-  const { db, dataDir, signal, reportError } = options;
+  const { db, dataDir, keep, signal, reportError } = options;
   const rows = db.all<{ file: string; standing: number }>(
     `SELECT v.file, v.deleted_at IS NULL AS standing FROM agent_file_versions v
      JOIN agent_files f ON f.id = v.file_id WHERE f.deleted_at IS NULL`,
@@ -99,7 +101,7 @@ export async function dropTakenBackCopies(options: {
   const dropped = rows
     .filter((row) => row.standing !== 1)
     .map((row) => dirname(join(dataDir, row.file)))
-    .filter((folder) => !standing.some((path) => isInside(folder, path)));
+    .filter((folder) => !keep.includes(folder) && !standing.some((path) => isInside(folder, path)));
   const linked = db.all<{ path: string }>("SELECT path FROM linked_folders").map((row) => row.path);
   const resolved = await Promise.all(linked.map((path) => realpath(path).catch(() => path)));
   if (signal.aborted) return;
