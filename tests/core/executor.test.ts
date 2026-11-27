@@ -710,12 +710,97 @@ describe.runIf(process.platform !== "win32")("drainProcessGroup", () => {
 
     const denied = await drainProcessGroup(601, {
       intervalMs: 1,
-      timeoutMs: 1000,
+      timeoutMs: 30,
       kill: () => {
         throw Object.assign(new Error("not permitted"), { code: "EPERM" });
       },
     });
     expect(denied).toBe(false);
+
+    // macOS XNU: after SIGSTOP+SIGKILL succeed, probe 0 can throw EPERM while zombies await reap,
+    // then throw ESRCH once reaped; drainProcessGroup waits for ESRCH and returns true.
+    let probeCalls = 0;
+    const zombieReaped = await drainProcessGroup(602, {
+      intervalMs: 1,
+      timeoutMs: 1000,
+      kill: (_target, signal) => {
+        if (signal === "SIGSTOP" || signal === "SIGKILL") {
+          if (probeCalls === 0) return;
+          throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+        }
+        probeCalls += 1;
+        throw Object.assign(new Error(probeCalls === 1 ? "not permitted" : "no such process"), {
+          code: probeCalls === 1 ? "EPERM" : "ESRCH",
+        });
+      },
+    });
+    expect(zombieReaped).toBe(true);
+    expect(probeCalls).toBe(2);
+  });
+
+  test("createLocalExecutor reports an undrained group at level none and keeps sweeping after a sweep error", async () => {
+    const errors: string[] = [];
+    const kill = vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+      if (target < 0 && signal !== undefined) {
+        throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+      }
+      return true;
+    });
+    try {
+      const base = createProcessLauncher(async () => smallEnvironment());
+      const executor = createLocalExecutor({
+        processes: base,
+        tempDir: await createTempDataFolder(),
+        reportError: (error) => errors.push(error instanceof Error ? error.message : String(error)),
+      });
+      await executor.run({
+        command: "/bin/sh",
+        args: ["-c", "echo ok"],
+        env: {},
+        allow: { read: [], write: [], network: "none" },
+        timeoutMs: 10_000,
+        maxOutputBytes: 1024,
+        signal: new AbortController().signal,
+      });
+    } finally {
+      kill.mockRestore();
+    }
+    expect(errors.some((line) => line.includes("couldn't be drained"))).toBe(true);
+
+    // An error thrown by one sweep must be reported and must not stop the final sweep from running.
+    const sweepErrors: string[] = [];
+    let sweeps = 0;
+    const base = createProcessLauncher(async () => smallEnvironment());
+    const confined = createLocalExecutor({
+      processes: base,
+      tempDir: await createTempDataFolder(),
+      reportError: (error) =>
+        sweepErrors.push(error instanceof Error ? error.message : String(error)),
+      confinement: {
+        level: "os",
+        release() {},
+        async confine(request) {
+          return {
+            ...request,
+            async sweep() {
+              sweeps += 1;
+              if (sweeps === 1) throw new Error("first sweep failed");
+            },
+          };
+        },
+      },
+    });
+    await confined.run({
+      command: "/bin/sh",
+      args: ["-c", "echo ok"],
+      env: {},
+      allow: { read: [], write: [], network: "none" },
+      timeoutMs: 10_000,
+      maxOutputBytes: 1024,
+      signal: new AbortController().signal,
+    });
+    expect(sweeps).toBeGreaterThanOrEqual(2);
+    expect(sweepErrors).toEqual(["first sweep failed"]);
   });
 
   test("drains a bounded forking stand-in in its own process group to ESRCH on abort", async () => {

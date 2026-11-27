@@ -78,6 +78,7 @@ export function createSweepGuard() {
   }
 
   const stoppedHere = new Set<number>();
+  const stoppedGroupsHere = new Set<number>();
   const authorizedGroups = new Set<number>();
   const context = () => ({
     platform: process.platform,
@@ -108,7 +109,7 @@ export function createSweepGuard() {
     let run: string | undefined;
     let gone = false;
     for (const record of await runs()) {
-      const classified = await classify(subset, record, ctx, sandboxCheck);
+      const classified = await classify(subset, record, ctx, sandboxCheck, startTimes);
       const verdict = classified.find((each) => each.pid === pid)?.verdict;
       if (verdict === "member") {
         run = record.id;
@@ -119,12 +120,6 @@ export function createSweepGuard() {
     if (LOG) await appendFile(LOG, `${JSON.stringify({ ...seen, run: run ?? null })}\n`);
     if (run === undefined) {
       if (gone) return false;
-      // On macOS, a process that turns into a zombie during `osascript` answers `[1,1,1]` instead
-      // of `-1`; check whether it is still a live non-zombie before recording a refusal (#2644).
-      const stillAlive = (await listProcesses()).some(
-        (each) => each.pid === pid && each.startedMs === row.startedMs,
-      );
-      if (!stillAlive) return false;
       refused.push(seen);
       return false;
     }
@@ -138,6 +133,14 @@ export function createSweepGuard() {
     if (!signallable(pgid, process.pid)) {
       refused.push(seenBase);
       return false;
+    }
+    if (signal === "SIGCONT") {
+      if (!stoppedGroupsHere.has(pgid)) {
+        refused.push(seenBase);
+        return false;
+      }
+      signalled.push(seenBase);
+      return killProcessGroup(pgid, "SIGCONT");
     }
     if (signal === 0) {
       if (!authorizedGroups.has(pgid)) {
@@ -166,7 +169,7 @@ export function createSweepGuard() {
     let run: string | undefined;
     let hadVanished = false;
     for (const record of await runs()) {
-      const classified = await classify(subset, record, ctx, sandboxCheck);
+      const classified = await classify(subset, record, ctx, sandboxCheck, startTimes);
       if (signallableGroups(classified, subset, ctx).includes(pgid)) {
         run = record.id;
         break;
@@ -186,38 +189,35 @@ export function createSweepGuard() {
     if (LOG) await appendFile(LOG, `${JSON.stringify({ ...seen, run: run ?? null })}\n`);
     if (run === undefined) {
       if (hadVanished) return false;
-      // If processes in the group exited or became zombies during `osascript`, fail closed without
-      // a false refusal so `sweepRun` can fall back and re-scan (#2644).
-      if (!forbidden.has(pgid)) {
-        const after = new Set(
-          (await listProcesses()).map((each) => `${each.pid}@${each.startedMs}`),
-        );
-        if (inGroup.some((each) => !after.has(`${each.pid}@${each.startedMs}`))) return false;
-      }
       refused.push(seen);
       return false;
     }
     authorizedGroups.add(pgid);
+    if (signal === "SIGSTOP") stoppedGroupsHere.add(pgid);
     signalled.push({ ...seen, run });
     return killProcessGroup(pgid, signal);
   };
 
-  async function sweepRemaining(): Promise<void> {
-    if (process.platform !== "darwin") return;
+  async function sweepRemaining(): Promise<number[]> {
+    if (process.platform !== "darwin") return [];
     const ctx = context();
+    const left: number[] = [];
     for (const record of await runs()) {
-      await sweepRun(record, 0, {
-        list: listProcesses,
-        started: startTimes,
-        check: sandboxCheck,
-        stopper,
-        groupStopper,
-        log: () => {},
-        platform: ctx.platform,
-        uid: ctx.uid,
-        app: ctx.app,
-      });
+      left.push(
+        ...(await sweepRun(record, 0, {
+          list: listProcesses,
+          started: startTimes,
+          check: sandboxCheck,
+          stopper,
+          groupStopper,
+          log: () => {},
+          platform: ctx.platform,
+          uid: ctx.uid,
+          app: ctx.app,
+        })),
+      );
     }
+    return left;
   }
 
   return {

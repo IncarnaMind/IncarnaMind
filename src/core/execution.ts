@@ -177,6 +177,9 @@ export function stopProcessTree(child: ChildProcess): void {
 
 const DRAIN_TIMEOUT_MS = 5000;
 const DRAIN_INTERVAL_MS = 20;
+// macOS XNU returns EPERM from killpg when only unreaped zombies remain (e.g. right after
+// stopProcessTree); wait briefly for reaping to turn EPERM into ESRCH before treating it as denied.
+const EPERM_REAP_GRACE_MS = 500;
 
 export interface DrainProcessGroupOptions {
   timeoutMs?: number;
@@ -189,7 +192,7 @@ export interface DrainProcessGroupOptions {
  * Freezes and kills a POSIX process group in a loop until the kernel reports `ESRCH` (no process
  * left in the group), closing the fork-during-SIGKILL race on macOS and Linux (#2644). Never
  * signals `-group` again once `ESRCH` is seen, and never signals 1 or less or this process.
- * Returns true once the group is gone, false on `EPERM` or timeout.
+ * Returns true once the group is gone, false on persistent `EPERM` or timeout.
  */
 export async function drainProcessGroup(
   group: number,
@@ -206,7 +209,7 @@ export async function drainProcessGroup(
   const kill = options.kill ?? ((target, signal) => process.kill(target, signal));
   const timeoutMs = options.timeoutMs ?? DRAIN_TIMEOUT_MS;
   const intervalMs = options.intervalMs ?? DRAIN_INTERVAL_MS;
-  const deadline = Date.now() + timeoutMs;
+  const deadline = performance.now() + timeoutMs;
   const send = (signal: "SIGSTOP" | "SIGKILL" | 0): "sent" | "gone" | "denied" => {
     try {
       kill(-group, signal);
@@ -217,18 +220,52 @@ export async function drainProcessGroup(
       throw error;
     }
   };
+  let epermDeadline: number | null = null;
+  const waitThroughEperm = async (): Promise<"gone" | "alive" | "denied"> => {
+    epermDeadline ??= Math.min(deadline, performance.now() + EPERM_REAP_GRACE_MS);
+    while (performance.now() < epermDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      const probe = send(0);
+      if (probe === "gone") return "gone";
+      if (probe === "sent") {
+        epermDeadline = null;
+        return "alive";
+      }
+    }
+    const finalProbe = send(0);
+    if (finalProbe === "gone") return "gone";
+    if (finalProbe === "sent") {
+      epermDeadline = null;
+      return "alive";
+    }
+    return "denied";
+  };
   while (true) {
     const stopped = send("SIGSTOP");
     if (stopped === "gone") return true;
-    if (stopped === "denied") return false;
+    if (stopped === "denied") {
+      const resolved = await waitThroughEperm();
+      if (resolved === "gone") return true;
+      if (resolved === "denied") return false;
+      continue;
+    }
     const killed = send("SIGKILL");
     if (killed === "gone") return true;
-    if (killed === "denied") return false;
-    if (Date.now() >= deadline) return send(0) === "gone";
+    if (killed === "denied") {
+      const resolved = await waitThroughEperm();
+      if (resolved === "gone") return true;
+      if (resolved === "denied") return false;
+      continue;
+    }
+    if (performance.now() >= deadline) return send(0) === "gone";
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
     const alive = send(0);
     if (alive === "gone") return true;
-    if (alive === "denied") return false;
+    if (alive === "denied") {
+      const resolved = await waitThroughEperm();
+      if (resolved === "gone") return true;
+      if (resolved === "denied") return false;
+    }
   }
 }
 
@@ -456,12 +493,25 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
         let sweeping = Promise.resolve();
         let group = 0;
         let groupDrained = false;
-        const leftovers = () => {
+        const leftovers = (final = false) => {
           sweeping = sweeping.then(async () => {
             if (!groupDrained && group > 0) {
-              groupDrained = await drainProcessGroup(group);
+              try {
+                groupDrained = await drainProcessGroup(group);
+              } catch (error) {
+                options.reportError(error);
+              }
+              if (final && !groupDrained && !program.sweep) {
+                options.reportError(
+                  new Error(`Process group ${group} couldn't be drained when the run ended.`),
+                );
+              }
             }
-            await program.sweep?.(group);
+            try {
+              await program.sweep?.(group);
+            } catch (error) {
+              options.reportError(error);
+            }
           });
           return sweeping;
         };
@@ -486,7 +536,7 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
           return await collect(child, request, cwd, leftovers, options.reportError, program.meter);
         } finally {
           // Also when it couldn't start: the run's record goes only once a sweep has found it over.
-          await leftovers();
+          await leftovers(true);
           confinement?.release();
         }
       } finally {

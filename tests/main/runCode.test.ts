@@ -224,11 +224,13 @@ function executor(
     level: inner.level,
     async run(request) {
       const before = new Set(runGroups);
-      const result = await inner.run(request);
-      for (const pgid of runGroups) {
-        if (!before.has(pgid)) activeGroups.delete(pgid);
+      try {
+        return await inner.run(request);
+      } finally {
+        for (const pgid of runGroups) {
+          if (!before.has(pgid)) activeGroups.delete(pgid);
+        }
       }
-      return result;
     },
   };
 }
@@ -286,14 +288,21 @@ beforeAll(async () => {
 }, 20 * 60_000);
 
 afterAll(async () => {
+  let remaining: number[] = [];
   try {
-    // Always drain unsettled process groups and sweep leftover records before any assertion can fail.
+    // Only drain runs genuinely still in flight; on macOS go through the guarded group stopper so
+    // a free group id can never be signalled raw (#2644).
     for (const pgid of [...activeGroups]) {
-      await drainProcessGroup(pgid);
+      if (process.platform === "darwin") {
+        await guard.groupStopper(pgid, "SIGSTOP");
+        await guard.groupStopper(pgid, "SIGKILL");
+      } else {
+        await drainProcessGroup(pgid);
+      }
       activeGroups.delete(pgid);
     }
     if (process.platform === "darwin" && root) {
-      await guard.sweepRemaining();
+      remaining = await guard.sweepRemaining();
     }
   } finally {
     python?.close();
@@ -302,6 +311,7 @@ afterAll(async () => {
     if (tempCanary) await rm(tempCanary, { force: true });
     if (root) await rm(root, { recursive: true, force: true, maxRetries: 3 });
   }
+  expect(remaining).toEqual([]);
   // Each pid or group a run's sweep signalled was a member of one of this file's own runs.
   expect(guard.refused).toEqual([]);
 });
@@ -618,8 +628,9 @@ describe.skipIf(unavailable !== undefined)(
       await call("bash", "bomb() { bomb | bomb & }; bomb; sleep 200");
       expect(analyses[0]?.end).toEqual({ kind: "timed-out", limitMs: 14_000 });
       const bombGroup = launched[before] ?? 0;
-      // Transient footprint timeouts under heavy load fall back to resident memory without reporting (#2644).
-      expect(reports).toEqual([]);
+      // On macOS a 14 s bomb can hold footprint past UNKNOWN_DISK_MS; transient timeouts fall back
+      // to resident memory without reporting, while persistent ones report as ps timeouts do (#2644).
+      expect(reports.filter((report) => !report.includes("/usr/bin/footprint "))).toEqual([]);
       expect(liveGroupPids(bombGroup)).toEqual([]);
       await expect.poll(() => groupPids(bombGroup)).toEqual([]);
       await expect
@@ -665,11 +676,14 @@ describe.skipIf(unavailable !== undefined)(
       await setsidRun.call(
         "bash",
         [
-          `perl -MPOSIX -e 'POSIX::setsid(); my $end = time() + 10; my $n = 0; while (time() < $end && $n++ < 40) { for (1..2) { my $p = fork(); if (defined $p && $p == 0) { exec("/bin/sleep", "0.25"); exit 0; } } select(undef, undef, undef, 0.1); } while (wait() > 0) {}' &`,
+          `perl -MPOSIX -e 'POSIX::setsid(); open(my $f, ">", "out/setsid-ready.txt") and print $f "ok\\n" and close($f); my $end = time() + 10; my $n = 0; while (time() < $end && $n++ < 40) { for (1..2) { my $p = fork(); if (defined $p && $p == 0) { exec("/bin/sleep", "0.25"); exit 0; } } select(undef, undef, undef, 0.1); } while (wait() > 0) {}' &`,
           "sleep 20",
         ].join("\n"),
       );
       expect(setsidRun.analyses[0]?.end).toEqual({ kind: "timed-out", limitMs: 2500 });
+      expect(setsidRun.analyses[0]?.outFiles?.files.map((file) => file.name)).toContain(
+        "setsid-ready.txt",
+      );
       const setsidGroup = launched[beforeSetsid] ?? 0;
       expect(liveGroupPids(setsidGroup)).toEqual([]);
       await expect.poll(() => groupPids(setsidGroup)).toEqual([]);

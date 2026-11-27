@@ -435,14 +435,15 @@ describe("the meter's ticks (macOS)", () => {
     expect(each.reports).toEqual(["Error: footprint failed"]);
   });
 
-  test("a footprint killed at its deadline under load falls back to resident memory without reporting", async () => {
+  test("a footprint killed at its deadline under load falls back to resident memory within the bound, and reports once timeouts persist past it", async () => {
     const { folder } = await workingFolder();
+    let clock = 0;
     let footprints = 0;
     const { command } = computer({
       ps: () => "600 1 600 501 2048",
       footprint: () => {
         footprints += 1;
-        if (footprints === 1) {
+        if (footprints === 1 || footprints >= 3) {
           throw Object.assign(new Error("Command failed: /usr/bin/footprint --noCategories"), {
             killed: true,
             signal: "SIGTERM",
@@ -451,16 +452,44 @@ describe("the meter's ticks (macOS)", () => {
         return footprintOf(600, 6 * MB);
       },
     });
-    const meters = createMeters({ command, platform: "darwin", interval: false });
+    const meters = createMeters({
+      command,
+      platform: "darwin",
+      interval: false,
+      now: () => clock,
+    });
     const each = watcher();
     meters.meter().watch(600, folder, each.use, each.unmeasured);
-    for (let n = 0; n < 3; n++) {
-      await meters.tick();
-      await meters.settle();
-    }
-    expect(footprints).toBe(2);
+    // Turn 0 (footprint 1): transient timeout at t=0 -> silent fallback to resident memory.
+    await meters.tick();
+    await meters.settle();
+    // Turn 1 (lsof).
+    clock = 2_000;
+    await meters.tick();
+    await meters.settle();
+    // Turn 2 (footprint 2): succeeds -> resets unknown timer.
+    clock = 4_000;
+    await meters.tick();
+    await meters.settle();
     expect(each.peak().memory).toBe(6 * MB);
     expect(each.reports).toEqual([]);
+
+    // Turn 3 (lsof), turn 4 (footprint 3 fails at t=5_000): still within UNKNOWN_DISK_MS.
+    clock = 5_000;
+    await meters.tick();
+    await meters.settle();
+    await meters.tick();
+    await meters.settle();
+    expect(each.reports).toEqual([]);
+
+    // Turn 5 (lsof), turn 6 (footprint 4 still failing at t=16_000 > 5_000 + 10_000): reported.
+    clock = 16_000;
+    await meters.tick();
+    await meters.settle();
+    await meters.tick();
+    await meters.settle();
+    expect(footprints).toBe(4);
+    expect(each.reports).toEqual(["Error: Command failed: /usr/bin/footprint --noCategories"]);
   });
 
   test("the run's processes launchd took over are told from the tick's listing, with one start-time lookup for all runs, and counted, with every process under them, in its memory and its open files", async () => {
