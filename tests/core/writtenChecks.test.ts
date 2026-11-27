@@ -12,9 +12,11 @@ import type { AnalysisRuntime } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { CLAIM_TIME_LIMIT_MS } from "../../src/core/answers/checks/runCheck";
 import { OLLAMA_CLOUD } from "../../src/core/providers/ollamaCloud";
+import { flowNow } from "../../src/core/timing/flows";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { selfChecksOf } from "../../src/renderer/src/selfChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
@@ -346,9 +348,10 @@ function rewritingModel(
 
 /**
  * A keychain whose reads wait, once `hold` is called, until `release`: a model is readied with
- * its key, so a check being readied waits there.
+ * its key, so a check being readied waits there. With `step`, only reads inside that flow step
+ * wait (e.g. `"written-check"`), leaving the Answer's own reply flow unblocked.
  */
-function holdingKeychain() {
+function holdingKeychain(step?: string) {
   const keychain = createMemoryKeychain();
   let holding = false;
   let held = 0;
@@ -358,7 +361,7 @@ function holdingKeychain() {
     keychain: {
       ...keychain,
       get: async (name: string) => {
-        if (holding) {
+        if (holding && (step === undefined || flowNow()?.step === step)) {
           held++;
           await released;
         }
@@ -1714,7 +1717,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     },
   );
 
-  // protects=a rewrite in place rejected while its check is still being readied, before it marks anything, is never checked: the words brought back keep the mark they had, nothing of it is sent, and the Answer has no line for it (#2830); fails_when=its first marks land on the words brought back and end there as stopped, or its sentences are sent for a write that is gone; no_claim=how long readying takes.
+  // protects=a rewrite in place rejected while its check is still being readied is never checked: the words brought back keep the mark they had, nothing of it is sent, and the Answer has no line for it (#2830, #3753); fails_when=its marks end as stopped on the words brought back, its sentences are sent for a write that is gone, or a check line stays on the Answer; no_claim=how long readying takes.
   test("a rewrite in place rejected while its check is readied leaves the words brought back as they were", async () => {
     const keys = holdingKeychain();
     const calls: ModelCall[] = [];
@@ -1793,8 +1796,10 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(
       calls.filter((call) => isCheckRun(call) && sentenceOf(call).includes("twice a month")),
     ).toEqual([]);
-    const [change] = changesIn(await storedAnswer(core, second.conversationId, second.id));
-    expect(change?.selfCheck).toBeUndefined();
+    const stored = await storedAnswer(core, second.conversationId, second.id);
+    const [change] = changesIn(stored);
+    expect(change?.selfCheck).toMatchObject({ undone: true });
+    expect(selfChecksOf(stored.toolCalls)).toEqual([]);
   });
 
   // protects=a newer write over the same Blocks takes their sentences over from the older write's check still running: the older check's late verdicts never land on the newer text (#2830); fails_when=the older check's result overwrites the newer check's mark, so a sentence reads as checked by a check of words it no longer has; no_claim=which verdicts the judge gives.
@@ -2357,11 +2362,12 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(change?.selfCheck).toMatchObject({ checkable: 2, checked: 2, failed: 0 });
   });
 
-  // protects=Stop on the Answer while the check of its write is being readied, the write having landed, leaves its sentences Not checked, stopped, as a Stop mid-check does (#2710), with nothing sent; fails_when=they are left with no mark, which reads as checked, or are sent; no_claim=how long readying takes.
+  // protects=Stop on the Note's check while the check of a write is being readied lands its sentences Not checked, stopped without waiting for readying to finish, with nothing sent (#2710, #3753); fails_when=Stop waits on readying, leaves sentences checking or unmarked, or sends them; no_claim=how long readying takes.
   test("a Stop while the check of a write is readied lands its sentences Not checked, stopped", async () => {
-    const keys = holdingKeychain();
+    const keys = holdingKeychain("written-check");
     const calls: ModelCall[] = [];
     let started: Core | null = null;
+    const progress: WrittenCheckProgress[] = [];
     const model = writingModel(
       {
         content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
@@ -2380,23 +2386,22 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       keys.keychain,
     );
     started = core;
-    const asked = await core.askInConversation({
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    const answered = await askAndEnd(core, {
       text: ASK.into,
       mindId,
       scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
     });
-    if (!asked.asked) throw new Error("Not asked.");
+    expect((await storedAnswer(core, answered.conversationId, answered.id)).text).toBe(
+      "Wrote it from your Documents.",
+    );
     await vi.waitFor(() => expect(keys.held()).toBeGreaterThan(0), {
       timeout: 20_000,
       interval: 5,
     });
-    // The Stop ends the Answer once its call comes back, which is waiting on the key.
-    const stopping = core.stopConversationAnswer({
-      conversationId: asked.conversation.id,
-      answerId: asked.answerId,
-    });
-    keys.release();
-    await stopping;
+    const request = progress[0]?.request ?? "";
+    expect(request).not.toBe("");
+    await core.cancelCheck(request);
     await vi.waitFor(
       async () =>
         expect(
@@ -2407,8 +2412,66 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         ]),
       { timeout: 20_000 },
     );
+    keys.release();
+    for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => setImmediate(resolve));
     expect(calls.filter(isCheckRun)).toEqual([]);
   });
+
+  // protects=readying the post-write check (keychain reads and quick-model probes) never delays the Answer, its closing reply, or the Note's checking marks, whether citations arrive before or after the write (#3753); fails_when=answer.finished waits for keychain/model readying before completing; no_claim=wall-clock speed of a real provider.
+  test.each([
+    { name: "when cite precedes the write", citesAfter: undefined },
+    { name: "when cite follows the write", citesAfter: "next-step" as const },
+  ])(
+    "the Answer finishes and shows checking marks without waiting while the check is readied ($name)",
+    async ({ citesAfter }) => {
+      const keys = holdingKeychain("written-check");
+      const calls: ModelCall[] = [];
+      let started: Core | null = null;
+      const progress: WrittenCheckProgress[] = [];
+      const model = writingModel(
+        {
+          content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+          into: true,
+          ...(citesAfter && { citesAfter }),
+          writes: () => keys.hold(),
+        },
+        calls,
+        () => started,
+      );
+      const { core, folderId, mindId, client } = await harbour(
+        model,
+        { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        undefined,
+        false,
+        undefined,
+        keys.keychain,
+      );
+      started = core;
+      core.on("writtenCheck.progress", (event) => progress.push(event));
+
+      const answered = await askAndEnd(core, {
+        text: ASK.into,
+        mindId,
+        scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+      });
+      await client.settled();
+
+      expect((await storedAnswer(core, answered.conversationId, answered.id)).text).toBe(
+        "Wrote it from your Documents.",
+      );
+      expect(statesIn(client)).toEqual(["checking", "checking"]);
+      expect(progress[0]).toMatchObject({ done: 0, total: 2, running: true });
+      await vi.waitFor(() => expect(keys.held()).toBeGreaterThan(0), {
+        timeout: 20_000,
+        interval: 5,
+      });
+
+      keys.release();
+      expect(await checkEnds(progress)).toMatchObject({ done: 2, total: 2, running: false });
+      await client.settled();
+      expect(statesIn(client)).toEqual(["supported", "unsupported"]);
+    },
+  );
 
   // protects=a check cut off by a crash says, on the next start, what its Note shows: the verdicts that had landed are counted checked, the rest not checked (#2830); fails_when=the line says every sentence couldn't be checked over a Note that shows verdicts; no_claim=what the window draws.
   test("after a crash mid-check, the next start counts the verdicts that had landed", async () => {
