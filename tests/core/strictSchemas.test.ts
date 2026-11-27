@@ -152,7 +152,19 @@ function replyTo(body: Record<string, unknown>): Reply {
     case "document_group":
       return { text: JSON.stringify({ groupId: "g-reports", tags: ["t-report"], newTags: [] }) };
     case "document_tags":
-      return { text: JSON.stringify({ tags: ["Report"], newTags: [] }) };
+      return {
+        text: JSON.stringify({
+          tagged: [
+            {
+              ref: "d1",
+              purpose: "",
+              kind: "report",
+              tagJudgements: [],
+              topic: { name: "", description: "" },
+            },
+          ],
+        }),
+      };
     case "folder_proposals":
       return { text: JSON.stringify({ folders: [{ name: "Reports", description: "Reports." }] }) };
     case "folder_plan":

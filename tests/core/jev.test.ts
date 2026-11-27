@@ -240,6 +240,7 @@ describe("Tagging with Jev", { timeout: 30_000 }, () => {
       "kind:letter",
       "kind:meeting-notes",
       "kind:paper",
+      "kind:pitch-deck",
       "kind:report",
       "kind:slides",
       "kind:statement",

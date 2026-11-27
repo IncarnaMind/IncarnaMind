@@ -15,6 +15,7 @@ export const TAG_KINDS = [
   "report",
   "paper",
   "book",
+  "pitch-deck",
   "slides",
   "meeting-notes",
   "letter",
@@ -33,7 +34,7 @@ export const KIND_MEANINGS: Readonly<Record<TagKind, string>> = {
   contract:
     "An agreement between parties: a contract, lease, NDA, statement of work, data processing agreement or terms.",
   invoice:
-    "A bill, receipt or expense claim: it asks for, confirms or claims back payment for goods or services supplied. Not a quote, an order or a price list.",
+    "A bill, receipt or expense claim: it asks for, confirms or claims back payment for goods or services supplied. Not a quote, an order, a price list, a booking confirmation, a registration, or a donation or gift receipt.",
   statement:
     "An account statement a bank, card issuer or supplier sends: the transactions and balance of one account for a period. Financial statements, budgets and forecasts are reports.",
   report:
@@ -41,7 +42,10 @@ export const KIND_MEANINGS: Readonly<Record<TagKind, string>> = {
   paper:
     "A research or academic paper: a journal article, conference paper, preprint, thesis or a chapter of one, or a technical paper with a method and results.",
   book: "A book or a chapter of one, or a manual or guide: fiction, a textbook, a user manual.",
-  slides: "A presentation deck: a title and a few short points on each slide.",
+  slides:
+    "A presentation deck: a title and a few short points on each slide (not a fundraising pitch deck when pitch-deck is offered).",
+  "pitch-deck":
+    "A fundraising pitch deck or investor business plan seeking investment (funding target, equity, valuation, or use of proceeds). Not a sales deck, product review, or internal update.",
   "meeting-notes":
     "Notes or minutes of a meeting, a call, an interview or a debrief, with who said or decided what, or the action items it agreed.",
   letter: "A letter or a formal notice addressed to someone.",
@@ -56,6 +60,7 @@ export const KIND_COLOURS: Readonly<Record<TagKind, TagColour>> = {
   paper: "purple",
   book: "orange",
   slides: "yellow",
+  "pitch-deck": "teal",
   "meeting-notes": "gray",
   letter: "orange",
 };
@@ -68,6 +73,7 @@ const NAME_KEYS: Readonly<Record<TagKind, MessageKey>> = {
   paper: "tags.kind.paper",
   book: "tags.kind.book",
   slides: "tags.kind.slides",
+  "pitch-deck": "tags.kind.pitchDeck",
   "meeting-notes": "tags.kind.meetingNotes",
   letter: "tags.kind.letter",
 };
@@ -80,6 +86,7 @@ const DESCRIPTION_KEYS: Readonly<Record<TagKind, MessageKey>> = {
   paper: "tags.kind.paper.description",
   book: "tags.kind.book.description",
   slides: "tags.kind.slides.description",
+  "pitch-deck": "tags.kind.pitchDeck.description",
   "meeting-notes": "tags.kind.meetingNotes.description",
   letter: "tags.kind.letter.description",
 };
@@ -101,6 +108,16 @@ const ALIASES: Readonly<Record<TagKind, readonly string[]>> = {
   paper: ["papers", "research paper", "research papers", "学术论文"],
   book: ["books", "书", "图书"],
   slides: ["slide", "slide deck", "presentation", "presentations", "演示文稿"],
+  "pitch-deck": [
+    "pitch",
+    "pitch decks",
+    "fundraising deck",
+    "investor deck",
+    "路演",
+    "路演稿",
+    "融资路演稿",
+    "商业计划书",
+  ],
   "meeting-notes": ["meeting minutes", "minutes", "会议纪要", "纪要"],
   letter: ["letters", "信件"],
 };

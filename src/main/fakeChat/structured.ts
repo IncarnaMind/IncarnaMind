@@ -128,10 +128,11 @@ function fakeTagged(options: GenerateOptions): string {
       const [topic] = fakeNewTags(document.text);
       return {
         ref: document.ref,
+        purpose: "",
         kind: kind ?? "none",
-        tags: (input.tags ?? [])
+        tagJudgements: (input.tags ?? [])
           .filter((tag) => document.tags?.includes(tag.id) && says(said, tag.name))
-          .map((tag) => tag.id),
+          .map((tag) => ({ id: tag.id, relation: "subject" })),
         topic: topic ?? { name: "", description: "" },
       };
     }),

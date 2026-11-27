@@ -148,8 +148,11 @@ function sortingModel(
         text = JSON.stringify({
           tagged: (data.documents ?? []).map((document) => ({
             ref: document.ref,
+            purpose: "",
             kind: "none",
-            tags: folder ? offered.map((each) => each.id) : [],
+            tagJudgements: folder
+              ? offered.map((each) => ({ id: each.id, relation: "subject" }))
+              : [],
             topic: { name: "", description: "" },
           })),
         });

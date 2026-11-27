@@ -3072,6 +3072,8 @@ export const zhCN = {
   "tags.kind.book.description": "一本书、其中的章节，或一份手册。",
   "tags.kind.slides": "幻灯片",
   "tags.kind.slides.description": "演示文稿。",
+  "tags.kind.pitchDeck": "融资路演",
+  "tags.kind.pitchDeck.description": "面向投资人的融资路演稿或商业计划书。",
   "tags.kind.meetingNotes": "会议记录",
   "tags.kind.meetingNotes.description": "会议、通话、面谈或复盘的记录或纪要。",
   "tags.kind.letter": "信函",
