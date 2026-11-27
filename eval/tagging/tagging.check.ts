@@ -341,6 +341,9 @@ test("Tags from content, and Organize's Folders", async () => {
             signal: AbortSignal.timeout(120_000),
             progress: () => {},
           });
+          if (run.unreachable.size || !run.proposed.has(item.name)) {
+            throw new Error(`Incomplete singleton tagging reply for ${item.name}`);
+          }
           const proposed = run.proposed.get(item.name) ?? [];
           rows.push({
             name: item.name,

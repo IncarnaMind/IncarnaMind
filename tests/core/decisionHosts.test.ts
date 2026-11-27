@@ -436,7 +436,7 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
       service: { id: `https://${WORKSPACE}.cn-beijing.maas.aliyuncs.com` },
     });
 
-    // 14 Tags of the User's the Document is about, beside the 9 kinds: 23 questions.
+    // 14 Tags of the User's the Document is about, beside the 10 kinds: 24 questions.
     for (let at = 0; at < 14; at++) await core.createTag({ name: `Attention ${at}` });
     hosts.answer({ Paper: 0.91 });
     await chooseAndTurnOn(core, {
@@ -450,7 +450,7 @@ describe("Decision model hosts (#1907)", { timeout: 30_000 }, () => {
     expect(await proposedTagNamesOf(core, document.id)).toEqual(["Paper"]);
     const sent = hosts.tagging();
     expect(sent.length).toBe(2);
-    expect(sent.map((each) => Object.keys(each.body.questions as object).length)).toEqual([16, 7]);
+    expect(sent.map((each) => Object.keys(each.body.questions as object).length)).toEqual([16, 8]);
     for (const each of sent) {
       expect(each.path).toBe("/compatible-mode/v1/systemone");
       expect(Object.keys(each.body.questions as object).length).toBeLessThanOrEqual(16);
