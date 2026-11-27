@@ -63,7 +63,9 @@ function nameBoxOf(tab: HTMLElement): { left: number; right: number } | null {
  * A strip too full for its tabs makes room in steps, each only while the one before isn't
  * enough, and takes them back in reverse when the room returns (`data-fit` in styles.css):
  * Export's label alone, then the split button leaving, then tabs hidden at the strip's ends and
- * the shown tab narrowed to its least width. Short even of that, the Note's Check gives up its
+ * the shown tab narrowed to its least width. Each is measured with the Check holding the room it
+ * will have when it runs, so a row full only while a check runs already shows as it will then, and
+ * a press moves nothing beside the Check (#3765). Short even of that, the Note's Check gives up its
  * word, keeping its mark and number (`data-check-compact`, #3794); short still, the strip is
  * tight (`data-tight`): Export, which the ⋯ menu holds, and the conversation's button, which the
  * Note's input holds, leave it, and only then the shown tab goes under its least width down to
@@ -139,6 +141,14 @@ export function useTabStripFit(
         delete band.dataset.checkUnheld;
         const controls = band.querySelector<HTMLElement>('[data-testid="note-controls"]');
         controls?.style.removeProperty("--note-controls-room");
+        // While each step is measured the Check holds the room of its running words and Stop, so
+        // the steps are the ones a run needs, and a label given up for a run goes before the press
+        // (#3765). The Check's compact words change that room, so it is read at every step.
+        const ghost = controls?.querySelector<HTMLElement>(".note-check-ghost");
+        const holdRunningRoom = () => {
+          if (ghost) controls?.style.setProperty("--note-check-reserve", `${ghost.offsetWidth}px`);
+          else controls?.style.removeProperty("--note-check-reserve");
+        };
         const lead = shown === 0 ? START_GAP : 0;
         const least = SHOWN_LEAST_PX + END_GAP + lead;
         // Each level is measured as it will lay out: a hidden label or Split gives the tabs room.
@@ -146,6 +156,7 @@ export function useTabStripFit(
         // button leave it (styles.css).
         const fits = () => fitFrom(0, -1, roomNow() - taken).run === null;
         const short = () => {
+          holdRunningRoom();
           band.removeAttribute("data-fit");
           if (!fits()) {
             band.dataset.fit = "label";
@@ -213,6 +224,8 @@ export function useTabStripFit(
           element.style.setProperty("--tab-run", `${result.run}px`);
           element.style.setProperty("--tab-run-gap", `${result.gap}px`);
         }
+        // Tight, the Note's controls are cut to the room they were measured in, the Check's included.
+        if (!tight) controls?.style.removeProperty("--note-check-reserve");
         return {
           result,
           hiding: result.run === null ? 0 : tabs.length - (result.last - result.first + 1),
@@ -306,7 +319,15 @@ export function useTabStripFit(
     const filled = new MutationObserver(() => {
       if (wheelTimer === undefined) place(following);
     });
-    if (controls) filled.observe(controls, { childList: true, subtree: true, characterData: true });
+    if (controls) {
+      filled.observe(controls, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["data-words"],
+      });
+    }
     for (const tab of element.querySelectorAll(':scope > [role="tab"]')) resized.observe(tab);
     element.addEventListener("wheel", onWheel, { passive: true });
     element.addEventListener("scrollend", onScrollEnd);
