@@ -89,7 +89,7 @@ function useHoveredCell(editor: Editor, handles: RefObject<HTMLElement | null>) 
   return cell?.isConnected ? cell : null;
 }
 
-/** The room the Add row bar leaves between it and the table above, and the Block below (#3761). */
+/** How far under the table's bottom edge the Add row bar starts: its 14px then end inside the 16px gap. */
 const ADD_ROW_INSET = 1;
 
 /** The box around the cells selected in `cell`'s table, or the cell's own while none are drawn. */
