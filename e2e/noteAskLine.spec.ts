@@ -81,7 +81,7 @@ const LANGUAGES = {
     writing: "Writing “The 07:40 crossing leaves late most weeks”",
     reply: "I wrote why the early crossing runs late into the note, with its source.",
     undo: "Undo",
-    stalled: "Claude Code didn’t answer for six minutes, so it stopped.",
+    stalled: "Claude Code didn’t answer for three minutes, so it stopped.",
     again: "Try again",
   },
   "zh-CN": {
@@ -103,7 +103,7 @@ const LANGUAGES = {
     writing: "正在写“07:40 的渡轮大多数周都晚开”",
     reply: "已把早班渡轮晚点的原因写进笔记，并注明了出处。",
     undo: "撤销",
-    stalled: "Claude Code 六分钟没有回应，已停止。",
+    stalled: "Claude Code 三分钟没有回应，已停止。",
     again: "重试",
   },
 } as const;

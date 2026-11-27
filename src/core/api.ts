@@ -13473,7 +13473,7 @@ export type OwnAiCheckProblem =
   | "plan-limit"
   | "billing"
   | "timeout"
-  /** It sent nothing for six minutes, and was stopped. */
+  /** It got nowhere for three minutes, sending nothing or only that it was alive, and was stopped. */
   | "stalled"
   /** Condensing its conversation so far didn't finish in ten minutes. */
   | "compaction"

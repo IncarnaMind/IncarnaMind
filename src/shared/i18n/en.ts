@@ -9413,8 +9413,7 @@ export const en = {
     "{agent} stopped: its account can’t be billed. Check its billing, then try again.",
   "agents.ownCheck.problem.compaction":
     "The check stopped: {agent} spent ten minutes condensing its conversation. Try again.",
-  "agents.ownCheck.problem.stalled":
-    "{agent} stopped answering for six minutes, so the check stopped. Try again.",
+  "agents.ownCheck.problem.stalled": "{agent} stopped answering, so the check stopped. Try again.",
   "agents.ownCheck.problem.timeout":
     "{agent} took longer than 15 minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.no-marks":
@@ -9699,7 +9698,7 @@ export const en = {
   "noteAsk.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
   "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped.",
-  "noteAsk.problem.stalled": "{agent} didn’t answer for six minutes, so it stopped.",
+  "noteAsk.problem.stalled": "{agent} didn’t answer for three minutes, so it stopped.",
   "noteAsk.problem.compaction":
     "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
