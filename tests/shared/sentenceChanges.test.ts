@@ -295,7 +295,7 @@ describe("The text a request's Proposals change, before and after (#2356)", () =
 });
 
 describe("How a paragraph removed whole is named (#2356)", () => {
-  // protects=a removed paragraph is named by its label without the colon when it starts with one ("Parking", 停车位), else by its first 4 words or 8 Chinese characters with "…" when cut, whole when short, and its sentences are counted; fails_when=the label keeps its colon, a long paragraph isn't cut, or a short one is; no_claim=how the line shows it.
+  // protects=a removed paragraph is named by its label without the colon when it starts with one ("Parking", 停车位), else by its first 4 words or 8 Chinese characters with "…" when cut, whole when short, and its sentences are counted; fails_when=the label keeps its colon, a long paragraph isn't cut, or a short one is, or a time such as 07:40 is read as a label; no_claim=how the line shows it.
   test.each([
     [PARKING.en, "Parking"],
     [PARKING.zh, "停车位"],
@@ -304,6 +304,8 @@ describe("How a paragraph removed whole is named (#2356)", () => {
     ["Bring a coat.", "Bring a coat."],
     ["带外套。", "带外套。"],
     ["What the tenant and the landlord agreed: rent first.", "What the tenant and…"],
+    ["The 07:40 crossing from Kestrel Bay leaves late.", "The 07:40 crossing from…"],
+    ["Ferry at 07:40 daily.", "Ferry at 07:40 daily."],
   ])("%s", (text, start) => {
     expect(paragraphStart(text)).toBe(start);
   });

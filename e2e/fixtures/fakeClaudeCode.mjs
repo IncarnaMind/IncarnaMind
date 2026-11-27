@@ -5,6 +5,7 @@
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped;
 // "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
 // foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
+// "change-quiet" does it and says nothing after;
 // "explain" answers and changes nothing ("plan" too, about the harbour plan, and "timetable", about
 // the 07:40 crossing); "write" writes a new Note, "Ferry summary"; "summary" writes a summary into
 // the Note asked from, from its top when it has no named paragraph and at its end otherwise
@@ -687,7 +688,7 @@ async function run(message) {
       type: "result",
       subtype: "success",
       is_error: false,
-      result: "Put the selected words in capitals.",
+      result: mode === "change-quiet" ? "" : "Put the selected words in capitals.",
     });
     return;
   }

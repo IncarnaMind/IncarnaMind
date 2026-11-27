@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   createDataFolder,
   dismissChatSetup,
@@ -47,9 +48,9 @@ const selectedInMind = (editor: Locator) =>
     return state.doc.textBetween(state.selection.from, state.selection.to);
   });
 
-/** Where the cursor sits in the editor's own state, not in the page's selection. */
-const cursorIn = (editor: Locator) =>
-  editor.evaluate((dom) => (dom as unknown as { editor: Editor }).editor.state.selection.from);
+/** What the applied line says an edit changed when it changed the one paragraph that starts `start`. */
+const changedParagraph = (language: "en" | "zh-CN", start: string) =>
+  translate(language, "edit.applied.named", { start });
 
 async function mindWith(window: Page, text: string) {
   await newMind(window);
@@ -243,7 +244,9 @@ test("typing in the menu's Edit with AI field and pressing Enter changes the tex
   await window.keyboard.type("replace tides with waves");
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The waves here are very strong and really regular.");
-  await expect(line.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    changedParagraph("en", "The waves here are…"),
+  );
   await expect(line.getByTestId("applied-undo")).toBeVisible();
   await expect(menu).toHaveCount(0);
   await expect(editor).toBeFocused();
@@ -263,7 +266,9 @@ test("typing in the menu's Edit with AI field and pressing Enter changes the tex
   await window.keyboard.type("把 tides 换成 seas");
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The seas here are very strong and really regular.");
-  await expect(line.getByTestId("applied-count")).toHaveText("修改了 1 个段落");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    changedParagraph("zh-CN", "The seas here are…"),
+  );
   await expect(menu).toHaveCount(0);
   await expect(editor).toBeFocused();
   await app.close();
@@ -453,7 +458,6 @@ const LINES = {
     making: "Making the changes…",
     stop: "Stop",
     busy: "Another edit is still running. Wait for it, or stop it.",
-    applied: "Changed 1 paragraph",
     undo: "Undo",
     failed: /Edit with AI didn.t work/,
     retry: "Try again",
@@ -462,7 +466,6 @@ const LINES = {
     making: "正在修改…",
     stop: "停止",
     busy: "上一次修改还在进行。等它完成，或先停止。",
-    applied: "修改了 1 个段落",
     undo: "撤销",
     failed: /用 AI 编辑未能完成/,
     retry: "重试",
@@ -476,6 +479,12 @@ const CHANGING = ["improve", "shorten", "translate"] as const;
 const TIDES = "the tide turns very slowly";
 /** The paragraph they sit in, selected in part as a person would select the words. */
 const TIDE_LINE = `${TIDES} in the harbour today.`;
+/** How the paragraph starts once each action has changed the selected words: capitalised, without "very", in capitals. */
+const TIDE_LINE_STARTS = {
+  improve: "The tide turns very…",
+  shorten: "the tide turns slowly…",
+  translate: "THE TIDE TURNS VERY…",
+} as const;
 
 /** Chooses one of the three in the open menu, and Translate's language. */
 async function chooseAction(window: Page, action: (typeof CHANGING)[number]): Promise<void> {
@@ -521,7 +530,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(running.getByTestId("menu-edit-stop")).toHaveText(words.stop);
           expect(await onScreen(running)).toBe(true);
           await expect(applied).toBeVisible({ timeout: 40_000 });
-          await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
+          await expect(applied.getByTestId("applied-count")).toHaveText(
+            changedParagraph(language, TIDE_LINE_STARTS[action]),
+          );
           await expect(applied.getByTestId("applied-undo")).toHaveText(words.undo);
 
           const { actedAt, looks } = await watched(window);
@@ -551,7 +562,8 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
-test("Review changes of Improve writing at a paragraph's start shows its marks in both paragraphs and restores them, in a two-paragraph edit (#1411)", async () => {
+// protects=Improve writing over the first words of two paragraphs (#1411) changes both, the line says two paragraphs changed and sits above both, and one ⌘Z takes both back; fails_when=only one paragraph changes, the count is another, the line is below a changed paragraph, or ⌘Z leaves either paragraph changed; no_claim=how a real model rewrites.
+test("Improve writing at a paragraph's start changes both paragraphs of a two-paragraph selection, the line counts two over both, and one ⌘Z takes them back (#1411)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -570,33 +582,21 @@ test("Review changes of Improve writing at a paragraph's start shows its marks i
   await expect(applied).toBeVisible({ timeout: 40_000 });
   await expect(note).toHaveText("The tide turns very slowly in the harbour today.");
   await expect(second).toHaveText("The wind is calm");
+  await expect(applied.getByTestId("applied-count")).toHaveText("Changed 2 paragraphs");
 
-  await pointAndClick(window, applied.getByTestId("applied-review"));
-  // Each paragraph's first word changed: its old words struck, its new ones marked, in both.
-  await expect(note.locator("del.applied-old")).toHaveText(/^t(he)?$/);
-  await expect(note.locator(".applied-new")).toHaveText(/^T(he)?$/);
-  await expect(second.locator("del.applied-old")).toHaveText(/^t(he)?$/);
-  await expect(second.locator(".applied-new")).toHaveText(/^T(he)?$/);
-
-  // The line is over the first change, above both paragraphs' words, and the cursor is on it: position 1, the Note's first word.
-  const [line, firstOld, secondOld] = await Promise.all([
+  const [line, first, last] = await Promise.all([
     applied.boundingBox(),
-    note.locator("del.applied-old").first().boundingBox(),
-    second.locator("del.applied-old").first().boundingBox(),
+    note.boundingBox(),
+    second.boundingBox(),
   ]);
-  if (!line || !firstOld || !secondOld) throw new Error("Review's line or a change was not drawn.");
-  expect(line.y).toBeLessThan(firstOld.y);
-  expect(line.y).toBeLessThan(secondOld.y);
-  expect(await cursorIn(editor)).toBe(1);
+  if (!line || !first || !last) throw new Error("The Undo line or a paragraph was not drawn.");
+  expect(line.y).toBeLessThan(first.y);
+  expect(line.y).toBeLessThan(last.y);
 
-  await pointAndClick(window, note.getByTestId("change-restore").first());
-  // Paragraph 1 as it was; paragraph 2 still shows its own change, untouched.
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
   await expect(note).toHaveText(TIDE_LINE);
-  await expect(second.locator("del.applied-old")).toHaveText(/^t(he)?$/);
-  await expect(second.locator(".applied-new")).toHaveText(/^T(he)?$/);
-  await pointAndClick(window, second.getByTestId("change-restore").first());
   await expect(second).toHaveText("the wind is calm");
-  // With both changes restored, Review has nothing left to show.
   await expect(applied).toHaveCount(0);
   await app.close();
 });
@@ -836,7 +836,9 @@ test("Enter while an input method is composing doesn't send; the next Enter does
   await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The seas here are very strong.");
-  await expect(editor.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+  await expect(editor.getByTestId("applied-count")).toHaveText(
+    changedParagraph("en", "The seas here are…"),
+  );
   await app.close();
 });
 
@@ -864,7 +866,9 @@ test("the hand-off moves the typed request and the selection to the composer, wh
   await expect(note.locator(".proposal-target")).toHaveText("The tides here are very strong");
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The seas here are very strong.");
-  await expect(editor.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+  await expect(editor.getByTestId("applied-count")).toHaveText(
+    changedParagraph("en", "The seas here are…"),
+  );
   await app.close();
 });
 
@@ -947,7 +951,9 @@ for (const sidebar of ["shown", "hidden"] as const) {
     const undo = await editor.getByTestId("applied-line").boundingBox();
     expect(undo?.y).toBe(spot?.y);
     expect(undo?.height).toBe(spot?.height);
-    await expect(editor.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+    await expect(editor.getByTestId("applied-count")).toHaveText(
+      changedParagraph("en", "The seas here are…"),
+    );
     await app.close();
   });
 }
@@ -1227,7 +1233,9 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // ...and the change that was running carries on to its own Undo line, one change in all.
       await expect(applied).toBeVisible({ timeout: 40_000 });
-      await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
+      await expect(applied.getByTestId("applied-count")).toHaveText(
+        changedParagraph(language, "The Tide turns very…"),
+      );
       await expect(note).toHaveText(
         "The Tide turns very slowly and the harbour is quiet all evening.",
       );
@@ -1299,7 +1307,9 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(await reading()).toEqual(before);
 
         await expect(applied).toBeVisible({ timeout: 40_000 });
-        await expect(applied.getByTestId("applied-count")).toHaveText(words.applied);
+        await expect(applied.getByTestId("applied-count")).toHaveText(
+          changedParagraph(language, "Line 1"),
+        );
         expect(await onScreen(applied)).toBe(true);
         expect(await onScreen(applied.getByTestId("applied-undo"))).toBe(true);
         expect(await reading()).toEqual(before);

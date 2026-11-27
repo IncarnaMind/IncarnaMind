@@ -9295,9 +9295,9 @@ export interface AskedChangeTransition {
 export interface AskedChangeApplication {
   /** Identifies this application's in-session Undo in the core. */
   undoId: string;
-  /** The original text with the turn's Proposals still marked, for Review. */
+  /** The original text with the turn's Proposals still marked, to place what the turn changed. */
   reviewBefore: Uint8Array;
-  /** The version after acceptance; Review is offered only while the editor is still at it. */
+  /** The version after acceptance; the changes are placed only while the editor is still at it. */
   afterVector: Uint8Array;
   /** The content after acceptance, including deletions that advance no clock. */
   afterFingerprint: string;

@@ -1242,8 +1242,6 @@
   "tests/renderer/remoteSignIn.test.ts": 0.5,
   "tests/renderer/rerankStatus.test.ts": 0,
   "tests/renderer/resolveSearchScope.test.ts": 0,
-  "tests/renderer/restorePlaces.test.ts": 0.2,
-  "tests/renderer/reviewLineReads.test.ts": 0.1,
   "tests/renderer/reviewProblems.test.ts": 0,
   "tests/renderer/scope.test.ts": 0,
   "tests/renderer/selection.test.ts": 0,

@@ -135,10 +135,13 @@ function firstOf(text: string): { start: string; whole: boolean } {
   return { start: words.slice(0, START_WORDS).join(" "), whole: words.length <= START_WORDS };
 }
 
-/** How a paragraph is named where its removal is said: its label without the colon ("Parking"), or its first words. */
+/**
+ * How a paragraph is named where its change is said: its label without the colon ("Parking"), or
+ * its first words. A colon inside a time ("07:40") or a ratio never ends a label.
+ */
 export function paragraphStart(text: string): string {
   const plain = text.replace(/\s+/gu, " ").trim();
-  const label = /^([^:：]+)[:：]\s*\S/u.exec(plain)?.[1]?.trim();
+  const label = /^([^:：]+)(?:：|:(?=\s))\s*\S/u.exec(plain)?.[1]?.trim();
   if (label && firstOf(label).whole) return label;
   const { start, whole } = firstOf(plain);
   return whole ? start : `${start}…`;

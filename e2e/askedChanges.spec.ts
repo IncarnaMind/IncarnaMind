@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   askInAssistant,
@@ -16,15 +17,12 @@ import {
   launchApp,
   nameMind,
   newMind,
-  openPageMenu,
   openSteps,
   paletteOffers,
   pointAndClick,
   removeDataFolder,
-  runCommand,
   setLanguage,
   setWindowSize,
-  slideSelect,
   useLocalChatModel,
 } from "./app";
 
@@ -74,7 +72,6 @@ test("“write a summary page” makes the page with the summary applied, “mak
   await expect(first.getByTestId("mind-changes-title")).toHaveText("Wrote “Summary”");
   await expect(first.getByTestId("mind-changes-open")).toBeVisible();
   await expect(first.getByTestId("mind-changes-undo")).toBeVisible();
-  await expect(first.getByTestId("mind-changes-review")).toHaveText("Review changes");
   // Nothing is left waiting there, so the card says nothing about a count (#1358).
   await expect(first.getByTestId("mind-changes-left")).toHaveCount(0);
   await screenshot(window, "asked-write-en");
@@ -95,24 +92,12 @@ test("“write a summary page” makes the page with the summary applied, “mak
   await expect(second.getByTestId("mind-changes-title")).toHaveText("已修改“Summary”中的 2 段");
   await setLanguage(window, "en");
 
-  // Review changes is the Mind's own line's: it shows what was added, the text still applied.
-  await pointAndClick(window, line.getByTestId("applied-review"));
-  await expect(line.getByTestId("applied-count")).toHaveText(
-    "2 paragraphs changed by the assistant",
-  );
-  await expect(editor.locator(".applied-new")).toHaveText([" It says more.", " It says more."]);
-  await pointAndClick(window, line.getByTestId("applied-done"));
-  await expect(paragraphs).toHaveText([`${SPRING} It says more.`, `${NEAP} It says more.`]);
-
   const longer = [`${SPRING} It says more.`, `${NEAP} It says more.`];
   // The Answer `askInAssistant` gave is the last one, whichever that is now.
   const summary = assistantAnswers(window).first();
   const firstUndo = summary.getByTestId("mind-changes-undo");
   const secondUndo = second.getByTestId("mind-changes-undo");
-  // The summary's isn't the last edit applied, so Review changes is the longer text's, and its line doesn't point there.
   const changedSince = "“Summary” changed since, so this can’t be undone here.";
-  await expect(summary.getByTestId("mind-changes-review")).toHaveCount(0);
-  await expect(second.getByTestId("mind-changes-review")).toBeVisible();
 
   // Each line undoes its own request: the summary's can't while the longer text is on top of it.
   await expect(firstUndo).toHaveAttribute("aria-disabled", "true");
@@ -179,7 +164,7 @@ test("two edits of the same text in one turn revise in place, with one Undo for 
   await expect(paragraphs).toHaveText(longer);
 });
 
-test("typed elsewhere after “make it longer”, the line goes but Review changes stays in ⌘K, the Mind's ⋯ and the Answer's card: a change the User edited says so with no Restore, the other restores and leaves their writing, ⌘Z takes the Restore back, and with none left the entries and the hint's pointer go, in English and Chinese", async () => {
+test("typed elsewhere after “make it longer”, the line goes and the Answer's Undo says why it can't undo, in English and Chinese; ⌘K doesn't offer the whole edit's Undo", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -207,91 +192,18 @@ test("typed elsewhere after “make it longer”, the line goes but Review chang
   await expect(line).toHaveCount(0);
 
   const undo = answer.getByTestId("mind-changes-undo");
-  const review = answer.getByTestId("mind-changes-review");
   await expect(undo).toHaveAttribute("aria-disabled", "true");
-  await expect(undo).toHaveAttribute(
-    "title",
-    /^“Summary” changed since\. Review changes is in ⋯ and (⌘K|Ctrl\+K)\.$/,
-  );
-  await expect(review).toHaveText("Review changes");
-  await screenshot(window, "asked-review-after-typing-en");
-  await setLanguage(window, "zh-CN");
-  await expect(undo).toHaveAttribute(
-    "title",
-    /^“Summary”之后又改过了。“查看改动”在 ⋯ 和 (⌘K|Ctrl\+K) 里。$/,
-  );
-  await expect(review).toHaveText("查看改动");
-  await setLanguage(window, "en");
-
-  // The Mind's ⋯ offers it, and opens the same Review as ⌘K and the card.
-  const menu = await openPageMenu(window);
-  await pointAndClick(window, menu.getByTestId("page-review-changes"));
-  const count = line.getByTestId("applied-count");
-  await expect(count).toHaveText("2 paragraphs changed by the assistant");
-  await expect(editor.getByTestId("change-restore")).toHaveCount(2);
-  await pointAndClick(window, line.getByTestId("applied-done"));
-  await runCommand(window, "edit.reviewApplied", "Review changes");
-  await expect(count).toHaveText("2 paragraphs changed by the assistant");
-  // Changed since, the edit can't be taken back whole: ⌘K doesn't offer it.
-  expect(await paletteOffers(window, "edit.undoApplied", "Undo the AI edit")).toBe(0);
-  await expect(count).toBeVisible();
-  await pointAndClick(window, line.getByTestId("applied-done"));
-  await pointAndClick(window, review);
-  await expect(count).toHaveText("2 paragraphs changed by the assistant");
-  await expect(editor.locator(".applied-new")).toHaveText([" It says more.", " It says more."]);
-  await pointAndClick(window, line.getByTestId("applied-done"));
-
-  // Typed inside the first change's words: it says so, has no Restore, and ⌘⌫ there replaces nothing.
-  await slideSelect(window, paragraphs.first(), "more");
-  await window.keyboard.type("plenty");
-  const edited = `${SPRING} It says plenty.`;
-  await expect(paragraphs.first()).toHaveText(edited);
-  await pointAndClick(window, review);
-  await expect(paragraphs.first().getByTestId("change-changed-since")).toHaveText(
-    "You changed this since",
-  );
-  await expect(paragraphs.first().getByTestId("change-restore")).toHaveCount(0);
-  await expect(paragraphs.nth(1).getByTestId("change-restore")).toHaveText("Restore original");
-  await screenshot(window, "asked-review-changed-since-en");
-  await setLanguage(window, "zh-CN");
-  await expect(paragraphs.first().getByTestId("change-changed-since")).toHaveText("你之后改过这里");
-  await expect(paragraphs.nth(1).getByTestId("change-restore")).toHaveText("恢复原文");
-  await screenshot(window, "asked-review-changed-since-zh");
-  await setLanguage(window, "en");
-  await pointAndClick(window, paragraphs.first().locator(".applied-new").first());
-  await window.keyboard.press("ControlOrMeta+Backspace");
-  await expect(paragraphs.first()).toContainText(edited);
-  await expect(paragraphs.first().getByTestId("change-changed-since")).toBeVisible();
-
-  // The other restores alone: the User's own paragraph and their edit stay, and ⌘Z takes the Restore back.
-  await pointAndClick(window, paragraphs.nth(1).getByTestId("change-restore"));
-  await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
-  await expect(paragraphs.nth(1)).not.toContainText("It says more.");
-  await expect(paragraphs.last()).toHaveText(OWN);
-  await expect(paragraphs.first()).toContainText(edited);
-  await editor.focus();
-  await window.keyboard.press("ControlOrMeta+z");
-  await expect(paragraphs.nth(1)).toContainText(`${NEAP} It says more.`);
-  await expect(paragraphs.nth(1).getByTestId("change-restore")).toBeVisible();
-  await expect(paragraphs.last()).toHaveText(OWN);
-  await pointAndClick(window, paragraphs.nth(1).getByTestId("change-restore"));
-  await expect(paragraphs.nth(1)).not.toContainText("It says more.");
-  await pointAndClick(window, line.getByTestId("applied-done"));
-  await expect(paragraphs).toHaveText([edited, NEAP, OWN]);
-
-  // Nothing left to restore: no entries, and the hint no longer points to one.
-  expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(0);
-  const after = await openPageMenu(window);
-  await expect(after.getByTestId("page-style")).toBeVisible();
-  await expect(after.getByTestId("page-review-changes")).toHaveCount(0);
-  await window.keyboard.press("Escape");
-  await expect(review).toHaveCount(0);
   await expect(undo).toHaveAttribute(
     "title",
     "“Summary” changed since, so this can’t be undone here.",
   );
+  await screenshot(window, "asked-undo-after-typing-en");
   await setLanguage(window, "zh-CN");
   await expect(undo).toHaveAttribute("title", "“Summary”之后又改过了，无法在这里撤销。");
+  await setLanguage(window, "en");
+  // Changed since, the edit can't be taken back whole: ⌘K doesn't offer it.
+  expect(await paletteOffers(window, "edit.undoApplied", "Undo the AI edit")).toBe(0);
+  await expect(paragraphs).toHaveText([...longer, OWN]);
 });
 
 test("an Answer written again replaces what it applied with what it writes now, and its card can undo it", async () => {
@@ -553,11 +465,9 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
     "Hire a designer.",
     "a note about the meeting",
   ]);
-  await expect(editor.getByTestId("applied-count")).toHaveText("Added 1 paragraph");
-  await expect(answer.getByTestId("mind-changes-review")).toHaveText("Review changes");
-  await pointAndClick(window, answer.getByTestId("mind-changes-review"));
-  await expect(editor.locator(".applied-new")).toHaveText("a note about the meeting");
-  await pointAndClick(window, editor.getByTestId("applied-done"));
+  await expect(editor.getByTestId("applied-count")).toHaveText(
+    translate("en", "edit.added.named", { start: "a note about the…" }),
+  );
   await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
   await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
 });
@@ -605,8 +515,8 @@ test("an unopened destructive rewrite waits, then Discard and Apply each keep th
   await expect(discarded.getByTestId("mind-changes-left")).toHaveText("· none waiting");
 });
 
-// Value: protects=rich Review and safe core Undo after later typing; fails_when=restore misanchors or stale Undo overwrites writing; why_new=core e2e reviewed only appended text; seam=none; no_claim=real-model content (scripted model)
-test("an unopened section and rewrite reviews and restores, and later typing disables core Undo", async () => {
+// Value: protects=a section and rewrite applied in a Note that isn't open, then safe core Undo after later typing; fails_when=stale Undo overwrites writing; why_new=core e2e changed only appended text; seam=none; no_claim=real-model content (scripted model)
+test("an unopened section and rewrite applies without opening its tab, and later typing disables core Undo", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -639,14 +549,7 @@ test("an unopened section and rewrite reviews and restores, and later typing dis
   await window.keyboard.type("My later note.");
   await expect(paragraphs.last()).toHaveText("My later note.");
   await expect(answer.getByTestId("mind-changes-undo")).toHaveAttribute("aria-disabled", "true");
-
-  await pointAndClick(window, answer.getByTestId("mind-changes-review"));
-  await expect(editor.getByTestId("change-restore").first()).toBeVisible();
-  await pointAndClick(window, editor.getByTestId("change-restore").first());
-  await expect(paragraphs.first()).toHaveText(NOTES[0] ?? "");
-  await expect(paragraphs.last()).toHaveText("My later note.");
   await expect(answer.getByTestId("mind-changes-undone")).toHaveCount(0);
-  await pointAndClick(window, editor.getByTestId("applied-done"));
 });
 
 // Value: protects=core-applied re-ask replaces exactly once; fails_when=stale Undo races new writing or duplicates text; why_new=regeneration used editor-owned steps; seam=none; no_claim=real-model regeneration (scripted model)
@@ -753,8 +656,6 @@ test("a change in a Mind that isn't open applies in the core and survives a rest
   const restoredAnswer = assistantAnswers(restarted.window).last();
   await expect(restoredAnswer).toBeVisible();
   await expect(restoredAnswer.getByTestId("mind-changes-undo")).toHaveCount(0);
-  await expect(restoredAnswer.getByTestId("mind-changes-review")).toHaveCount(0);
-  await expect(restarted.window.getByTestId("applied-review")).toHaveCount(0);
   await restarted.app.close();
 });
 
