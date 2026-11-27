@@ -131,8 +131,13 @@ function fileWordsBelow(state: EditorState, split: FileWordsSplit): Transaction 
   if (below.textContent !== split.after) return null;
   const tr = state.tr;
   const found: { node: ProseMirrorNode; at: number }[] = [];
+  // Closing markers that precede any opening marker close an earlier paragraph's range and stay in
+  // `above`; markers from the first opening one onward move together so paired point markers stay intact.
+  let sawOpen = false;
   above.forEach((child, offset) => {
-    if (unseen(child)) found.push({ node: child, at: split.start + offset });
+    if (!unseen(child)) return;
+    if (!ends(child)) sawOpen = true;
+    if (sawOpen) found.push({ node: child, at: split.start + offset });
   });
   for (const { node, at } of [...found].reverse()) tr.delete(at, at + node.nodeSize);
   const markers = found.map((each) => each.node);

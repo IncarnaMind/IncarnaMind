@@ -196,4 +196,38 @@ describe("words typed at the start of a paragraph, then Enter", () => {
     expect(editor.commands.redo()).toBe(true);
     expect(editor.getJSON()).toEqual(after);
   });
+
+  // protects=typing a prefix at the start of an imported paragraph whose markers begin with a previous bookmark's END followed by a point bookmark and the paragraph's own START, then pressing Enter, leaves END before the inserted paragraph (so the inserted text stays outside the earlier bookmark), moves the point bookmark's START and END together with the clause's own START onto the original paragraph below, and exports cleanly without striking the original words; fails_when=END is moved down onto the original paragraph (pulling the inserted paragraph inside the earlier bookmark) or the point bookmark's START and END are split across paragraphs.
+  test.each([true, false])(
+    "leading closing bookmark stays above the prefix while opening and paired point markers move below (tracked=%s)",
+    async (tracked) => {
+      const bytes = wordFile({
+        body: [
+          `<w:p><w:bookmarkStart w:id="10" w:name="EarlierClause"/>${run("First clause.")}</w:p>`,
+          `<w:p><w:bookmarkEnd w:id="10"/><w:bookmarkStart w:id="11" w:name="_GoBack"/><w:bookmarkEnd w:id="11"/><w:bookmarkStart w:id="12" w:name="SecondClause"/>${run("Second clause.")}<w:bookmarkEnd w:id="12"/></w:p>`,
+        ].join(""),
+      });
+      const { editor, exported } = await opened(bytes);
+      const id = idOf(editor, "Second clause.");
+      clickIn(editor, "Second clause.");
+      typeText(editor, "Inserted clause.");
+      pressEnter(editor);
+      expect(idOf(editor, "Second clause.")).toBe(id);
+
+      const document = await exported(tracked);
+      expect(struck(document)).toEqual([]);
+      const endEarlier = document.indexOf('<w:bookmarkEnd w:id="10"');
+      const insertedAt = document.indexOf("Inserted clause.");
+      const startGoBack = document.indexOf('<w:bookmarkStart w:id="11"');
+      const endGoBack = document.indexOf('<w:bookmarkEnd w:id="11"');
+      const startSecond = document.indexOf('<w:bookmarkStart w:id="12"');
+      const secondAt = document.indexOf("Second clause.");
+      expect(endEarlier).toBeGreaterThan(-1);
+      expect(endEarlier).toBeLessThan(insertedAt);
+      expect(insertedAt).toBeLessThan(startGoBack);
+      expect(startGoBack).toBeLessThan(endGoBack);
+      expect(endGoBack).toBeLessThan(startSecond);
+      expect(startSecond).toBeLessThan(secondAt);
+    },
+  );
 });
