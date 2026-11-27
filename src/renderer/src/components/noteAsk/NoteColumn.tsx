@@ -309,7 +309,10 @@ export function NoteConversationBody({
     turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
 
   const atEnd = useRef(true);
+  const shown = useRef({ mindId: "", turns: 0, questions: 0, at: null as string | null });
   // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
+  // A step or a reading again doesn't take the User back to the end from where they scrolled, say
+  // to a held message's Send now (#3765); a turn or a question added does.
   // biome-ignore lint/correctness/useExhaustiveDependencies: follows what it shows.
   useLayoutEffect(() => {
     const element = body.current;
@@ -317,10 +320,17 @@ export function NoteConversationBody({
     const turn = at
       ? element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(at)}"]`)
       : null;
-    atEnd.current = !turn;
+    const now = { mindId, turns: turns?.length ?? 0, questions: ask?.questions.length ?? 0, at };
+    const added =
+      now.mindId !== shown.current.mindId ||
+      now.turns > shown.current.turns ||
+      now.questions > shown.current.questions ||
+      now.at !== shown.current.at;
+    shown.current = now;
+    if (turn || added) atEnd.current = !turn;
     roomForNewest(element);
     if (turn) element.scrollTop = turn.offsetTop - 8;
-    else element.scrollTop = element.scrollHeight;
+    else if (atEnd.current) element.scrollTop = element.scrollHeight;
     markScrolled(element);
   }, [turns, trails, waiting, at, ask?.questions]);
 
