@@ -31,7 +31,7 @@ import type { NoteFooting } from "../../../shared/claimChecks";
 import { figureRunsFor } from "../../../shared/figureRuns";
 import { footingOfRows } from "../../../shared/figureSchedule";
 import { type MessageKey, translate } from "../../../shared/i18n";
-import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
+import { versionsWithLibrary } from "../../../shared/libraryFacts";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
@@ -827,13 +827,7 @@ function MindEditorView({
   );
   const libraryVersion = useLibraryListsVersion(editor, mindId);
   const versions = useMemo(
-    () =>
-      documents
-        ? new Map([
-            ...documents.map((each) => [each.id, each.contentHash] as const),
-            ...(libraryVersion ? [[LIBRARY_FACTS, libraryVersion] as const] : []),
-          ])
-        : null,
+    () => (documents ? versionsWithLibrary(documents, libraryVersion) : null),
     [documents, libraryVersion],
   );
   const scope = useMindScope(doc);

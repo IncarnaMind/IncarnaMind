@@ -8647,6 +8647,8 @@ export interface ClaimCheckBasis {
    * them, never a scope the check didn't search.
    */
   citedOnly?: true;
+  /** Checked by an outside agent (`check_mind`) under its scoped grant (#2525). */
+  outside?: true;
   /**
    * A fingerprint of what the result stands on, its claim and what frames its line: a deck's slide,
    * else the headings it is under (#3412): read against the line as it is now, a reading that knows

@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { checkedSentence } from "../../../shared/claimChecks";
 import { partsToCheck } from "../../../shared/claimParts";
+import { versionsWithLibrary } from "../../../shared/libraryFacts";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import type { UnitText } from "../../../shared/units";
@@ -59,6 +60,7 @@ import type { PagePart } from "../../documents/extract";
 import type { SlideOutline } from "../../documents/formats/pptx";
 import { parseModel } from "../../edits";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
+import { type LibraryLists, libraryVersion } from "../../library/lists";
 import type { MindContent } from "../../mindContent";
 import { parseFolderChoice, parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -202,6 +204,8 @@ export interface VerifyOptions extends CheckRuns {
   prepareUnasked(choice: ChatModelChoice | null): Promise<PreparedChatModel | NotAskedReason>;
   /** Each live Document's current version, by id: what a kept result is compared with. */
   documentVersions(): ReadonlyMap<string, string>;
+  /** The Library's lists on this Note's side of the Folder walls (#2525). */
+  libraryLists?(mindId: string | null): LibraryLists;
   mindFolder(mindId: string): string | null;
   /** The path of a Document's own file, for a check of one the Library holds (#3412). */
   filePath(documentId: string): Promise<string>;
@@ -511,7 +515,10 @@ export function createVerify(options: VerifyOptions) {
     const startedAt = options.now().toISOString();
     const claims = verification.claims;
     const unread = options.unread(check.wanted);
-    const versions = options.documentVersions();
+    const versions = versionsWithLibrary(
+      options.documentVersions(),
+      reach === null && options.libraryLists ? libraryVersion(options.libraryLists(mindId)) : null,
+    );
     const folderId = options.mindFolder(mindId);
     const scope = content.readSettings(mindId, mindScopeIn);
     let kept = 0;
@@ -572,6 +579,7 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          ...(reach !== null && { outside: true as const }),
           judgedWith: judgedWithOf(sentence, verification),
         };
         // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
@@ -640,6 +648,7 @@ export function createVerify(options: VerifyOptions) {
       queued,
       scope: check.scope,
       prepared: ready.prepared,
+      ...(reach !== null && { outside: true }),
       thirdParty: [{ via: "read", source: "checked-document" }],
       signal,
     });

@@ -458,6 +458,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             versions: [],
             excluded: [],
             checkedAt: at,
+            outside: true,
             // As a file's check records it: a row's verdict stands only while the row reads the same.
             ...(verification && { judgedWith: judgedWithOf(sentence, verification) }),
           };

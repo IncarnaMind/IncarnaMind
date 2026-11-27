@@ -5,12 +5,19 @@
  */
 import { expect, onTestFinished, test } from "vitest";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { listsFor } from "../../src/core/answers/checks/checkSetup";
+import type { ClaimCheckAttributes, LibrarySource } from "../../src/core/api";
 import { libraryLists, libraryVersion } from "../../src/core/library/lists";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
+import { claimCheckShown } from "../../src/shared/claimChecks";
+import { pendingPart } from "../../src/shared/claimParts";
 import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { isCheckRun } from "../helpers/checks";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 const CODE = 'result("documents", len(inputs["files"]))';
@@ -247,4 +254,271 @@ test("Folders of one name are told apart by their paths", () => {
   ]);
   expect(lists.notes.rows).toEqual([["Rundown", "Archive", "South / Archive"]]);
   expect(libraryVersion(seen(false))).not.toBe(libraryVersion(lists));
+});
+
+// protects=an outside check with no grant is offered no Library lists, while one with a grant gets only its own scoped lists and never the full Library; fails_when=listsFor falls back to the User's libraryLists for an outside check without outsideLists.
+test("an outside check with no grant gets no Library lists", () => {
+  const full = libraryLists({
+    source: { kind: "library" },
+    documents: [{ id: "d1", name: "Secret", kind: "pdf", tags: [] }],
+    folders: [],
+    folderOf: new Map(),
+    tagNames: new Map(),
+    notes: [],
+  });
+  const granted = libraryLists({
+    source: { kind: "scope", name: "Coast", more: 0 },
+    documents: [{ id: "d2", name: "Tides", kind: "markdown", tags: [] }],
+    folders: [{ id: "f1", name: "Coast", parentId: null }],
+    folderOf: new Map([["d2", "f1"]]),
+    tagNames: new Map(),
+    notes: [],
+  });
+  const deps = { libraryLists: () => full };
+
+  expect(listsFor(deps, { outside: true })).toBeUndefined();
+  expect(listsFor(deps, { outside: true, outsideLists: granted })?.(null)).toBe(granted);
+  expect(listsFor(deps, {})?.(null)).toBe(full);
+});
+
+// protects=a Library-backed check stands for an outside reader only when its version matches the reader's grant and never when it carries a left-out wall count from outside the grant (#2525); fails_when=an outside reader accepts a Library mark without a grant, after a grant change, or from a User check that names walled Folders.
+test("a Library-backed mark stands for an outside reader only at its grant version and never on a left-out wall count", () => {
+  const scoped = libraryLists({
+    source: { kind: "scope", name: "Coast", more: 0 },
+    documents: [{ id: "d1", name: "Tides", kind: "markdown", tags: [] }],
+    folders: [{ id: "f1", name: "Coast", parentId: null }],
+    folderOf: new Map([["d1", "f1"]]),
+    tagNames: new Map(),
+    notes: [],
+  });
+  const version = libraryVersion(scoped);
+  const markOf = (source: LibrarySource, outside = true): ClaimCheckAttributes => {
+    const citation = {
+      passageId: version,
+      documentId: LIBRARY_FACTS,
+      documentName: LIBRARY_FACTS,
+      contentHash: version,
+      pageFrom: null,
+      pageTo: null,
+      location: {
+        kind: "library" as const,
+        source,
+        fact: { kind: "documents" as const, count: 1 },
+      },
+      quote: "documents: 1",
+      check: "found" as const,
+      checkReason: null,
+    };
+    return {
+      id: "lib-mark",
+      request: "req-1",
+      action: "find-support",
+      state: "supported",
+      reason: null,
+      detail: null,
+      providerId: null,
+      modelId: null,
+      text: CLAIM,
+      evidence: citation,
+      says: "The list has 1 Document.",
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      scope: { folderId: "f1", widened: false },
+      versions: [{ documentId: LIBRARY_FACTS, contentHash: version }],
+      excluded: [],
+      checkedAt: "2026-11-26T09:00:00.000Z",
+      ...(outside && { outside: true as const }),
+    };
+  };
+  const nowBase = {
+    footing: "not-yet-known" as const,
+    text: CLAIM,
+    folderId: "f1",
+    scope: null,
+    reach: new Set(["d1"]),
+  };
+
+  expect(
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "supported" });
+
+  // No grant (no LIBRARY_FACTS version) -> does not stand.
+  expect(
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }), {
+      ...nowBase,
+      versions: new Map(),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+
+  // Changed grant version -> stale library.
+  expect(
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, "different-version"]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "library" });
+
+  // User-made mark inside a walled Folder carries source.kind "scope" without `outside: true`: never stands for an outside reader.
+  expect(
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }, false), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+
+  // Same rows, but mark carries User's whole-Library or left-out wall source -> never stands for an outside reader.
+  expect(
+    claimCheckShown(markOf({ kind: "library" }), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+  expect(
+    claimCheckShown(markOf({ kind: "left-out", folders: 1 }), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+
+  // Document-quote evidence combined with a User-side Library working/version -> still rejected on reach.
+  const mixedMark: ClaimCheckAttributes = {
+    ...markOf({ kind: "library" }),
+    evidence: {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides",
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides.",
+      check: "found",
+      checkReason: null,
+    },
+    versions: [
+      { documentId: "d1", contentHash: "h1" },
+      { documentId: LIBRARY_FACTS, contentHash: version },
+    ],
+    parts: [
+      {
+        ...pendingPart({ span: { start: 0, end: CLAIM.length }, kind: "fact" }),
+        verdict: "supported",
+        versions: [
+          { documentId: "d1", contentHash: "h1" },
+          { documentId: LIBRARY_FACTS, contentHash: version },
+        ],
+        working: {
+          title: "Count",
+          code: CODE,
+          rows: [],
+          ranAt: "2026-11-26T09:00:00.000Z",
+          library: {
+            source: { kind: "left-out", folders: 1 },
+            lists: [{ list: "documents", count: 1 }],
+          },
+        },
+      },
+    ],
+  };
+  expect(
+    claimCheckShown(mixedMark, {
+      ...nowBase,
+      versions: new Map([
+        ["d1", "h1"],
+        [LIBRARY_FACTS, version],
+      ]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
+});
+
+// protects=User's Check this Note in "changed" mode compares stored Library marks against the User's current Library lists version (`userVersions` in mindCheck.ts), so adding a Document re-checks stale Library marks while unchanged Libraries send nothing (#2525); fails_when=userVersions omits LIBRARY_FACTS and checkMind({ mode: "changed" }) skips stale Library checks.
+test("User checkMind in changed mode re-checks a Library claim once a Document is added", async () => {
+  const runtime = createFakeAnalysisRuntime({
+    answer: (job) => {
+      const table = job.inputs.find((each) => each.kind === "table" && each.name === "files");
+      const count = table && table.kind === "table" ? table.rows.length : 0;
+      return {
+        output: {
+          results: [figure("documents", count)],
+          printed: "",
+        },
+      };
+    },
+  });
+  const model = scriptedModel(
+    (call) => {
+      if (!isCheckRun(call)) return { text: JSON.stringify({ claims: [CLAIM] }) };
+      const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+      if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+        return {
+          calls: [
+            {
+              tool: ANALYSIS_TOOLS.run,
+              input: {
+                title: "Documents",
+                inputs: [{ name: "files", library: "documents" }],
+                code: CODE,
+              },
+            },
+          ],
+        };
+      }
+      const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+      return {
+        text:
+          docs === 2
+            ? SUPPORTED
+            : `Verdict: contradicted\nExplanation: The Library now holds ${docs} Documents.\nEvidence: []\nWorking: Counted ${docs} rows.`,
+      };
+    },
+    { generate: (call) => ({ text: sortReply(call.prompt) }) },
+  );
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    analysisRuntime: runtime,
+  });
+  onTestFinished(() => core.close());
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: "claude-haiku-5-5",
+  });
+  if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [
+    await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides.\n"),
+    await writeSourceFile(sources, "Office.md", "# Office\n\nOpens at nine.\n"),
+  ]);
+  const mind = await core.createMind({ title: "Library check", folderId: null });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [note(CLAIM)]);
+  await client.settled();
+
+  const first = await core.checkMind({ requestId: "lib-r1", mindId: mind.id, mode: "changed" });
+  expect(first.kind).toBe("checked");
+  expect(runtime.jobs).toHaveLength(1);
+
+  // Unchanged Library: plan says unchanged and changed mode sends nothing.
+  expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({ kind: "unchanged" });
+  const second = await core.checkMind({ requestId: "lib-r2", mindId: mind.id, mode: "changed" });
+  expect(second).toEqual({ kind: "nothing" });
+  expect(runtime.jobs).toHaveLength(1);
+
+  // Adding a third Document changes the Library version: changed mode must re-check it.
+  await addAndProcess(core, [
+    await writeSourceFile(sources, "Quays.md", "# Quays\n\nTwo stone quays.\n"),
+  ]);
+  expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({
+    kind: "ready",
+    sentences: 1,
+  });
+  const third = await core.checkMind({ requestId: "lib-r3", mindId: mind.id, mode: "changed" });
+  expect(third.kind).toBe("checked");
+  expect(runtime.jobs).toHaveLength(2);
 });

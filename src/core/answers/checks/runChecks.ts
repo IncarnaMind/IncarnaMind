@@ -17,6 +17,7 @@ import type {
   RunStop,
   ThirdPartyReason,
 } from "../../api";
+import type { LibraryLists } from "../../library/lists";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
@@ -127,6 +128,8 @@ export interface ChecksRun {
   thirdParty?: readonly ThirdPartyReason[];
   /** An outside agent started the run (#3317). */
   outside?: true;
+  /** The Library's lists an outside agent's grant covers (#2525); absent when it has no grant. */
+  outsideLists?: LibraryLists;
   signal: AbortSignal;
 }
 
@@ -147,6 +150,7 @@ export function checkRequestOf(
     model: run.prepared,
     ...(run.thirdParty && { thirdParty: run.thirdParty }),
     ...(run.outside && { outside: true }),
+    ...(run.outsideLists && { outsideLists: run.outsideLists }),
     mindId: run.mindId,
     ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),
     ...(claim.place && { place: claim.place }),
@@ -159,7 +163,13 @@ export function checkRequestOf(
  * A request as a key: what it sends, without its signal and its model (the run's own), and
  * without what its reading found, which the rest of it decides.
  */
-function requestKey({ signal: _signal, model: _model, about: _about, ...sent }: ClaimCheckRequest) {
+function requestKey({
+  signal: _signal,
+  model: _model,
+  about: _about,
+  outsideLists: _outsideLists,
+  ...sent
+}: ClaimCheckRequest) {
   return JSON.stringify(sent, (_key, value: unknown) =>
     value instanceof Map ? [...value] : value instanceof Set ? [...value] : value,
   );
