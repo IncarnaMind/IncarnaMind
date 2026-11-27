@@ -10238,7 +10238,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (
         typeof mindId !== "string" ||
         typeof questionId !== "string" ||
-        (answer !== "deny" && answer !== "once" && answer !== "suggested")
+        (answer !== "deny" && answer !== "once" && answer !== "suggested" && answer !== "request")
       )
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.answer(mindId, questionId, answer);
@@ -10277,7 +10277,13 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       await ownAiConversations.chooseMode(mindId, mode);
     },
-    ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
+    ownAiRunsHere: async () => {
+      const runner = adapters.ownAi;
+      if (!runner) return [];
+      const clients = ["claude-code", "codex"] as const;
+      const here = await Promise.all(clients.map((client) => runner.installed(client)));
+      return clients.filter((_, at) => here[at]);
+    },
     frontAgent: (pairingId) => agentAsk.front(pairingId),
     editDeck: (input) => writingDeck(deckSittings.edit(input)),
     undoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.undo(sittingId, stepId)),

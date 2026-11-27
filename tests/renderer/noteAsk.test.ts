@@ -409,6 +409,7 @@ describe("what the User's own AI asks (#3653)", () => {
     action: { kind: "command" as const, value: "python3 late.py" },
     answers: ["deny" as const, "once" as const],
     suggested: [],
+    forRequest: [],
     read: null,
   };
 

@@ -14,6 +14,7 @@ import { clockTime } from "../../shared/clock";
 import type {
   Logger,
   OwnAiAsk,
+  OwnAiClient,
   OwnAiEnd,
   OwnAiFailure,
   OwnAiModel,
@@ -208,7 +209,11 @@ interface TurnRow {
   created_at: string;
 }
 
-const canRun = (pairing: AgentPairing) => pairing.client === "claude-code";
+/** The command-line AI a pairing runs in the background, a Note's conversation with it: Claude Code or Codex. */
+const clientOf = (pairing: AgentPairing): OwnAiClient | null =>
+  pairing.client === "claude-code" || pairing.client === "codex" ? pairing.client : null;
+
+const canRun = (pairing: AgentPairing) => clientOf(pairing) !== null;
 
 function words(value: unknown, max: number): string {
   if (typeof value !== "string") throw new InvalidInputError({ key: "error.agent.askRequest" });
@@ -316,8 +321,12 @@ function promptOf(
 }
 
 export function createOwnAiConversations(options: OwnAiConversationsOptions) {
-  /** The models the agent offers, as its last run here answered; held in memory only. */
-  let listed: readonly OwnAiModel[] | null = null;
+  /** The models each agent offers, as its last run here answered; held in memory only. */
+  const listed = new Map<OwnAiClient, readonly OwnAiModel[]>();
+  const offers = (client: OwnAiClient | null, model: string) =>
+    (client === null ? [...listed.values()].flat() : (listed.get(client) ?? [])).some(
+      (each) => each.value === model,
+    );
   // The model each conversation's last run named: the User's own setting may name another than the
   // list's first, which is the agent's general default.
   const ranOn = new Map<string, string>();
@@ -527,10 +536,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const model = input.model === undefined ? undefined : words(input.model, 100);
     // Only a model the agent itself offered goes to it as `--model`, and never one with a control
     // character, which the agent's own list can't bring either.
-    if (
-      model !== undefined &&
-      (CONTROL.test(model) || !listed?.some((each) => each.value === model))
-    ) {
+    if (model !== undefined && (CONTROL.test(model) || !offers(null, model))) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
 
@@ -556,16 +562,20 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const pairing = options
       .askable(mindId)
       .find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
-    if (!runner || !pairing) return { kind: "link" };
+    const client = pairing && clientOf(pairing);
+    if (!runner || !pairing || !client) return { kind: "link" };
+    if (model !== undefined && !offers(client, model)) {
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
+    }
     const stopped = new AbortController();
     const checks = checking.get(mindId) ?? new Set<AbortController>();
     checking.set(mindId, checks.add(stopped));
     let status: OwnAiStatus;
     try {
-      if (!(await runner.installed("claude-code"))) return { kind: "link" };
+      if (!(await runner.installed(client))) return { kind: "link" };
       // Nothing of the User's agent is started, its `--version` included, before the consent.
       if (!(await options.consented(pairing))) return { kind: "link" };
-      status = await runner.status("claude-code");
+      status = await runner.status(client);
     } finally {
       checks.delete(stopped);
       if (checks.size === 0) checking.delete(mindId);
@@ -663,6 +673,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     live: Live;
   }): Promise<void> {
     const { mindId, pairing, turnId, conversation, stop } = turn;
+    // `ask` runs only a pairing it has a client for.
+    const client = clientOf(pairing) ?? "claude-code";
     const signal = AbortSignal.any([options.lifetime, stop.signal]);
     // The request its AI works on now: the first, then each sent meanwhile as its AI takes it; none
     // between a request's end and the taking of the next (#3765). Widened with `as`, as this and
@@ -697,12 +709,21 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       }
     >();
     // Its answers are the AI's own.
-    const questionOf = ({ id, asked }: { id: string; asked: OwnAiAsk }): NoteQuestion => ({
-      id,
-      action: asked.action,
-      answers: asked.suggested.length > 0 ? ["deny", "suggested", "once"] : ["deny", "once"],
-      suggested: asked.suggested,
-    });
+    const questionOf = ({ id, asked }: { id: string; asked: OwnAiAsk }): NoteQuestion => {
+      const forRequest = asked.forRequest ?? [];
+      return {
+        id,
+        action: asked.action,
+        answers: [
+          "deny",
+          ...(asked.suggested.length > 0 ? (["suggested"] as const) : []),
+          ...(forRequest.length > 0 ? (["request"] as const) : []),
+          "once",
+        ],
+        suggested: asked.suggested,
+        forRequest,
+      };
+    };
     let mode: string | null = null;
     let modeNew = false;
     // The mode the run was started in, none for the User's own, and whether it has named its mode.
@@ -948,7 +969,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       }
       if (step.kind === "models") {
         const offered = step.models.filter((each) => !CONTROL.test(each.value));
-        if (offered.length > 0) listed = offered;
+        if (offered.length > 0) listed.set(client, offered);
         return;
       }
       if (step.kind === "modeRefused") {
@@ -1317,7 +1338,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       options.runner
         ? options.runner
             .run({
-              client: "claude-code",
+              client,
               server: grant.launch,
               tools: "all",
               own: { ask, meanwhile },
@@ -1333,7 +1354,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               ),
               conversation: { key: conversation.id, sessionId, resume },
               ...(turn.model !== undefined && { model: turn.model }),
-              modes: modesFor(chosenModes.get(conversation.id)),
+              // Claude Code's modes alone are chosen by the input (#3765); Codex keeps the User's own.
+              ...(client === "claude-code" && {
+                modes: modesFor(chosenModes.get(conversation.id)),
+              }),
               listModels: true,
               progress,
               signal,
@@ -1446,8 +1470,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      */
     async runsOn(mindId: string): Promise<AgentPairing | null> {
       const pairing = options.askable(mindId).find(canRun);
-      if (!pairing || !options.runner) return null;
-      return (await options.runner.installed("claude-code")) ? pairing : null;
+      const client = pairing && clientOf(pairing);
+      if (!pairing || !client || !options.runner) return null;
+      return (await options.runner.installed(client)) ? pairing : null;
     },
 
     stop(mindId: string): void {
@@ -1596,8 +1621,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       refused: string | null;
     } {
       const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
-      if (!listed || !pairing || options.heldBack(pairing, mindId))
+      const client = pairing && clientOf(pairing);
+      const models = client ? listed.get(client) : undefined;
+      if (!models || !pairing || options.heldBack(pairing, mindId))
         return { models: [], ran: null, mode: null, chosen: false, refused: null };
+      // Codex's approval policy isn't one the input chooses (#3765): its picker shows models alone.
+      const picks = client === "claude-code";
       const conversation = conversationOf(mindId, pairing.id);
       const chosen = conversation ? chosenModes.get(conversation.id) : undefined;
       // What the next request starts in, and the running one is in: the choice, else the User's
@@ -1606,10 +1635,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         running.get(mindId)?.live.now()?.mode ??
         (conversation ? ownModes.get(conversation.id) : undefined);
       return {
-        models: listed,
+        models,
         ran: (conversation && ranOn.get(conversation.id)) ?? null,
-        mode: chosen ?? own ?? null,
-        chosen: chosen !== undefined,
+        mode: picks ? (chosen ?? own ?? null) : null,
+        chosen: picks && chosen !== undefined,
         refused: (conversation && refusedModes.get(conversation.id)) ?? null,
       };
     },
@@ -1624,7 +1653,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     async chooseMode(mindId: string, mode: string | null): Promise<void> {
       // The conversation running, else the one the next request would reach.
       const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
-      const conversation = pairing ? conversationOf(mindId, pairing.id) : null;
+      const conversation =
+        pairing && clientOf(pairing) === "claude-code" ? conversationOf(mindId, pairing.id) : null;
       if (!conversation) return;
       const before = chosenModes.get(conversation.id);
       refusedModes.delete(conversation.id);

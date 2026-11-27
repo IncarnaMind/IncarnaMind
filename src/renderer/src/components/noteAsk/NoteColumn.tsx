@@ -144,8 +144,6 @@ function StepLine({ step, going }: { step: NoteStep; going: boolean }) {
 /** Whether a step is one the AI took with a tool of its own and didn't ask about. */
 export const unasked = (step: NoteStep) => step.kind === "own" && step.by === undefined;
 
-/** The AI's own modes that ask nothing: its auto mode, and the one that skips every question. */
-
 /** What a stopped run had done: what it read, as one line. */
 function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
   const what = readOf(steps, t);

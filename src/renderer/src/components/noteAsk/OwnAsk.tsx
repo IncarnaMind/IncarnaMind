@@ -19,8 +19,18 @@ type Translate = ReturnType<typeof useT>;
 /** Stands for a value inside a sentence, so the value can be drawn as code. */
 const SLOT = "\u0000";
 
-/** The modes of the AI's own that ask nothing (#3653). */
-export const ASKS_NOTHING: ReadonlySet<string> = new Set(["auto", "bypassPermissions"]);
+/**
+ * The modes of the AI's own that ask nothing (#3653): Claude Code's auto mode and the one that skips
+ * every question, and Codex's.
+ */
+export const ASKS_NOTHING: ReadonlySet<string> = new Set([
+  "auto",
+  "bypassPermissions",
+  // Codex's approval policy, and a reviewer of its own that decides in the User's place.
+  "never",
+  "auto_review",
+  "guardian_subagent",
+]);
 
 function titleText(t: Translate, action: NoteAction): string {
   if (action.kind === "web") return t("ownAsk.title.web", { host: visible(action.host ?? "") });
@@ -376,7 +386,15 @@ export function QuestionCard({
     `${question.id}\u0000${all}`,
   );
   const lasting = lastingWords(t, language, question.suggested);
+  const untilEnd = lastingWords(t, language, question.forRequest);
   const grantsId = useId();
+  const requestGrantsId = useId();
+  const grantsOf = (kind: NoteAnswer) =>
+    kind === "suggested"
+      ? { id: grantsId, grants: lasting.grants }
+      : kind === "request"
+        ? { id: requestGrantsId, grants: untilEnd.grants }
+        : { id: grantsId, grants: null };
   const card = useRef<HTMLFieldSetElement>(null);
   const actions = useRef<HTMLDivElement>(null);
   const aboveLine = useRef<HTMLButtonElement>(null);
@@ -394,9 +412,12 @@ export function QuestionCard({
     out.bring(side);
   };
   const toolbar = useRef<HTMLDivElement>(null);
-  const stacked = useStacked(toolbar, `${question.id}\u0000${language}\u0000${lasting.label}`);
+  const stacked = useStacked(
+    toolbar,
+    `${question.id}\u0000${language}\u0000${lasting.label}\u0000${untilEnd.label}`,
+  );
   // On one row Deny comes first and Allow once last, as the app's approval cards put them; one under
-  // another, as Claude Code lists them: Allow once, its "don't ask again", Deny.
+  // another, as the AI lists them: Allow once, its "for this request", its "don't ask again", Deny.
   const answers = stacked ? [...question.answers].reverse() : question.answers;
   const [at, setAt] = useState<NoteAnswer>("deny");
   const buttons = useRef(new Map<NoteAnswer, HTMLButtonElement>());
@@ -546,7 +567,13 @@ export function QuestionCard({
           />
         )}
         {/* Above the row, so it is in view whenever the button is: a box that scrolls can hide what is under the row. */}
-        {!stacked && lasting.grants && <Grants id={grantsId} grants={lasting.grants} />}
+        {!stacked &&
+          (["suggested", "request"] as const).map((kind) => {
+            const { id, grants } = grantsOf(kind);
+            return grants && question.answers.includes(kind) ? (
+              <Grants key={kind} id={id} grants={grants} />
+            ) : null;
+          })}
         <div
           ref={toolbar}
           role="toolbar"
@@ -572,7 +599,7 @@ export function QuestionCard({
                 type="button"
                 tabIndex={kind === at ? 0 : -1}
                 data-testid={`own-ask-${kind}`}
-                aria-describedby={kind === "suggested" && lasting.grants ? grantsId : undefined}
+                aria-describedby={grantsOf(kind).grants ? grantsOf(kind).id : undefined}
                 onFocus={() => setAt(kind)}
                 onClick={() => answer(kind)}
                 className={`approval-button ${
@@ -583,10 +610,14 @@ export function QuestionCard({
                       : ""
                 }`}
               >
-                {kind === "suggested" ? lasting.label : t(`ownAsk.answer.${kind}`)}
+                {kind === "suggested"
+                  ? lasting.label
+                  : kind === "request"
+                    ? untilEnd.label
+                    : t(`ownAsk.answer.${kind}`)}
               </button>
-              {stacked && kind === "suggested" && lasting.grants && (
-                <Grants id={grantsId} grants={lasting.grants} />
+              {stacked && grantsOf(kind).grants && (
+                <Grants id={grantsOf(kind).id} grants={grantsOf(kind).grants ?? ""} />
               )}
             </Fragment>
           ))}
@@ -633,7 +664,9 @@ export function useAnnounce(question: NoteQuestion | undefined, agent: string): 
       .map((kind) =>
         kind === "suggested"
           ? lastingSaid(lastingWords(t, language, question.suggested))
-          : t(`ownAsk.answer.${kind}`),
+          : kind === "request"
+            ? lastingSaid(lastingWords(t, language, question.forRequest))
+            : t(`ownAsk.answer.${kind}`),
       )
       .join(language === "zh-CN" ? "、" : ", "),
   });

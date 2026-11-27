@@ -1833,6 +1833,11 @@ export interface OwnAiAsk {
   action: NoteAction;
   /** The answers its question suggests, in its order, as the card says them. */
   suggested: NoteSuggested[];
+  /**
+   * What its question offers to allow until the request ends, as the agent gave it (Codex's "for
+   * this session", #3653): the card's "request" answer, applied whole.
+   */
+  forRequest?: NoteSuggested[];
 }
 
 /** A model the User's command-line AI offers, as it lists them itself. */

@@ -4004,6 +4004,10 @@ export const en = {
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
   "consent.data.note-requests":
     "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
+  "consent.data.note-requests.codex":
+    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Codex keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back",
+  "consent.data.own-ai-context.codex":
+    "In a note’s conversation, what Codex adds by its own settings: your AGENTS.md in its own folder, its memories, your skills, and what your own servers, apps, commands, files and web pages give it, as its settings allow",
   "consent.data.own-ai-context":
     "In a note’s conversation, what Claude Code adds by its own settings: your CLAUDE.md files, its memory, your skills, and what your own servers, connectors, commands, files and web pages give it, as its settings allow",
   "consent.data.source-quotes":
@@ -9652,6 +9656,7 @@ export const en = {
   "ownAsk.didnt.other": "Didn’t use {value}",
   "ownAsk.by.once": "allowed once",
   "ownAsk.by.suggested": "allowed, not asked again",
+  "ownAsk.by.request": "allowed for this request",
   "ownAsk.by.deny": "denied",
   "ownAsk.by.stopped": "stopped before you answered",
   "ownAsk.by.closed": "IncarnaMind closed before you answered",
@@ -9662,6 +9667,11 @@ export const en = {
   "ownAsk.mode.auto": "{agent} is set to decide for itself, so here it acts without asking you.",
   "ownAsk.mode.bypassPermissions":
     "{agent} is set to skip every question, so here it acts without asking you.",
+  "ownAsk.mode.never": "{agent} is set never to ask, so here it acts without asking you.",
+  "ownAsk.mode.auto_review":
+    "{agent} is set to let its reviewer decide, so here it acts without asking you.",
+  "ownAsk.mode.guardian_subagent":
+    "{agent} is set to let its reviewer decide, so here it acts without asking you.",
   "noteAsk.did.read_mind": "Read “{summary}”",
   "noteAsk.did.list_minds": "Looked through your notes",
   "noteAsk.did.search": "Searched your Documents for “{summary}”",

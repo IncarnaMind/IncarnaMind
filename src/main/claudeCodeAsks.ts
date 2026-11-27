@@ -5,152 +5,37 @@
  * of its call, and the answers it suggests, each a change to its permissions with where it would
  * keep it. One the User picks goes back exactly as Claude Code gave it.
  */
-import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import type { NoteAction, NoteAnswer, NoteKept, NoteRule, NoteSuggested } from "../core/api";
 import { object } from "./agentCommand";
+import { elsewhereOnWindows, leadsTo, type Places, placeOf, steeringOf } from "./ownPlaces";
+
+export type { Places } from "./ownPlaces";
 
 const lines = (text: string) => (text === "" ? 0 : text.replace(/\n$/, "").split("\n").length);
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
-/** Where a file is: from the conversation's folder when it is in it, else from home as "~". */
-export interface Places {
-  /** The conversation's folder, and the same folder as the system names it once links are followed. */
-  folders: readonly string[];
-  home: string;
-}
-
-// On Windows the system's own resolver also gives a short 8.3 name (CLAUDE~1) its long one.
-const realpath = process.platform === "win32" ? realpathSync.native : realpathSync;
-
-/** Where `path` really is, links followed: its nearest folder that is there, resolved, and the rest. */
-function realOf(path: string): string | null {
-  for (let at = path, rest = ""; ; ) {
-    try {
-      return join(realpath(at), rest);
-    } catch {
-      const up = dirname(at);
-      if (up === at) return null;
-      rest = join(basename(at), rest);
-      at = up;
-    }
-  }
-}
-
-// Paths compared as the disk compares them: macOS's and Windows's in any case.
-const asCompared = (path: string) => (process.platform === "linux" ? path : path.toLowerCase());
-
-// A path, or a place a walk reaches, longer than this asks: the hook walks in the main process.
-const LONGEST_PATH = 4096;
-
-// Steps past this ask: links whose targets fold back on themselves can make a walk long.
-const LONGEST_WALK = 8192;
-
-// A path's parts as the system splits it: on macOS and Linux a backslash is a letter of a name.
-const SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
-const partsOf = (path: string) => path.split(SEPARATORS).filter((part) => part !== "");
-
 /**
- * /proc or /dev/fd at the start of a place, after its root (a drive, or Windows's `\\?\` form of
- * one), which show each process its own view: where a path through them leads for Claude Code
- * can't be told from IncarnaMind's own process.
+ * What Claude Code reads as its own: CLAUDE.md, CLAUDE.local.md, a folder's servers (.mcp.json)
+ * and the User's own (.claude.json in their home folder), each a command started next time, and
+ * anything under a .claude folder; in the conversation's folder and each above it, and in the
+ * User's own ~/.claude and ~/.claude.json. `.claude` may follow a short option's letter with
+ * nothing between, as in -C.claude.
  */
-const PROCESS_VIEW =
-  process.platform === "win32"
-    ? /^(?:[\\/]{2}[?.][\\/])?(?:[a-z]:)?[\\/]+(?:proc|dev[\\/]+fd)(?:[\\/]|$)/i
-    : new RegExp(
-        String.raw`^\/+(?:proc|dev\/+fd)(?:\/|$)`,
-        process.platform === "linux" ? "" : "i",
-      );
-const inProcessView = (at: string) => PROCESS_VIEW.test(at);
+const CLAUDE_STEERING = steeringOf({
+  files: new Set(["claude.md", "claude.local.md", ".mcp.json", ".claude.json"]),
+  folders: new Set([".claude"]),
+  near: ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".claude"],
+  own: () => [join(homedir(), ".claude"), join(homedir(), ".claude.json")],
+  named: /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])/i,
+});
 
-/**
- * Whether `path` is on another computer or names a device by other than its drive letter
- * (`\\server\share`, `\\?\UNC\…`), on Windows: touching it could reach that computer, and send it
- * the User's Windows sign-in, before the User answers. `\\?\C:\…`, as Windows writes a link to a
- * folder on a drive, is that drive.
- */
-export const elsewhereOnWindows = (path: string) =>
-  process.platform === "win32" &&
-  /^[\\/]{2}/.test(path) &&
-  !/^[\\/]{2}[?.][\\/][a-z]:([\\/]|$)/i.test(path);
-
-/**
- * Where `path` leads, walked as the system walks it: each part in turn, a link replaced by the
- * parts of its target and ".." the folder above the one reached, so it goes where a link took it,
- * even to a folder or file that isn't there yet, since a write through it can make that. With
- * `asText`, a link's target is read as text from the link's own folder instead, as Windows may read
- * it. Null when the walk gives up: more links than a system follows, a loop, more steps than a
- * path needs, a place or a rest of parts longer than a path can be, a step into /proc or /dev/fd,
- * or a link to another computer.
- */
-function leadsTo(path: string, asText = false): string | null {
-  let at = parse(path).root;
-  const parts = partsOf(path.slice(at.length));
-  for (let hops = 0, steps = 0; parts.length > 0; steps += 1) {
-    if (steps > LONGEST_WALK || at.length > LONGEST_PATH || parts.length > LONGEST_PATH) {
-      return null;
-    }
-    if (inProcessView(at)) return null;
-    const part = parts.shift() ?? "";
-    if (part === ".") continue;
-    if (part === "..") {
-      at = dirname(at);
-      continue;
-    }
-    const next = join(at, part);
-    let target: string;
-    try {
-      target = readlinkSync(next);
-    } catch {
-      at = next;
-      continue;
-    }
-    hops += 1;
-    if (hops > 40) return null;
-    const led = asText ? resolve(at, target) : isAbsolute(target) ? target : null;
-    if (led === null) {
-      parts.unshift(...partsOf(target));
-      continue;
-    }
-    if (elsewhereOnWindows(led)) return null;
-    at = parse(led).root;
-    parts.unshift(...partsOf(led.slice(at.length)));
-  }
-  if (inProcessView(at) || at.length > LONGEST_PATH) return null;
-  const real = realOf(at);
-  if (real !== null) return real;
-  // A drive with nothing on it resolves nowhere: the place reached is where it leads. But on such a
-  // drive (a RAM disk, say) Windows can't give a short 8.3 name (CLAUDE~1) its long one.
-  if (process.platform === "win32" && partsOf(at).some((part) => /~\d/.test(part))) return null;
-  return at;
-}
-
-/** `path` from `folder`, when it is inside it; null when it isn't. */
-function within(folder: string, path: string): string | null {
-  const from = relative(folder, path);
-  return from !== "" && !from.startsWith("..") && !isAbsolute(from) ? from : null;
-}
-
-function placeOf(path: string, { folders, home }: Places): { value: string; inFolder: boolean } {
-  // Claude Code names files by their whole path; one it didn't is from where it works.
-  const whole = resolve(folders[0] ?? "", path);
-  const outside = (where: string) => {
-    const fromHome = home === "" ? null : within(home, where);
-    return { value: fromHome === null ? where : `~${sep}${fromHome}`, inFolder: false };
-  };
-  for (const folder of folders) {
-    const from = within(folder, whole);
-    if (from === null) continue;
-    // A link inside the folder can lead out of it: there it is named where it really goes.
-    const real = leadsTo(whole) ?? whole;
-    const really = folders.some((each) => within(realOf(each) ?? each, real) !== null);
-    return really ? { value: from, inFolder: true } : outside(real);
-  }
-  return outside(whole);
-}
+const steering = CLAUDE_STEERING.steering;
+const steeringMark = CLAUDE_STEERING.mark;
+const namesSteering = CLAUDE_STEERING.names;
 
 const changeOf = (pairs: readonly { from: string; to: string }[]) =>
   pairs
@@ -315,167 +200,6 @@ export function actionOf(
 /** Whether a call is one of IncarnaMind's own Tools, which never ask. */
 export const oursIn = (server: string) => (name: unknown) =>
   typeof name === "string" && (name === `mcp__${server}` || name.startsWith(`mcp__${server}__`));
-
-/**
- * The files Claude Code reads as its own, by name in lower case: macOS's and Windows's disks open a
- * file by its name in any case, so claude.md there is CLAUDE.md.
- */
-const STEERING_FILES: ReadonlySet<string> = new Set([
-  "claude.md",
-  "claude.local.md",
-  // A folder's servers, and the User's own in their home folder: each a command started next time.
-  ".mcp.json",
-  ".claude.json",
-]);
-
-/**
- * Characters that draw nothing, which an older Mac disk (HFS+), and folders some Linux kernels fold
- * the case of, leave out when they compare names, so that CLAUDE.md with one inside is CLAUDE.md.
- */
-const UNSEEN_IN_NAMES = /\p{Default_Ignorable_Code_Point}/gu;
-
-/**
- * A part of a path as the disk finds it: letters a disk takes as others folded (the long s, U+017F,
- * is an s) and characters it leaves out taken out, and, as Windows opens a file, without the dots and
- * spaces that end it or a stream named after a colon (CLAUDE.md::$DATA is CLAUDE.md).
- */
-const asFound = (part: string) =>
-  part
-    .normalize("NFKC")
-    .replace(UNSEEN_IN_NAMES, "")
-    .toLowerCase()
-    .replace(/:.*$/, "")
-    .replace(/[. ]+$/, "");
-
-const steersAsNamed = (path: string) => {
-  const parts = path.split(/[\\/]/).map(asFound);
-  return STEERING_FILES.has(parts.at(-1) ?? "") || parts.includes(".claude");
-};
-
-/**
- * The file at `path` by its disk and number, when it has other names (a hard link), as its device
- * and inode; null for one with no other name, a folder, or nothing there.
- */
-function linkedHard(path: string): string | null {
-  try {
-    const stat = statSync(path, { bigint: true });
-    return stat.isFile() && stat.nlink > 1n ? `${stat.dev}:${stat.ino}` : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The file at `path` by its device and inode; null for nothing there or not a file. */
-function fileId(path: string): string | null {
-  try {
-    const stat = statSync(path, { bigint: true });
-    return stat.isFile() ? `${stat.dev}:${stat.ino}` : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Every place `path` may lead: walked as the system walks it and with a link's target read as
- * text, on Windows, which may read it either way. Null in it where a walk gave up.
- */
-const readingsOf = (path: string) =>
-  process.platform === "win32" ? [leadsTo(path), leadsTo(path, true)] : [leadsTo(path)];
-
-/** Whether something is at `path` itself, a link to nothing there yet too. */
-function there(path: string): boolean {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Where the steering files Claude Code reads for `cwd` really are: CLAUDE.md, CLAUDE.local.md,
- * .mcp.json and .claude in it and in each folder above it, and the User's own ~/.claude and
- * ~/.claude.json, each walked where it is a link, as CLAUDE.md to an AGENTS.md, or to one not
- * written yet, or ~/.claude to a folder of dotfiles is.
- */
-function steeringPlaces(cwd: string): string[] {
-  const named: string[] = [];
-  for (let at = resolve(cwd); ; at = dirname(at)) {
-    for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".claude"]) {
-      named.push(join(at, name));
-    }
-    if (dirname(at) === at) break;
-  }
-  named.push(join(homedir(), ".claude"), join(homedir(), ".claude.json"));
-  return named
-    .filter(there)
-    .flatMap(readingsOf)
-    .flatMap((real) => (real === null ? [] : [real]));
-}
-
-// Claude Code's own home, which may not be the one IncarnaMind's process has.
-const FROM_HOME = /^~/;
-
-/**
- * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents,
- * skills and its memory (under a .claude folder), and servers (.mcp.json, .claude.json). Written in
- * the conversation's folder, or in its memory, it steers every later request there. Checked as
- * named, where it really is from `cwd` (a symbolic link by another name can lead to one), against
- * where the steering files for `cwd` really are, and, for a file with other names (a hard link),
- * as one of them when its disk and number are one's, and as one that may be when they aren't, since
- * a file under a .claude folder can't be found cheaply. The path is walked as given, its own ".."
- * taken by the walk, and folded as text, since Claude Code may hand it on either way. "known" when
- * a reading reaches one; "unknown" where that can't be told: a walk gave up, a hard link to no
- * steering file, a path from Claude Code's own home, one too long to walk, or one on another
- * computer.
- */
-function steering(path: string, cwd: string): "known" | "unknown" | null {
-  if (steersAsNamed(path)) return "known";
-  if (FROM_HOME.test(path) || path.length > LONGEST_PATH) return "unknown";
-  const given = isAbsolute(path) ? path : `${resolve(cwd)}${sep}${path}`;
-  const folded = resolve(cwd, path);
-  if (elsewhereOnWindows(given) || elsewhereOnWindows(folded)) return "unknown";
-  const readings = [...new Set([given, folded])].flatMap(readingsOf);
-  if (readings.some((real) => real === null)) return "unknown";
-  const places = steeringPlaces(cwd);
-  const compared = places.map(asCompared);
-  const reached = readings.some((real) => {
-    if (real === null || steersAsNamed(real)) return true;
-    const found = asCompared(real);
-    return compared.some((place) => found === place || found.startsWith(`${place}${sep}`));
-  });
-  if (reached) return "known";
-  const linked = readings.flatMap((real) => {
-    const id = real === null ? null : linkedHard(real);
-    return id === null ? [] : [id];
-  });
-  if (linked.length === 0) return null;
-  const ids = new Set(places.map(fileId));
-  return linked.some((id) => ids.has(id)) ? "known" : "unknown";
-}
-
-/**
- * What a file's card says of it: that it steers Claude Code, where that is known, or that
- * IncarnaMind can't tell where it leads, where the hook asks for that.
- */
-function steeringMark(path: string, cwd: string): Pick<NoteAction, "steers" | "unsure"> {
-  const found = steering(path, cwd);
-  return found === "known" ? { steers: true } : found === "unknown" ? { unsure: true } : {};
-}
-
-// .claude may follow a short option's letter with nothing between, as in -C.claude.
-const STEERING_NAMES = /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])/i;
-
-/**
- * A command that names one of those files or folders, in any case, its letters folded as a disk
- * does, with the quotes, backslashes and PowerShell's backticks a shell takes out of a name taken
- * out too: it may write one. A command that writes one without naming it, as a script, a pattern, a
- * name it builds or an archive it unpacks, is not seen.
- */
-const namesSteering = (command: string) => {
-  const folded = command.normalize("NFKC").replace(UNSEEN_IN_NAMES, "");
-  return STEERING_NAMES.test(folded) || STEERING_NAMES.test(folded.replace(/["'`\\]/g, ""));
-};
 
 /** The id IncarnaMind's PreToolUse hook is registered under, in `initialize`. */
 export const STEERING_HOOK = "incarnamind-steering";

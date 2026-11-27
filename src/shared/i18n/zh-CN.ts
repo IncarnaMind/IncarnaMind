@@ -3787,6 +3787,10 @@ export const zhCN = {
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
   "consent.data.note-requests":
     "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Claude Code 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回；闲置 30 天的对话它也会删除",
+  "consent.data.note-requests.codex":
+    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Codex 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回",
+  "consent.data.own-ai-context.codex":
+    "在笔记的对话里，Codex 按它自己的设置加入的内容：你在它自己文件夹里的 AGENTS.md、它的记忆、你的技能，以及你自己的服务器、应用、命令、文件和网页给它的内容，以它的设置允许的为限",
   "consent.data.own-ai-context":
     "在笔记的对话里，Claude Code 按它自己的设置加入的内容：你的 CLAUDE.md 文件、它的记忆、你的技能，以及你自己的服务器、连接器、命令、文件和网页给它的内容，以它的设置允许的为限",
   "consent.data.source-quotes":
@@ -9016,6 +9020,7 @@ export const zhCN = {
   "ownAsk.didnt.other": "未使用 {value}",
   "ownAsk.by.once": "已允许一次",
   "ownAsk.by.suggested": "已允许，不再询问",
+  "ownAsk.by.request": "已允许，本次请求内不再询问",
   "ownAsk.by.deny": "已拒绝",
   "ownAsk.by.stopped": "你在回答前停止了",
   "ownAsk.by.closed": "回答前 IncarnaMind 已关闭",
@@ -9024,6 +9029,9 @@ export const zhCN = {
   "ownAsk.first": "{agent} 在这里也会按自己的设置使用自己的工具，IncarnaMind 看不到，也无法撤销。",
   "ownAsk.mode.auto": "{agent} 设为自行判断，所以在这里它不问你就会操作。",
   "ownAsk.mode.bypassPermissions": "{agent} 设为跳过所有询问，所以在这里它不问你就会操作。",
+  "ownAsk.mode.never": "{agent} 设为从不询问，所以在这里它不问你就会操作。",
+  "ownAsk.mode.auto_review": "{agent} 设为由它的审核者决定，所以在这里它不问你就会操作。",
+  "ownAsk.mode.guardian_subagent": "{agent} 设为由它的审核者决定，所以在这里它不问你就会操作。",
   "noteAsk.did.read_mind": "读了“{summary}”",
   "noteAsk.did.list_minds": "查看了你的笔记",
   "noteAsk.did.search": "在你的文档中搜索了“{summary}”",

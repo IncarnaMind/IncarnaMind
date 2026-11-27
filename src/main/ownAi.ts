@@ -7,7 +7,7 @@
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { OwnAiEnd, OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
@@ -16,6 +16,7 @@ import { resolveCommandOnPath } from "./claudeBinary";
 import { ClaudeCodeHookError, ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
 import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./claudeCodeAsks";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
+import { deleteCodexThreads, runCodexConversation } from "./codexConversation";
 import { modelsIn } from "./ownAiModels";
 import { quotingNow, sayingNow, writingNow } from "./streamedInput";
 
@@ -84,6 +85,8 @@ function parsedInput(json: string): Record<string, unknown> | null {
 
 /** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
 const NOTHING_TO_PURGE = /No Claude Code project data found/;
+/** How long deleting a conversation's threads may take Codex. */
+const PURGE_MS = 30_000;
 const SERVER = "incarnamind";
 
 /**
@@ -152,11 +155,83 @@ export function createOwnAi({
     }
     return join(conversations, key);
   };
-  /** A check on Codex (./codex); a kept conversation isn't one it runs (#3639). */
-  async function runCodexCheck(
+  /**
+   * The threads Codex keeps each conversation as, newest last, by its key: in a file of
+   * IncarnaMind's own beside the conversations' folders, out of reach of what Codex writes in one.
+   */
+  const threadsFile = (key: string) =>
+    join(conversations ?? "", ".codex-threads", `${basename(folderOf(key))}.json`);
+  const threadsOf = async (key: string): Promise<string[]> => {
+    try {
+      const kept: unknown = JSON.parse(await readFile(threadsFile(key), "utf8"));
+      return Array.isArray(kept) ? kept.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  const keepThread = async (key: string, id: string) => {
+    const threads = await threadsOf(key);
+    if (threads.includes(id)) return;
+    await mkdir(join(conversations ?? "", ".codex-threads"), { recursive: true, mode: 0o700 });
+    await writeFile(threadsFile(key), JSON.stringify([...threads, id]), { mode: 0o600 });
+  };
+
+  /** A request of a Note's conversation on Codex, with its own abilities (#3653). */
+  async function runCodexOwn(
+    request: Parameters<OwnAiRunner["run"]>[0],
+    path: string,
+    conversation: NonNullable<Parameters<OwnAiRunner["run"]>[0]["conversation"]>,
+    own: NonNullable<Parameters<OwnAiRunner["run"]>[0]["own"]>,
+  ): ReturnType<OwnAiRunner["run"]> {
+    const cwd = folderOf(conversation.key);
+    const thread = conversation.resume
+      ? ((await threadsOf(conversation.key)).at(-1) ?? null)
+      : null;
+    if (conversation.resume && thread === null)
+      return { kind: "failed", reason: "lost-conversation" };
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(runMs)]);
+    try {
+      await mkdir(cwd, { recursive: true, mode: 0o700 });
+      return await runCodexConversation({
+        path,
+        cwd,
+        server: request.server,
+        tools: request.tools,
+        instructions: request.instructions,
+        prompt: request.prompt,
+        thread,
+        kept: (id) => keepThread(conversation.key, id),
+        own,
+        ...(request.model && { model: request.model }),
+        ...(request.listModels && { listModels: true }),
+        ...(request.progress && { progress: request.progress }),
+        ...(request.started && { started: request.started }),
+        signal,
+        maxBytes: MAX_RUN_BYTES,
+        maxReplyChars: MAX_REPLY_CHARS,
+        stallMs,
+        ...(noted && { processes: noted }),
+      });
+    } catch (error) {
+      if (request.signal.aborted) throw error;
+      if (error instanceof StalledError) return { kind: "failed", reason: "stalled" };
+      if (signal.aborted) return { kind: "failed", reason: "timeout" };
+      console.warn(
+        "A request of a Note's conversation on Codex failed:",
+        error instanceof Error ? error.message : "unknown",
+      );
+      return { kind: "failed", reason: "other" };
+    }
+  }
+
+  /** A check on Codex (./codex), or a request of a Note's conversation on it. */
+  async function runOnCodex(
     request: Parameters<OwnAiRunner["run"]>[0],
   ): ReturnType<OwnAiRunner["run"]> {
     const path = await codex();
+    if (path !== null && request.conversation && request.own) {
+      return runCodexOwn(request, path, request.conversation, request.own);
+    }
     if (path === null || request.conversation || request.tools === "all") {
       return { kind: "failed", reason: "unsupported" };
     }
@@ -222,6 +297,24 @@ export function createOwnAi({
 
     async purge(key) {
       const folder = folderOf(key);
+      const threads = await threadsOf(key);
+      if (threads.length > 0) {
+        const path = await codex();
+        const deleted =
+          path !== null &&
+          (await deleteCodexThreads(path, threads, AbortSignal.timeout(PURGE_MS)).catch(
+            (error: unknown) => {
+              console.warn(
+                "Codex couldn't delete a conversation's threads:",
+                error instanceof Error ? error.message : "unknown",
+              );
+              return false;
+            },
+          ));
+        await rm(folder, { recursive: true, force: true, maxRetries: 3 });
+        if (deleted) await rm(threadsFile(key), { force: true });
+        return deleted;
+      }
       if (command === null) {
         await rm(folder, { recursive: true, force: true, maxRetries: 3 });
         return false;
@@ -260,7 +353,7 @@ export function createOwnAi({
     },
 
     async run(request) {
-      if (request.client === "codex") return runCodexCheck(request);
+      if (request.client === "codex") return runOnCodex(request);
       if (command === null) return { kind: "failed", reason: "other" };
       request.started?.();
       const compactionOver = new AbortController();

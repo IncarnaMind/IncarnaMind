@@ -32,6 +32,7 @@ import {
   stopInNote,
   useColumnOpen,
   useEditedRequests,
+  useNoteAgentName,
   useNoteAskShown,
   useNoteAsks,
   useNoteColumns,
@@ -87,6 +88,7 @@ export function NoteAsk({ mindId, editor }: { mindId: string; editor: Editor }) 
 function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const t = useT();
   const ask = useNoteAsks((state) => state.byMind[mindId]);
+  const runsOn = useNoteAgentName(mindId);
   const [words, setWords] = useState("");
   // What the input holds now, for a send that comes back after the User typed again.
   const typedNow = useRef(words);
@@ -317,7 +319,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   // Open, the conversation shows the line's reply and a failure of its request; a request that
   // failed before it began has no turn there, so its line stays above the input.
   const shownLine = shownOpen && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
-  const agent = ask?.agent || "Claude Code";
+  // With no request running, as after a restart, the agent the Note's input runs on.
+  const agent = ask?.agent || runsOn || "Claude Code";
   const input = (
     <NoteAskInput
       mindId={mindId}
