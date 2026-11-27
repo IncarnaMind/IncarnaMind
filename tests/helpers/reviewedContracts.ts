@@ -2,11 +2,13 @@
  * An invented contract two people reviewed in Word, in English and Chinese, for the Word file
  * IncarnaMind writes into for an outside agent (#3751): numbered clauses, a table of contents, a
  * REF to a bookmarked sub-clause, comments by both people, a tracked insertion and a format change,
- * a tracked change in the header, a footer field showing a custom property, and the people and
- * words its properties, variables, custom XML and the rest hold.
+ * tracked changes in the header, a content control there bound to custom XML, a footer field
+ * showing a custom property, a chart with its workbook, an embedded object with its picture, parts
+ * of kinds Word files rarely hold, and the people and words its properties, variables, custom XML
+ * and the rest hold.
  */
 import { unzip } from "./docx";
-import { escapeXml, field, paragraph, run, STYLES, tracked, wordFile } from "./word";
+import { escapeXml, field, PNG, paragraph, run, STYLES, tracked, wordFile } from "./word";
 import { CHINESE_CONTRACT, type Contract, ENGLISH_CONTRACT, sub } from "./wordContracts";
 import { buildZip } from "./zip";
 
@@ -16,6 +18,8 @@ const OFFICE = "http://schemas.openxmlformats.org/officeDocument/2006/relationsh
 const PACKAGE = "http://schemas.openxmlformats.org/package/2006/relationships";
 const MS = "http://schemas.microsoft.com/office/2011/relationships";
 const WML = "application/vnd.openxmlformats-officedocument.wordprocessingml";
+const CHART = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+const STORE_ITEM = "{6B1C2D3E-0000-4000-8000-000000000001}";
 
 interface Words {
   contract: Contract;
@@ -39,6 +43,18 @@ interface Words {
   /** Where the first reviewer's template is on their computer. */
   template: string;
   email: string;
+  /** What the header's tracked deletion took out. */
+  deleted: string;
+  /** What the content control in the header shows. */
+  bound: string;
+  /** The chart's one series as it draws it, and what else its workbook and the object hold. */
+  series: [name: string, value: string];
+  workbook: string;
+  /** What a part of an unknown kind and an imported chunk hold. */
+  unknown: string;
+  chunk: string;
+  identifier: string;
+  version: string;
 }
 
 const WORDS: Record<"en" | "zh-CN", Words> = {
@@ -60,6 +76,14 @@ const WORDS: Record<"en" | "zh-CN", Words> = {
     footer: "Prepared for ",
     template: "file:///Users/dkim/Templates/Contract.dotx",
     email: "dana.kim@kimortega.example",
+    deleted: " for the Alder file",
+    bound: "Reviewed by the legal team",
+    series: ["Fees", "1200"],
+    workbook: "Board-only margin of 41 percent",
+    unknown: "Settlement floor agreed with Kim",
+    chunk: "Fallback clause from the Ortega draft",
+    identifier: "MATTER-2291-DK",
+    version: "4.2-review",
   },
   "zh-CN": {
     contract: CHINESE_CONTRACT,
@@ -79,6 +103,14 @@ const WORDS: Record<"en" | "zh-CN", Words> = {
     footer: "编制对象：",
     template: "file:///Users/wangli/Templates/合同.dotx",
     email: "wang.li@wangchen.example",
+    deleted: "（远帆档案）",
+    bound: "法务团队已审阅",
+    series: ["费用", "1200"],
+    workbook: "仅限董事会的利润率百分之四十一",
+    unknown: "与王丽商定的和解底线",
+    chunk: "陈伟草稿中的备用条款",
+    identifier: "案件-2291-王",
+    version: "4.2-审阅",
   },
 };
 
@@ -129,6 +161,8 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
       .join("");
   const headings = [services, fees, termination].map(textOf);
   const feesBold = `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:rPr><w:b/><w:rPrChange w:id="31" w:author="${escapeXml(first)}" w:date="2026-10-02T09:30:00Z"><w:rPr/></w:rPrChange></w:rPr><w:t xml:space="preserve">${escapeXml(headings[1] ?? "")}</w:t></w:r></w:p>`;
+  const chartParagraph = `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="3000000" cy="2000000"/><wp:docPr id="51" name="Chart 1"/><a:graphic><a:graphicData uri="${CHART}"><c:chart xmlns:c="${CHART}" r:id="rIdChart1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+  const objectParagraph = `<w:p><w:r><w:object w:dxaOrig="1440" w:dyaOrig="960"><v:shape id="_x0000_i1025" type="#_x0000_t75" style="width:72pt;height:48pt" o:ole=""><v:imagedata r:id="rIdPreview1" o:title=""/></v:shape><o:OLEObject Type="Embed" ProgID="Package" ShapeID="_x0000_i1025" DrawAspect="Content" ObjectID="_1700000001" r:id="rIdObject1"/></w:object></w:r></w:p>`;
   const body = [
     contents(headings),
     services,
@@ -139,6 +173,8 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
     bookmarked,
     termination,
     sub(contract.reference),
+    chartParagraph,
+    objectParagraph,
   ].join("");
   const sectPr =
     '<w:headerReference w:type="default" r:id="rIdH1"/><w:footerReference w:type="default" r:id="rIdF1"/><w:pgSz w:w="11906" w:h="16838"/>';
@@ -159,7 +195,13 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
         comment(11, "2A000002", second, words.comments[1]),
       ].join(""),
       headers: {
-        rIdH1: paragraph(`${run(words.header)}${tracked("ins", 40, first, words.headerAdded)}`),
+        rIdH1: [
+          paragraph(
+            `${run(words.header)}${tracked("ins", 40, first, words.headerAdded)}${tracked("del", 41, second, words.deleted)}`,
+          ),
+          `<w:sdt><w:sdtPr><w:alias w:val="Review"/><w:id w:val="101"/><w:placeholder><w:docPart w:val="DefaultPlaceholder_-1854013440"/></w:placeholder><w:dataBinding w:xpath="/review/reviewer" w:storeItemID="${STORE_ITEM}"/><w:text/></w:sdtPr><w:sdtContent>${paragraph(run(words.bound))}</w:sdtContent></w:sdt>`,
+          '<w:altChunk r:id="rIdChunk1"/>',
+        ].join(""),
       },
       footers: {
         rIdF1: paragraph(
@@ -170,10 +212,48 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
       rels:
         `<Relationship Id="rIdCommentsExtended" Type="${MS}/commentsExtended" Target="commentsExtended.xml"/>` +
         `<Relationship Id="rIdPeople" Type="${MS}/people" Target="people.xml"/>` +
-        `<Relationship Id="rIdCustomXml" Type="${OFFICE}/customXml" Target="../customXml/item1.xml"/>`,
+        `<Relationship Id="rIdCustomXml" Type="${OFFICE}/customXml" Target="../customXml/item1.xml"/>` +
+        `<Relationship Id="rIdChart1" Type="${OFFICE}/chart" Target="charts/chart1.xml"/>` +
+        `<Relationship Id="rIdObject1" Type="${OFFICE}/oleObject" Target="embeddings/oleObject1.bin"/>` +
+        `<Relationship Id="rIdPreview1" Type="${OFFICE}/image" Target="media/image9.png"/>` +
+        `<Relationship Id="rIdUnknown1" Type="http://schemas.example.org/relationships/reviewNotes" Target="reviewNotes.xml"/>`,
       sectPr,
       parts: [
         { name: "word/commentsExtended.xml", data: extended },
+        { name: "word/media/image9.png", data: PNG },
+        {
+          name: "word/charts/chart1.xml",
+          data: `${DECLARATION}<c:chartSpace xmlns:c="${CHART}" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${OFFICE}"><c:chart><c:plotArea><c:layout/><c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:strRef><c:f>Sheet1!$B$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${escapeXml(words.series[0])}</c:v></c:pt></c:strCache></c:strRef></c:tx><c:val><c:numRef><c:f>Sheet1!$B$2</c:f><c:numCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${words.series[1]}</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser><c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="l"/><c:crossAx val="1"/></c:valAx></c:plotArea></c:chart><c:externalData r:id="rId1"><c:autoUpdate val="0"/></c:externalData></c:chartSpace>`,
+        },
+        {
+          name: "word/charts/_rels/chart1.xml.rels",
+          data: `${DECLARATION}<Relationships xmlns="${PACKAGE}"><Relationship Id="rId1" Type="${OFFICE}/package" Target="../embeddings/Microsoft_Excel_Worksheet.xlsx"/></Relationships>`,
+        },
+        {
+          name: "word/embeddings/Microsoft_Excel_Worksheet.xlsx",
+          data: buildZip([
+            {
+              name: "xl/worksheets/sheet2.xml",
+              data: `${DECLARATION}<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>${escapeXml(words.workbook)}</t></is></c></row></sheetData></worksheet>`,
+            },
+          ]),
+        },
+        {
+          name: "word/embeddings/oleObject1.bin",
+          data: Buffer.from(`OLE ${words.workbook}`, "utf8"),
+        },
+        {
+          name: "word/reviewNotes.xml",
+          data: `${DECLARATION}<notes><note>${escapeXml(words.unknown)}</note></notes>`,
+        },
+        {
+          name: "word/_rels/header1.xml.rels",
+          data: `${DECLARATION}<Relationships xmlns="${PACKAGE}"><Relationship Id="rIdChunk1" Type="${OFFICE}/aFChunk" Target="chunk1.htm"/></Relationships>`,
+        },
+        {
+          name: "word/chunk1.htm",
+          data: `<html><body><p>${escapeXml(words.chunk)}</p></body></html>`,
+        },
         { name: "word/people.xml", data: peopleXml },
         {
           name: "word/_rels/settings.xml.rels",
@@ -189,11 +269,11 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
         },
         {
           name: "customXml/itemProps1.xml",
-          data: `${DECLARATION}<ds:datastoreItem ds:itemID="{6B1C2D3E-0000-4000-8000-000000000001}" xmlns:ds="http://schemas.openxmlformats.org/officeDocument/2006/customXml"><ds:schemaRefs/></ds:datastoreItem>`,
+          data: `${DECLARATION}<ds:datastoreItem ds:itemID="${STORE_ITEM}" xmlns:ds="http://schemas.openxmlformats.org/officeDocument/2006/customXml"><ds:schemaRefs/></ds:datastoreItem>`,
         },
         {
           name: "docProps/core.xml",
-          data: `${DECLARATION}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escapeXml(words.title)}</dc:title><dc:subject>${escapeXml(words.title)}</dc:subject><dc:creator>${escapeXml(first)}</dc:creator><cp:keywords>${escapeXml(words.client)}</cp:keywords><dc:description>${escapeXml(words.description)}</dc:description><cp:lastModifiedBy>${escapeXml(second)}</cp:lastModifiedBy><cp:revision>7</cp:revision><dcterms:created xsi:type="dcterms:W3CDTF">2026-09-28T08:00:00Z</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">2026-10-02T11:00:00Z</dcterms:modified></cp:coreProperties>`,
+          data: `${DECLARATION}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escapeXml(words.title)}</dc:title><dc:subject>${escapeXml(words.title)}</dc:subject><dc:creator>${escapeXml(first)}</dc:creator><cp:keywords>${escapeXml(words.client)}</cp:keywords><dc:description>${escapeXml(words.description)}</dc:description><cp:lastModifiedBy>${escapeXml(second)}</cp:lastModifiedBy><dc:identifier>${escapeXml(words.identifier)}</dc:identifier><cp:version>${escapeXml(words.version)}</cp:version><cp:revision>7</cp:revision><dcterms:created xsi:type="dcterms:W3CDTF">2026-09-28T08:00:00Z</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">2026-10-02T11:00:00Z</dcterms:modified></cp:coreProperties>`,
         },
         {
           name: "docProps/app.xml",
@@ -219,7 +299,7 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
     Buffer.from(
       types.replace(
         "</Types>",
-        `<Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/commentsExtended.xml" ContentType="${WML}.commentsExtended+xml"/><Override PartName="/word/people.xml" ContentType="${WML}.people+xml"/><Override PartName="/customXml/itemProps1.xml" ContentType="application/vnd.openxmlformats-officedocument.customXmlProperties+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/><Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/></Types>`,
+        `<Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/><Default Extension="bin" ContentType="application/vnd.openxmlformats-officedocument.oleObject"/><Default Extension="htm" ContentType="text/html"/><Override PartName="/word/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/><Override PartName="/word/reviewNotes.xml" ContentType="application/vnd.example.reviewNotes+xml"/><Override PartName="/word/commentsExtended.xml" ContentType="${WML}.commentsExtended+xml"/><Override PartName="/word/people.xml" ContentType="${WML}.people+xml"/><Override PartName="/customXml/itemProps1.xml" ContentType="application/vnd.openxmlformats-officedocument.customXmlProperties+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/><Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/></Types>`,
       ),
     ),
   );
@@ -239,6 +319,12 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
       words.template,
       words.email,
       words.stored,
+      words.deleted,
+      words.workbook,
+      words.unknown,
+      words.chunk,
+      words.identifier,
+      words.version,
     ],
   };
 }

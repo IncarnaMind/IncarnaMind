@@ -61,8 +61,9 @@ import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 import { reviewedContract } from "../helpers/reviewedContracts";
-import { escapeXml } from "../helpers/word";
+import { escapeXml, paragraph, run } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
+import { buildZip } from "../helpers/zip";
 
 interface Saved extends Handed {
   citations: { cite: string; check: string; document: string | null }[];
@@ -1790,9 +1791,25 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       }
       const document = part(files, "word/document.xml");
       for (const clause of part(original, "word/document.xml").match(/<w:p>.*?<\/w:p>/gs) ?? []) {
-        if (/comment|w:ins |rPrChange/.test(clause)) continue;
+        if (/comment|w:ins |rPrChange|w:object/.test(clause)) continue;
         expect(document).toContain(clause);
       }
+      // An embedded object is the picture it shows; a chart draws what it drew, its workbook gone.
+      expect(document).toContain(
+        '<w:pict><v:shape id="_x0000_i1025" type="#_x0000_t75" style="width:72pt;height:48pt"><v:imagedata r:id="rIdPreview1" o:title=""/></v:shape></w:pict>',
+      );
+      expect(files.get("word/media/image9.png")).toEqual(original.get("word/media/image9.png"));
+      const chart = part(files, "word/charts/chart1.xml");
+      expect(chart).toContain(`<c:v>${escapeXml(contract.words.series[0])}</c:v>`);
+      expect(chart).toContain(`<c:v>${contract.words.series[1]}</c:v>`);
+      expect(chart).not.toContain("externalData");
+      expect(part(files, "word/charts/_rels/chart1.xml.rels")).not.toContain("Relationship ");
+      // A content control keeps what it shows, without its tie to the custom XML or a building block.
+      const header = part(files, "word/header1.xml");
+      expect(header).toContain(
+        `<w:sdtContent>${paragraph(run(contract.words.bound))}</w:sdtContent>`,
+      );
+      expect(header).not.toMatch(/dataBinding|placeholder|docPart|altChunk|w:del /);
       expect(document).toContain('TOC \\o "1-3" \\h \\z \\u');
       expect(document).toMatch(/REF _Ref[0-9]+ \\r \\h/);
       expect(part(files, "word/footer1.xml")).toContain("DOCPROPERTY Client");
@@ -1802,9 +1819,13 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       expect(document).toContain(`<w:rPrChange w:id="31" ${neutral}`);
 
       // Nothing of anyone the agent was never given, in any part.
+      // Nor any part of a kind not known for a Word file's look, or what points at one.
       expect(
-        [...files.keys()].filter((name) => /comments|people|customXml|thumbnail/.test(name)),
+        [...files.keys()].filter((name) =>
+          /comments|people|customXml|thumbnail|embeddings|reviewNotes|chunk/.test(name),
+        ),
       ).toEqual([]);
+      expect(part(files, "word/_rels/document.xml.rels")).not.toMatch(/oleObject|reviewNotes/);
       for (const words of [...contract.others, contract.words.title, contract.words.inserted]) {
         expect(all).not.toContain(escapeXml(words));
       }
@@ -1814,13 +1835,69 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         `name="Client"><vt:lpwstr>${escapeXml(contract.words.client)}</vt:lpwstr>`,
       );
       expect(part(files, "docProps/app.xml")).not.toContain("<Template>");
-      expect(part(files, "[Content_Types].xml")).not.toMatch(/people|commentsExtended|customXml/);
+      expect(part(files, "[Content_Types].xml")).not.toMatch(
+        /people|commentsExtended|customXml|reviewNotes/,
+      );
+      expect(part(files, "docProps/core.xml")).not.toMatch(/identifier|cp:version/);
 
       // Export › Word by hand writes the file's comments and their people as before.
       const byHand = unzip((await core.exportMind(mindId, { format: "docx" })).data);
       expect(part(byHand, "word/comments.xml")).toContain(escapeXml(contract.words.comments[0]));
       expect(part(byHand, "word/people.xml")).toContain(escapeXml(contract.words.people[1]));
       expect(part(byHand, "docProps/core.xml")).toContain(escapeXml(contract.words.people[0]));
+    },
+  );
+
+  // protects=a Word file whose document part sits outside word/ is made fit for the agent as one in word/ is: its comments, people and properties go and its tracked changes are by no one, so where a package keeps its parts lets nothing through (#3751); fails_when=any of those names or words is in a part of the agent's file, or the file fails Word's package checks
+  it.each(["en", "zh-CN"] as const)(
+    "writes a Note imported from a Word file that keeps its document outside word/ without what the agent was never given (%s)",
+    async (language) => {
+      const { core, coast, writer } = await started([], { asItLands: false });
+      await core.updateSettings({ user: { language } });
+      await core.setOutputLocation(await createSourceFolder());
+      const contract = reviewedContract(language);
+      const moved = new Map(
+        [...unzip(contract.bytes)].map(([name, data]) => [
+          name.replace(/^word\//, "content/"),
+          name === "_rels/.rels" || name === "[Content_Types].xml"
+            ? Buffer.from(
+                data
+                  .toString("utf8")
+                  .replaceAll("/word/", "/content/")
+                  .replace('Target="word/', 'Target="content/'),
+              )
+            : data,
+        ]),
+      );
+      const bytes = buildZip([...moved].map(([name, data]) => ({ name, data })));
+      const { mindId } = await importWordBytes(core, await createSourceFolder(), bytes, {
+        name: "Packaging agreement.docx",
+        origin: "someone-else",
+        folderId: coast.id,
+      });
+      const agent = await connectLegacyAgent(writer.launch);
+
+      const saved = structured<Saved>(await save(agent, { mindId }));
+      if (!saved.saved) throw new Error(`The Word file wasn't saved: ${saved.notSaved}`);
+      const data = new Uint8Array(readFileSync(saved.saved));
+      // The package check looks for the document in word/ alone; every other check holds.
+      expect((await inspectPackage(data)).problems).toEqual(["word/document.xml is missing"]);
+      const files = unzip(data);
+      const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
+      expect([...files.keys()].filter((name) => name.startsWith("word/"))).toEqual([]);
+      expect(part(files, "content/document.xml")).toContain('TOC \\o "1-3" \\h \\z \\u');
+      expect(part(files, "content/footer1.xml")).toBe(part(moved, "content/footer1.xml"));
+      const neutral = `w:author="${translate(language, "export.word.author")}"`;
+      expect(part(files, "content/header1.xml")).toContain(`<w:ins w:id="40" ${neutral}`);
+      expect(
+        [...files.keys()].filter((name) =>
+          /comments|people|customXml|thumbnail|embeddings|reviewNotes|chunk/.test(name),
+        ),
+      ).toEqual([]);
+      for (const words of [...contract.others, contract.words.title, contract.words.inserted]) {
+        expect(all).not.toContain(escapeXml(words));
+      }
+      expect(all).not.toMatch(/commentRangeStart|commentReference|attachedTemplate|externalData/);
     },
   );
 });

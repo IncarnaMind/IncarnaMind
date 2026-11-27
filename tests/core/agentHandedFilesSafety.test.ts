@@ -326,6 +326,23 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     );
   });
 
+  // protects=a Linked folder's file the agent wrote and the User made Not cited before it was handed over stays Not cited when a refused hand-over takes back its new item: the take-back undoes only what the hand-over set (#3751); fails_when=the refusal makes the User's Not cited file a source again
+  it("keeps a Linked folder's file Not cited by the User when a refused hand-over takes back its new item", async () => {
+    const waiting = await waitingHandOver({ linked: true, name: "Harbour review.docx" });
+    const { core, path } = waiting;
+    await writeFile(path, wordFile({ body: paragraph(OFFICE) }));
+    await core.reconcileDocuments();
+    const found = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!found) throw new Error("The Linked folder didn't read the agent's file");
+    await core.setNotCited(found.id, true);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const now = (await core.listDocuments()).find((each) => each.id === found.id);
+    expect(now).toMatchObject({ path, notCited: true });
+  });
+
   // protects=two agents handing over one file at once, by two paths to it, take turns: the second waits for the first to end, so a first refused and taken back leaves the file to the second, as one after it would (#3751); fails_when=the second call runs beside the first and is refused as a file the Library holds already, by a Document the first's refusal then takes back
   it("takes calls of one file by two agents and two paths to it in turn", async () => {
     const waiting = await waitingHandOver();
