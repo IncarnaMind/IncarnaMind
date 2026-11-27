@@ -196,6 +196,46 @@ test("a clause put before 1.1 with Enter at its start is 1.1 in the exported fil
   await app.close();
 });
 
+const INTEREST = "Unpaid fees carry interest at 2% a month.";
+
+test("words typed at the start of a clause, then Enter, are a new clause before it in the exported file: none of the clause's words are struck, and the cross-reference to it says its new number", async () => {
+  const { app, window } = await start();
+  await useOutputLocation(window, out);
+  await importWordFile(
+    app,
+    window,
+    files,
+    "Services agreement.docx",
+    contractFile(ENGLISH_CONTRACT),
+  );
+  const editor = window.getByTestId("mind-editor");
+  const clause = editor.locator("p", { hasText: INTEREST });
+  const box = await clause.boundingBox();
+  if (!box) throw new Error("Clause 2.3 isn't showing.");
+  // Just before its first word, as a person clicks there.
+  await window.mouse.move(box.x + 2, box.y + 8, { steps: 6 });
+  await window.mouse.click(box.x + 2, box.y + 8);
+  await focusSettled(window, editor);
+  await window.keyboard.type(ENGLISH_CONTRACT.added);
+  await window.keyboard.press("Enter");
+  await expect(editor.locator("p", { hasText: ENGLISH_CONTRACT.added })).toHaveText(
+    ENGLISH_CONTRACT.added,
+  );
+  await expect(clause).toHaveText(INTEREST);
+  const data = await exportedWith(window, ENGLISH_CONTRACT.added);
+
+  expect(numbersIn(data)).toEqual(
+    expect.arrayContaining([`2.3 ${ENGLISH_CONTRACT.added}`, `2.4 ${INTEREST}`]),
+  );
+  const document = part(unzip(data), "word/document.xml");
+  expect(acceptedParagraphs(document).join("\n")).toContain(ENGLISH_CONTRACT.renumbered);
+  // Only the cross-reference's old number is struck out: the clause keeps its own paragraph.
+  const struck = [...document.matchAll(/<w:delText[^>]*>([^<]*)<\/w:delText>/g)];
+  expect(struck.map((each) => each[1])).toEqual(["2.3"]);
+  expect(rejectedParagraphs(document)).toContain(INTEREST);
+  await app.close();
+});
+
 test("a heading renamed is renamed in the exported file's contents list, whose pages stay as the file saved them, and the file asks Word nothing as it opens", async () => {
   const { app, window } = await start();
   await useOutputLocation(window, out);
