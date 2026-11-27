@@ -36,6 +36,7 @@ import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
 import { cellsText, fittedQuote, momentFound, quoteState } from "../src/shared/helpQuotes";
 import { translate } from "../src/shared/i18n";
+import type { MessageKey } from "../src/shared/i18n/types";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
@@ -3611,9 +3612,13 @@ export async function chooseLook(window: Page, look: "word" | "plain"): Promise<
 
 /** "Show word count while writing", from ⌘K: the count is hidden until then. */
 export async function showCountWhileWriting(window: Page): Promise<void> {
-  const label = translate(await windowLanguage(window), "page.countShown.command");
-  await runCommand(window, "mind.countShown", label);
+  await runCommandNamed(window, "mind.countShown", "page.countShown.command");
   await expect(window.getByTestId("palette")).toBeHidden();
+}
+
+/** Runs a command from ⌘K, typing its name in the window's language. */
+export async function runCommandNamed(window: Page, id: string, name: MessageKey): Promise<void> {
+  await runCommand(window, id, translate(await windowLanguage(window), name));
 }
 
 /** Renames the Mind the User is in from its tab, as a person does: double-click, a name, Enter. */

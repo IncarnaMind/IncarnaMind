@@ -11,6 +11,7 @@ import {
   newMind,
   openPageMenu,
   pageMenuButton,
+  paletteOffers,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -52,6 +53,19 @@ const drawnAboveText = (window: Page) =>
       .map((element) => element.className || element.tagName);
   });
 
+/** What ⌘K calls the switch for the count while writing, which says what running it does. */
+async function countCommandText(window: Page): Promise<string> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(">word count while writing");
+  const item = window.getByTestId("palette").locator('[data-key="command:mind.countShown"]');
+  await expect(item).toBeVisible();
+  // The name's own span carries it whole as its title, apart from the item's purpose line.
+  const name = (await item.locator("span[title]").first().getAttribute("title")) ?? "";
+  await window.keyboard.press("Escape");
+  return name;
+}
+
 const menuItemIds = (menu: Locator) =>
   menu
     .locator('[role="menuitem"]')
@@ -81,7 +95,7 @@ test("the page starts with its text; the ⋯ in its tab strip opens by click and
   await window.keyboard.type("The last line.");
   expect((await button.boundingBox())?.y).toBeCloseTo(at.y, 0);
 
-  // Its menu is the sidebar row's, in the same order, with Style as a submenu and Citation style before Delete, then the counts.
+  // Its menu is the sidebar row's, in the same order, with Style as a submenu before Delete, the counts first.
   const menu = await openPageMenu(window);
   const pageItems = await menuItemIds(menu);
   await window.keyboard.press("Escape");
@@ -92,23 +106,22 @@ test("the page starts with its text; the ⋯ in its tab strip opens by click and
   const rowItems = await menuItemIds(row.getByTestId("mind-actions"));
   await window.keyboard.press("Escape");
   expect(pageItems.length).toBeGreaterThan(5);
-  // Minus what only the row offers (opening a Mind that is open), with Style, Citation style and,
-  // for a Note alone in its pane, its group's items (#2868) before Delete, which is last. The
-  // More row is the page's own.
+  // Minus what only the row offers (opening a Mind that is open), with Style before Delete, which
+  // is last: about ten rows (#3766). The More row is the page's own.
   const shared = rowItems
     .filter((id) => !["mind.open", "mind.openTab"].includes(id))
     .map((id) => (id === "mind-more" ? "page-more" : id));
-  expect(pageItems).toEqual([
-    ...shared.slice(0, -1),
-    "page-style",
-    "mind.citationStyle",
-    "tab-menu-split",
-    "tab-menu-equal",
-    "tab-menu-reopen",
-    "tab-menu-close-others",
-    "tab-menu-close-group",
-    "mind.delete",
-  ]);
+  expect(pageItems).toEqual([...shared.slice(0, -1), "page-style", "mind.delete"]);
+  expect(pageItems).toHaveLength(10);
+  // What the menu no longer holds is in ⌘K, each once.
+  for (const [id, words] of [
+    ["mind.citationStyle", "Citation style"],
+    ["tab.split", "Split to the right"],
+    ["mind.countShown", "Show word count while writing"],
+    ["mind.everyCheckResult", "Show every check result"],
+  ] as const) {
+    expect(await paletteOffers(window, id, words), id).toBe(1);
+  }
 
   // Its Rename names the Mind in its tab, and its text stays as it is.
   await pointAndClick(window, (await openPageMenu(window)).getByTestId("mind.rename"));
@@ -129,13 +142,14 @@ test("the page starts with its text; the ⋯ in its tab strip opens by click and
   await expect(counts).toHaveText(
     `${countFor(lines, "words")} words · ${countFor(lines, "characters")} characters`,
   );
-  await expect(menu.getByTestId("page-count-shown")).toHaveText("Show word count while writing");
-  await expect(menu.getByTestId("page-count-shown")).toHaveAttribute("aria-checked", "false");
+  await expect(menu.getByTestId("page-count-shown")).toHaveCount(0);
   await expect(counts).toBeInViewport();
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "page-menu-en-1440.png") });
   await window.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(window.getByTestId("mind-count")).toHaveCount(0);
+  // Its switch is in ⌘K, which offers to show the count while it is off.
+  expect(await countCommandText(window)).toBe("Show word count while writing");
 
   // The selection's count of the whole.
   await window.getByTestId("mind-editor").locator("p").first().click();
@@ -158,8 +172,8 @@ test("the page starts with its text; the ⋯ in its tab strip opens by click and
     window.getByTestId("palette-item").filter({ hasText: "Show word count while writing" }).first(),
   );
   await expect(window.getByTestId("mind-count-button")).toBeVisible();
-  await openPageMenu(window);
-  await expect(menu.getByTestId("page-count-shown")).toHaveAttribute("aria-checked", "true");
+  // On, ⌘K offers to hide it.
+  expect(await countCommandText(window)).toBe("Hide word count while writing");
   await app.close();
 });
 
@@ -187,8 +201,8 @@ for (const language of ["en", "zh-CN"] as const) {
           ? `${words} words · ${characters} characters`
           : `字数 ${words} · 字符数 ${characters}`,
       );
-      await expect(menu.getByTestId("page-count-shown")).toHaveText(
-        language === "en" ? "Show word count while writing" : "写作时显示字数",
+      await expect(menu.getByTestId("mind.delete")).toHaveText(
+        language === "en" ? "Delete" : "删除",
       );
       // The menu and the button stay inside the window, and nothing scrolls sideways.
       const [box, button] = await Promise.all([

@@ -154,9 +154,9 @@ import type { CitationCheck, DocumentKind } from "../../../core/api";
 /**
  * Every icon in the app (#3766): one set, Lucide (ISC), imported here and nowhere else. An icon is
  * 16px in a row or a menu and 18px in a toolbar (`.title-bar`, `data-toolbar`) or with
- * `data-size="18"`, with one 1.25px line at both sizes, the weight of the chat apps' icons; styles.css
- * sets both, so a size a component still writes loses to them. The few 12px icons (a step's chevron, a chip's ×, a note mark) are
- * named there too.
+ * `data-size="18"`, with one 1.25px line at both sizes, as light as the chat apps' sidebars draw
+ * theirs; styles.css sets both, so a size a component still writes loses to them. The few 12px
+ * icons (a step's chevron, a chip's ×, a note mark) are named there too.
  */
 export type IconProps = Omit<LucideProps, "ref">;
 export type Icon = (props: IconProps) => JSX.Element;

@@ -69,8 +69,9 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
   }
 
   const menu = await openPageMenu(window);
-  // The Note's group has no ⋯ of its own: the page's takes the group's items (#2868).
-  await expect(menu.getByTestId("tab-menu-split")).toBeVisible();
+  // The Note's group has no ⋯ of its own, and the page's keeps to the Note's rows (#2868, #3766).
+  await expect(window.getByTestId("group-menu")).toHaveCount(0);
+  await expect(menu.getByTestId("tab-menu-split")).toHaveCount(0);
   const word = menu.getByTestId("look-word");
   await expect(menu.getByTestId("page-style")).toBeVisible();
   await expect(word).toBeVisible();
