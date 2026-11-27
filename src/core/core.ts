@@ -106,7 +106,7 @@ import { createChecks } from "./answers/checks";
 import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { containsTable } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
-import { checkedSentences } from "./answers/checks/sentences";
+import { checkedSentences, keepsAView } from "./answers/checks/sentences";
 import { judgedNow, readingOf } from "./answers/checks/standing";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
@@ -6632,10 +6632,10 @@ export function createCore(adapters: CoreAdapters): Core {
             .filter((field) => (reference?.sources[field] ?? "file") !== "file")
             .map((field) => [field, reference?.fields[field]]),
           lookedUpAt: reference?.lookedUpAt ?? null,
-          annotations: annotations
-            .list(documentId)
-            .map((each) => each.id)
-            .sort(),
+          // The User can change an annotation's colour and note, not where it is.
+          annotations: [...annotations.list(documentId)]
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map((each) => [each.id, each.colour, each.note]),
         }),
       };
     },
@@ -6694,6 +6694,7 @@ export function createCore(adapters: CoreAdapters): Core {
         title: note.title,
         folderId: note.folderId,
         content: hashBytes(new TextEncoder().encode(content.peek(mindId, contentWithoutChecks))),
+        kept: content.peek(mindId, keepsAView),
       };
     },
     nameMind: (mindId, title) => minds.rename(mindId, title),

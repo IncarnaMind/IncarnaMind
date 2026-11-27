@@ -14,7 +14,10 @@ import type { Core } from "../../src/core";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { hashBytes } from "../../src/core/documents/files";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import { readClaimCheck } from "../../src/shared/claimChecks";
+import { keepCheckAsView } from "../../src/shared/claimParts";
 import { translate } from "../../src/shared/i18n";
+import { countingCheckOf } from "../../src/shared/markKeys";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { PNG } from "../helpers/citedPages";
@@ -51,28 +54,63 @@ import { plainDeck } from "../helpers/pptx";
 import { paragraph, table, wordFile } from "../helpers/word";
 
 // Each file the core opens to read, and each it writes whole (by its rename into place), by its
-// path: what a start reads and writes of the handed files.
+// path: what a start reads and writes of the handed files. `next` holds, by path, one step to run
+// at the next read of that file, rename into it (`renamed`: after it), listing of that folder or
+// look at it: what a test does while that step waits.
 const opened = vi.hoisted(() => [] as string[]);
 const written = vi.hoisted(() => [] as string[]);
+const next = vi.hoisted(() => ({
+  read: new Map<string, () => Promise<void>>(),
+  rename: new Map<string, () => Promise<void>>(),
+  renamed: new Map<string, () => Promise<void>>(),
+  list: new Map<string, () => Promise<void>>(),
+  stat: new Map<string, () => Promise<void>>(),
+}));
+const once = vi.hoisted(() => async (steps: Map<string, () => Promise<void>>, path: string) => {
+  const step = steps.get(path);
+  if (!step) return;
+  steps.delete(path);
+  await step();
+});
 vi.mock("node:fs", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs")>();
+  const { Readable } = await import("node:stream");
   const createReadStream = ((...args: Parameters<typeof real.createReadStream>) => {
-    opened.push(String(args[0]));
-    return real.createReadStream(...args);
+    const path = String(args[0]);
+    opened.push(path);
+    if (!next.read.has(path)) return real.createReadStream(...args);
+    return Readable.from(
+      (async function* () {
+        await once(next.read, path);
+        yield* real.createReadStream(...args);
+      })(),
+    );
   }) as typeof real.createReadStream;
   return { ...real, createReadStream };
 });
 vi.mock("node:fs/promises", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs/promises")>();
-  const readFile = ((...args: Parameters<typeof real.readFile>) => {
+  const readFile = (async (...args: Parameters<typeof real.readFile>) => {
     opened.push(String(args[0]));
+    await once(next.read, String(args[0]));
     return real.readFile(...args);
   }) as typeof real.readFile;
-  const rename = ((...args: Parameters<typeof real.rename>) => {
-    written.push(String(args[1]));
-    return real.rename(...args);
+  const rename = (async (...args: Parameters<typeof real.rename>) => {
+    const to = String(args[1]);
+    written.push(to);
+    await once(next.rename, to);
+    await real.rename(...args);
+    await once(next.renamed, to);
   }) as typeof real.rename;
-  return { ...real, readFile, rename };
+  const readdir = (async (...args: Parameters<typeof real.readdir>) => {
+    await once(next.list, String(args[0]));
+    return real.readdir(...args);
+  }) as typeof real.readdir;
+  const stat = (async (...args: Parameters<typeof real.stat>) => {
+    await once(next.stat, String(args[0]));
+    return real.stat(...args);
+  }) as typeof real.stat;
+  return { ...real, readFile, rename, readdir, stat };
 });
 
 const en = translate.bind(null, "en") as (
@@ -199,6 +237,10 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     holding = true;
     const asked = handOver(agent, { path });
     await held.at;
+    const refused = (await core.listMinds()).find(
+      (each) => each.id !== first.mindId && each.title === checkNote,
+    );
+    if (!refused) throw new Error("The second version's check Note wasn't made.");
     await core.updateAgent(writer.pairing.id, { folderIds: more.map((each) => each.id) });
     held.open();
     expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
@@ -209,8 +251,13 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     ]);
     const now = (await core.listDocuments()).find((each) => each.id === document.id);
     expect(now?.contentHash).toBe(document.contentHash);
-    const titles = (await core.listMinds()).map((each) => each.title);
-    expect(titles.filter((title) => title.endsWith(": Harbour review"))).toEqual([checkNote]);
+    const notes = await core.listMinds();
+    expect(notes.map((each) => each.id)).not.toContain(refused.id);
+    expect(
+      notes
+        .filter((each) => each.title.endsWith(": Harbour review"))
+        .map((each) => [each.id, each.title]),
+    ).toEqual([[first.mindId, checkNote]]);
     expect((await core.listDeleted()).map((each) => each.name)).toEqual([]);
 
     await core.updateAgent(writer.pairing.id, { folderIds: [coast.id] });
@@ -349,15 +396,7 @@ describe("a file an outside agent hands over, where a call meets a change", () =
       (each) => each.title === en("verify.mindTitle", { name: "Harbour review" }),
     );
     if (!checkNote) throw new Error("The check Note wasn't made.");
-    const client = await connectToMind(core, checkNote.id);
-    await client.settled();
-    // A paragraph typed at the Note's end, as the editor writes one.
-    client.doc.transact(() => {
-      const mine = new Y.XmlElement("paragraph");
-      mine.insert(0, [new Y.XmlText("Ask the harbourmaster about the night berths.")]);
-      client.blocks.push([mine]);
-    });
-    await client.settled();
+    await typeAtEnd(core, checkNote.id, "Ask the harbourmaster about the night berths.");
     const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
     if (!document) throw new Error("The deck isn't in the Library.");
     await waiting.refuse();
@@ -476,6 +515,319 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     } finally {
       await chmod(folder, 0o755);
     }
+  });
+
+  // protects=a refused hand-over's take-back writes the version before back only from a copy that holds that version's bytes: one changed since keeps the whole version, and the User's file keeps what it holds (#3751); fails_when=the take-back writes whatever the copy holds into the User's file
+  it("keeps a refused version whose version before's copy holds other bytes", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, dataDir, document, checkNote, first, asked } = waiting;
+    await writeFile(
+      join(dataDir, "Handed files", first.fileId, "v1", "Harbour review.pptx"),
+      plainDeck([{ title: "Harbour review" }, { lines: [SOUTH] }]),
+    );
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+    await waiting.keptAll(document.id, hashBytes(DECK), 2);
+    expect((await core.listMinds()).map((each) => each.id)).toContain(checkNote.id);
+  });
+
+  // protects=a refused hand-over's take-back looks at its Document again after reading its file: a name the User gave it while the file was read keeps the Document, its version and its check Note (#3751); fails_when=the take-back compares the Document's name before that read and deletes the Document the User renamed
+  it("keeps a Document the User renamed while a refused hand-over's take-back read its file", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    const reading = holdNext(next.read, document.path);
+    await waiting.refuse();
+    await reading.at;
+    await core.renameDocument(document.id, "Quay works deck");
+    reading.open();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, document.contentHash, 1);
+    const kept = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(kept?.name).toBe("Quay works deck");
+  });
+
+  // protects=a refused hand-over's take-back looks at the Document it added again just before deleting it: a Tag the User gave it while the take-back deleted the check Note keeps the Document and its file as theirs, with one log line (#3751); fails_when=the Document is deleted for good by what the take-back read of it before
+  it("keeps a Document the User tagged while a refused hand-over's take-back deleted its check Note", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path, dataDir, log } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    const tag = await core.createTag({ name: "Quay works" });
+    const deleting = holdNext(next.list, join(dataDir, "Handed files"));
+    await waiting.refuse();
+    await deleting.at;
+    await core.addDocumentTag(document.id, tag.id);
+    deleting.open();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const kept = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(kept?.tags.map((each) => each.tagId)).toEqual([tag.id]);
+    expect(kept?.contentHash).toBe(document.contentHash);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(document.contentHash);
+    expect(
+      (await core.listMinds()).filter((each) => each.title.endsWith(": Harbour review")),
+    ).toEqual([]);
+    expect(await core.listDeleted()).toEqual([]);
+    expect(log.lines.filter((line) => line.includes("handedFile.takeBack.kept"))).toEqual([
+      expect.stringContaining('"what":"document"'),
+    ]);
+  });
+
+  // protects=a refused hand-over's take-back looks at the check Note again just before deleting it: words the User wrote in it while the version before was written back keep it, their own Note no version points to, with one log line, and the earlier Note still gets its name back (#3751); fails_when=the take-back deletes the Note by what it read of it before the write
+  it("keeps a check Note the User wrote in while a refused hand-over wrote the version before back", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, document, checkNote, first, asked, log } = waiting;
+    const writing = holdNext(next.rename, document.path);
+    await waiting.refuse();
+    await writing.at;
+    await typeAtEnd(core, checkNote.id, "Ask the harbourmaster about the night berths.");
+    writing.open();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const named = en("verify.mindTitle", { name: "Harbour review" });
+    const notes = await core.listMinds();
+    expect(notes.find((each) => each.id === checkNote.id)?.title).toBe(named);
+    expect(notes.find((each) => each.id === first.mindId)?.title).toBe(named);
+    expect(await core.handedFileOf(checkNote.id)).toBeNull();
+    expect(
+      (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+    ).toEqual([1]);
+    const kept = await core.exportMind(checkNote.id, { format: "markdown" });
+    expect(new TextDecoder().decode(kept.data)).toContain(
+      "Ask the harbourmaster about the night berths.",
+    );
+    expect(log.lines.filter((line) => line.includes("handedFile.takeBack.kept"))).toEqual([
+      expect.stringContaining('"what":"check note"'),
+    ]);
+  });
+
+  // protects=a refused hand-over's take-back names the Document back only while it has the name the hand-over gave it: a name the User gave it while the version before was written back stays (#3751); fails_when=the take-back writes the name before over the User's
+  it("keeps a name the User gave the Document while a refused hand-over wrote the version before back", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const first = structured<Handed>(await waiting.handOver());
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    await core.renameDocument(document.id, "Quay deck");
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const writing = holdNext(next.rename, document.path);
+    await waiting.refuse();
+    await writing.at;
+    await core.renameDocument(document.id, "Quay deck, final");
+    writing.open();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const now = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.name).toBe("Quay deck, final");
+    expect(
+      (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+    ).toEqual([1]);
+  });
+
+  // protects=a take-back whose write of the version before fails after the file is in place reads what the file holds: holding the version before, it goes on as written, so the item and its Document agree on that version (#3751); fails_when=the take-back puts the refused version back over a file that holds the version before
+  it("goes on with a take-back whose write of the version before fails after the file is in place", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, dataDir, document, checkNote, first, asked } = waiting;
+    const folder = join(dataDir, "Handed files", first.fileId);
+    const before = new Uint8Array(readFileSync(join(folder, "v1", "Harbour review.pptx")));
+    failsOnceInPlace(document.path);
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(before));
+    expect(
+      (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+    ).toEqual([1]);
+    const now = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.contentHash).toBe(hashBytes(before));
+    expect((await core.listMinds()).map((each) => each.id)).not.toContain(checkNote.id);
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1"]);
+  });
+
+  // protects=a take-back whose write of the version before fails after the file is in place, the file then holding another app's bytes, puts nothing back over them and keeps the copies, and the next start leaves the file as it is and says why (#3751); fails_when=the take-back stands the refused version again over bytes it doesn't hold, or the next start writes over them
+  it("puts nothing back over another app's bytes when a take-back's write fails after the file is in place, and the next start leaves them", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, dataDir, document, first, asked, restart, log } = waiting;
+    const folder = join(dataDir, "Handed files", first.fileId);
+    const before = new Uint8Array(readFileSync(join(folder, "v1", "Harbour review.pptx")));
+    const theirs = plainDeck([{ title: "Harbour review" }, { lines: [NORTH, NEVER_CLOSES] }]);
+    failsOnceInPlace(document.path, () => writeFile(document.path, theirs));
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(theirs));
+    expect(
+      (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+    ).toEqual([1]);
+    expect((await core.listMinds()).map((each) => each.id)).not.toContain(waiting.checkNote.id);
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+    expect(log.lines.filter((line) => line.includes("handedFile.takeBack.unsure"))).toHaveLength(1);
+
+    const reopened = await restart();
+    await afterTheStart(reopened, waiting, before, 1);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(theirs));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1", "v2"]);
+    expect(notFinished(log.lines)).toEqual([expect.stringContaining('"why":"file-changed"')]);
+    reopened.close();
+  });
+
+  // protects=a hand-over that writes its version into the item's Document while that Document holds bytes no version has keeps a copy of them first, and its refusal writes them back: the User's file holds what it held, the item is on its version before, and the copy goes with the refused version's (#3751); fails_when=the take-back leaves the refused version in the file, or writes back a version the file didn't hold
+  it("writes back the bytes no version had when a hand-over written over them is refused", async () => {
+    const waiting = await outsideBytesWaiting();
+    const { core, dataDir, document, first, theirs, asked } = waiting;
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(theirs));
+    const now = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.contentHash).toBe(hashBytes(theirs));
+    expect(
+      (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+    ).toEqual([1]);
+    expect(readdirSync(join(dataDir, "Handed files", first.fileId)).sort()).toEqual([
+      "file-1.pptx",
+      "v1",
+    ]);
+    core.close();
+  });
+
+  // protects=a take-back a quit cut short after its records, of a version written over bytes no version had, writes those bytes back at the next start, never the version before's (#3751); fails_when=the start writes the version before over the refused bytes, and what the file held is lost
+  it("writes back at the next start the bytes no version had, for a take-back a quit cut short", async () => {
+    const waiting = await outsideBytesWaiting();
+    const { core, document, theirs, before } = waiting;
+    const folder = await refuseCutAfterRecords(waiting);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+    await core.close();
+
+    const reopened = await waiting.restart();
+    await afterTheStart(reopened, waiting, before, 1);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(theirs));
+    expect(readdirSync(folder).sort()).toEqual(["file-1.pptx", "v1"]);
+    reopened.close();
+  });
+
+  // protects=the copy of bytes no version had that a first try kept, before its write failed, is made to hold what the file holds when the same file comes again, so a take-back writes back what the file held last (#3751); fails_when=the next start writes the first try's copy over the file
+  it("writes back what the file held at the last try, for a take-back a quit cut short of a hand-over tried twice", async () => {
+    const outside = await outsideBytes();
+    const { core, document, before } = outside;
+    next.rename.set(document.path, async () => {
+      throw Object.assign(new Error("ENOSPC: no space left on device, rename"), {
+        code: "ENOSPC",
+      });
+    });
+    expect((await outside.handOverWhole()).isError).toBe(true);
+    // Another app puts the version before's bytes back into the file.
+    await writeFile(document.path, before);
+    const waiting = await outsideBytesWaiting(outside);
+    await refuseCutAfterRecords(waiting);
+    await core.close();
+
+    const reopened = await outside.restart();
+    await afterTheStart(reopened, waiting, before, 1);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(before));
+    reopened.close();
+  });
+
+  // protects=a hand-over that can't keep a copy of bytes no version has writes nothing over them and fails as a failed write does; the same file handed over again keeps the copy and goes on (#3751); fails_when=the version is written over bytes nothing kept
+  it("writes nothing over bytes no version had when their copy can't be kept, and goes on when the same file comes again", async () => {
+    const outside = await outsideBytes();
+    const { core, dataDir, document, first, theirs } = outside;
+    outside.held.open();
+    const copy = join(dataDir, "Handed files", first.fileId, "v2", "before", "file.pptx");
+    next.rename.set(copy, async () => {
+      throw Object.assign(new Error("ENOSPC: no space left on device, rename"), {
+        code: "ENOSPC",
+      });
+    });
+    expect((await outside.handOverWhole()).isError).toBe(true);
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(theirs));
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.contentHash).toBe(
+      hashBytes(theirs),
+    );
+
+    const again = structured<Handed>(await outside.handOverWhole());
+    expect(again).toMatchObject({ fileId: first.fileId, version: 2, status: "checked" });
+    expect(hashBytes(new Uint8Array(readFileSync(copy)))).toBe(hashBytes(theirs));
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+    core.close();
+  });
+
+  // protects=a hand-over into the item's Document whose file is gone, while the Library last read bytes no version has, writes nothing, so a refusal never writes a version where the User had other words (#3751); fails_when=the hand-over takes the version before as what the file held, and its refusal would write it back
+  it("writes nothing into a Document whose file is gone while the Library holds bytes no version had", async () => {
+    const outside = await outsideBytes();
+    const { core, document, theirs } = outside;
+    outside.held.open();
+    await rm(document.path);
+    expect((await outside.handOverWhole()).isError).toBe(true);
+    expect(existsSync(document.path)).toBe(false);
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.contentHash).toBe(
+      hashBytes(theirs),
+    );
+    core.close();
+  });
+
+  // protects=a hand-over refused after the User changed the note of a highlight on its Document while the check ran keeps the Document, both versions and the check Note: a highlight's note and colour are the User's, not only that it is there (#3751); fails_when=the take-back compares the highlights' ids alone and writes the version before back under the User's note
+  it("keeps a Document whose highlight's note the User changed while a refused hand-over's check ran", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    structured<Handed>(await waiting.handOver());
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    const highlight = await core.createAnnotation({
+      documentId: document.id,
+      parts: [{ unit: 2, text: NORTH }],
+      colour: "yellow",
+    });
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await core.updateAnnotation(highlight.id, { note: "Count the boats again in spring." });
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, hashBytes(DECK), 2);
+    expect((await core.listAnnotations(document.id)).map((each) => [each.id, each.note])).toEqual([
+      [highlight.id, "Count the boats again in spring."],
+    ]);
+  });
+
+  // protects=a hand-over refused after the User kept a sentence of its check Note as their own view while the check ran keeps the Note, its version and its Document: a keep is the User's choice, though it sits with the check's results (#3751); fails_when=the take-back leaves out everything stored with a check, the keep too, and deletes the Note
+  it("keeps a check Note in which the User kept a sentence as their own view while a refused hand-over's check ran", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, checkNote, document, asked } = waiting;
+    const client = await connectToMind(core, checkNote.id);
+    await client.settled();
+    await vi.waitFor(() =>
+      expect(
+        claimSpans(readMind(client)).find((span) => span.sentence.text === SOUTH)?.check.state,
+      ).toBe("contradicted"),
+    );
+    client.doc.transact(() => keepAsOwnView(client.blocks, SOUTH));
+    await client.settled();
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, hashBytes(DECK), 2);
+    expect((await core.listMinds()).map((each) => each.id)).toContain(checkNote.id);
+  });
+
+  // protects=a take-back a quit cut short after its records, its Document renamed by the User before the next start, is finished at that start with the User's name kept (#3751); fails_when=the start names the Document by the item's title over the User's name
+  it("keeps a name the User gave the Document after a take-back a quit cut short", async () => {
+    const cut = await cutAfterRecords();
+    const { core, document, before, restart } = cut;
+    await core.renameDocument(document.id, "Quay deck, final");
+
+    const reopened = await restart();
+    await afterTheStart(reopened, cut, before, 1);
+    const now = (await reopened.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.name).toBe("Quay deck, final");
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(before));
+    reopened.close();
   });
 
   // protects=a take-back a quit cut short after its records, its Document still holding the refused version, is finished at the next start: the version before written back into the Document and read, and only then the refused version's copy removed; the agent's refusal stands as it was (#3751); fails_when=the start leaves the Document holding a version its item no longer has
@@ -1441,24 +1793,11 @@ async function secondVersionWaiting() {
  */
 async function cutAfterRecords() {
   const waiting = await secondVersionWaiting();
-  const { core, dataDir, document, first, asked } = waiting;
-  const folder = join(dataDir, "Handed files", first.fileId);
-  const before = new Uint8Array(readFileSync(join(folder, "v1", "Harbour review.pptx")));
-  // The write back fails, and so does standing the version again: the take-back stops there.
-  const mend = refuseChangesOf(
-    dataDir,
-    "agent_file_versions",
-    "deleted_at",
-    "NEW.deleted_at IS NULL",
+  const { core, dataDir, document, first } = waiting;
+  const before = new Uint8Array(
+    readFileSync(join(dataDir, "Handed files", first.fileId, "v1", "Harbour review.pptx")),
   );
-  await chmod(folder, 0o555);
-  try {
-    await waiting.refuse();
-    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
-  } finally {
-    await chmod(folder, 0o755);
-    mend();
-  }
+  const folder = await refuseCutAfterRecords(waiting);
   expect(
     (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
   ).toEqual([1]);
@@ -1468,12 +1807,43 @@ async function cutAfterRecords() {
 }
 
 /**
+ * Refuses the held call with its take-back stopped after the records, as a quit there leaves it:
+ * the write back fails, and so does standing the version again. Returns the item's folder.
+ */
+async function refuseCutAfterRecords(waiting: {
+  dataDir: string;
+  first: Handed;
+  asked: Promise<unknown>;
+  refuse(): Promise<void>;
+}): Promise<string> {
+  const folder = join(waiting.dataDir, "Handed files", waiting.first.fileId);
+  const mend = refuseChangesOf(
+    waiting.dataDir,
+    "agent_file_versions",
+    "deleted_at",
+    "NEW.deleted_at IS NULL",
+  );
+  await chmod(folder, 0o555);
+  try {
+    await waiting.refuse();
+    expect(refusal(await waiting.asked)).toBe(en("agents.handOver.notFound"));
+  } finally {
+    await chmod(folder, 0o755);
+    mend();
+  }
+  return folder;
+}
+
+/**
  * Waits out the start of the core opened again: a hand-over of the item's newest version's bytes,
  * which only finds that version, comes after the start in the hand-overs' turn.
  */
 async function afterTheStart(
   reopened: Core,
-  waiting: Awaited<ReturnType<typeof secondVersionWaiting>>,
+  waiting: Pick<
+    Awaited<ReturnType<typeof secondVersionWaiting>>,
+    "writer" | "coast" | "path" | "first"
+  >,
   bytes: Uint8Array,
   version: number,
 ) {
@@ -1489,6 +1859,125 @@ async function afterTheStart(
 /** The log's lines that say a start left a take-back a quit cut short as it was. */
 const notFinished = (lines: readonly string[]) =>
   lines.filter((line) => line.includes("handedFile.takeBack.notFinished"));
+
+/**
+ * `waitingHandOver`'s deck handed over with the north quay alone; another app then saves the
+ * Document's file while IncarnaMind is closed (`theirs`, bytes no version has), and the core opened
+ * again reads it. `handOverWhole` hands the whole deck over to that core.
+ */
+async function outsideBytes() {
+  const waiting = await waitingHandOver();
+  const { core, path, restart, writer, coast } = waiting;
+  const before = plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]);
+  await writeFile(path, before);
+  const first = structured<Handed>(await waiting.handOver());
+  const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+  if (!document) throw new Error("The deck isn't in the Library.");
+  const theirs = plainDeck([{ title: "Harbour review" }, { lines: [NORTH, NEVER_CLOSES] }]);
+  await core.close();
+  await writeFile(document.path, theirs);
+  const reopened = await restart();
+  await waitForDocuments(reopened, (all) =>
+    expect(all.find((each) => each.id === document.id)?.contentHash).toBe(hashBytes(theirs)),
+  );
+  expect(
+    (await reopened.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+  ).toEqual([1]);
+  await reopened.setAgentsEnabled(true);
+  await reopened.updateAgent(writer.pairing.id, { folderIds: [coast.id] });
+  const agent = await connectLegacyAgent(writer.launch);
+  return {
+    ...waiting,
+    core: reopened,
+    first,
+    document,
+    before,
+    theirs,
+    handOverWhole: async () => {
+      await writeFile(path, DECK);
+      return handOver(agent, { path });
+    },
+  };
+}
+
+/** `outsideBytes` with the whole deck handed over and held in its check, and `refuse` for that core. */
+async function outsideBytesWaiting(given?: Awaited<ReturnType<typeof outsideBytes>>) {
+  const outside = given ?? (await outsideBytes());
+  const { core, writer, more, held } = outside;
+  const asked = outside.handOverWhole();
+  await held.at;
+  return {
+    ...outside,
+    asked,
+    refuse: async () => {
+      await core.updateAgent(writer.pairing.id, { folderIds: more.map((each) => each.id) });
+      held.open();
+    },
+  };
+}
+
+/** Holds the next step of `path` in `steps` at a gate, as a slow disk would. */
+function holdNext(steps: Map<string, () => Promise<void>>, path: string) {
+  const held = gate();
+  steps.set(path, async () => {
+    held.reached();
+    await held.shut;
+  });
+  return held;
+}
+
+/**
+ * The next write of a file into `path` fails once the file is in place, as the look at it that
+ * follows can; `meanwhile`: what another app does to the file first.
+ */
+function failsOnceInPlace(path: string, meanwhile: () => Promise<void> = async () => {}) {
+  next.renamed.set(path, async () => {
+    await meanwhile();
+    next.stat.set(path, async () => {
+      throw Object.assign(new Error("EIO: i/o error, stat"), { code: "EIO" });
+    });
+  });
+}
+
+/** Types a paragraph at the end of a Note, as the editor writes one. */
+async function typeAtEnd(core: Core, mindId: string, words: string) {
+  const client = await connectToMind(core, mindId);
+  await client.settled();
+  client.doc.transact(() => {
+    const mine = new Y.XmlElement("paragraph");
+    mine.insert(0, [new Y.XmlText(words)]);
+    client.blocks.push([mine]);
+  });
+  await client.settled();
+}
+
+/** Keeps the checked sentence that holds `words` as the User's own view, as the editor writes a keep (#1111). */
+function keepAsOwnView(blocks: Y.XmlFragment, words: string): void {
+  for (const text of textsOf(blocks)) {
+    const runs = text.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[];
+    const holding = runs.find(
+      (run) => typeof run.insert === "string" && run.insert.includes(words),
+    );
+    const key = countingCheckOf(holding?.attributes)?.key;
+    if (!key) continue;
+    let offset = 0;
+    for (const run of runs) {
+      const length = typeof run.insert === "string" ? run.insert.length : 1;
+      const check = readClaimCheck(run.attributes?.[key]);
+      if (check) text.format(offset, length, { [key]: keepCheckAsView(check) });
+      offset += length;
+    }
+    return;
+  }
+  throw new Error(`No checked sentence holds "${words}".`);
+}
+
+function* textsOf(parent: Y.XmlFragment | Y.XmlElement): Generator<Y.XmlText> {
+  for (const child of parent.toArray()) {
+    if (child instanceof Y.XmlText) yield child;
+    else if (child instanceof Y.XmlElement) yield* textsOf(child);
+  }
+}
 
 /** A Note's table cells, in order. */
 function cellsOf(parent: Y.XmlFragment | Y.XmlElement): Y.XmlElement[] {
