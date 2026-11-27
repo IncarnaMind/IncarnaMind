@@ -4,7 +4,9 @@
  * saved in the Output location as Export › Word saves its file. It is written from a copy that
  * nothing stores or lists, which holds only what the agent may read: no comment, check comment,
  * "Checked by" line or waiting change goes in, and a file that would name a Document the agent
- * doesn't reach isn't kept. Its dates are the item's, so the same words give the same bytes.
+ * doesn't reach isn't kept. A Note imported from Word is written into the file it came from, as
+ * Export › Word writes it, with only what the agent was given of that file (./wordPatch/forAgent).
+ * Its dates are the item's, so the same words give the same bytes.
  */
 import { basename } from "node:path";
 import * as Y from "yjs";
@@ -13,7 +15,7 @@ import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { LIBRARY_FACTS } from "../../shared/libraryFacts";
 import { resolveProposals } from "../../shared/proposals";
 import { saveFailureReason } from "../../shared/systemReasons";
-import { wordImportProgressOf } from "../../shared/wordFiles";
+import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
 import {
   type AgentSavedFile,
   DEFAULT_MIND_KIND,
@@ -22,8 +24,6 @@ import {
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   MIND_SIGN_OFFS_FIELD,
-  MIND_WORD_FIELD,
-  MIND_WORD_SOURCES_FIELD,
   type Mind,
   type MindExport,
 } from "../api";
@@ -35,12 +35,15 @@ import {
 import { safeFileName } from "../fileNames";
 import { insertBlocks } from "../noteAdding";
 import type { OutputFiles } from "../outputFiles";
+import { forAgent } from "./wordPatch/forAgent";
 
 /** A Note as an export and its citation style read it: one stored, or a copy nothing stores. */
 export interface NoteReader {
   mind(mindId: unknown): Mind;
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   readSettings<T>(mindId: string, look: (settings: Y.Map<unknown>) => T): T;
+  /** The Word file the Note read was imported from, for a copy that has an id of its own. */
+  wordPackage?(mindId: string): Promise<Uint8Array>;
 }
 
 /** What a Word file is written from: a Note, or an agent's Blocks as a new Note of them. */
@@ -73,6 +76,8 @@ export interface AgentWordFilesDeps {
   mind(mindId: string): Mind;
   /** A stored Note's state, whole, as it is now. */
   noteState(mindId: string): Uint8Array | null;
+  /** The Word file a stored Note was imported from. */
+  wordPackage(mindId: string): Promise<Uint8Array>;
   /**
    * What Export › Word writes of the Note `notes` reads, with these choices, its dates `at`, and
    * every Document the file names: in a footnote, a table's note, a figure's sources, the Bibliography.
@@ -111,16 +116,8 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
     doc.transact(() => {
       resolveProposals(blocks, () => true, "reject");
       // The comments and sign-offs are people's own words about the Note, which the agent doesn't
-      // read; the Word file a Note came from would make the export write into that file, its parts
-      // the agent never read with it, so the copy is written as a new file.
-      for (const field of [
-        MIND_COMMENTS_FIELD,
-        MIND_SIGN_OFFS_FIELD,
-        MIND_WORD_FIELD,
-        MIND_WORD_SOURCES_FIELD,
-      ]) {
-        clear(doc.getMap(field));
-      }
+      // read.
+      for (const field of [MIND_COMMENTS_FIELD, MIND_SIGN_OFFS_FIELD]) clear(doc.getMap(field));
     });
   };
 
@@ -169,10 +166,12 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
           folderId,
         };
         const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+        const original = source.kind === "note" && wordFileOf(doc) ? source.mindId : null;
         const copy: NoteReader = {
           mind: () => mind,
           read: (_, look) => look(blocks),
           readSettings: (_, look) => look(mindSettings),
+          ...(original !== null && { wordPackage: () => deps.wordPackage(original) }),
         };
         const { exported, named } = await deps.wordOf(
           copy,
@@ -190,7 +189,10 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
         if (why) return { kind: "unreached", why };
         return {
           kind: "made",
-          data: exported.data,
+          data:
+            original === null
+              ? exported.data
+              : await forAgent(exported.data, deps.say("export.word.author")),
           fileName: `${safeFileName(source.title, "Note")}.docx`,
           unreached: (now) => unreached(named, now),
         };

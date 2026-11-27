@@ -73,6 +73,7 @@ import {
 } from "./askedChecks";
 import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
+import { createHandOverTurns } from "./handedFiles";
 import type { AgentChallengeSession, OpenedAgentConnection, ServedConnection } from "./mcp";
 import { createAgentRequests, type KeptRequest } from "./requests";
 import {
@@ -191,6 +192,7 @@ export interface AgentsOptions {
     | "notesWrittenSince"
     | "checkRuns"
     | "workings"
+    | "handOverTurns"
     | "versions"
     | "citations"
     | "requests"
@@ -662,6 +664,7 @@ export function createAgents(options: AgentsOptions) {
     doneSince,
     checkRuns: createCheckRuns(),
     workings: createAgentWorkings(),
+    handOverTurns: createHandOverTurns(),
     versions: new Map(),
     citations,
     requests: {

@@ -3698,7 +3698,7 @@ export function createCore(adapters: CoreAdapters): Core {
     printer: adapters.printer ?? null,
     paper: systemPaper,
     ...(adapters.pictures && { pictures: adapters.pictures }),
-    wordPackage: (mindId) => wordImports.packageOf(mindId),
+    wordPackage: (mindId) => notes.wordPackage?.(mindId) ?? wordImports.packageOf(mindId),
     author: () => settings.get().author,
     log: adapters.log ?? silentLogger,
     now,
@@ -3852,6 +3852,7 @@ export function createCore(adapters: CoreAdapters): Core {
     mind: (mindId) => minds.get(mindId),
     noteState: (mindId) =>
       content.read(mindId, (blocks) => (blocks.doc ? Y.encodeStateAsUpdate(blocks.doc) : null)),
+    wordPackage: (mindId) => wordImports.packageOf(mindId),
     wordOf: async (notes, mindId, options, at) => {
       const named = new Set<string>();
       const exported = await createExports({
@@ -6698,7 +6699,7 @@ export function createCore(adapters: CoreAdapters): Core {
       ]);
     },
     signal: lifetime.signal,
-    setNotCited: (documentId) => void documents.setNotCited(documentId, true),
+    setNotCited: (documentId, notCited) => void documents.setNotCited(documentId, notCited),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),

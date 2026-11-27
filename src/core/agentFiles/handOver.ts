@@ -96,8 +96,8 @@ export interface HandOverDeps {
   discard(made: { documentIds: string[]; mindIds: string[]; copies: string[] }): Promise<void>;
   /** A copy kept in "Handed files", as bytes. */
   readKept(path: string): Promise<Uint8Array>;
-  /** Someone else's file, checked: never the evidence for its own claims. */
-  setNotCited(documentId: string): void;
+  /** Someone else's file, checked: never the evidence for its own claims; false: a source again. */
+  setNotCited(documentId: string, notCited: boolean): void;
   rename(documentId: string, name: string): void;
   assign(documentId: string, folderId: string): void;
   verify(input: {
@@ -201,6 +201,8 @@ interface Made {
    * version: never taken back, only looked at for what the User did to it since.
    */
   linked: { documentId: string; shape: DocumentShape } | null;
+  /** The Linked folder's Document it made Not cited, as the file it first became an item's. */
+  notCited: string | null;
   /** The check's Note it made, as it left it, and the Note before it with its name and the one given. */
   checked: {
     mindId: string;
@@ -218,6 +220,7 @@ const nothingMade = (item: boolean): Made => ({
   added: null,
   rewrote: null,
   linked: null,
+  notCited: null,
   checked: null,
   title: null,
 });
@@ -530,11 +533,12 @@ export function createHandOver(deps: HandOverDeps) {
    * Takes back what a refused hand-over made and no one built on (#3751). What it writes back is
    * read first, and the records go before anything is removed or written: a step up to there that
    * fails keeps all of it, as the User would find a hand-over that was built on. Then the bytes it
-   * wrote into the item's Document, the earlier check Note's name, its check Note, the Document it
-   * added and its copies, each standing alone, in an order that keeps what a quit leaves part way
-   * something the User sees and can delete; bytes a quit left unwritten, the next start writes back.
-   * Each thing is looked at again just before it is written over or deleted, with nothing awaited
-   * between: one the User changed meanwhile is theirs, and stays.
+   * wrote into the item's Document, the earlier check Note's name, its check Note, the Not cited
+   * it gave a Linked folder's file, the Document it added and its copies, each standing alone, in
+   * an order that keeps what a quit leaves part way something the User sees and can delete; bytes
+   * a quit left unwritten, the next start writes back. Each thing is looked at again just before
+   * it is written over or deleted, with nothing awaited between: one the User changed meanwhile is
+   * theirs, and stays.
    */
   async function takeBack(file: StoredHandedFile, made: Made): Promise<void> {
     const { version, checked, added, rewrote } = made;
@@ -656,6 +660,18 @@ export function createHandOver(deps: HandOverDeps) {
           deps.discard({ documentIds: [], mindIds: [checked.mindId], copies: [] }),
         );
       } else kept("check note");
+    }
+    const { notCited } = made;
+    // The file in its Linked folder stays; with no item it is no agent's file, and a source again.
+    if (notCited !== null) {
+      await step("not cited", () => {
+        if (
+          store.holding(notCited).length === 0 &&
+          deps.liveDocument(notCited) &&
+          deps.document(notCited).notCited
+        )
+          deps.setNotCited(notCited, false);
+      });
     }
     if (added && version) {
       // Its file read first, so nothing is awaited between how it is and its deletion.
@@ -981,6 +997,7 @@ export function createHandOver(deps: HandOverDeps) {
   async function linkedDocument(
     file: StoredHandedFile,
     input: HandOverInput,
+    takes: Made,
   ): Promise<string | null> {
     let { documentId } = deps.placeOf(input.place);
     if (documentId === null) {
@@ -994,7 +1011,8 @@ export function createHandOver(deps: HandOverDeps) {
       store.holding(documentId).length === 0 &&
       agentMadeIt(deps.document(documentId), input.connectedAt)
     ) {
-      deps.setNotCited(documentId);
+      deps.setNotCited(documentId, true);
+      takes.notCited = documentId;
     }
     store.setDocument(file.id, documentId);
     return documentId;
@@ -1010,12 +1028,11 @@ export function createHandOver(deps: HandOverDeps) {
     version: StoredHandedVersion,
     input: HandOverInput,
     contentHash: string,
-    reach: ReadonlySet<string>,
     takes: Made,
   ): Promise<HandOverDone> {
     let documentId = liveDocumentOf(file);
     if (documentId === null && requireReach(input, file).linkedFolderId !== null) {
-      documentId = await linkedDocument(file, input);
+      documentId = await linkedDocument(file, input, takes);
     }
     if (documentId === null) {
       // The first version, or one after the User deleted the item's Document: a Document of its
@@ -1030,7 +1047,7 @@ export function createHandOver(deps: HandOverDeps) {
       const written = await keep(file, path, input.bytes);
       requireReach(input, file);
       documentId = deps.addHanded(deps.newId(), input.title, written, file.kind).id;
-      deps.setNotCited(documentId);
+      deps.setNotCited(documentId, true);
       if (file.folderId !== null) deps.assign(documentId, file.folderId);
       store.setDocument(file.id, documentId);
       takes.added = { documentId, before: file.documentId, shape: deps.shapeOf(documentId) };
@@ -1100,9 +1117,10 @@ export function createHandOver(deps: HandOverDeps) {
     deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
     // A line the version before had too, checked with the same context, keeps that result while it
     // still stands (#3412): only what changed, or what its Documents changed under, is checked again.
-    // With checking as it lands off, the version waits for the User's Check (#3576).
+    // With checking as it lands off, the version waits for the User's Check (#3576). Its evidence
+    // is what the agent reaches now, after the wait for the Note.
     if (deps.checksWritten())
-      startCheck(made.mind.id, { carryFrom: before?.mindId ?? null, reach });
+      startCheck(made.mind.id, { carryFrom: before?.mindId ?? null, reach: input.reach() });
     return doneOf(file, { ...version, mindId: made.mind.id });
   }
 
@@ -1133,7 +1151,6 @@ export function createHandOver(deps: HandOverDeps) {
       store.atPath(input.pairingId, input.path) ??
       (at === null ? null : store.ofDocument(input.pairingId, at));
     const place = requireReach(input, known);
-    const reach = input.reach();
     const newest = known ? store.versions(known.id).at(-1) : undefined;
     if (known && newest && newest.contentHash === contentHash) {
       if (newest.mindId !== null || newest.unread !== null) return doneOf(known, newest);
@@ -1145,7 +1162,7 @@ export function createHandOver(deps: HandOverDeps) {
         copies: [dirname(join(deps.dataDir, newest.file))],
         ...(await madeBefore(known, newest)),
       };
-      return taking(known, takes, () => complete(known, newest, input, contentHash, reach, takes));
+      return taking(known, takes, () => complete(known, newest, input, contentHash, takes));
     }
     // A file IncarnaMind wrote for this agent, handed over again from where it saved it: that item.
     const written =
@@ -1190,7 +1207,7 @@ export function createHandOver(deps: HandOverDeps) {
         agent: input.agent,
         title: input.title,
       });
-      return complete(file, takes.version, input, contentHash, reach, takes);
+      return complete(file, takes.version, input, contentHash, takes);
     });
   }
 

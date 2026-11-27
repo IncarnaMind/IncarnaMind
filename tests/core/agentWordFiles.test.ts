@@ -60,6 +60,9 @@ import { connectToMind } from "../helpers/mindClient";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
+import { reviewedContract } from "../helpers/reviewedContracts";
+import { escapeXml } from "../helpers/word";
+import { importWordBytes } from "../helpers/wordMinds";
 
 interface Saved extends Handed {
   citations: { cite: string; check: string; document: string | null }[];
@@ -1578,6 +1581,52 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     ]);
   });
 
+  // protects=read_mind names the source of a Citation of a Document deleted and saved again as the one saved again, which the agent reaches, though the one cited was in a Folder not shared with it, as its Word file names it, in English and Chinese (#3751); fails_when=read_mind tells the source as a Document in a Folder not shared with the agent while save_as_word names it
+  it.each(["en", "zh-CN"] as const)(
+    "reads a Citation of a Document deleted and saved again where the agent reaches it (%s)",
+    async (language) => {
+      const { core, coast, writer } = await started([], { asItLands: false });
+      await core.updateSettings({ user: { language } });
+      await core.setOutputLocation(await createSourceFolder());
+      const away = await core.createLibraryGroup({ name: "Private", description: "" });
+      const page = async (folderId: string) => {
+        const result = await core.saveWebPage({
+          address: "https://encyclopedia.example/tea",
+          html: ARTICLE,
+          folderId,
+        });
+        if (result.outcome !== "saved") throw new Error(result.failure.message);
+        const [document] = await waitForProcessing(core, [result.document.id]);
+        if (!document) throw new Error("The page wasn't read.");
+        return document;
+      };
+      const removed = await page(away.id);
+      const mind = await core.createMind({ title: "Tea notes", folderId: coast.id });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [
+        {
+          type: "paragraph",
+          content: [text("Tea came to Europe"), citation(removed, "Tea came to Europe"), text(".")],
+        },
+      ]);
+      await client.settled();
+      await core.deleteDocuments([removed.id]);
+      const replacement = await page(coast.id);
+      expect(replacement.id).not.toBe(removed.id);
+      const agent = await connectLegacyAgent(writer.launch);
+
+      const read = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id } }),
+      );
+      expect(read.markdown).not.toContain(translate(language, "agents.mind.outsideCitation"));
+      expect(read.markdown).toMatch(/\[\^1\]: Tea/);
+      const saved = structured<Saved>(await save(agent, { mindId: mind.id }));
+      expect(partsOf(await savedFile(saved)).footnotes).toEqual([
+        expect.stringContaining("https://encyclopedia.example/tea"),
+      ]);
+    },
+  );
+
   // protects=Ask in your agent on the check of a Word file whose Note was deleted since points the agent at the file's text in the check's Note and a save of the corrected Markdown, in English and Chinese, never at the deleted Note (#3751); fails_when=the request tells the agent to change the deleted Note with propose_changes or to save by its mindId
   it("asks for a fix to a Word file's own text once the Note it was saved from is deleted", async () => {
     const { core, coast, writer } = await started();
@@ -1714,6 +1763,62 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const saved = structured<Saved>(await save(citer, { mindId }));
     expect(partsOf(await savedFile(saved)).footnotes).toEqual(["Quay notes, § Quay notes"]);
   });
+
+  // protects=a Note imported from someone's Word file is written into that file, as Export › Word writes it, so the agent's file keeps the file's styles, numbering, header, footer, contents list and cross-reference; and it holds nothing the agent was never given: no comment or the parts naming its people, no tracked change's author but a neutral one in the User's language, no name or words of the file's properties, variables or custom XML, no template path or first-page picture, while a property a field in the text shows stays; Export › Word by hand still writes the file's comments and people as it did (#3751); fails_when=the agent's file is a new file without the original's styles or numbering, or any of those names or words is in any of its parts, or Export › Word by hand loses a comment
+  it.each(["en", "zh-CN"] as const)(
+    "writes a Note imported from Word into its own file, without what the agent was never given (%s)",
+    async (language) => {
+      const { core, coast, writer } = await started([], { asItLands: false });
+      await core.updateSettings({ user: { language } });
+      const output = await createSourceFolder();
+      await core.setOutputLocation(output);
+      const contract = reviewedContract(language);
+      const original = unzip(contract.bytes);
+      const { mindId } = await importWordBytes(core, await createSourceFolder(), contract.bytes, {
+        name: "Packaging agreement.docx",
+        origin: "someone-else",
+        folderId: coast.id,
+      });
+      const agent = await connectLegacyAgent(writer.launch);
+
+      const saved = structured<Saved>(await save(agent, { mindId }));
+      const files = unzip(await savedFile(saved));
+      const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
+      // The file's look: its own styles, numbering and footer, its clauses' styles and numbers.
+      for (const name of ["word/styles.xml", "word/numbering.xml", "word/footer1.xml"]) {
+        expect(files.get(name)?.toString("utf8")).toBe(original.get(name)?.toString("utf8"));
+      }
+      const document = part(files, "word/document.xml");
+      for (const clause of part(original, "word/document.xml").match(/<w:p>.*?<\/w:p>/gs) ?? []) {
+        if (/comment|w:ins |rPrChange/.test(clause)) continue;
+        expect(document).toContain(clause);
+      }
+      expect(document).toContain('TOC \\o "1-3" \\h \\z \\u');
+      expect(document).toMatch(/REF _Ref[0-9]+ \\r \\h/);
+      expect(part(files, "word/footer1.xml")).toContain("DOCPROPERTY Client");
+      // A tracked change kept as the file had it, by no one the agent was told of.
+      const neutral = `w:author="${translate(language, "export.word.author")}"`;
+      expect(part(files, "word/header1.xml")).toContain(`<w:ins w:id="40" ${neutral}`);
+      expect(document).toContain(`<w:rPrChange w:id="31" ${neutral}`);
+
+      // Nothing of anyone the agent was never given, in any part.
+      expect(
+        [...files.keys()].filter((name) => /comments|people|customXml|thumbnail/.test(name)),
+      ).toEqual([]);
+      for (const words of [...contract.others, contract.words.title, contract.words.inserted]) {
+        expect(all).not.toContain(escapeXml(words));
+      }
+      expect(all).not.toMatch(/commentRangeStart|commentReference|<w:comment |attachedTemplate/);
+      expect(part(files, "docProps/custom.xml")).toContain('name="Client"');
+      expect(part(files, "[Content_Types].xml")).not.toMatch(/people|commentsExtended|customXml/);
+
+      // Export › Word by hand writes the file's comments and their people as before.
+      const byHand = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+      expect(part(byHand, "word/comments.xml")).toContain(escapeXml(contract.words.comments[0]));
+      expect(part(byHand, "word/people.xml")).toContain(escapeXml(contract.words.people[1]));
+      expect(part(byHand, "docProps/core.xml")).toContain(escapeXml(contract.words.people[0]));
+    },
+  );
 });
 
 const CHARTED = [
