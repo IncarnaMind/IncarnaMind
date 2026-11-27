@@ -11886,7 +11886,8 @@
   .assistant-answer .answer-steps-live:has([aria-expanded="true"]) {
     color: var(--color-ink-secondary);
   }
-  .answer-steps-chevron {
+  /* Smaller than a row's icon: the live line's wait joins its words at the default 320px assistant only with this room (#2531). */
+  .answer-steps-chevron.app-icon {
     width: 12px;
     height: 12px;
     flex-shrink: 0;
