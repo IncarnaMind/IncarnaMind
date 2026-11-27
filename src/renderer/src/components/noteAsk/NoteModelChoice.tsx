@@ -10,45 +10,49 @@ import { usePopoverMenu } from "../usePopoverMenu";
 import { shortModel } from "./NoteColumn";
 
 /**
- * The model this Note's conversation runs on, inside its input before Send (#3677), from the list
- * the User's AI gave a request's run: nothing until a request has run since IncarnaMind started.
- * While a request runs it shows the model and can't be changed.
+ * The model this conversation runs on, inside its input before Send (#3677, #3731): follows the
+ * conversation across Notes. Nothing until a request has run since IncarnaMind started.
  */
-export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolean }) {
+export function NoteModelChoice({
+  mindId,
+  conversationId,
+  busy,
+}: {
+  mindId: string;
+  conversationId: string | null;
+  busy: boolean;
+}) {
   const t = useT();
+  const modelKey = conversationId ?? "";
   const [models, setModels] = useState<readonly NoteModel[]>([]);
-  // The model this Note's conversation last ran on, as the core holds it for every window.
   const [ran, setRan] = useState<string | null>(null);
-  const chosen = useNoteColumns((state) => state.model[mindId]);
+  const chosen = useNoteColumns((state) => state.model[modelKey]);
   const menu = usePopoverMenu({ align: "end", side: "above" });
-  // A run hears the list before it names its model, so each run that names one, and each that
-  // ends, may bring a list.
   const runsNamed = useNoteTrails(
     (state) => Object.values(state.byTurn).filter((trail) => trail.model !== null).length,
   );
-  const ended = useNoteAsks((state) => state.byMind[mindId]?.state !== "working");
+  const ended = useNoteAsks((state) =>
+    conversationId !== null ? state.byConversation[conversationId]?.state !== "working" : true,
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each run names its model and as it ends.
   useEffect(() => {
     let current = true;
-    core.noteModels(mindId).then(({ models: listed, ran: last }) => {
+    core.noteModels(mindId, conversationId).then(({ models: listed, ran: last }) => {
       if (!current) return;
       setModels(listed);
       setRan(last);
-      // A model no longer offered isn't sent: the agent's own default answers instead.
       const { model } = useNoteColumns.getState();
-      const kept = model[mindId];
+      const kept = model[modelKey];
       if (kept !== undefined && !listed.some((each) => each.value === kept)) {
-        const { [mindId]: _gone, ...rest } = model;
+        const { [modelKey]: _gone, ...rest } = model;
         useNoteColumns.setState({ model: rest });
       }
     }, useAppStore.getState().reportError);
     return () => {
       current = false;
     };
-  }, [mindId, runsNamed, ended]);
+  }, [mindId, conversationId, modelKey, runsNamed, ended]);
   if (models.length === 0) return null;
-  // With none chosen, the model that last ran here, and none until one has: the User's own setting
-  // may name another than the list's first, which is the agent's general default.
   const picked = models.find((each) => each.value === chosen);
   const current = picked ?? models.find((each) => ran !== null && each.resolvedModel === ran);
   const label = picked
@@ -98,7 +102,7 @@ export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolea
               onClick={() => {
                 menu.close();
                 useNoteColumns.setState((state) => ({
-                  model: { ...state.model, [mindId]: each.value },
+                  model: { ...state.model, [modelKey]: each.value },
                 }));
               }}
               className="note-column-model-item"

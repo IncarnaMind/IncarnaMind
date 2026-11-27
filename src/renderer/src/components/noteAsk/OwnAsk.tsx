@@ -343,10 +343,12 @@ export function QuestionCard({
   question,
   agent,
   mindId,
+  conversationId,
 }: {
   question: NoteQuestion;
   agent: string;
   mindId: string;
+  conversationId: string | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -421,7 +423,7 @@ export function QuestionCard({
   };
   const answer = (chosen: NoteAnswer) => {
     focusNoteAsk(mindId);
-    void answerInNote(mindId, question.id, chosen);
+    if (conversationId) void answerInNote(conversationId, question.id, chosen);
   };
   const runs = [
     ...(action.background ? [t("ownAsk.runs.background")] : []),

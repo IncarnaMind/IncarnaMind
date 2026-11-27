@@ -279,7 +279,7 @@ async function asked(window: Page, language: "en" | "zh-CN"): Promise<void> {
         window.evaluate(async () => {
           const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
           const [mind] = await core.listMinds();
-          const turns = mind ? await core.noteConversation(mind.id) : [];
+          const turns = mind ? await core.noteTurnsForMind(mind.id) : [];
           return turns.at(-1)?.outcome ?? "";
         }),
       { timeout: 30_000 },

@@ -32,8 +32,8 @@ function setWriting(meeting: CallStop, asked: boolean): void {
   });
 }
 
-/** The Note's request once it has ended: what it changed, or null when it didn't land. */
-function landed(mindId: string, turnId: string): Promise<NoteAsk | null> {
+/** The conversation's request once it has ended: what it changed, or null when it didn't land. */
+function landed(conversationId: string, turnId: string): Promise<NoteAsk | null> {
   return new Promise((resolve) => {
     const settled = (ask: NoteAsk | undefined) => {
       if (!ask || ask.turnId !== turnId) return false;
@@ -41,9 +41,9 @@ function landed(mindId: string, turnId: string): Promise<NoteAsk | null> {
       resolve(ask.state === "landed" ? ask : null);
       return true;
     };
-    if (settled(useNoteAsks.getState().byMind[mindId])) return;
+    if (settled(useNoteAsks.getState().byConversation[conversationId])) return;
     const stop = useNoteAsks.subscribe((state) => {
-      if (settled(state.byMind[mindId])) stop();
+      if (settled(state.byConversation[conversationId])) stop();
     });
   });
 }
@@ -66,11 +66,11 @@ export async function writeMeetingNotes(meeting: CallStop, words: string): Promi
     }
     // A problem is said on the line above the input, with what to do.
     if (went !== "started") return false;
-    const turnId = useNoteAsks.getState().byMind[mindId]?.turnId;
-    if (!turnId) return true;
-    const ask = await landed(mindId, turnId);
+    const started = useNoteAsks.getState().lastByMind[mindId];
+    if (!started) return true;
+    const ask = await landed(started.conversationId, started.turnId);
     if (ask && ask.changed > 0) {
-      await turnApplied(turnId);
+      await turnApplied(started.turnId);
       await checkFromAssistant(mindId).catch(useAppStore.getState().reportError);
     }
     return true;
@@ -86,16 +86,17 @@ const asksForNotes = (words: string, state: NoteTurn["outcome"]) =>
   REQUESTS.has(words) && (state === "working" || state === "landed");
 
 /**
- * Whether Write notes was asked for the call since its last Stop, read from the Note's
- * conversation, so a Note opened again knows: a request of its words working or done, or one
- * asked in this window that hasn't settled or went by the link. Null until the conversation is
- * read; nothing is read while `readable` is false.
+ * Whether Write notes was asked for the call since its last Stop, read from the Note's turns, so
+ * a Note opened again knows: a request of its words working or done, or one asked in this window
+ * that hasn't settled or went by the link. Null until read; nothing is read while `readable` is false.
  */
 export function useNotesAsked(meeting: CallStop, readable: boolean): boolean | null {
   const writing = useWriting(
     (state) => meeting.id in state.asked && state.asked[meeting.id] === meeting.stoppedAt,
   );
-  const ask = useNoteAsks((state) => state.byMind[meeting.mindId]);
+  const ask = useNoteAsks((state) =>
+    Object.values(state.byConversation).find((each) => each.mindId === meeting.mindId),
+  );
   const [read, setRead] = useState<{ mindId: string; turns: readonly NoteTurn[] } | null>(null);
   const changed = `${ask?.turnId ?? ""}:${ask?.state ?? ""}`;
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
@@ -103,7 +104,7 @@ export function useNotesAsked(meeting: CallStop, readable: boolean): boolean | n
     if (!readable) return;
     let current = true;
     core
-      .noteConversation(meeting.mindId)
+      .noteTurnsForMind(meeting.mindId)
       .then((turns) => {
         if (current) setRead({ mindId: meeting.mindId, turns });
       })

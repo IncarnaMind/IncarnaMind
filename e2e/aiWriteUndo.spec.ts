@@ -350,7 +350,7 @@ test.describe("Note-input and AI-owned Note Cmd+Z (#3839)", () => {
           async () =>
             window.evaluate(async (id) => {
               const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-              const turns = await bridge.noteConversation(id);
+              const turns = await bridge.noteTurnsForMind(id);
               return turns.length > 0 && turns[turns.length - 1]?.reply !== "";
             }, noteA),
           { timeout: 30_000 },

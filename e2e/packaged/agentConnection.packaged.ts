@@ -484,40 +484,46 @@ test("a request in a Note's conversation asks through the packaged app, runs wha
       [{ text: "Spring tides happen at new moon and full moon." }],
       { folderId: folder.id },
     );
+    let conversationId = "";
     const asking = () =>
       expect
         .poll(
           async () =>
-            (await core.evaluate((bridge, id) => bridge.noteTurnNow(id), mindId))?.questions ?? [],
+            (await core.evaluate((bridge, id) => bridge.noteTurnNow(id), conversationId))
+              ?.questions ?? [],
           { timeout: 60_000 },
         )
         .toHaveLength(1)
         .then(async () => {
-          const now = await core.evaluate((bridge, id) => bridge.noteTurnNow(id), mindId);
+          const now = await core.evaluate((bridge, id) => bridge.noteTurnNow(id), conversationId);
           return now?.questions[0];
         });
     const outcome = () =>
       core.evaluate(
         async (bridge, id) => (await bridge.noteConversation(id)).at(-1)?.outcome,
-        mindId,
+        conversationId,
       );
 
     await test.step("A command it asks to run runs once allowed", async () => {
       await writeFile(mode, "ask-command");
-      expect(
-        await core.evaluate(
-          (bridge, id) => bridge.askInNote({ mindId: id, words: "Count the late crossings" }),
-          mindId,
-        ),
-      ).toMatchObject({ kind: "started" });
+      const started = await core.evaluate(
+        (bridge, id) => bridge.askInNote({ mindId: id, words: "Count the late crossings" }),
+        mindId,
+      );
+      expect(started).toMatchObject({ kind: "started" });
+      if (started.kind !== "started") throw new Error(`Expected started, got ${started.kind}`);
+      conversationId = started.conversationId;
       const question = await asking();
       // Where a command runs can't be told from it: no place is claimed for it.
       expect(question?.action).toMatchObject({ kind: "command" });
       expect(question?.action.inFolder).toBeUndefined();
-      await core.evaluate((bridge, input) => bridge.answerInNote(input.mindId, input.id, "once"), {
-        mindId,
-        id: question?.id ?? "",
-      });
+      await core.evaluate(
+        (bridge, input) => bridge.answerInNote(input.conversationId, input.id, "once"),
+        {
+          conversationId,
+          id: question?.id ?? "",
+        },
+      );
       await expect.poll(outcome, { timeout: 60_000 }).toBe("landed");
     });
 
@@ -525,7 +531,11 @@ test("a request in a Note's conversation asks through the packaged app, runs wha
       await writeFile(`${mode}.step`, "0");
       await writeFile(mode, "queue-step");
       const ask = (words: string) =>
-        core.evaluate((bridge, input) => bridge.askInNote(input), { mindId, words });
+        core.evaluate((bridge, input) => bridge.askInNote(input), {
+          mindId,
+          conversationId,
+          words,
+        });
       expect(await ask("Summarise the tides")).toMatchObject({ kind: "started" });
       expect(await ask("And the neap tides?")).toMatchObject({ kind: "sent" });
       await writeFile(`${mode}.step`, "2");
@@ -537,7 +547,7 @@ test("a request in a Note's conversation asks through the packaged app, runs wha
                 (await bridge.noteConversation(id))
                   .slice(-2)
                   .map((turn) => [turn.request, turn.outcome, turn.reply]),
-              mindId,
+              conversationId,
             ),
           { timeout: 60_000 },
         )
@@ -550,13 +560,18 @@ test("a request in a Note's conversation asks through the packaged app, runs wha
     await test.step("Stop with a question open ends Claude Code and all it started", async () => {
       await writeFile(mode, "ask-child");
       await core.evaluate(
-        (bridge, id) => bridge.askInNote({ mindId: id, words: "Count them again" }),
-        mindId,
+        (bridge, input) =>
+          bridge.askInNote({
+            mindId: input.mindId,
+            conversationId: input.conversationId,
+            words: "Count them again",
+          }),
+        { mindId, conversationId },
       );
       await asking();
       const pids = (await readFile(`${mode}.child`, "utf8")).split(" ").map(Number);
       expect(pids.filter(processRunning)).toEqual(pids);
-      await core.evaluate((bridge, id) => bridge.stopInNote(id), mindId);
+      await core.evaluate((bridge, id) => bridge.stopInNote(id), conversationId);
       await expect.poll(() => pids.filter(processRunning), { timeout: 15_000 }).toEqual([]);
       await expect.poll(outcome, { timeout: 30_000 }).toBe("stopped");
     });

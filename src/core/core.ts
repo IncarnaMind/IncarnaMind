@@ -7651,6 +7651,19 @@ export function createCore(adapters: CoreAdapters): Core {
     const mind = minds.list().find((each) => each.id === mindId);
     return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
   };
+  const hostedNoteStatus = (mindId: string, fallback: string) => {
+    const mind = minds.list().find((each) => each.id === mindId);
+    if (mind) {
+      return {
+        title: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+        deleted: false,
+      };
+    }
+    return {
+      title: fallback || translate(settings.get().language, "mind.untitled"),
+      deleted: true,
+    };
+  };
   const ownAiChecks = createOwnAiChecks({
     runner: adapters.ownAi,
     askable: (mindId) => agents.askable(mindId),
@@ -7676,8 +7689,16 @@ export function createCore(adapters: CoreAdapters): Core {
     heldBack: hostedHeldBack,
     onReachChange: onHostedReachChange,
     turned: (turn) => events.emit("agents.noteTurn", turn),
-    moded: (mindId) => events.emit("agents.noteMode", { mindId }),
+    moded: (conversationId, mindId) => events.emit("agents.noteMode", { conversationId, mindId }),
+    changed: (conversationId) =>
+      events.emit(
+        "agents.noteConversationsChanged",
+        conversationId === undefined ? {} : { conversationId },
+      ),
     titleOf: hostedTitleOf,
+    noteStatus: hostedNoteStatus,
+    agentName: (pairingId) =>
+      agents.settings().pairings.find((each) => each.id === pairingId)?.name ?? "Claude Code",
     liveMeeting: liveMeetingOf,
     language: () => LANGUAGE_NAMES[settings.get().language],
     newId: () => crypto.randomUUID(),
@@ -10224,58 +10245,78 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     stopOwnAiCheck: async (mindId) => ownAiChecks.stop(mindId),
     askInNote: (input) => ownAiConversations.ask(input),
-    stopInNote: async (mindId) => {
-      if (typeof mindId !== "string")
+    stopInNote: async (conversationId) => {
+      if (typeof conversationId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      ownAiConversations.stop(mindId);
+      ownAiConversations.stop(conversationId);
     },
-    discardInNote: async (mindId, turnId) => {
-      if (typeof mindId !== "string" || typeof turnId !== "string")
+    discardInNote: async (conversationId, turnId) => {
+      if (typeof conversationId !== "string" || typeof turnId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      ownAiConversations.discard(mindId, turnId);
+      ownAiConversations.discard(conversationId, turnId);
     },
-    answerInNote: async (mindId, questionId, answer) => {
+    answerInNote: async (conversationId, questionId, answer) => {
       if (
-        typeof mindId !== "string" ||
+        typeof conversationId !== "string" ||
         typeof questionId !== "string" ||
         (answer !== "deny" && answer !== "once" && answer !== "suggested")
       )
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      ownAiConversations.answer(mindId, questionId, answer);
+      ownAiConversations.answer(conversationId, questionId, answer);
     },
-    noteTurnNow: async (mindId) => {
+    noteTurnNow: async (conversationId) => {
+      if (typeof conversationId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.now(conversationId);
+    },
+    noteRunningTurns: async () => ownAiConversations.runningTurns(),
+    noteConversation: async (conversationId) => {
+      if (typeof conversationId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.turns(conversationId);
+    },
+    noteTurnsForMind: async (mindId) => {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      return ownAiConversations.now(mindId);
+      return ownAiConversations.turnsForMind(mindId);
     },
-    noteConversation: async (mindId) => {
+    noteConversations: async () => ownAiConversations.list(),
+    latestNoteConversation: async (mindId) => {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      return ownAiConversations.turns(mindId);
+      return ownAiConversations.latestFor(mindId);
     },
-    noteConversationKept: async (mindId) => {
-      if (typeof mindId !== "string")
+    renameNoteConversation: async (conversationId, title) => {
+      if (typeof conversationId !== "string" || typeof title !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      return ownAiConversations.kept(mindId);
+      ownAiConversations.rename(conversationId, title);
     },
-    startNewNoteConversation: async (mindId) => {
-      if (typeof mindId !== "string")
+    deleteNoteConversation: async (conversationId) => {
+      if (typeof conversationId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      ownAiConversations.startNew(mindId);
+      await ownAiConversations.remove(conversationId);
     },
-    noteModels: async (mindId) => {
-      if (typeof mindId !== "string")
-        throw new InvalidInputError({ key: "error.agent.askRequest" });
-      const { models, ...rest } = ownAiConversations.models(mindId);
-      return { models: [...models], ...rest };
-    },
-    chooseNoteMode: async (mindId, mode) => {
+    noteModels: async (mindId, conversationId) => {
       if (
         typeof mindId !== "string" ||
-        (mode !== null && !(NOTE_MODES as readonly string[]).includes(mode))
-      )
+        (conversationId !== undefined &&
+          conversationId !== null &&
+          typeof conversationId !== "string")
+      ) {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      await ownAiConversations.chooseMode(mindId, mode);
+      }
+      const { models, ...rest } = ownAiConversations.models(mindId, conversationId);
+      return { models: [...models], ...rest };
+    },
+    chooseNoteMode: async (mindId, conversationId, mode) => {
+      if (
+        typeof mindId !== "string" ||
+        (conversationId !== null && typeof conversationId !== "string") ||
+        (mode !== null && !(NOTE_MODES as readonly string[]).includes(mode))
+      ) {
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      }
+      await ownAiConversations.chooseMode(mindId, conversationId, mode);
     },
     ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),

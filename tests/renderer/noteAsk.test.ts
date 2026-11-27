@@ -1,8 +1,9 @@
 /**
- * The input at a Note's foot, the window's side (#3627): a request goes to the core, the label
- * follows what the core says of it, the changes it made in the Note asked from are applied once,
- * in the window that asked, through the assistant's own path (`applyTurn`), and a connection that
- * may only read is let to propose changes in place, the request then sent again.
+ * The input at a Note's foot, the window's side (#3627, #3731): a request goes to the core, the
+ * label follows what the core says of it, the changes it made in the Note asked from are applied
+ * once, in the window that asked, through the assistant's own path (`applyTurn`), a connection
+ * that may only read is let to propose changes in place, and the active conversation follows the
+ * User across Notes.
  */
 import { getSchema } from "@tiptap/core";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
@@ -12,6 +13,7 @@ import type {
   AgentPairing,
   AskAgentInput,
   AskAgentResult,
+  NoteConversationSummary,
   NoteRequestInput,
   NoteRequestStart,
   NoteTurnEvent,
@@ -27,7 +29,12 @@ const bridge = {
     if (event === "agents.noteTurn") bridge.turns.push(listener);
     return () => undefined;
   },
-  start: { kind: "started", pairing: claude, turnId: "t1" } as NoteRequestStart,
+  start: {
+    kind: "started",
+    pairing: claude,
+    conversationId: "c1",
+    turnId: "t1",
+  } as NoteRequestStart,
   asked: [] as NoteRequestInput[],
   askInNote: async (input: NoteRequestInput) => {
     bridge.asked.push(input);
@@ -46,6 +53,17 @@ const bridge = {
   },
   now: null as NoteTurnEvent | null,
   noteTurnNow: async () => bridge.now,
+  runningTurns: [] as NoteTurnEvent[],
+  noteRunningTurns: async () => bridge.runningTurns,
+  conversations: [] as NoteConversationSummary[],
+  noteConversations: async () => bridge.conversations,
+  latestByMind: {} as Record<string, string | null>,
+  latestNoteConversation: async (mindId: string) => bridge.latestByMind[mindId] ?? null,
+  deleted: [] as string[],
+  deleteNoteConversation: async (conversationId: string) => {
+    bridge.deleted.push(conversationId);
+    bridge.conversations = bridge.conversations.filter((each) => each.id !== conversationId);
+  },
 };
 const methods = new Proxy(bridge, {
   get: (each, name) =>
@@ -68,17 +86,24 @@ const {
   askedAgain,
   askFromSelection,
   askInNote,
+  deleteNoteConversation,
   firstWordsOf,
+  seedConversationFor,
   seedRunning,
+  selectConversation,
   selectedForRequest,
   sendUnsent,
+  startNewConversation,
   turnApplied,
   useNoteAsks,
+  useNoteColumns,
+  useNoteConversations,
 } = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 
 const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
+  conversationId: "c1",
   mindId: "m1",
   turnId: "t1",
   pairingId: "p1",
@@ -105,15 +130,35 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
 const tell = (each: NoteTurnEvent) => {
   for (const listener of bridge.turns) listener(each);
 };
-const ask = () => useNoteAsks.getState().byMind.m1;
+const ask = (conversationId = "c1") => useNoteAsks.getState().byConversation[conversationId];
 
 beforeEach(() => {
   applyTurn.mockClear();
   bridge.asked = [];
   bridge.updated = [];
   bridge.handed = [];
-  bridge.start = { kind: "started", pairing: claude, turnId: "t1" };
-  useNoteAsks.setState({ byMind: {} });
+  bridge.deleted = [];
+  bridge.runningTurns = [];
+  bridge.conversations = [];
+  bridge.latestByMind = {};
+  bridge.start = { kind: "started", pairing: claude, conversationId: "c1", turnId: "t1" };
+  useNoteAsks.setState({ byConversation: {}, pendingByMind: {}, lastByMind: {} });
+  useNoteColumns.setState({
+    open: false,
+    activeByPairing: {},
+    seeded: {},
+    model: {},
+    draft: "",
+    at: null,
+    changed: 0,
+    turnsCache: null,
+  });
+  useNoteConversations.setState({ list: [], loaded: false });
+  try {
+    localStorage.clear();
+  } catch {
+    // ignore
+  }
 });
 
 describe("the input at a Note's foot (#3627)", () => {
@@ -197,7 +242,7 @@ describe("the input at a Note's foot (#3627)", () => {
   test("follows the request taken next while the one before ends late, and applies each one's changes", async () => {
     await askInNote("m1", { words: "shorter", quote: "", selection: null });
     tell(event({ turnId: "t1", startedAt: "2026-11-22T10:00:00.000Z" }));
-    bridge.start = { kind: "sent", pairing: claude, turnId: "t2" };
+    bridge.start = { kind: "sent", pairing: claude, conversationId: "c1", turnId: "t2" };
     expect(await askInNote("m1", { words: "and the fares", quote: "", selection: null })).toBe(
       "sent",
     );
@@ -246,10 +291,16 @@ describe("the input at a Note's foot (#3627)", () => {
     await askInNote("m1", { words: "bold", quote: "ferry", selection });
     tell(event({ state: "failed", problem: "read-only" }));
     expect(ask()?.problem).toBe("read-only");
-    bridge.start = { kind: "started", pairing: claude, turnId: "t2" };
-    await allowAndAskAgain("m1");
+    bridge.start = { kind: "started", pairing: claude, conversationId: "c1", turnId: "t2" };
+    await allowAndAskAgain("m1", "c1");
     expect(bridge.updated).toEqual([["p1", { propose: true }]]);
-    expect(bridge.asked.at(-1)).toEqual({ mindId: "m1", words: "bold", quote: "ferry", selection });
+    expect(bridge.asked.at(-1)).toEqual({
+      mindId: "m1",
+      conversationId: "c1",
+      words: "bold",
+      quote: "ferry",
+      selection,
+    });
     expect(ask()).toMatchObject({ state: "working", turnId: "t2" });
   });
 
@@ -273,8 +324,10 @@ describe("the input at a Note's foot (#3627)", () => {
   // protects=Send on a request never sent, pressed twice quickly, sends it once (#3765); fails_when=the second press sends it again before the first came back
   test("sends a request never sent once for two quick presses", async () => {
     const turn = { id: "t5", request: "and add a title" };
-    await Promise.all([sendUnsent("m1", turn), sendUnsent("m1", turn)]);
-    expect(bridge.asked).toEqual([{ mindId: "m1", words: "and add a title" }]);
+    await Promise.all([sendUnsent("c1", "m1", turn), sendUnsent("c1", "m1", turn)]);
+    expect(bridge.asked).toEqual([
+      { mindId: "m1", conversationId: "c1", words: "and add a title" },
+    ]);
   });
 
   // protects=with no agent to run it in the background, the caller asks by the link and the label stays out; fails_when=a request that went nowhere shows as working
@@ -288,7 +341,7 @@ describe("the input at a Note's foot (#3627)", () => {
   test("sends a request again by the link when no agent runs it here", async () => {
     bridge.start = { kind: "link" };
     const asked = { words: "and the fares", quote: "", selection: null };
-    expect(await askAgainInNote("m1", asked)).toBe(true);
+    expect(await askAgainInNote("m1", asked, "c1")).toBe(true);
     expect(bridge.handed).toEqual([
       expect.objectContaining({
         pairingId: "p1",
@@ -299,7 +352,7 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(ask()).toBeUndefined();
   });
 
-  // protects=a selection action while the Note's request runs sends nothing and says why, as Return at the input does; fails_when=it is dropped without a word, or shown as if it were the running one
+  // protects=a selection action while the conversation's request runs sends nothing and says why, as Return at the input does; fails_when=it is dropped without a word, or shown as if it were the running one
   test("doesn't send a selection action while a request runs, and says so", async () => {
     await askInNote("m1", { words: "shorter", quote: "", selection: null });
     const schema = getSchema(noteExtensions());
@@ -403,6 +456,57 @@ describe("the input at a Note's foot (#3627)", () => {
   });
 });
 
+describe("conversation follows across Notes (#3731)", () => {
+  // protects=first open after upgrade seeds from the opened Note's newest conversation, then follows across Notes until New conversation or History switches it; fails_when=opening a second Note resets the active conversation or New conversation fails to clear activeId
+  test("seeds from the first opened Note, then follows across Notes", async () => {
+    bridge.conversations = [
+      {
+        id: "c-pier",
+        pairingId: "p1",
+        agent: "Claude Code",
+        title: null,
+        firstRequest: "Check the east pier piles",
+        notes: [{ mindId: "m-pier", title: "Pier inspection", deleted: false }],
+        updatedAt: "2026-11-26T10:00:00.000Z",
+        running: false,
+      },
+      {
+        id: "c-harbour",
+        pairingId: "p1",
+        agent: "Claude Code",
+        title: null,
+        firstRequest: "Summarise Berth 2",
+        notes: [{ mindId: "m-harbour", title: "Harbour notes", deleted: false }],
+        updatedAt: "2026-11-25T10:00:00.000Z",
+        running: false,
+      },
+    ];
+    bridge.latestByMind = { "m-pier": "c-pier", "m-harbour": "c-harbour" };
+
+    await seedConversationFor("m-pier", "p1");
+    expect(useNoteColumns.getState().activeByPairing.p1).toBe("c-pier");
+
+    // Opening Harbour notes does not overwrite the active conversation once seeded.
+    await seedConversationFor("m-harbour", "p1");
+    expect(useNoteColumns.getState().activeByPairing.p1).toBe("c-pier");
+
+    // New conversation clears active conversation to null while leaving earlier ones in History.
+    startNewConversation("p1");
+    expect(useNoteColumns.getState().activeByPairing.p1).toBeNull();
+    expect(useNoteColumns.getState().open).toBe(true);
+
+    // Choosing an earlier conversation from History makes it active again.
+    selectConversation("p1", "c-harbour");
+    expect(useNoteColumns.getState().activeByPairing.p1).toBe("c-harbour");
+
+    // Deleting the active conversation resets activeId to null and removes it from the list.
+    await deleteNoteConversation("c-harbour");
+    expect(bridge.deleted).toEqual(["c-harbour"]);
+    expect(useNoteColumns.getState().activeByPairing.p1).toBeNull();
+    expect(useNoteConversations.getState().list.map((each) => each.id)).toEqual(["c-pier"]);
+  });
+});
+
 describe("what the User's own AI asks (#3653)", () => {
   const question = {
     id: "q1",
@@ -414,19 +518,19 @@ describe("what the User's own AI asks (#3653)", () => {
 
   // protects=a window opened while a question waits (on macOS, the window closed and opened again while the run goes on) shows its card and the waiting dot, from the core; fails_when=the question shows only in the window that was open when it came
   test("a window opened while a question waits reads it from the core", async () => {
-    useNoteAsks.setState({ byMind: {} });
+    useNoteAsks.setState({ byConversation: {} });
     bridge.now = event({ questions: [question] });
-    await seedRunning("m1");
+    await seedRunning("c1");
     expect(ask()).toMatchObject({ state: "working", turnId: "t1", questions: [question] });
     // A window that already knows of the request keeps what it knows.
     bridge.now = event({ questions: [] });
-    await seedRunning("m1");
+    await seedRunning("c1");
     expect(ask()?.questions).toEqual([question]);
   });
 
   // protects=a question no longer shows once the request ends, whatever the event before said; fails_when=a stopped or landed request keeps its card
   test("leaves no question once the request ends", () => {
-    useNoteAsks.setState({ byMind: {} });
+    useNoteAsks.setState({ byConversation: {} });
     tell(event({ questions: [question] }));
     expect(ask()?.questions).toEqual([question]);
     tell(event({ state: "landed", questions: [question] }));

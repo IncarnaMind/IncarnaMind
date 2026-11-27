@@ -7,6 +7,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
+import { mindName } from "../../../../shared/naming";
 import { latestReasoning } from "../../answerSteps";
 import { canReviewApplied, reviewApplied } from "../../appliedEdits";
 import { undoAsked, useAskedState } from "../../askedChanges";
@@ -235,10 +236,10 @@ export function NoteAskPill({
   const announce = useAnnounce(question, ask.agent);
   // Undone, the change the line reports is no longer in the Note: the line goes, and the
   // conversation keeps the reply.
-  const undone = useAskedState(ask.turnId ?? "", mindId) === "undone";
+  const undone = useAskedState(ask.turnId ?? "", ask.mindId) === "undone";
   useEffect(() => {
-    if (undone && ask.state === "landed") clearNoteAsk(mindId);
-  }, [undone, ask.state, mindId]);
+    if (undone && ask.state === "landed") clearNoteAsk(ask.conversationId, ask.mindId);
+  }, [undone, ask.state, ask.conversationId, ask.mindId]);
   if (working && question) {
     return (
       <div
@@ -357,7 +358,9 @@ export function FailureLine({
         label: t("noteAsk.allow"),
         testId: "note-ask-allow",
         onClick: () =>
-          void allowAndAskAgain(mindId, turn).catch(useAppStore.getState().reportError),
+          void allowAndAskAgain(mindId, ask.conversationId, turn).catch(
+            useAppStore.getState().reportError,
+          ),
       }
     : ask.problem === "signed-out"
       ? {
@@ -370,7 +373,9 @@ export function FailureLine({
             label: t("noteAsk.tryAgain"),
             testId: "note-ask-try-again",
             onClick: () =>
-              void askAgainInNote(mindId, again).catch(useAppStore.getState().reportError),
+              void askAgainInNote(mindId, again, ask.conversationId).catch(
+                useAppStore.getState().reportError,
+              ),
           }
         : undefined;
   return (
@@ -410,10 +415,50 @@ export function EndAction({
   named: boolean;
 }) {
   const t = useT();
+  const minds = useAppStore((state) => state.minds);
   const waiting = useWaitingInNote(editor);
+  const sameNote = ask.mindId === mindId;
   const undoable = useAskedState(ask.turnId ?? "", mindId) === "can-undo";
   const tabId = useTabPlace()?.tabId;
   const inMyNotes = useMeetingNoteView(tabId, mindId) === "mine";
+  // A reply about a Note that is not in front offers a way to open that Note, never Undo or
+  // Accept all: a press never accepts or undoes changes in a Note out of sight (#3731).
+  if (!sameNote) {
+    const targetMind = minds.find((each) => each.id === ask.mindId);
+    const waitingTarget = ask.waiting.find((each) => each.mindId === ask.mindId);
+    if (targetMind && (ask.changed > 0 || waitingTarget)) {
+      const targetTitle = mindName(targetMind) || t("mind.untitled");
+      return (
+        <button
+          type="button"
+          data-testid="note-ask-open"
+          onClick={() => (waitingTarget ? showWaitingChanges(ask.mindId) : openNote(ask.mindId))}
+          className="note-ask-pill-action note-ask-pill-open-note"
+        >
+          {t("noteAsk.open", { title: targetTitle })}
+        </button>
+      );
+    }
+    const { made, waiting: elsewhere } = elsewhereOf(ask, mindId);
+    const [wrote] = made;
+    const [left] = elsewhere;
+    const other = named
+      ? undefined
+      : wrote
+        ? { ...wrote, waits: false }
+        : left && { ...left, waits: true };
+    if (!other) return null;
+    return (
+      <button
+        type="button"
+        data-testid="note-ask-open"
+        onClick={() => (other.waits ? showWaitingChanges(other.mindId) : openNote(other.mindId))}
+        className="note-ask-pill-action note-ask-pill-open-note"
+      >
+        {t("noteAsk.open", { title: other.title })}
+      </button>
+    );
+  }
   if (waiting > 0) {
     return (
       <button

@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { AGENT_FLOW_SENDS, HOSTED_FLOW_SENDS } from "../src/core/agents";
 import type { CoreBridge, TabItem } from "../src/core/api";
+import { migrate, openDatabase } from "../src/core/storage";
+import { migrations } from "../src/core/storage/migrations";
+import { ensureWorkspace } from "../src/core/workspace";
 import {
   acceptPlainTextKeys,
   checkCard,
@@ -133,7 +137,7 @@ async function open(window: Page, mindId: string) {
 const outcomesOf = (window: Page, mindId: string) =>
   window.evaluate(async (id) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    return (await bridge.noteConversation(id)).map((turn) => turn.outcome);
+    return (await bridge.noteTurnsForMind(id)).map((turn) => turn.outcome);
   }, mindId);
 
 async function ended(window: Page, mindId: string, before: number) {
@@ -388,7 +392,7 @@ test("the model in the box comes with the first request's run, and the one chose
     const [last] = (
       await window.evaluate(
         (id) =>
-          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.noteConversation(id),
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.noteTurnsForMind(id),
         mindId,
       )
     ).slice(-1);
@@ -723,7 +727,7 @@ test("a sent quote leaves the input, a request that can't start keeps the words 
     await expect(problem).toHaveCount(0);
     const turns = await window.evaluate(async (id) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      return (await bridge.noteConversation(id)).map((turn) => turn.request);
+      return (await bridge.noteTurnsForMind(id)).map((turn) => turn.request);
     }, mindId);
     expect(turns.at(-1)).toBe("Summarise the note");
   } finally {
@@ -1032,7 +1036,7 @@ test("Stop with a request its AI hasn't taken stops the whole run and leaves tha
   }
 });
 
-test("New conversation, from the conversation's name: one line marks it at the top, the turns above stay, the AI begins anew with none of the turns above it, greyed while a request runs, kept after a restart, in English and Chinese", async () => {
+test("New conversation, from the conversation's name: clears to a fresh blank conversation while keeping the earlier one in History, the AI begins anew with none of the turns before it, greyed while a request runs, kept after a restart, in English and Chinese", async () => {
   let { app, window } = await launched();
   let mindId = "";
   const sessions = () =>
@@ -1070,22 +1074,21 @@ test("New conversation, from the conversation's name: one line marks it at the t
     await stepTo(99);
     await ended(window, mindId, before);
 
-    // Pressed: one line under the top row, the keyboard in the input; pressed again, still one.
+    // Pressed: clears the panel to a fresh blank conversation, keyboard in the input; earlier
+    // conversation stays in History, and the blank one stays out of History until its first request.
     await fromConversationMenu(window, panel, "conversation-new");
-    const line = panel.getByTestId("note-conversation-new");
-    await expect(line).toHaveText("New conversation");
+    await expect(panel.getByTestId("conversation-name")).toHaveText("New conversation");
+    await expect(panel.getByTestId("note-column-turn")).toHaveCount(0);
     await expect(input).toBeFocused();
-    await expect
-      .poll(async () => {
-        const [head, at] = [
-          await panel.getByTestId("note-ask-panel-head").boundingBox(),
-          await line.boundingBox(),
-        ];
-        return Math.round((at?.y ?? 0) - ((head?.y ?? 0) + (head?.height ?? 0)));
-      })
-      .toBe(8);
-    await fromConversationMenu(window, panel, "conversation-new");
-    await expect(line).toHaveCount(1);
+    await pointAndClick(window, panel.getByTestId("conversation-history-button"));
+    const history = window.getByTestId("note-history-popover");
+    await expect(history).toBeVisible();
+    await expect(history.getByTestId("note-history-row")).toHaveCount(1);
+    await expect(history.getByTestId("note-history-row").first()).toContainText(
+      "What does the harbour plan add?",
+    );
+    await window.keyboard.press("Escape");
+    await expect(history).toHaveCount(0);
 
     // The next request begins a new conversation with the AI: it resumes none of the earlier one.
     await send("And when does it open?", "plan");
@@ -1094,16 +1097,13 @@ test("New conversation, from the conversation's name: one line marks it at the t
     expect(rest.slice(0, -1).every((each) => each === `resume ${first?.slice(4)}`)).toBe(true);
     expect(rest.at(-1)).toMatch(/^new /);
     expect(rest.at(-1)).not.toBe(first);
-    await expect(panel.locator(".note-column-bubble")).toHaveText([
-      "What does the harbour plan add?",
-      "Summarise the ferry interviews",
-      "And when does it open?",
-    ]);
+    await expect(panel.locator(".note-column-bubble")).toHaveText(["And when does it open?"]);
+    await expect(panel.getByTestId("conversation-name")).toHaveText("And when does it open?");
   } finally {
     await app.close();
   }
 
-  // After a restart the turns above the line and the line are still there.
+  // After a restart the newest conversation opens first, and both conversations are in History.
   ({ app, window } = await launched());
   try {
     await setWindowSize(app, window, 900, 760);
@@ -1112,10 +1112,14 @@ test("New conversation, from the conversation's name: one line marks it at the t
     const group = window.locator('[data-testid="tab-group"][data-focused]');
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
     const panel = group.getByTestId("note-ask-panel");
-    await expect(panel.locator(".note-column-bubble")).toHaveCount(3);
-    await expect(panel.getByTestId("note-conversation-new")).toHaveCount(1);
+    await expect(panel.locator(".note-column-bubble")).toHaveText(["And when does it open?"]);
+    await pointAndClick(window, panel.getByTestId("conversation-history-button"));
+    const history = window.getByTestId("note-history-popover");
+    await expect(history.getByTestId("note-history-row")).toHaveCount(2);
+    await window.keyboard.press("Escape");
     await setLanguage(window, "zh-CN");
-    await expect(panel.getByTestId("note-conversation-new")).toHaveText("新对话");
+    await fromConversationMenu(window, panel, "conversation-new");
+    await expect(panel.getByTestId("conversation-name")).toHaveText("新对话");
   } finally {
     await app.close();
   }
@@ -1652,8 +1656,10 @@ async function expectPanelEdges(group: Locator) {
     if (!panel || !head || !body || !box || !row || !button || !name) return null;
     const top = head.getBoundingClientRect();
     body.scrollTop = 0;
-    const bubble = panel.querySelector(".note-column-bubble")?.getBoundingClientRect();
-    const above = bubble ? bubble.top - top.bottom : null;
+    const first = panel
+      .querySelector('[data-testid="note-column-turn-note"], .note-column-bubble')
+      ?.getBoundingClientRect();
+    const above = first ? first.top - top.bottom : null;
     body.scrollTop = body.scrollHeight;
     const turn = Array.from(body.querySelectorAll('[data-testid="note-column-turn"]')).at(-1);
     // What the last reply shows last: its copy-and-model line, or its one action; the newest turn
@@ -1676,7 +1682,7 @@ async function expectPanelEdges(group: Locator) {
     const pressable = button.getBoundingClientRect();
     const [dx, dy] = [pressable.left - frame.left, pressable.top - frame.top];
     const rowBox = row.getBoundingClientRect();
-    if (!bubble || !last || above === null) return null;
+    if (!first || !last || above === null) return null;
     return {
       above,
       newest,
@@ -1777,36 +1783,26 @@ test("the conversation is one column left of every group, and follows the Note i
     await pressIn(window, 0);
     await expectColumnBeside(window, HARBOUR_ASKED);
 
-    // Two Notes: the column shows the conversation of the one in focus, and a Note whose
-    // conversation is closed closes it.
+    // Two Notes: the same conversation stays open in the column as focus moves between them, and
+    // the input's chip names whichever Note is in focus (#3731).
     await arrange(window, [note(harbour), note(timetable)]);
     await expectColumnBeside(window, HARBOUR_ASKED);
+    await expect(window.getByTestId("note-ask-note-chip")).toHaveText("Harbour notes");
     await pressIn(window, 1);
-    await expect(window.getByTestId("note-column")).toHaveCount(0);
-    await showConversation(window, 1, true);
-    await expectColumnBeside(window, TIMETABLE_ASKED);
+    await expectColumnBeside(window, HARBOUR_ASKED);
+    await expect(window.getByTestId("note-ask-note-chip")).toHaveText("Timetable notes");
     await pressIn(window, 0);
     await expectColumnBeside(window, HARBOUR_ASKED);
+    await expect(window.getByTestId("note-ask-note-chip")).toHaveText("Harbour notes");
     await fromConversationMenu(window, window.locator("body"), "note-column-close");
     await expect(window.getByTestId("note-column")).toHaveCount(0);
-    // Closed, the box at the Note's foot says how to see it again, in words.
+    // Closed, the box at each Note's foot says how to see it again, in words.
     await expect(
       window.getByTestId("tab-group").nth(0).getByTestId("note-ask-handle-toggle"),
     ).toHaveAttribute("aria-label", "Show conversation");
-    await pressIn(window, 1);
-    await expectColumnBeside(window, TIMETABLE_ASKED);
+    await showConversation(window, 1, true);
+    await expectColumnBeside(window, HARBOUR_ASKED);
     await pressIn(window, 0);
-    await expect(window.getByTestId("note-column")).toHaveCount(0);
-    // Side by side, each Note's box says its own last answer, never the other's.
-    for (const [index, answer] of [
-      [0, "A second ramp at Kestrel Bay"],
-      [1, "The 07:40 crossing leaves at about 07:55"],
-    ] as const) {
-      await expect(
-        window.getByTestId("tab-group").nth(index).getByTestId("note-ask-pill-open"),
-      ).toContainText(answer);
-    }
-    await showConversation(window, 0, true);
     await expectColumnBeside(window, HARBOUR_ASKED);
 
     // Three groups leave neither the Note nor the others their room beside a column: the
@@ -2220,6 +2216,431 @@ test("a request that writes into an empty Note starts at its first line, the emp
     await expect(lines).toHaveCount(1);
     await expect(lines.first()).toHaveJSProperty("tagName", "H1");
     await expect(lines.first()).toHaveText("");
+  } finally {
+    await app.close();
+  }
+});
+
+test("the conversation follows across Notes at rest and during a run, marks Note changes above bubbles, locks while running, and shows Open instead of Undo when a reply edits another Note, in English and Chinese (#3731)", async () => {
+  const { app, window } = await launched();
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    const folderId = await connected(window);
+    const harbour = await writeNote(
+      window,
+      "Harbour notes",
+      [{ text: P1 }, { text: P2 }, { text: P3 }],
+      { folderId },
+    );
+    const pier = await writeNote(
+      window,
+      "Pier inspection",
+      [{ text: "Berth 2 piles were last inspected in October 2025." }],
+      { folderId },
+    );
+    const tide = await writeNote(
+      window,
+      "Tide table",
+      [{ text: "Spring tides peak around 07:35 on weekdays." }],
+      { folderId },
+    );
+    const send = async (mindId: string, words: string, mode: string) => {
+      const before = (await outcomesOf(window, mindId)).length;
+      await nextRun(mode);
+      const input = window.getByTestId("note-ask-input");
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+      await ended(window, mindId, before);
+    };
+
+    await open(window, harbour);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await send(harbour, "What does the harbour plan add?", "plan");
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await fromConversationMenu(
+      window,
+      group.getByTestId("note-ask-panel"),
+      "conversation-move-left",
+    );
+    const column = window.getByTestId("note-column");
+    await expect(column).toBeVisible();
+    await expect(column.getByTestId("conversation-name")).toHaveText(
+      "What does the harbour plan add?",
+    );
+    await expect(column.getByTestId("conversation-history-button")).toBeVisible();
+    await expect(column.getByTestId("note-ask-note-chip")).toHaveText("Harbour notes");
+    await expect(column.getByTestId("note-column-turn-note")).toHaveText(["Harbour notes"]);
+
+    // Selection chip names the Note and the selected quote; × drops only the selection.
+    await slideSelect(window, frontMind(window).locator("p").first(), "weekdays.");
+    const quote = column.getByTestId("note-ask-quote");
+    await expect(quote).toContainText("Harbour notes");
+    await expect(quote).toContainText("weekdays.");
+    await pointAndClick(window, column.getByTestId("note-ask-quote-remove"));
+    await expect(quote).toHaveCount(0);
+    await expect(column.getByTestId("note-ask-note-chip")).toHaveText("Harbour notes");
+
+    // Switch at rest across three Notes: same conversation stays open, chip flips, model and mode
+    // follow, and Note labels appear above bubbles only on the first turn and when the Note changes.
+    await open(window, pier);
+    await expect(column).toBeVisible();
+    await expect(column.getByTestId("note-ask-note-chip")).toHaveText("Pier inspection");
+    await expect(column.getByTestId("note-ask-model")).toHaveText("Sonnet 5.5");
+    await expect(column.getByTestId("note-ask-mode-choice")).toHaveText("Asks first");
+    await send(pier, "Check the pier piles", "timetable");
+    await send(pier, "Any other structural notes?", "plan");
+    await expect(column.getByTestId("note-column-turn-note")).toHaveText([
+      "Harbour notes",
+      "Pier inspection",
+    ]);
+
+    await open(window, tide);
+    await expect(column.getByTestId("note-ask-note-chip")).toHaveText("Tide table");
+    await send(tide, "When is the spring tide?", "plan");
+    await expect(column.getByTestId("note-column-turn-note")).toHaveText([
+      "Harbour notes",
+      "Pier inspection",
+      "Tide table",
+    ]);
+
+    // Switch during an editing run: chip locks to "Working in …", clicking jumps back; when the
+    // edit lands out of front, the column shows a change card with Open (never Undo/Accept all)
+    // and the folded foot bar shows Open “Harbour notes” (never Undo/Accept all).
+    await open(window, harbour);
+    // Clear the earlier selection so the edit runs on the whole Note.
+    await pointAndClick(window, frontMind(window).locator("p").last());
+    await stepTo(1);
+    await nextRun("page");
+    const beforeEdit = (await outcomesOf(window, harbour)).length;
+    await pointAndClick(window, column.getByTestId("note-ask-input"));
+    await window.keyboard.type("Explain why the 07:40 crossing runs late");
+    await window.keyboard.press("Enter");
+    await expect(column.getByTestId("note-ask-stop")).toBeVisible();
+
+    await open(window, pier);
+    const workingChip = column.getByTestId("note-ask-working-note");
+    await expect(workingChip).toHaveText("Working in “Harbour notes”");
+    await setLanguage(window, "zh-CN");
+    await expect(workingChip).toHaveText("正在处理“Harbour notes”");
+    await setLanguage(window, "en");
+    await pointAndClick(window, workingChip);
+    await expect(frontMind(window)).toHaveAttribute("data-mind-id", harbour);
+
+    // Return to Pier inspection before the edit finishes so Harbour notes is edited out of front.
+    await open(window, pier);
+    await expect(workingChip).toBeVisible();
+    await stepTo(99);
+    await ended(window, harbour, beforeEdit);
+
+    const changedCard = column.getByTestId("note-column-changed-elsewhere").last();
+    await expect(changedCard).toBeVisible();
+    await expect(changedCard).toContainText("Harbour notes");
+    await expect(changedCard).toContainText("Changed 1 paragraph");
+    await expect(changedCard).toContainText("Open");
+    await expect(column.getByTestId("note-ask-undo")).toHaveCount(0);
+    await expect(column.getByTestId("note-ask-accept-all")).toHaveCount(0);
+
+    // Folded on Pier inspection: foot line offers Open “Harbour notes”, never Undo or Accept all.
+    await fromConversationMenu(window, column, "note-column-close");
+    await expect(column).toHaveCount(0);
+    await expect(group.getByTestId("note-ask-open")).toHaveText("Open “Harbour notes”");
+    await expect(group.getByTestId("note-ask-undo")).toHaveCount(0);
+    await expect(group.getByTestId("note-ask-accept-all")).toHaveCount(0);
+
+    await setLanguage(window, "zh-CN");
+    await expect(group.getByTestId("note-ask-open")).toHaveText("打开“Harbour notes”");
+    await pointAndClick(window, group.getByTestId("note-ask-conversation-toggle"));
+    await expect(changedCard).toContainText("修改了 1 段");
+    await expect(changedCard).toContainText("打开");
+
+    // Clicking Open switches back to Harbour notes, where the added paragraph and Undo are shown.
+    await pointAndClick(window, changedCard);
+    await expect(frontMind(window)).toHaveAttribute("data-mind-id", harbour);
+    await expect(frontMind(window)).toContainText("07:40 crossing leaves late most weeks");
+    await expect(column.getByTestId("note-ask-undo")).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test("History opens from the clock button at both widths, groups conversations touching this Note first, switches, renames inline, permanently deletes with confirmation, and survives deleting a Note permanently, in English and Chinese (#3731)", async () => {
+  let { app, window } = await launched();
+  let harbour = "";
+  let pier = "";
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    const folderId = await connected(window);
+    harbour = await writeNote(window, "Harbour notes", [{ text: P1 }, { text: P2 }], { folderId });
+    pier = await writeNote(window, "Pier inspection", [{ text: P3 }], { folderId });
+
+    const send = async (mindId: string, words: string, mode: string) => {
+      const before = (await outcomesOf(window, mindId)).length;
+      await nextRun(mode);
+      const input = window.getByTestId("note-ask-input");
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+      await ended(window, mindId, before);
+    };
+
+    // Three conversations: two touching Harbour notes, one touching only Pier inspection.
+    await open(window, harbour);
+    await send(harbour, "What does the harbour plan add?", "plan");
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await fromConversationMenu(
+      window,
+      group.getByTestId("note-ask-panel"),
+      "conversation-move-left",
+    );
+    const column = window.getByTestId("note-column");
+
+    await fromConversationMenu(window, column, "conversation-new");
+    await open(window, pier);
+    await send(pier, "Check the pier piles", "timetable");
+
+    await fromConversationMenu(window, column, "conversation-new");
+    await open(window, harbour);
+    await send(harbour, "When does the 07:40 leave?", "timetable");
+
+    // History groups Harbour notes's conversations first, then Other conversations.
+    await pointAndClick(window, column.getByTestId("conversation-history-button"));
+    const history = window.getByTestId("note-history-popover");
+    await expect(history).toBeVisible();
+    await expect(history.getByTestId("note-history-group-heading")).toHaveText([
+      "Harbour notes",
+      "Other conversations",
+    ]);
+    const items = history.getByTestId("note-history-row");
+    await expect(items).toHaveCount(3);
+    await expect(items.nth(0)).toHaveAttribute("data-active", "true");
+    await expect(items.nth(0)).toContainText("When does the 07:40 leave?");
+    await expect(items.nth(1)).toContainText("What does the harbour plan add?");
+    await expect(items.nth(2)).toContainText("Check the pier piles");
+
+    // Switching loads the chosen conversation.
+    await pointAndClick(window, items.nth(1).getByTestId("note-history-row-pick"));
+    await expect(history).toHaveCount(0);
+    await expect(column.getByTestId("conversation-name")).toHaveText(
+      "What does the harbour plan add?",
+    );
+    await expect(column.locator(".note-column-bubble")).toHaveText([
+      "What does the harbour plan add?",
+    ]);
+
+    // Inline rename from the row ⋯ menu.
+    await pointAndClick(window, column.getByTestId("conversation-history-button"));
+    await expect(history).toBeVisible();
+    const row = history.getByTestId("note-history-row").nth(1);
+    await row.hover();
+    await pointAndClick(window, row.getByTestId("note-history-row-menu"));
+    await pointAndClick(window, window.getByTestId("note-history-rename"));
+    const renameInput = history.getByTestId("note-history-rename-input");
+    await expect(renameInput).toBeFocused();
+    await renameInput.fill("Harbour ramp plan");
+    await window.keyboard.press("Enter");
+    await expect(renameInput).toHaveCount(0);
+    await expect(row).toContainText("Harbour ramp plan");
+    await expect(column.getByTestId("conversation-name")).toHaveText("Harbour ramp plan");
+
+    // Narrow 900 upward panel: clock button opens History popover above without covering input.
+    await window.keyboard.press("Escape");
+    await setWindowSize(app, window, 900, 760);
+    const panel = group.getByTestId("note-ask-panel");
+    await expect(panel).toBeVisible();
+    await pointAndClick(window, panel.getByTestId("conversation-history-button"));
+    await expect(history).toBeVisible();
+    const [historyBox, inputBox] = [
+      await boxOf(history),
+      await boxOf(group.getByTestId("note-ask-row")),
+    ];
+    expect(historyBox.y).toBeGreaterThanOrEqual(0);
+    expect(historyBox.y + historyBox.height).toBeLessThanOrEqual(inputBox.y + 4);
+
+    // Delete… opens the permanent-delete confirmation dialog; Cancel keeps, Delete Permanently removes.
+    const pierRow = history.getByTestId("note-history-row").nth(2);
+    await pierRow.hover();
+    await pointAndClick(window, pierRow.getByTestId("note-history-row-menu"));
+    await pointAndClick(window, window.getByTestId("note-history-delete"));
+    const dialog = window.getByTestId("delete-note-conversation-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Delete “Check the pier piles” permanently?");
+    await expect(dialog).toContainText("Claude Code");
+    await pointAndClick(window, dialog.getByTestId("cancel-delete-note-conversation"));
+    await expect(dialog).toBeHidden();
+    await expect(history.getByTestId("note-history-row")).toHaveCount(3);
+
+    // Confirm permanent deletion in Chinese too.
+    await setLanguage(window, "zh-CN");
+    await pierRow.hover();
+    await pointAndClick(window, pierRow.getByTestId("note-history-row-menu"));
+    await pointAndClick(window, window.getByTestId("note-history-delete"));
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("彻底删除“Check the pier piles”？");
+    await pointAndClick(window, dialog.getByTestId("confirm-delete-note-conversation"));
+    await expect(dialog).toBeHidden();
+    await expect(history.getByTestId("note-history-row")).toHaveCount(2);
+    await window.keyboard.press("Escape");
+
+    // Permanently deleting a Note never deletes its conversation (#3731).
+    await window.evaluate(async (id) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.deleteMind(id);
+      await bridge.deletePermanently([{ kind: "mind", id }]);
+    }, pier);
+    await setLanguage(window, "en");
+    await setWindowSize(app, window, 1440, 900);
+    await pointAndClick(window, column.getByTestId("conversation-history-button"));
+    await expect(history.getByTestId("note-history-row")).toHaveCount(2);
+    await window.keyboard.press("Escape");
+  } finally {
+    await app.close();
+  }
+
+  // Renamed title persists across restart.
+  ({ app, window } = await launched());
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await open(window, harbour);
+    await pointAndClick(window, window.getByTestId("note-ask-conversation-toggle"));
+    const column = window.getByTestId("note-column");
+    await expect(column.getByTestId("conversation-name")).toHaveText("Harbour ramp plan");
+  } finally {
+    await app.close();
+  }
+});
+
+test("upgrading a pre-#3731 per-Note database shows the first opened Note's prior conversation, then follows across Notes with all prior conversations in History (#3731)", async () => {
+  // Build a real pre-#3731 SQLite database at migration 165 with two per-Note conversations.
+  const preDb = openDatabase(join(dataDir, "incarnamind.db"));
+  const now = "2026-11-20T09:00:00.000Z";
+  const later = "2026-11-20T10:00:00.000Z";
+  try {
+    migrate(
+      preDb,
+      migrations.filter((each) => each.version <= 165),
+    );
+    ensureWorkspace(preDb, () => now);
+    const folderId = "folder-upgrade-1";
+    const pairingId = "pairing-upgrade-1";
+    const harbourId = "mind-upgrade-harbour";
+    const pierId = "mind-upgrade-pier";
+    const convHarbour = "conv-upgrade-harbour";
+    const convPier = "conv-upgrade-pier";
+    preDb.run(
+      `INSERT INTO library_groups (id, name, description, created_at, updated_at)
+       VALUES (?, 'Kestrel Bay', '', ?, ?)`,
+      [folderId, now, now],
+    );
+    preDb.run(
+      `INSERT INTO agent_pairings
+         (id, name, folder_ids, client, propose, created_at, updated_at)
+       VALUES (?, 'Claude Code', ?, 'claude-code', 1, ?, ?)`,
+      [pairingId, JSON.stringify([folderId]), now, now],
+    );
+    preDb.run(
+      `INSERT INTO data_flow_consents
+         (id, flow, service_id, service_name, decision, data_kinds, chosen, created_at, updated_at)
+       VALUES
+         ('consent-upgrade-1', 'agents', ?, 'Claude Code', 'accepted', ?, 1, ?, ?),
+         ('consent-upgrade-2', 'hosted-agents', ?, 'Claude Code', 'accepted', ?, 1, ?, ?)`,
+      [
+        `agent:${pairingId}`,
+        JSON.stringify(AGENT_FLOW_SENDS),
+        now,
+        now,
+        `agent:${pairingId}`,
+        JSON.stringify(HOSTED_FLOW_SENDS),
+        now,
+        now,
+      ],
+    );
+    preDb.run(
+      `INSERT INTO device_settings (id, key, value, created_at, updated_at)
+       VALUES ('ds-upgrade-agents', 'agentsEnabled', 'true', ?, ?)`,
+      [now, now],
+    );
+    for (const [id, title] of [
+      [harbourId, "Harbour notes"],
+      [pierId, "Pier inspection"],
+    ] as const) {
+      preDb.run(
+        `INSERT INTO minds (id, title, folder_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, title, folderId, now, now],
+      );
+    }
+    preDb.run(
+      `INSERT INTO own_ai_conversations
+         (id, mind_id, pairing_id, session_id, anew, created_at, updated_at)
+       VALUES (?, ?, ?, 'sess-harbour', 0, ?, ?)`,
+      [convHarbour, harbourId, pairingId, now, now],
+    );
+    preDb.run(
+      `INSERT INTO own_ai_turns
+         (id, conversation_id, request, selection, outcome, reply, created_at, updated_at)
+       VALUES ('turn-harbour', ?, 'What did the deckhand say?', '', 'landed', 'The 07:40 crossing leaves late.', ?, ?)`,
+      [convHarbour, now, now],
+    );
+    preDb.run(
+      `INSERT INTO own_ai_conversations
+         (id, mind_id, pairing_id, session_id, anew, created_at, updated_at)
+       VALUES (?, ?, ?, 'sess-pier', 0, ?, ?)`,
+      [convPier, pierId, pairingId, later, later],
+    );
+    preDb.run(
+      `INSERT INTO own_ai_turns
+         (id, conversation_id, request, selection, outcome, reply, created_at, updated_at)
+       VALUES ('turn-pier', ?, 'Inspect berth 2', '', 'landed', 'Piles look sound.', ?, ?)`,
+      [convPier, later, later],
+    );
+  } finally {
+    preDb.close();
+  }
+
+  const { app, window } = await launched();
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.setAgentsEnabled(true);
+    });
+
+    // First Note opened after upgrade shows that Note's prior conversation (#3731).
+    await open(window, "mind-upgrade-harbour");
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await fromConversationMenu(
+      window,
+      group.getByTestId("note-ask-panel"),
+      "conversation-move-left",
+    );
+    const column = window.getByTestId("note-column");
+    await expect(column.getByTestId("conversation-name")).toHaveText("What did the deckhand say?");
+    await expect(column.locator(".note-column-bubble")).toHaveText(["What did the deckhand say?"]);
+
+    // From then on, switching to Pier inspection follows that conversation across Notes.
+    await open(window, "mind-upgrade-pier");
+    await expect(column.getByTestId("conversation-name")).toHaveText("What did the deckhand say?");
+    await expect(column.getByTestId("note-ask-note-chip")).toHaveText("Pier inspection");
+
+    // Both pre-upgrade conversations appear in History, with Pier inspection's grouped first.
+    await pointAndClick(window, column.getByTestId("conversation-history-button"));
+    const history = window.getByTestId("note-history-popover");
+    await expect(history.getByTestId("note-history-group-heading")).toHaveText([
+      "Pier inspection",
+      "Other conversations",
+    ]);
+    await expect(history.getByTestId("note-history-row")).toHaveCount(2);
+    await expect(history.getByTestId("note-history-row").first()).toContainText("Inspect berth 2");
   } finally {
     await app.close();
   }

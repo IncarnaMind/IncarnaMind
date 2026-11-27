@@ -81,12 +81,12 @@ export const useSheetOpen = (tabId: string | undefined, mindId: string) =>
   useMeetingNoteView(tabId, mindId) === "transcript";
 
 /** Opened upward the conversation would lie over the sheet; in the window's column it stays beside. */
-function clearSheetOfConversation(mindId: string): void {
-  if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(mindId, false);
+function clearSheetOfConversation(): void {
+  if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(false);
 }
 
 function setSheet(tabId: string, mindId: string, open: boolean): void {
-  if (open) clearSheetOfConversation(mindId);
+  if (open) clearSheetOfConversation();
   useSheet.setState((state) => ({ tipSeen: true, cited: open ? state.cited : null }));
   showMeetingNoteView(tabId, mindId, open ? "transcript" : "notes");
 }
@@ -119,7 +119,7 @@ export function showCitedInTranscript(cited: ViewerTarget): boolean {
           .flatMap((group) => group.tabs)
           .find((each) => each.item.kind === "mind" && each.item.mindId === meeting.mindId);
   if (!tab) return false;
-  clearSheetOfConversation(meeting.mindId);
+  clearSheetOfConversation();
   useSheet.setState((state) => ({
     tipSeen: true,
     cited: { ...cited, request: (state.cited?.request ?? 0) + 1 },

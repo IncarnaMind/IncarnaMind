@@ -250,3 +250,18 @@ This replaces decision 4's "none of the command line's own tools" and the parts 
 ## Addendum, 2026-11-25: confirmed AI deck proposals (#149)
 
 The owner decided on 2026-11-25 that when an agent with write permission proposes targeted changes to a PowerPoint deck through `propose_deck_changes`, the changes wait until the User previews and confirms them in the deck viewer; confirming writes that deck itself through the same keep-first atomic path as hand editing (ADR-0010, 2026-11-25). No agent Tool writes a deck file directly without the User's Confirm.
+
+## Addendum, 2026-11-27: the conversation follows the User across Notes (#3731)
+
+The owner decided on 2026-11-27 that a conversation with the User's own command-line AI is no longer bound to a single Note. Instead, it follows the User across Notes—one active conversation per connected AI—while keeping earlier conversations in a History list and showing in the input which Note the next request targets.
+
+This amends decisions 3, 5, 7 and 10 as follows:
+
+- **Scope and continuity (replaces per-Note binding in decision 3).** Multiple live conversations may coexist per `pairing_id` (the unique `(mind_id, pairing_id)` index is dropped). Each turn records the `mind_id` (and title snapshot) it was asked from, and `own_ai_conversation_notes` records every Note the conversation asked from, edited or created. Switching Notes while idle keeps the same active conversation (including its model and permission mode) and moves the input's target-Note chip to the Note in front. While a request is running, the run stays locked to the Note it started on (`front.mindId`), the chip stays on that Note ("Working in “…”" with a click back), and its changes apply to that Note—never to the Note opened meanwhile.
+- **Change actions when the edited Note is out of sight.** A reply whose edited Note is not currently in front never offers Undo, Review changes or Accept all; it renders a change card naming that Note with Open (and in the folded foot line, "Open “…”").
+- **History and New conversation (replaces #3765's inline divider in decision 7).** A dedicated clock control at the right end of the conversation's top row opens a History popover listing live conversations newest first, with conversations that touched the open Note grouped first under its name, active conversation ticked, inline Rename, and Delete…. Pressing New conversation clears the column to a fresh blank conversation (not persisted until its first request is sent) while keeping the earlier conversation in History; the `#3765` inline `New conversation` divider line is removed. On the first Note opened after upgrading from per-Note conversations, the column shows the newest conversation that touched that Note (matching pre-update behaviour; empty if none), and from then on follows the User.
+- **Deletion lifecycle (replaces "deleted when the Note is deleted for good" in decisions 5 and 10).** Deleting a Note permanently no longer deletes any conversation—neither shared conversations nor single-Note ones—because conversations belong to the User's History across Notes. Both copies (IncarnaMind's SQLite rows scrubbed of user text and Claude Code's transcript via `claude purge <folder> --yes`) are deleted when:
+  1. the User deletes the conversation from History, confirmed once with a permanent-delete dialog;
+  2. the connection is removed (`forgetPairing`);
+  3. consent for `hosted-agents` is taken back (`forgetPairing`).
+  Deleting a Note leaves its historical turns readable in History using their stored title fallback, with Open disabled for deleted Notes.

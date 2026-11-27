@@ -60,11 +60,12 @@ export function useMindStatus(mindId: string): MindStatus {
   );
   const consenting = useWritingAnswers((state) => Object.values(state.consenting).includes(mindId));
   const writing = useWritingAnswers((state) => Object.values(state.minds).includes(mindId));
-  // What the User's own AI asks in the Note's conversation waits on them as an approval does (#3653).
-  const asking = useNoteAsks((state) => {
-    const ask = state.byMind[mindId];
-    return ask?.state === "working" && ask.questions.length > 0;
-  });
+  // What the User's own AI asks in a conversation waits on them as an approval does (#3653).
+  const asking = useNoteAsks((state) =>
+    Object.values(state.byConversation).some(
+      (ask) => ask.mindId === mindId && ask.state === "working" && ask.questions.length > 0,
+    ),
+  );
   return approving || consenting || asking ? "waiting-for-approval" : writing ? "writing" : null;
 }
 

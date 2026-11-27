@@ -1,50 +1,78 @@
-import { core } from "../../core";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import {
   focusNoteAsk,
   isGoing,
   moveConversation,
   setColumnOpen,
+  startNewConversation,
   useNoteAsks,
+  useNoteColumns,
+  useNoteConversations,
 } from "../../ownAiInNote";
-import { useAppStore } from "../../store";
 import {
   ChevronDownLineIcon,
   CloseLineIcon,
   DockBottomLineIcon,
   DockRightLineIcon,
+  HistoryLineIcon,
   type Icon,
   PlusLineIcon,
 } from "../icons";
 import { MenuItemParts } from "../MenuItemParts";
 import { menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
+import { NoteHistoryPopover, noteConversationTitle } from "./NoteHistoryPopover";
 
 /**
- * The conversation's top row: its name, whose menu starts a new conversation, moves it between the
- * window's column and the Note's foot where both can stand, and hides it (#3765). Each item gives
- * the keyboard back to the input, where it was before the menu took it.
+ * The conversation's top row (#3765, #3731): at the left, the conversation's name (first request
+ * or user-renamed title, or "New conversation" before its first turn), whose menu starts a new
+ * conversation, moves it between the window's column and the Note's foot, and hides it; at the
+ * right end, a clock button that opens the History popover.
  */
 export function ConversationMenu({
   mindId,
+  pairingId,
+  conversationId,
   place,
   canMove,
   onHide,
-  onNew,
 }: {
   mindId: string;
+  pairingId: string;
+  conversationId: string | null;
   place: "column" | "upward";
   /** The move to the column, upward: only while the column fits beside the groups. */
   canMove: boolean;
   onHide(): void;
-  /** After a new conversation started: the turns are read again. */
-  onNew(): void;
 }) {
   const t = useT();
   const menu = usePopoverMenu({ focus: "first" });
-  // Not while the core holds a run of the Note: a request working, its AI waiting on the User, or
-  // one sent meanwhile still to be answered.
-  const working = useNoteAsks((state) => isGoing(state.byMind[mindId]));
+  const historyButton = useRef<HTMLButtonElement>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyRequest = useNoteColumns((state) => state.historyRequest);
+  const lastHistoryRequest = useRef(historyRequest);
+  useEffect(() => {
+    if (historyRequest !== lastHistoryRequest.current) {
+      lastHistoryRequest.current = historyRequest;
+      setHistoryOpen(true);
+    }
+  }, [historyRequest]);
+
+  const summary = useNoteConversations((state) =>
+    conversationId ? state.list.find((each) => each.id === conversationId) : undefined,
+  );
+  const working = useNoteAsks((state) =>
+    isGoing(
+      conversationId !== null ? state.byConversation[conversationId] : state.pendingByMind[mindId],
+    ),
+  );
+  const title =
+    conversationId === null
+      ? t("noteColumn.new")
+      : summary
+        ? noteConversationTitle(summary, t("noteColumn.title"))
+        : t("noteColumn.title");
   const back = () => requestAnimationFrame(() => focusNoteAsk(mindId));
   const item = (testId: string, icon: Icon, label: string, run: () => void, disabled = false) => (
     <button
@@ -68,9 +96,10 @@ export function ConversationMenu({
         {...menu.buttonProps}
         type="button"
         data-testid="conversation-name"
+        title={title}
         className="note-conversation-name"
       >
-        <span className="truncate">{t("noteColumn.title")}</span>
+        <span className="truncate">{title}</span>
         <ChevronDownLineIcon className="shrink-0" aria-hidden="true" />
       </button>
       <div
@@ -86,12 +115,10 @@ export function ConversationMenu({
               "conversation-new",
               PlusLineIcon,
               t("noteColumn.new"),
-              () =>
-                void core
-                  .startNewNoteConversation(mindId)
-                  .then(onNew)
-                  .catch(useAppStore.getState().reportError),
-              working,
+              () => {
+                if (pairingId) startNewConversation(pairingId);
+              },
+              working || !pairingId,
             )}
             <div className={menuRuleClass} />
             {place === "column" &&
@@ -107,11 +134,35 @@ export function ConversationMenu({
               place === "column" ? "note-column-close" : "note-ask-fold",
               CloseLineIcon,
               t("noteColumn.close"),
-              () => (place === "column" ? setColumnOpen(mindId, false) : onHide()),
+              () => (place === "column" ? setColumnOpen(false) : onHide()),
             )}
           </>
         )}
       </div>
+      <button
+        ref={historyButton}
+        type="button"
+        data-testid="conversation-history-button"
+        aria-expanded={historyOpen}
+        aria-haspopup="dialog"
+        aria-label={t("noteColumn.history")}
+        title={t("noteColumn.history")}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => setHistoryOpen((was) => !was)}
+        className="note-column-icon note-conversation-history-button"
+      >
+        <HistoryLineIcon />
+      </button>
+      {historyOpen && historyButton.current && (
+        <NoteHistoryPopover
+          anchor={historyButton.current}
+          mindId={mindId}
+          pairingId={pairingId}
+          activeId={conversationId}
+          place={place}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
     </>
   );
 }

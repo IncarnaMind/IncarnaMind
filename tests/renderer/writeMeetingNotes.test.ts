@@ -9,10 +9,13 @@ import type { askInNote, NoteAsk, turnApplied } from "../../src/renderer/src/own
  * through its own app gets the request by its link, with the meeting.
  */
 
-type Asks = { byMind: Readonly<Record<string, Partial<NoteAsk>>> };
+type Asks = {
+  byConversation: Readonly<Record<string, Partial<NoteAsk>>>;
+  lastByMind: Readonly<Record<string, Partial<NoteAsk>>>;
+};
 
 const asks = vi.hoisted(() => {
-  let state: Asks = { byMind: {} };
+  let state: Asks = { byConversation: {}, lastByMind: {} };
   const listeners = new Set<(next: Asks) => void>();
   return {
     getState: () => state,
@@ -49,9 +52,22 @@ const { writeMeetingNotes } = await import("../../src/renderer/src/writeMeetingN
 const meeting = { id: "meeting", mindId: "mind", stoppedAt: "2026-11-25T10:00:00.000Z" };
 const WORDS = "Write the notes of this call.";
 
+const CONVERSATION_ID = "conv-1";
+
 /** The Note's request as the core tells it: `turnId` in `state`, having changed `changed` paragraphs. */
-const told = (turnId: string, state: NoteAsk["state"], changed = 0) =>
-  asks.setState({ byMind: { [meeting.mindId]: { turnId, state, changed } } });
+const told = (turnId: string, state: NoteAsk["state"], changed = 0) => {
+  const entry: Partial<NoteAsk> = {
+    conversationId: CONVERSATION_ID,
+    mindId: meeting.mindId,
+    turnId,
+    state,
+    changed,
+  };
+  asks.setState({
+    byConversation: { [CONVERSATION_ID]: entry },
+    lastByMind: { [meeting.mindId]: entry },
+  });
+};
 
 /** Write notes pressed, its request started as turn "turn", and waiting for it to end. */
 async function pressed() {
@@ -66,7 +82,7 @@ async function pressed() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  asks.setState({ byMind: {} });
+  asks.setState({ byConversation: {}, lastByMind: {} });
   asks.listeners.clear();
   check.mockResolvedValue(undefined);
   applied.mockResolvedValue(undefined);

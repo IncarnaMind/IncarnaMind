@@ -13,7 +13,7 @@ import { PencilLineIcon, SparkLineIcon } from "../components/icons";
 import { drawnNoteAskBox, watchDrawnNoteAskBox } from "../components/noteAsk/noteAskBox";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
-import { useNoteAskShown, useNoteAsks } from "../ownAiInNote";
+import { useActiveConversation, useNoteAskShown } from "../ownAiInNote";
 import { useReviewPanes } from "../reviewPane";
 import { useAppStore } from "../store";
 import {
@@ -197,9 +197,10 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       return { theirs, assistant, agents };
     },
   });
-  // The Note's input says it, with its Accept all, once a request there ends: in its line, or
-  // under the reply in the open conversation (#3677).
-  const landed = useNoteAsks((state) => state.byMind[mindId]?.state === "landed");
+  // The Note's input says it, with its Accept all, once a request for this Note ends: in its line,
+  // or under the reply in the open conversation (#3677, #3731).
+  const activeAsk = useActiveConversation(mindId).ask;
+  const landed = activeAsk?.mindId === mindId && activeAsk.state === "landed";
   const inputShown = useNoteAskShown(mindId);
   const pillSaysIt = landed && inputShown;
   const theirLine = theirs.count > 0 && !reviewing;

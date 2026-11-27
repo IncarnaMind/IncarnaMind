@@ -1,6 +1,15 @@
 import { agentsToAsk, askAgent, noModel } from "../askYourAi";
 import { fixesFree } from "../checks";
-import { focusNoteAsk, noteAskShownNow } from "../ownAiInNote";
+import {
+  backgroundAgentNow,
+  focusNoteAsk,
+  isGoing,
+  noteAskShownNow,
+  openNoteHistory,
+  startNewConversation,
+  useNoteAsks,
+  useNoteColumns,
+} from "../ownAiInNote";
 import { askableAt, askedSentenceOf, askedSentences } from "../unsupportedFixes";
 import { noteHandle } from "./handles";
 import type { Command } from "./registry";
@@ -75,6 +84,44 @@ export const askYourAiCommands: readonly Command[] = [
     run() {
       const mindId = noteHandle.current?.mindId;
       if (mindId !== undefined) focusNoteAsk(mindId);
+    },
+  },
+  {
+    id: "mind.noteConversationHistory",
+    label: "noteColumn.historyCommand",
+    group: "main",
+    reversible: true,
+    assistant: false,
+    when: () => {
+      const mindId = noteHandle.current?.mindId;
+      return mindId !== undefined && noteAskShownNow(mindId);
+    },
+    run() {
+      openNoteHistory();
+    },
+  },
+  {
+    id: "mind.newNoteConversation",
+    label: "noteColumn.newCommand",
+    group: "main",
+    reversible: true,
+    assistant: false,
+    when: () => {
+      const mindId = noteHandle.current?.mindId;
+      if (mindId === undefined || !noteAskShownNow(mindId)) return false;
+      const agent = backgroundAgentNow(mindId);
+      if (!agent) return false;
+      const activeId = useNoteColumns.getState().activeByPairing[agent.id] ?? null;
+      const ask = activeId ? useNoteAsks.getState().byConversation[activeId] : undefined;
+      return !isGoing(ask);
+    },
+    run() {
+      const mindId = noteHandle.current?.mindId;
+      if (mindId === undefined) return;
+      const agent = backgroundAgentNow(mindId);
+      if (!agent) return;
+      startNewConversation(agent.id);
+      requestAnimationFrame(() => focusNoteAsk(mindId));
     },
   },
   {

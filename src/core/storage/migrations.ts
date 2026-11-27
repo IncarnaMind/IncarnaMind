@@ -3522,6 +3522,59 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE own_ai_conversations ADD COLUMN anew INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 166,
+    description: "A Note's conversation follows the User across Notes and keeps history (#3731)",
+    sql: `
+      DROP INDEX own_ai_conversations_live;
+      CREATE INDEX own_ai_conversations_by_pairing
+        ON own_ai_conversations (pairing_id, updated_at) WHERE deleted_at IS NULL;
+      -- User-chosen name; NULL displays the first request's text.
+      ALTER TABLE own_ai_conversations ADD COLUMN title TEXT;
+      -- The Note each request was asked from, its title snapshot, and its immediate change count.
+      ALTER TABLE own_ai_turns ADD COLUMN mind_id TEXT NOT NULL DEFAULT '';
+      ALTER TABLE own_ai_turns ADD COLUMN mind_title TEXT NOT NULL DEFAULT '';
+      ALTER TABLE own_ai_turns ADD COLUMN changed_count INTEGER NOT NULL DEFAULT 0;
+      UPDATE own_ai_turns
+      SET mind_id = COALESCE(
+        (SELECT c.mind_id FROM own_ai_conversations c WHERE c.id = own_ai_turns.conversation_id),
+        ''
+      )
+      WHERE mind_id = '';
+      UPDATE own_ai_turns
+      SET mind_title = COALESCE(
+        (SELECT m.title FROM minds m WHERE m.id = own_ai_turns.mind_id),
+        ''
+      )
+      WHERE mind_title = '' AND mind_id != '';
+      CREATE INDEX own_ai_turns_by_mind ON own_ai_turns (mind_id, created_at)
+        WHERE deleted_at IS NULL;
+      -- Every Note a conversation asked from, changed or created, so History groups by Note.
+      CREATE TABLE own_ai_conversation_notes (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        mind_id TEXT NOT NULL,
+        mind_title TEXT NOT NULL DEFAULT '',
+        touched_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX own_ai_conversation_notes_live
+        ON own_ai_conversation_notes (conversation_id, mind_id) WHERE deleted_at IS NULL;
+      CREATE INDEX own_ai_conversation_notes_by_mind
+        ON own_ai_conversation_notes (mind_id, touched_at) WHERE deleted_at IS NULL;
+      INSERT INTO own_ai_conversation_notes
+        (id, conversation_id, mind_id, mind_title, touched_at, created_at, updated_at)
+      SELECT ${UUID_V4_SQL}, c.id, c.mind_id, COALESCE(m.title, ''),
+        MAX(t.created_at), c.created_at, MAX(t.updated_at)
+      FROM own_ai_conversations c
+      JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
+      LEFT JOIN minds m ON m.id = c.mind_id
+      WHERE c.deleted_at IS NULL AND c.mind_id != ''
+      GROUP BY c.id;
+    `,
+  },
 ];
 
 /**

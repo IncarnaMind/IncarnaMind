@@ -13541,6 +13541,13 @@ export interface NoteRequestInput {
   pairingId?: string;
   /** One of the values `noteModels` gave, or the request is refused; absent: the agent's own default. */
   model?: string;
+  /**
+   * The conversation to continue; null starts a fresh conversation; absent continues the newest
+   * conversation that touched `mindId` or starts one (#3731).
+   */
+  conversationId?: string | null;
+  /** Permission mode chosen on a blank conversation before its first turn (#3731). */
+  mode?: NoteMode;
 }
 
 /**
@@ -13555,13 +13562,13 @@ export type NoteTurnProblem =
 
 /**
  * How a request at a Note's foot went to the User's own AI: "started", in the background; "sent",
- * into the Note's request running already, whose AI takes it at its next step (#3765); "link", no
- * agent can run it so and it goes by the link; "problem", one can't run now, with why.
+ * into the conversation's request running already, whose AI takes it at its next step (#3765);
+ * "link", no agent can run it so and it goes by the link; "problem", one can't run now, with why.
  */
 export type NoteRequestStart =
-  | { kind: "started"; pairing: AgentPairing; turnId: string }
-  | { kind: "sent"; pairing: AgentPairing; turnId: string }
-  /** A request about words selected, while one of the Note's runs: it is not sent (#3765). */
+  | { kind: "started"; pairing: AgentPairing; conversationId: string; turnId: string }
+  | { kind: "sent"; pairing: AgentPairing; conversationId: string; turnId: string }
+  /** A request about words selected, while one of the conversation's runs: it is not sent (#3765). */
   | { kind: "busy"; pairing: AgentPairing }
   | { kind: "link" }
   | {
@@ -13570,6 +13577,31 @@ export type NoteRequestStart =
       problem: NoteTurnProblem;
       versions?: { found: string; lowest: string };
     };
+
+/** A Note a conversation touched (asked from, changed or created), as History lists it (#3731). */
+export interface NoteConversationNote {
+  mindId: string;
+  title: string;
+  /** True when the Note has been moved to Recently deleted or deleted permanently. */
+  deleted: boolean;
+}
+
+/** One conversation in the User's own-AI conversation history (#3731). */
+export interface NoteConversationSummary {
+  id: string;
+  pairingId: string;
+  agent: string;
+  /** User-chosen title, or null to show `firstRequest`. */
+  title: string | null;
+  /** Words of the first request in the conversation. */
+  firstRequest: string;
+  /** Notes touched by the conversation, most recently touched first. */
+  notes: NoteConversationNote[];
+  /** ISO 8601 UTC of the latest turn. */
+  updatedAt: string;
+  /** Whether a request of this conversation is running now. */
+  running: boolean;
+}
 
 /** A change in the Note asked from that applied at once: its request, and what it changed (#3627). */
 export interface NoteChangeApplied {
@@ -13590,9 +13622,15 @@ export interface NoteChangeApplied {
   own?: true;
 }
 
-/** One request at a Note's foot and how it went, as the Note's conversation shows it (ADR-0034). */
+/** One request in a conversation with the User's own AI and how it went (ADR-0034, #3731). */
 export interface NoteTurn {
   id: string;
+  /** The Note this request was asked from. */
+  mindId: string;
+  /** Its current title, or its title when asked if deleted since. */
+  mindTitle: string;
+  /** True when that Note is no longer live. */
+  mindDeleted: boolean;
   /** What the User typed, and the words selected then ("" for none). */
   request: string;
   quote: string;
@@ -13620,8 +13658,8 @@ export interface NoteTurn {
    * ask nothing. Null when it named none.
    */
   mode: string | null;
-  /** The User started a new conversation after this turn: the AI carries none of the turns before (#3765). */
-  newAfter: boolean;
+  /** Paragraphs changed at once in `mindId` by this turn (#3731). */
+  changedCount: number;
 }
 
 /**
@@ -13735,6 +13773,7 @@ export interface NoteCitation {
  * wait; `made`: Notes it wrote; `fresh`: the Note's earlier conversation was gone and this one is new.
  */
 export interface NoteTurnEvent {
+  conversationId: string;
   mindId: string;
   turnId: string;
   pairingId: string;
@@ -16524,41 +16563,49 @@ export interface CoreApi {
    * as a turn of its own (#3765).
    */
   askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
-  /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
-  stopInNote(mindId: string): Promise<void>;
-  /** Removes a request of the Note's conversation that was never sent (#3765); any other stays. */
-  discardInNote(mindId: string, turnId: string): Promise<void>;
+  /** Stops the request running in the conversation, if one is: what it applied stays, with its Undo. */
+  stopInNote(conversationId: string): Promise<void>;
+  /** Removes a request of the conversation that was never sent (#3765); any other stays. */
+  discardInNote(conversationId: string, turnId: string): Promise<void>;
   /**
-   * Answers what the User's own AI asks in the Note's conversation (#3653), with one of the
-   * answers the question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
+   * Answers what the User's own AI asks in the conversation (#3653), with one of the answers the
+   * question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
    */
-  answerInNote(mindId: string, questionId: string, answer: NoteAnswer): Promise<void>;
+  answerInNote(conversationId: string, questionId: string, answer: NoteAnswer): Promise<void>;
   /**
-   * The request running at the Note's foot as it is now, as "agents.noteTurn" last told it, for a
+   * The request running in the conversation as it is now, as "agents.noteTurn" last told it, for a
    * window opened while it runs (#3653); null when none runs. Looking starts nothing.
    */
-  noteTurnNow(mindId: string): Promise<NoteTurnEvent | null>;
-  /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
-  noteConversation(mindId: string): Promise<NoteTurn[]>;
-  /** Whether the Note has a conversation kept, reading none of it (#3677). */
-  noteConversationKept(mindId: string): Promise<boolean>;
+  noteTurnNow(conversationId: string): Promise<NoteTurnEvent | null>;
+  /** Every request running in any own-AI conversation now, for a window opening mid-run (#3731). */
+  noteRunningTurns(): Promise<NoteTurnEvent[]>;
+  /** The conversation's turns with the User's own AI, as IncarnaMind keeps them, oldest first. */
+  noteConversation(conversationId: string): Promise<NoteTurn[]>;
+  /** All turns asked from `mindId` across live conversations, oldest first (#3731). */
+  noteTurnsForMind(mindId: string): Promise<NoteTurn[]>;
+  /** Every live conversation with the User's own AI that has at least one turn, newest first (#3731). */
+  noteConversations(): Promise<NoteConversationSummary[]>;
+  /** The newest live conversation that touched `mindId`, or null when none has (#3731). */
+  latestNoteConversation(mindId: string): Promise<string | null>;
+  /** Sets the conversation's user-chosen name; a blank string changes nothing (#3731). */
+  renameNoteConversation(conversationId: string, title: string): Promise<void>;
+  /** Permanently deletes a conversation from IncarnaMind and purges the agent's transcript (#3731). */
+  deleteNoteConversation(conversationId: string): Promise<void>;
   /**
-   * Starts a new conversation after the Note's last turn (#3765): the turns stay, and the next
-   * request begins anew with the AI. Does nothing while a request runs.
+   * The models the User's own command-line AI offers for a request from this Note (#3677, #3731),
+   * and the model and mode of `conversationId` (or the agent's default for a blank conversation).
    */
-  startNewNoteConversation(mindId: string): Promise<void>;
+  noteModels(mindId: string, conversationId?: string | null): Promise<NoteModels>;
   /**
-   * The models the User's own command-line AI offers for a request from this Note (#3677), as a
-   * request's run heard them before its prompt went: looking starts nothing. [] until a request
-   * has run since IncarnaMind started, and while none from this Note could run.
-   */
-  noteModels(mindId: string): Promise<NoteModels>;
-  /**
-   * Chooses the AI's permission mode for the Note's conversation by the input (#3765): for this
+   * Chooses the AI's permission mode for the conversation by the input (#3765, #3731): for this
    * conversation only, taken by a request running now from its next step where the AI can; null
    * goes back to the User's own settings for the AI. Writes nothing to the AI's own settings.
    */
-  chooseNoteMode(mindId: string, mode: NoteMode | null): Promise<void>;
+  chooseNoteMode(
+    mindId: string,
+    conversationId: string | null,
+    mode: NoteMode | null,
+  ): Promise<void>;
   /**
    * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
    * is on this computer's path (ADR-0034). Looking starts nothing.
@@ -16935,8 +16982,10 @@ export interface CoreEvents {
   "agents.ownCheck": OwnAiCheckEnd;
   /** A request at a Note's foot is working, or ended (see `askInNote`). */
   "agents.noteTurn": NoteTurnEvent;
-  /** The mode the input shows for a Note's conversation may have changed (see `noteModels`). */
-  "agents.noteMode": { mindId: string };
+  /** The mode the input shows for a conversation may have changed (see `noteModels`). */
+  "agents.noteMode": { conversationId: string | null; mindId: string };
+  /** The list or names of own-AI Note conversations changed (#3731). */
+  "agents.noteConversationsChanged": { conversationId?: string };
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
@@ -17476,9 +17525,13 @@ const methods: Record<CoreApiMethod, true> = {
   discardInNote: true,
   answerInNote: true,
   noteTurnNow: true,
+  noteRunningTurns: true,
   noteConversation: true,
-  noteConversationKept: true,
-  startNewNoteConversation: true,
+  noteTurnsForMind: true,
+  noteConversations: true,
+  latestNoteConversation: true,
+  renameNoteConversation: true,
+  deleteNoteConversation: true,
   noteModels: true,
   chooseNoteMode: true,
   ownAiRunsHere: true,

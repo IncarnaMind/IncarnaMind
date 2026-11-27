@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
+import { mindName } from "../../../../shared/naming";
 import { useLanguage, useT } from "../../i18n";
 import {
   askAgainInNote,
@@ -182,19 +183,20 @@ function readOf(steps: readonly NoteStep[], t: Translate): string | null {
  */
 export function NoteColumn({
   mindId,
+  pairingId,
+  conversationId,
   editor,
   agent,
   turns,
   input,
-  onNew,
 }: {
   mindId: string;
+  pairingId: string;
+  conversationId: string | null;
   editor: Editor;
   agent: string;
   turns: readonly NoteTurn[] | null;
   input: ReactNode;
-  /** After a new conversation started: the turns are read again. */
-  onNew(): void;
 }) {
   const t = useT();
   return (
@@ -205,7 +207,7 @@ export function NoteColumn({
       onKeyDown={(event) => {
         if (event.key === "Escape" && !event.defaultPrevented) {
           event.preventDefault();
-          setColumnOpen(mindId, false);
+          setColumnOpen(false);
         }
       }}
     >
@@ -213,14 +215,16 @@ export function NoteColumn({
         <SidebarToggle place="band" />
         <ConversationMenu
           mindId={mindId}
+          pairingId={pairingId}
+          conversationId={conversationId}
           place="column"
           canMove
-          onHide={() => setColumnOpen(mindId, false)}
-          onNew={onNew}
+          onHide={() => setColumnOpen(false)}
         />
       </header>
       <NoteConversationBody
         mindId={mindId}
+        conversationId={conversationId}
         editor={editor}
         agent={agent}
         turns={turns}
@@ -238,17 +242,14 @@ const markScrolled = (element: HTMLElement) =>
 /**
  * Gives the last of the turns the turns' whole height, so at their end it starts under the top
  * row (#3765): the newest request sent here once they overflow, as a chat moves a request up when
- * it is sent, rather than below the tail of the turn before it; and a new conversation's line
- * always, so the new one looks as fresh as a blank one, the earlier turns above it.
+ * it is sent, rather than below the tail of the turn before it.
  */
 const roomForNewest = (element: HTMLElement) => {
   element.style.removeProperty("--newest-room");
   const last = element.lastElementChild;
-  const line = last?.hasAttribute("data-new-line") ?? false;
-  if (!line && !last?.hasAttribute("data-newest")) return;
-  if (!line && element.scrollHeight <= element.clientHeight) return;
+  if (!last?.hasAttribute("data-newest")) return;
+  if (element.scrollHeight <= element.clientHeight) return;
   const style = getComputedStyle(element);
-  // Its height once it has grown as far as it may: opened upward, it grows with its turns.
   const most = Number.parseFloat(style.maxHeight);
   const room =
     (Number.isNaN(most) ? element.clientHeight : Math.max(most, element.clientHeight)) -
@@ -264,12 +265,14 @@ const roomForNewest = (element: HTMLElement) => {
  */
 export function NoteConversationBody({
   mindId,
+  conversationId,
   editor,
   agent,
   turns,
   className,
 }: {
   mindId: string;
+  conversationId: string | null;
   editor: Editor;
   agent: string;
   turns: readonly NoteTurn[] | null;
@@ -277,20 +280,18 @@ export function NoteConversationBody({
 }) {
   const t = useT();
   const waiting = useWaitingInNote(editor);
-  const ask = useNoteAsks((state) => state.byMind[mindId]);
+  const ask = useNoteAsks((state) =>
+    conversationId !== null ? state.byConversation[conversationId] : state.pendingByMind[mindId],
+  );
   const working = ask?.state === "working";
   const going = isGoing(ask);
   const trails = useNoteTrails((state) => state.byTurn);
-  // The last request that ran: a request sent meanwhile may stand after it, waiting or never sent.
   const ranAt =
     turns
       ?.map((turn) => turn.outcome !== "waiting" && turn.outcome !== "unsent")
       .lastIndexOf(true) ?? -1;
-  const at = useNoteColumns((state) => state.at[mindId] ?? null);
+  const at = useNoteColumns((state) => state.at);
   const body = useRef<HTMLDivElement>(null);
-  // Once in the conversation, above the first step the AI took with a tool of its own, a line says
-  // it does so (#3653), unless that step asked, whose card said it already; and once, at the first
-  // request its own mode asks nothing in.
   const firstStep = turns
     ?.flatMap((turn) =>
       (trails[turn.id]?.steps ?? []).flatMap((step) =>
@@ -303,7 +304,6 @@ export function NoteConversationBody({
     turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
 
   const atEnd = useRef(true);
-  // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
   // biome-ignore lint/correctness/useExhaustiveDependencies: follows what it shows.
   useLayoutEffect(() => {
     const element = body.current;
@@ -318,15 +318,10 @@ export function NoteConversationBody({
     markScrolled(element);
   }, [turns, trails, waiting, at, ask?.questions]);
 
-  // With the newest in view, it stays in view in the same frame as anything above it grows or
-  // shrinks (a turn above settling, say), not a moment later: a card's answers never move under a
-  // press on its way to them.
   const sizes = useRef<ResizeObserver | null>(null);
   useEffect(() => {
     const element = body.current;
     if (!element) return;
-    // Only the User scrolling up leaves the end: content that grows before this hears of a scroll
-    // makes the end look farther, though nothing moved.
     let was = element.scrollTop;
     const scrolled = () => {
       if (element.scrollHeight - element.scrollTop - element.clientHeight <= 2)
@@ -359,11 +354,13 @@ export function NoteConversationBody({
       {turns?.length === 0 && (
         <p className="note-column-notice">{t("noteAsk.conversationEmpty")}</p>
       )}
-      {turns?.map((turn, index) => [
+      {turns?.map((turn, index) => (
         <Turn
           key={turn.id}
           mindId={mindId}
+          conversationId={conversationId}
           turn={turn}
+          showNoteLabel={index === 0 || turns[index - 1]?.mindId !== turn.mindId}
           trail={trails[turn.id]}
           agent={agent}
           questions={working && ask?.turnId === turn.id ? ask.questions : turn.questions}
@@ -373,33 +370,29 @@ export function NoteConversationBody({
             index === turns.length - 1 &&
             (ask?.turnId === turn.id || (ask?.queued.includes(turn.id) ?? false))
           }
-          // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
+          // Accept all and Undo appear only when the edited Note is the one in front (#3731).
           accept={
-            index === ranAt && !going && ask && ask.turnId === turn.id ? (
+            index === ranAt && !going && ask && ask.turnId === turn.id && turn.mindId === mindId ? (
               <EndAction ask={ask} mindId={mindId} editor={editor} named />
             ) : null
           }
+          changedInTurn={Math.max(
+            turn.changedCount,
+            trails[turn.id]?.changed ?? 0,
+            ask?.turnId === turn.id ? ask.changed : 0,
+          )}
           failed={index === ranAt && ask?.state === "failed" && ask.turnId === turn.id ? ask : null}
-        />,
-        // The AI carries none of the turns above it (#3765).
-        turn.newAfter && (
-          <p
-            key={`${turn.id}-new`}
-            data-testid="note-conversation-new"
-            data-new-line=""
-            className="note-column-notice"
-          >
-            {t("noteColumn.new")}
-          </p>
-        ),
-      ])}
+        />
+      ))}
     </div>
   );
 }
 
 function Turn({
   mindId,
+  conversationId,
   turn,
+  showNoteLabel,
   trail,
   agent,
   questions,
@@ -407,33 +400,46 @@ function Turn({
   modeLine,
   newest,
   accept,
+  changedInTurn,
   failed,
 }: {
   mindId: string;
+  conversationId: string | null;
   turn: NoteTurn;
+  /** First turn or switched Note since previous turn: show which Note it was asked from (#3731). */
+  showNoteLabel: boolean;
   trail?: NoteTrail;
   agent: string;
   questions: readonly NoteQuestion[];
   first: boolean;
   modeLine: boolean;
-  /** The last turn, and the request sent from this window: it starts under the top row. */
   newest: boolean;
   accept: ReactNode;
-  /** The request, while this turn is its newest and failed: its line has the one thing to do. */
+  changedInTurn: number;
   failed: NoteAsk | null;
 }) {
   const t = useT();
+  const minds = useAppStore((state) => state.minds);
   const [open, setOpen] = useState(false);
   const state = trail?.state ?? (turn.outcome === "working" ? "working" : turn.outcome);
   const steps = (trail?.steps ?? []).filter(
-    // The reply's own words come as a line too: the reply shows them.
     (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
   );
   const made = steps.filter((step) => madeKind(step) !== null);
-  // A step that didn't run for the stop already says it stopped: the line goes, unless it says
-  // what the run had read.
+  const liveTurnMind = minds.find((each) => each.id === turn.mindId);
+  const turnNoteTitle = (liveTurnMind && mindName(liveTurnMind)) || turn.mindTitle;
+  const editedElsewhere =
+    state === "landed" && turn.mindId !== "" && turn.mindId !== mindId && changedInTurn > 0;
   const stopSaid =
     steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
+  const elsewhereCard = editedElsewhere ? (
+    <ChangedElsewhereCard
+      mindId={turn.mindId}
+      title={turnNoteTitle}
+      deleted={turn.mindDeleted && !liveTurnMind}
+      count={changedInTurn}
+    />
+  ) : null;
   return (
     <div
       data-testid="note-column-turn"
@@ -448,6 +454,16 @@ function Turn({
         </p>
       )}
       <div className="note-column-sent">
+        {showNoteLabel && turnNoteTitle !== "" && (
+          <span
+            data-testid="note-column-turn-note"
+            title={turnNoteTitle}
+            className="note-column-turn-note"
+          >
+            <MindLineIcon aria-hidden="true" />
+            <span className="truncate">{turnNoteTitle}</span>
+          </span>
+        )}
         <div className="note-column-bubble">
           {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
           <p>{turn.request}</p>
@@ -455,9 +471,9 @@ function Turn({
         {state === "waiting" ? (
           <Waiting words={turn.request} />
         ) : state === "unsent" ? (
-          <NotSent mindId={mindId} turn={turn} />
+          <NotSent mindId={mindId} conversationId={conversationId} turn={turn} />
         ) : (
-          <SentActions mindId={mindId} turn={turn} />
+          <SentActions mindId={mindId} conversationId={conversationId} turn={turn} />
         )}
       </div>
       {modeLine && (
@@ -475,10 +491,13 @@ function Turn({
         />
       )}
       {state === "working" && questions[0] && (
-        <QuestionCard question={questions[0]} agent={agent} mindId={mindId} />
+        <QuestionCard
+          question={questions[0]}
+          agent={agent}
+          mindId={mindId}
+          conversationId={conversationId}
+        />
       )}
-      {/* What it did with its own tools before it stopped or failed, a file it wrote among them,
-          then what it made through IncarnaMind, which stands though the run didn't end. */}
       {(state === "stopped" || state === "failed") &&
         trail &&
         steps.some((step) => step.kind === "own") && (
@@ -502,18 +521,16 @@ function Turn({
               // biome-ignore lint/suspicious/noArrayIndexKey: what was asked never reorders
               <li key={index} className="note-column-step-item">
                 <OwnStepText action={action} by="closed" className="note-column-step" />
-                {/* The words it was asked about can't be selected again for it: only a request
-                    on the whole Note is sent again, or its changes would apply unlimited. */}
                 {index === turn.closed.length - 1 && turn.quote === "" && (
                   <button
                     type="button"
                     data-testid="own-ask-again"
                     onClick={() =>
-                      void askAgainInNote(mindId, {
-                        words: turn.request,
-                        quote: "",
-                        selection: null,
-                      }).catch(useAppStore.getState().reportError)
+                      void askAgainInNote(
+                        mindId,
+                        { words: turn.request, quote: "", selection: null },
+                        conversationId,
+                      ).catch(useAppStore.getState().reportError)
                     }
                     className="note-ask-pill-action"
                   >
@@ -525,7 +542,6 @@ function Turn({
           </ol>
         ) : (
           <p data-testid="note-column-interrupted" className="note-column-interrupted">
-            {/* What a run read lives in the window: after a restart only that it stopped is known. */}
             {trail ? stoppedOf(steps, t) : t("noteAsk.stopped")}
           </p>
         ))}
@@ -579,11 +595,17 @@ function Turn({
           )}
         </div>
       )}
-      {/* What it made, under the reply's words, or under its steps when it wrote none. */}
-      {state === "landed" && turn.reply === "" && <MadeCards steps={made} />}
+      {/* What it made or changed, under the reply's words, or under its steps when it wrote none. */}
+      {state === "landed" && turn.reply === "" && (
+        <>
+          {elsewhereCard}
+          <MadeCards steps={made} />
+        </>
+      )}
       {state === "landed" && turn.reply !== "" && (
         <div data-testid="note-column-reply" className="note-column-reply">
           <Reply text={turn.reply} citations={turn.citations} />
+          {elsewhereCard}
           <MadeCards steps={made} />
           <div className="note-column-reply-foot">
             <span className="note-column-reply-meta">
@@ -612,12 +634,55 @@ function Turn({
 }
 
 /**
- * Under a sent request, shown while it is pointed at or holds the focus (#3765): when it was sent,
- * then Send again, Edit and Copy. Send again is there for a request on the whole Note: the words
- * another was about can't be selected again for it, as Ask again has it; while a run goes it goes
- * into that run. Edit puts the words back in the input to change and send as a new request.
+ * Change card for a turn that edited a Note not currently in front (#3731): names the Note and
+ * offers Open, never Undo or Accept all.
  */
-function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
+function ChangedElsewhereCard({
+  mindId,
+  title,
+  deleted,
+  count,
+}: {
+  mindId: string;
+  title: string;
+  deleted: boolean;
+  count: number;
+}) {
+  const t = useT();
+  const what = t(count === 1 ? "noteColumn.changed.one" : "noteColumn.changed.other", { count });
+  return (
+    <div className="note-column-made">
+      <button
+        type="button"
+        data-testid="note-column-changed-elsewhere"
+        disabled={deleted}
+        onClick={() => {
+          if (!deleted) useAppStore.getState().openMind(mindId);
+        }}
+        className="note-column-made-card"
+      >
+        <span className="note-column-made-icon" aria-hidden="true">
+          <MindLineIcon />
+        </span>
+        <span className="note-column-made-text">
+          <span className="note-column-made-title">{title}</span>
+          <span className="note-column-made-kind">{what}</span>
+        </span>
+        {!deleted && <span className="note-column-made-open">{t("noteColumn.made.open")}</span>}
+      </button>
+    </div>
+  );
+}
+
+function SentActions({
+  mindId,
+  conversationId,
+  turn,
+}: {
+  mindId: string;
+  conversationId: string | null;
+  turn: NoteTurn;
+}) {
   const t = useT();
   const language = useLanguage();
   const report = useAppStore.getState().reportError;
@@ -631,23 +696,25 @@ function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
           aria-label={t("noteColumn.sendAgain")}
           title={t("noteColumn.sendAgain")}
           onClick={() =>
-            void askAgainInNote(mindId, { words: turn.request, quote: "", selection: null }).catch(
-              report,
-            )
+            void askAgainInNote(
+              mindId,
+              { words: turn.request, quote: "", selection: null },
+              conversationId,
+            ).catch(report)
           }
           className="note-column-icon"
         >
           <RetryLineIcon />
         </button>
       )}
-      <EditRequest mindId={mindId} words={turn.request} />
+      <EditRequest words={turn.request} />
       <CopyRequest words={turn.request} />
     </div>
   );
 }
 
 /** Puts a request's words back in the input, to change and send as a new request. */
-function EditRequest({ mindId, words }: { mindId: string; words: string }) {
+function EditRequest({ words }: { words: string }) {
   const t = useT();
   return (
     <button
@@ -655,7 +722,7 @@ function EditRequest({ mindId, words }: { mindId: string; words: string }) {
       data-testid="note-column-edit"
       aria-label={t("noteColumn.edit")}
       title={t("noteColumn.edit")}
-      onClick={() => editRequest(mindId, words)}
+      onClick={() => editRequest(words)}
       className="note-column-icon"
     >
       <PencilLineIcon />
@@ -681,10 +748,6 @@ function CopyRequest({ words }: { words: string }) {
   );
 }
 
-/**
- * Under a request sent while another ran, until its AI takes it (#3765). Copy is all it offers:
- * the AI has it already, so it can't be changed or taken back.
- */
 function Waiting({ words }: { words: string }) {
   const t = useT();
   return (
@@ -702,12 +765,15 @@ function Waiting({ words }: { words: string }) {
   );
 }
 
-/**
- * Under a request sent while another ran whose run ended before its AI took it (#3765): it never
- * reached the AI. Send asks it as a new request, in its place; Edit gives it back to the input;
- * Discard removes it.
- */
-function NotSent({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
+function NotSent({
+  mindId,
+  conversationId,
+  turn,
+}: {
+  mindId: string;
+  conversationId: string | null;
+  turn: NoteTurn;
+}) {
   const t = useT();
   const report = useAppStore.getState().reportError;
   return (
@@ -718,19 +784,23 @@ function NotSent({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
         data-testid="note-column-send"
         aria-label={t("noteAsk.send")}
         title={t("noteAsk.send")}
-        onClick={() => void sendUnsent(mindId, turn).catch(report)}
+        onClick={() => {
+          if (conversationId) void sendUnsent(conversationId, mindId, turn).catch(report);
+        }}
         className="note-column-icon"
       >
         <AskArrowIcon />
       </button>
-      <EditRequest mindId={mindId} words={turn.request} />
+      <EditRequest words={turn.request} />
       <CopyRequest words={turn.request} />
       <button
         type="button"
         data-testid="note-column-discard"
         aria-label={t("noteColumn.discard")}
         title={t("noteColumn.discard")}
-        onClick={() => void discardInNote(mindId, turn.id).catch(report)}
+        onClick={() => {
+          if (conversationId) void discardInNote(conversationId, turn.id).catch(report);
+        }}
         className="note-column-icon"
       >
         <TrashLineIcon />
