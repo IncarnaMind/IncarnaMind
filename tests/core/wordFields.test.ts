@@ -9,6 +9,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
 import { descendants, parseXml, textOf as xmlText } from "../../src/core/documents/formats/xml";
+import { WordMarkerKeys } from "../../src/renderer/src/editor/wordMarkerKeys";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import {
   acceptedParagraphs,
@@ -18,6 +19,7 @@ import {
   rejectedParagraphs,
   unzip,
 } from "../helpers/docx";
+import { boundEditor, clickIn, lineUp, pressEnter, typeText } from "../helpers/editor";
 import { editMind, readMind } from "../helpers/minds";
 import { escapeXml, field, paragraph, run, STYLES, wordFile } from "../helpers/word";
 import {
@@ -67,47 +69,43 @@ const fieldsIn = (bytes: Buffer) => fieldsOf(part(unzip(bytes), "word/document.x
 const renumber = (contract: Contract) => addItemAfter(contract.after, contract.added);
 
 /**
- * The item whose text is `before` split as Enter after words typed at its start splits it: the
- * item keeps its id, and so where it came from in the file, and holds the new words (or none);
- * its own words go on in a new item after it, with an id of its own. `id` is the item's.
+ * A clause put before the one whose words are `words`, in the Note's editor as the User does it:
+ * a click just before its first word, then `typed` and Enter, or Enter and `typed` in the line it
+ * makes above. The clause's Block id before and after, and the new one's.
  */
-function typedBefore(before: string, typed: string) {
-  let id: unknown;
-  const itemAt = (content: readonly JSONContent[]) =>
-    content.findIndex(
-      (each) => each.type === "listItem" && textOf(each.content?.[0] ?? {}) === before,
-    );
-  const copiedAfter: Edit = (blocks) => {
-    const visit = (node: JSONContent): JSONContent => {
-      const content = node.content ?? [];
-      const at = itemAt(content);
-      if (at < 0) return { ...node, content: content.map(visit) };
-      const item = content[at] as JSONContent;
-      const [paragraph, ...rest] = item.content ?? [];
-      const { id: own, ...attrs } = paragraph?.attrs ?? {};
-      id = own;
-      const copy = {
-        ...item,
-        content: [{ ...paragraph, attrs, content: paragraph?.content }, ...rest],
-      };
-      return { ...node, content: [...content.slice(0, at + 1), copy, ...content.slice(at + 1)] };
-    };
-    return blocks.map(visit);
+async function clauseBefore(
+  bytes: Buffer,
+  words: string,
+  typed: string,
+  typedFirst: boolean,
+  trackChanges: boolean,
+) {
+  const dataDir = await createTempDataFolder();
+  const core = startCore(dataDir);
+  const { mindId, client } = await importWordBytes(core, dataDir, bytes, { origin: "own" });
+  const editor = boundEditor(client, [WordMarkerKeys]);
+  const idOf = (text: string) => {
+    let id: unknown;
+    editor.state.doc.descendants((node) => {
+      if (id === undefined && node.isTextblock && node.textContent === text) id = node.attrs.id;
+      return id === undefined;
+    });
+    return id;
   };
-  const typedIn: Edit = (blocks) => {
-    const visit = (node: JSONContent): JSONContent => {
-      const content = node.content ?? [];
-      const at = itemAt(content);
-      if (at < 0) return { ...node, content: content.map(visit) };
-      const item = content[at] as JSONContent;
-      const [paragraph, ...rest] = item.content ?? [];
-      const words = typed ? [{ type: "text", text: typed }] : [];
-      const head = { ...item, content: [{ ...paragraph, content: words }, ...rest] };
-      return { ...node, content: [...content.slice(0, at), head, ...content.slice(at + 1)] };
-    };
-    return blocks.map(visit);
-  };
-  return { edits: [copiedAfter, typedIn], id: () => id };
+  const was = idOf(words);
+  clickIn(editor, words);
+  if (typedFirst) {
+    typeText(editor, typed);
+    pressEnter(editor);
+  } else {
+    pressEnter(editor);
+    lineUp(editor);
+    typeText(editor, typed);
+  }
+  await client.settled();
+  const data = (await core.exportMind(mindId, { format: "docx", trackChanges })).data;
+  const ids = { was, now: idOf(words), added: idOf(typed) };
+  return { data, document: part(unzip(data), "word/document.xml"), ids };
 }
 
 /** The text of the paragraph a bookmark starts in, every change accepted; null when none has it. */
@@ -137,46 +135,53 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     },
   );
 
-  // protects=when the Block of the clause a REF names keeps its place in the Note but holds new words, or none, and the clause's own words and bookmark go on in a new Block after it, the file has a new clause before it, as in Word: the clause's paragraph with its bookmark is now 2.4 / （四）, so the REF shows the new number, written; tracked, the clause's words are neither struck out nor inserted again, in English and Chinese; fails_when=the bookmark goes with the new words, the REF keeps 2.3 / （三）, or the tracked file deletes and inserts the clause's words; no_claim=a clause split in its middle, whose start stays where it was, or where the editor puts the bookmark, which tests/renderer/wordMarkerKeys.test.ts holds.
+  // protects=a new clause put before the one a REF names in the Note's editor, as the User does it (a click just before its first word, then words typed and Enter, or Enter and words typed in the line it makes above), is a new clause in the file and the clause goes on as itself: its Block keeps its id, its paragraph its bookmark, now 2.4 / （四）, so the REF shows the new number, written; tracked, the clause's words are neither struck out nor inserted again, in English and Chinese; fails_when=the new words take the clause's Block or bookmark, the REF keeps 2.3 / （三）, or the tracked file deletes and inserts the clause's words; no_claim=a clause split in its middle, which splits there as anywhere else (tests/renderer/wordMarkerKeys.test.ts).
   test.each([
+    ["English", "words typed, then Enter", ENGLISH_CONTRACT, "_Ref201", "2.4", true, false],
     [
       "English",
-      "words typed, then Enter",
+      "Enter, then words typed above, tracked",
       ENGLISH_CONTRACT,
       "_Ref201",
       "2.4",
-      "Late fees are capped at the fee itself.",
       false,
+      true,
     ],
-    ["English", "Enter alone, tracked", ENGLISH_CONTRACT, "_Ref201", "2.4", "", true],
     [
       "Chinese",
       "words typed, then Enter, tracked",
       CHINESE_CONTRACT,
       "_Ref301",
       "（四）",
-      "滞纳金以服务费金额为限。",
+      true,
       true,
     ],
-    ["Chinese", "Enter alone", CHINESE_CONTRACT, "_Ref301", "（四）", "", false],
+    [
+      "Chinese",
+      "Enter, then words typed above",
+      CHINESE_CONTRACT,
+      "_Ref301",
+      "（四）",
+      false,
+      false,
+    ],
   ] as const)(
     "%s: a clause added at the start of the one a REF names (%s)",
-    async (_language, _how, contract, name, number, typed, tracked) => {
+    async (_language, _how, contract, name, number, typedFirst, tracked) => {
       const bytes = contractFile(contract);
       const words = bookmarkedText(part(unzip(bytes), "word/document.xml"), name) ?? "";
-      const split = typedBefore(words, typed);
-      const { data, document, paragraphs } = await exported(bytes, split.edits, tracked);
-      const at = paragraphs.findIndex((each) => textOf(each) === words);
-      expect(paragraphs[at - 1]?.attrs?.id).toBe(split.id());
-      expect(paragraphs[at]?.attrs?.id).not.toBe(split.id());
+      const typed = contract.added;
+      const { data, document, ids } = await clauseBefore(bytes, words, typed, typedFirst, tracked);
+      expect(ids.now).toBe(ids.was);
+      expect(ids.added).toEqual(expect.any(String));
+      expect(ids.added).not.toBe(ids.was);
 
       expect(bookmarkedText(document, name)).toBe(words);
       const [ref, pageRef] = fieldsOf(document);
       expect(ref).toMatchObject({ result: number, dirty: false });
       expect(pageRef).toMatchObject({ result: "1", dirty: false });
-      expect(acceptedParagraphs(document)).toEqual(
-        expect.arrayContaining([...(typed ? [typed] : []), words]),
-      );
+      const accepted = acceptedParagraphs(document);
+      expect(accepted.indexOf(words)).toBe(accepted.indexOf(typed) + 1);
       if (tracked) {
         // Only the REF's old number is struck out: the clause's own words stay as they were.
         const struck = [...document.matchAll(/<w:delText[^>]*>([^<]*)<\/w:delText>/g)];
@@ -484,10 +489,10 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
-  // protects=a `\p` REF says "above" or "below" its bookmark, so when the User moves its paragraph past the bookmark it is asked to refresh, its result kept for Word; fails_when=it isn't marked; no_claim=the words Word writes.
-  test("a `\\p` REF moved past its bookmark is marked", async () => {
+  // protects=a REF or PAGEREF with `\p` says "above" or "below" its bookmark, so when the User moves its paragraph past the bookmark it is asked to refresh, its result kept for Word; fails_when=it isn't marked; no_claim=the words Word writes.
+  test.each(["REF", "PAGEREF"])("a `\\p` %s moved past its bookmark is marked", async (type) => {
     const reference = paragraph(
-      `${run("The interest clause is ")}${field("REF _Ref201 \\p \\h", "below")}${run(".")}`,
+      `${run("The interest clause is ")}${field(`${type} _Ref201 \\p \\h`, "below")}${run(".")}`,
     );
     const bytes = wordFile({
       styles: STYLES,
@@ -500,8 +505,22 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
       return moved ? [...blocks.slice(0, at), ...blocks.slice(at + 1), moved] : blocks;
     });
     expect(fieldsOf(document)).toEqual([
-      { instruction: "REF _Ref201 \\p \\h", result: "below", dirty: true },
+      { instruction: `${type} _Ref201 \\p \\h`, result: "below", dirty: true },
     ]);
+  });
+
+  // protects=a `\p` PAGEREF whose paragraph stays on the same side of its bookmark keeps its result unmarked, as does its page; fails_when=it is marked or rewritten; no_claim=a page that changes, which Word works out when the User updates fields.
+  test("a `\\p` PAGEREF that stays on its side of its bookmark is left as it was", async () => {
+    const reference = paragraph(
+      `${run("The interest clause is ")}${field("PAGEREF _Ref201 \\p \\h", "below")}${run(".")}`,
+    );
+    const bytes = wordFile({
+      styles: STYLES,
+      numbering: ENGLISH_CONTRACT.numbering,
+      body: `${reference}${ENGLISH_CONTRACT.body(run("Either party may end this agreement."))}`,
+    });
+    const { document } = await exported(bytes, renumber(ENGLISH_CONTRACT));
+    expect(fieldsOf(document)).toEqual(fieldsIn(bytes));
   });
 
   // protects=a REF to words that hold another REF written again in the same export reads that REF's old number, so it is marked for Word and keeps its result rather than staying unmarked beside a stale copy; fails_when=it isn't marked or is rewritten; no_claim=what Word writes for it.
@@ -646,48 +665,301 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
   );
 });
 
+/** A heading as the file has it: its words, or its runs' XML and its entry's when Word wrote them otherwise. */
+type Heading = string | { runs: string; entry?: string };
+
+const TAB = "<w:r><w:tab/></w:r>";
+
+const BODIES = [
+  "The studio designs the packaging.",
+  "The fee is due each month.",
+  "Either party may end it with notice.",
+];
+
 /**
  * A table of contents as Word writes one: the field from the first entry's paragraph to the
  * last's, each entry a link to its heading's bookmark holding its number (when it has one), the
- * heading's words and a PAGEREF to its page; and the headings, bookmarked.
+ * heading's words and a PAGEREF to its page; and the headings, bookmarked, each with a paragraph.
  */
-const withContents = (headings: readonly [string, string], numbered = false) => {
+const withContents = (headings: readonly Heading[], numbered = false) => {
   const name = (at: number) => `_Toc9000${at}`;
+  const runsOf = (heading: Heading) => (typeof heading === "string" ? run(heading) : heading.runs);
+  const entryOf = (heading: Heading) =>
+    typeof heading === "string" ? run(heading) : (heading.entry ?? heading.runs);
   const entries = headings.map((heading, at) => {
     const begin =
       at === 0
         ? `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-3" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>`
         : "";
     const end = at === headings.length - 1 ? '<w:r><w:fldChar w:fldCharType="end"/></w:r>' : "";
-    const number = numbered ? `${run(String(at + 1))}<w:r><w:tab/></w:r>` : "";
-    return `<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>${begin}<w:hyperlink w:anchor="${name(at)}" w:history="1">${number}${run(heading)}<w:r><w:tab/></w:r>${field(`PAGEREF ${name(at)} \\h`, String(at + 2))}</w:hyperlink>${end}</w:p>`;
+    const number = numbered ? `${run(String(at + 1))}${TAB}` : "";
+    return `<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>${begin}<w:hyperlink w:anchor="${name(at)}" w:history="1">${number}${entryOf(heading)}${TAB}${field(`PAGEREF ${name(at)} \\h`, String(at + 2))}</w:hyperlink>${end}</w:p>`;
   });
-  const heading = (text: string, at: number) =>
-    `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:bookmarkStart w:id="${90 + at}" w:name="${name(at)}"/>${run(text)}<w:bookmarkEnd w:id="${90 + at}"/></w:p>`;
+  const heading = (each: Heading, at: number) =>
+    `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:bookmarkStart w:id="${90 + at}" w:name="${name(at)}"/>${runsOf(each)}<w:bookmarkEnd w:id="${90 + at}"/></w:p>`;
   return wordFile({
     body: [
       ...entries,
-      heading(headings[0], 0),
-      paragraph("The studio designs the packaging."),
-      heading(headings[1], 1),
-      paragraph("The fee is due each month."),
+      ...headings.flatMap((each, at) => [heading(each, at), paragraph(BODIES[at] ?? "")]),
     ].join(""),
   });
 };
 
+/** The heading that holds `from` renamed: its first text holding it reads `to` there. */
 const renamed = (from: string, to: string) => (blocks: JSONContent[]) =>
+  blocks.map((block) => {
+    if (block.type !== "heading" || !textOf(block).includes(from)) return block;
+    let done = false;
+    const content = (block.content ?? []).map((each) => {
+      if (done || each.type !== "text" || !each.text?.includes(from)) return each;
+      done = true;
+      return { ...each, text: each.text.replace(from, to) };
+    });
+    return { ...block, content };
+  });
+
+/** The heading whose words are `heading` given `added` after them, as a link. */
+const linkAdded = (heading: string, added: string) => (blocks: JSONContent[]) =>
   blocks.map((block) =>
-    block.type === "heading" && textOf(block) === from
+    block.type === "heading" && textOf(block) === heading
       ? {
           ...block,
-          content: (block.content ?? []).map((each) =>
-            each.type === "text" ? { ...each, text: to } : each,
+          content: (block.content ?? []).flatMap((each) =>
+            each.type === "text"
+              ? [
+                  each,
+                  {
+                    type: "text",
+                    text: added,
+                    marks: [{ type: "link", attrs: { href: "https://example.com/fees" } }],
+                  },
+                ]
+              : [each],
           ),
         }
       : block,
   );
 
+/** The file's contents entries: the paragraphs Word writes in the TOC1 style. */
+const entriesOf = (document: string) =>
+  document.match(/<w:p><w:pPr><w:pStyle w:val="TOC1"\/>.*?<\/w:p>/gs) ?? [];
+
+const AROUND = { English: ["Services", "Term"], Chinese: ["服务内容", "合同期限"] } as const;
+
+/**
+ * How a renamed heading's entry is written, row by row: the words its old and new names share at
+ * their start and end stay in their own runs, with what stands between them, and only the part
+ * that changed is written, in the run it starts in.
+ */
+const RENAMES: readonly {
+  language: keyof typeof AROUND;
+  row: string;
+  heading: Heading;
+  edit: Edit;
+  entry: string;
+  /** How the changed part must be written, where the row is about its run. */
+  look?: RegExp;
+}[] = [
+  {
+    language: "English",
+    row: "a number typed before a tab",
+    heading: { runs: `${run("2.")}${TAB}${run("Fees")}` },
+    edit: renamed("Fees", "Fees and costs"),
+    entry: "2.\tFees and costs",
+  },
+  {
+    language: "English",
+    row: "a line break in the heading",
+    heading: { runs: `${run("Fees")}<w:r><w:br/></w:r>${run("and costs")}` },
+    edit: renamed("and costs", "and charges"),
+    entry: "Fees\nand charges",
+  },
+  {
+    language: "English",
+    row: "a field in the heading",
+    heading: {
+      runs: `${run("Fees for ")}${field("DOCPROPERTY Year", "2026")}`,
+      entry: `${run("Fees for ")}${run("2026")}`,
+    },
+    edit: renamed("Fees for ", "Charges for "),
+    entry: "Charges for 2026",
+    look: />Charges for <\/w:t><\/w:r><w:r><w:t xml:space="preserve">2026</,
+  },
+  {
+    language: "English",
+    row: "a word in bold",
+    heading: { runs: `${run("Fees and ")}${run("costs", { b: true })}` },
+    edit: renamed("costs", "charges"),
+    entry: "Fees and charges",
+    look: /<w:b\/><\/w:rPr><w:t xml:space="preserve">charges</,
+  },
+  {
+    language: "English",
+    row: "the new words a link",
+    heading: "Fees",
+    edit: linkAdded("Fees", " and costs"),
+    entry: "Fees and costs",
+  },
+  {
+    language: "English",
+    row: "only its start renamed",
+    heading: "Late fees",
+    edit: renamed("Late", "Unpaid"),
+    entry: "Unpaid fees",
+  },
+  {
+    language: "English",
+    row: "only its end renamed",
+    heading: "Fees",
+    edit: renamed("Fees", "Fees and costs"),
+    entry: "Fees and costs",
+  },
+  {
+    language: "English",
+    row: "only its middle renamed",
+    heading: "Fees and costs",
+    edit: renamed("and", "or"),
+    entry: "Fees or costs",
+  },
+  {
+    language: "English",
+    row: "all of it renamed",
+    heading: "Fees",
+    edit: renamed("Fees", "Pay"),
+    entry: "Pay",
+  },
+  {
+    language: "Chinese",
+    row: "a number typed before a tab",
+    heading: { runs: `${run("二、")}${TAB}${run("费用")}` },
+    edit: renamed("费用", "费用与支付"),
+    entry: "二、\t费用与支付",
+  },
+  {
+    language: "Chinese",
+    row: "a line break in the heading",
+    heading: { runs: `${run("费用")}<w:r><w:br/></w:r>${run("与支付")}` },
+    edit: renamed("与支付", "与结算"),
+    entry: "费用\n与结算",
+  },
+  {
+    language: "Chinese",
+    row: "a field in the heading",
+    heading: {
+      runs: `${run("费用（")}${field("DOCPROPERTY Year", "2026")}${run("年）")}`,
+      entry: `${run("费用（")}${run("2026")}${run("年）")}`,
+    },
+    edit: renamed("费用（", "报酬（"),
+    entry: "报酬（2026年）",
+    look: />报酬（<\/w:t><\/w:r><w:r><w:t xml:space="preserve">2026<\/w:t><\/w:r><w:r><w:t xml:space="preserve">年）</,
+  },
+  {
+    language: "Chinese",
+    row: "a word in bold",
+    heading: { runs: `${run("费用与")}${run("支付", { b: true })}` },
+    edit: renamed("支付", "结算"),
+    entry: "费用与结算",
+    look: /<w:b\/><\/w:rPr><w:t xml:space="preserve">结算</,
+  },
+  {
+    language: "Chinese",
+    row: "the new words a link",
+    heading: "费用",
+    edit: linkAdded("费用", "与支付"),
+    entry: "费用与支付",
+  },
+  {
+    language: "Chinese",
+    row: "only its start renamed",
+    heading: "逾期费用",
+    edit: renamed("逾期", "迟付"),
+    entry: "迟付费用",
+  },
+  {
+    language: "Chinese",
+    row: "only its end renamed",
+    heading: "费用",
+    edit: renamed("费用", "费用与支付"),
+    entry: "费用与支付",
+  },
+  {
+    language: "Chinese",
+    row: "only its middle renamed",
+    heading: "费用与支付",
+    edit: renamed("与", "及"),
+    entry: "费用及支付",
+  },
+  {
+    language: "Chinese",
+    row: "all of it renamed",
+    heading: "费用",
+    edit: renamed("费用", "报酬"),
+    entry: "报酬",
+  },
+];
+
 describe("a Word file's table of contents after an edit", () => {
+  // protects=a renamed heading's contents entry changes only where the heading's words did, row by row (a number typed before a tab, a line break, a field's result, a word in bold, new words that are a link, a rename of only the start, only the end, only the middle, or all of it): the entry reads as the heading now does, before its page, its tab, break and formatting where they were, still the link to its heading and plain, with the User's edits tracked or not, in English and Chinese; fails_when=the entry's words run together with a tab or break moved, a word loses its formatting, the entry carries a tracked change or loses its link, or its page changes; no_claim=an entry whose words don't end with its heading's, left as it was.
+  describe.each([false, true])("with the User's edits tracked: %s", (tracked) => {
+    test.each(RENAMES)(
+      "$language, $row: the heading's contents entry is renamed",
+      async ({ language, heading, edit, entry, look }) => {
+        const [first, last] = AROUND[language];
+        const { data, document } = await exported(
+          withContents([first, heading, last]),
+          edit,
+          tracked,
+        );
+        expect(acceptedParagraphs(document).slice(0, 3)).toEqual([
+          `${first}\t2`,
+          `${entry}\t3`,
+          `${last}\t4`,
+        ]);
+        const entries = entriesOf(document);
+        expect(entries.join("")).not.toMatch(/<w:(?:ins|del)\b/);
+        expect(entries[1]).toContain('<w:hyperlink w:anchor="_Toc90001"');
+        expect(entries[1]).not.toContain("r:id=");
+        if (look) expect(entries[1]).toMatch(look);
+        expect(document).not.toContain("w:dirty");
+        expect((await inspectPackage(data)).problems).toEqual([]);
+      },
+    );
+  });
+
+  // protects=a heading deleted, or its words deleted, leaves its contents entry as the file had it, with the User's edits tracked or not: Word gives the entry its new state when the User updates the table, and a blank entry would stay blank after the User rejected the deletion, in English and Chinese; fails_when=the entry loses its words or any entry is touched; no_claim=whether Word lists the heading once the User updates the table.
+  test.each(
+    (["English", "Chinese"] as const).flatMap((language) =>
+      (["deleted", "its words deleted"] as const).flatMap((how) =>
+        [false, true].map((tracked) => [language, how, tracked] as const),
+      ),
+    ),
+  )("%s: a heading %s leaves its entry as it was (tracked: %s)", async (language, how, tracked) => {
+    const headings =
+      language === "English" ? ["Services", "Fees", "Term"] : ["服务内容", "费用", "合同期限"];
+    const gone = headings[1];
+    const file = withContents(headings);
+    const { data, document } = await exported(
+      file,
+      (blocks) =>
+        how === "deleted"
+          ? blocks.filter((block) => !(block.type === "heading" && textOf(block) === gone))
+          : blocks.map((block) =>
+              block.type === "heading" && textOf(block) === gone
+                ? {
+                    ...block,
+                    content: (block.content ?? []).filter((each) => each.type !== "text"),
+                  }
+                : block,
+            ),
+      tracked,
+    );
+    const before = entriesOf(part(unzip(file), "word/document.xml"));
+    expect(entriesOf(document)).toEqual(before);
+    expect(acceptedParagraphs(document)[1]).toBe(`${gone}\t3`);
+    expect(rejectedParagraphs(document)[1]).toBe(`${gone}\t3`);
+    expect((await inspectPackage(data)).problems).toEqual([]);
+  });
+
   // protects=a heading renamed gives its contents entry the heading's new words, before its page, which keeps the page the file saved: nothing in the file asks Word to refresh at opening, where Word works pages out before laying them out, in English and Chinese; fails_when=the entry keeps the old words, a page changes, or any field is marked; no_claim=the pages Word shows once the User updates the table.
   test.each([
     ["English", ["Services", "Fees"], "Fees and costs"],
@@ -714,7 +986,7 @@ describe("a Word file's table of contents after an edit", () => {
       renamed("Fees", "Fees and costs"),
       true,
     );
-    const entries = document.match(/<w:p><w:pPr><w:pStyle w:val="TOC1"\/>.*?<\/w:p>/gs) ?? [];
+    const entries = entriesOf(document);
     expect(entries).toHaveLength(2);
     expect(entries.join("")).not.toMatch(/<w:(?:ins|del)\b/);
     expect(acceptedParagraphs(document)).toEqual(

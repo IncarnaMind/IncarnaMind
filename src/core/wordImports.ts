@@ -350,8 +350,12 @@ export function createWordImports(options: WordImportsOptions) {
       return { failed };
     }
   };
-  const originalNotAdded = (mindId: string, failed: unknown) =>
-    log.error("word.import.originalNotAdded", { mindId, ...wordErrorFields(failed) });
+  /** The Library's failure to take the original, for the Note made from it; null when none was made. */
+  const originalNotAdded = (mindId: string | null, failed: unknown) =>
+    log.error("word.import.originalNotAdded", {
+      ...(mindId !== null && { mindId }),
+      ...wordErrorFields(failed),
+    });
 
   /**
    * Every live package of these bytes was the same file: once one is linked to its Document, all
@@ -477,6 +481,9 @@ export function createWordImports(options: WordImportsOptions) {
           if (documentId !== null) linkSourceDocument(sha256, documentId);
           return made;
         });
+      } catch (error) {
+        if (notAdded) originalNotAdded(null, notAdded.failed);
+        throw error;
       } finally {
         keeping.delete(sha256);
       }

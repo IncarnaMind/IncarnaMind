@@ -1,6 +1,6 @@
 import { Editor, type Extensions } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
-import type { PluginView, Transaction } from "@tiptap/pm/state";
+import { type PluginView, Selection, TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { onTestFinished } from "vitest";
@@ -58,6 +58,51 @@ export function boundEditorTo(doc: Y.Doc, extra: Extensions = []): Editor {
   if (!binding) throw new Error("The editor has no Yjs binding.");
   onTestFinished(() => binding?.destroy?.());
   return editor;
+}
+
+/** Presses Enter as the keyboard does: the editor's key handlers see it before it splits a line. */
+export function pressEnter(editor: Editor): void {
+  const event = {
+    type: "keydown",
+    key: "Enter",
+    keyCode: 13,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    metaKey: false,
+    preventDefault() {},
+    getModifierState: () => false,
+  };
+  editor.state.plugins.some((plugin) =>
+    plugin.props.handleKeyDown?.call(plugin, editor.view, event as never),
+  );
+}
+
+/**
+ * Where a click puts the cursor in the line whose words are `words`: just before its first word,
+ * past the markers that start it, or with `end` just after its last.
+ */
+export function clickIn(editor: Editor, words: string, { end = false } = {}): void {
+  let at = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (at >= 0 || !node.isTextblock || node.textContent !== words) return at < 0;
+    node.forEach((child, offset) => {
+      if (!child.isText) return;
+      if (end) at = pos + 1 + offset + child.nodeSize;
+      else if (at < 0) at = pos + 1 + offset;
+    });
+    return false;
+  });
+  if (at < 0) throw new Error(`No line reads "${words}".`);
+  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, at)));
+}
+
+/** The cursor to the end of the line above, as the arrow up takes it from a line's start. */
+export function lineUp(editor: Editor): void {
+  const { state } = editor;
+  const above = Selection.findFrom(state.doc.resolve(state.selection.$head.before()), -1, true);
+  if (!above) throw new Error("There is no line above.");
+  editor.view.dispatch(state.tr.setSelection(above));
 }
 
 /**

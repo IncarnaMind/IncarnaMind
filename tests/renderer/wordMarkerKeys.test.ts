@@ -18,6 +18,7 @@ const { NodeSelection, TextSelection } = await import("@tiptap/pm/state");
 const { WORD_ATOM_NODE } = await import("../../src/core/api");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 const { WordMarkerKeys } = await import("../../src/renderer/src/editor/wordMarkerKeys");
+const { pressEnter } = await import("../helpers/editor");
 
 const START = "w:bookmarkStart#0";
 const END = "w:bookmarkEnd#0";
@@ -56,21 +57,6 @@ function contract(clause: string) {
     if (node.type.name === "paragraph" && node.textContent === clause) start = pos + 1;
   });
   return { editor, start };
-}
-
-function pressEnter(editor: InstanceType<typeof Editor>): void {
-  const event = {
-    type: "keydown",
-    key: "Enter",
-    keyCode: 13,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    metaKey: false,
-    preventDefault() {},
-    getModifierState: () => false,
-  };
-  editor.view.someProp("handleKeyDown", (handle) => handle(editor.view, event as never));
 }
 
 /** Each paragraph: its words, and each marker as where it is in the file. */
