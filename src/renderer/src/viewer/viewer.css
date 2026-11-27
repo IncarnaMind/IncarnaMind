@@ -173,12 +173,15 @@
       @apply hidden;
     }
   }
+  /* Once the Tags leave the bar (below 630px), the name's room no longer keeps theirs. */
+  @container viewer (width < 630px) {
+    .viewer-name-area {
+      @apply min-w-18;
+    }
+  }
   @container viewer (width < 540px) {
     .viewer-header {
       @apply gap-px;
-    }
-    .viewer-name-area {
-      @apply min-w-18;
     }
   }
 
