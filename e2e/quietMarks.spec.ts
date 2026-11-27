@@ -161,10 +161,10 @@ test("after a check only what needs a look is marked; the sentences written befo
   ];
   expect((await noteText(window)).slice(1, 3)).toEqual(written);
 
-  // The button keeps what needs a look first and says what can be cited.
+  // The button keeps what needs a look and leaves what can be cited to the card's one row (#3840).
   const button = noteCheck(window);
   await expect(button).toHaveAttribute("data-state", "look");
-  await expect(button).toHaveAttribute("title", "1 needs a look · 2 can be cited");
+  await expect(button).toHaveAttribute("title", "1 needs a look");
   const panel = await checkCard(window);
   const row = panel.getByTestId("health-notYetCited");
   await expect(row).toContainText("2 can be cited");
