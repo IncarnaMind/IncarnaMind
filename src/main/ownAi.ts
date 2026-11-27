@@ -344,7 +344,7 @@ export function createOwnAi({
       // A run with its own abilities (#3653): its own calls as they go, by their ids, and until when
       // each command of them may run silently, as Claude Code's own time for it.
       const ownCalls = new Map<string, NonNullable<ReturnType<typeof actionOf>>>();
-      const commands = new Map<string, number>();
+      const commands = new Map<string, { wait: number; until: number }>();
       let places: Places = { folders: [cwd], home: process.env.HOME || homedir() };
       const mode = (value: unknown) => {
         if (own && typeof value === "string" && value !== "") {
@@ -385,8 +385,11 @@ export function createOwnAi({
           )
           .then(
             (answer) => {
-              if (asking.get(id) === waiting && !waiting.signal.aborted)
-                reply(question.answer(answer));
+              if (asking.get(id) !== waiting || waiting.signal.aborted) return;
+              reply(question.answer(answer));
+              // A command's own time starts when it may run, not while it waited on the User.
+              const command = commands.get(String(asked.tool_use_id));
+              if (command) command.until = performance.now() + command.wait;
             },
             (error: unknown) => {
               // Taken back, or the run ended: Claude Code waits on nothing.
@@ -585,7 +588,7 @@ export function createOwnAi({
             running.size > 0 ||
             compacting !== null ||
             asking.size > 0 ||
-            [...commands.values()].some((until) => until > performance.now()),
+            [...commands.values()].some(({ until }) => until > performance.now()),
           onMessage(message) {
             // A heartbeat or a retry's notice says the AI isn't getting anywhere, rather than that it is.
             if (progressed(message) && performance.now() - toldHeard >= HEARD_EVERY_MS) {
@@ -696,7 +699,8 @@ export function createOwnAi({
                 continue;
               }
               const wait = waitOf(String(part.name ?? ""), part.input);
-              if (wait > 0) commands.set(String(part.id), performance.now() + wait);
+              if (wait > 0)
+                commands.set(String(part.id), { wait, until: performance.now() + wait });
               const action = actionOf(String(part.name ?? ""), part.input, places);
               if (action) {
                 ownCalls.set(String(part.id), action);

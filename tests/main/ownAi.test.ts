@@ -2612,9 +2612,15 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
     const KEY = "3e5a7c9b-1d2f-4a6b-8c0e-2f4a6b8c0d1e";
     /**
      * A conversation's Claude Code that, once the prompt comes, calls `call` and asks about it when
-     * `asks`, then says it is alive every 20 ms; an answer ends it with the call's result.
+     * `asks`, then says it is alive every 20 ms; an answer ends it with the call's result, unless
+     * `runsOn`, when the call runs on silently.
      */
-    const calling = (call: Record<string, unknown>, asks: boolean, lines: unknown[]) => `
+    const calling = (
+      call: Record<string, unknown>,
+      asks: boolean,
+      lines: unknown[],
+      runsOn = false,
+    ) => `
       const lines = require("node:readline").createInterface({ input: process.stdin });
       const say = (value) => console.log(JSON.stringify(value));
       lines.on("line", (line) => {
@@ -2629,7 +2635,7 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
           if (${asks}) say({ type: "control_request", request_id: "q0", request: { subtype: "can_use_tool",
             tool_name: ${JSON.stringify(call.name)}, tool_use_id: ${JSON.stringify(call.id)}, input: ${JSON.stringify(call.input)} } });
           ${sayingEvery20ms(lines)}
-        } else if (v.type === "control_response") {
+        } else if (v.type === "control_response" && !${runsOn}) {
           say({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: ${JSON.stringify(call.id)}, content: "Done." }] } });
           say({ type: "result", subtype: "success", is_error: false, result: "Built." });
         }
@@ -2706,6 +2712,34 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       await pass(bound);
       expect(run.end).toBe("running");
       await pass(40_000);
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "failed", reason: "stalled" });
+    });
+
+    // protects=a command's own time starts once the User lets it run, not while its question waited; fails_when=a command allowed after a long look at its card is ended as stuck while it runs within its time
+    it("counts a command's own time from the User's answer", async () => {
+      ownClock();
+      useClaude({ run: calling(build({}), true, [{ type: "keep_alive" }], true) });
+      let answer: (given: NoteAnswer) => void = () => undefined;
+      let asked = false;
+      const steps: unknown[] = [];
+      const run = watched(
+        converse(
+          steps,
+          { stallMs: 20_000 },
+          () =>
+            new Promise<NoteAnswer>((resolve) => {
+              asked = true;
+              answer = resolve;
+            }),
+        ),
+      );
+      await until(() => asked);
+      await pass(3 * MINUTE);
+      answer("once");
+      await pass(1.5 * MINUTE);
+      expect(run.end).toBe("running");
+      await pass(MINUTE);
       await until(() => run.end !== "running");
       expect(run.end).toEqual({ kind: "failed", reason: "stalled" });
     });
