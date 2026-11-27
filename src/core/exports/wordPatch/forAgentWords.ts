@@ -6,7 +6,7 @@
 import { textOf, walk, type XmlElement } from "../../documents/formats/xml";
 import { parentsOf } from "../packagePatch/text";
 import { relationshipPrefixes, SHAPE_ID } from "./forAgentParts";
-import { isKnownStyleId, isKnownStyleName, STYLE_REFERENCES } from "./forAgentStyles";
+import { isKnownStyleId, isKnownStyleName, STYLE_REFERENCES, styleNamesIn } from "./forAgentStyles";
 
 /** Elements whose text a file shows or keeps; any other element's text with a letter is read too. */
 const TEXTS = new Set(["w:t", "w:delText", "a:t", "c:v", "m:t"]);
@@ -229,25 +229,55 @@ const FIELD_NAMES = new Set(
     "FORMCHECKBOX FORMDROPDOWN ADVANCE BIBLIOGRAPHY CITATION REVNUM ="
   ).split(" "),
 );
-/** Switches whose argument is a format or a picture of one, in Word's own words. */
-const FORMAT_SWITCHES = new Set(["\\*", "\\@", "\\#"]);
+/** Word's own values for a field's \\* switch: how its result is numbered or cased. */
+const FORMATS = new Set([
+  ..."arabic alphabetic roman cardtext dollartext hex ordtext ordinal caps firstcap lower upper".split(
+    " ",
+  ),
+  ..."mergeformat charformat arabicdash circlenum dbchar sbchar aiueo iroha hebrew1 hebrew2".split(
+    " ",
+  ),
+  ..."arabicabjad arabicalpha hindiarabic hindicardtext hindiletter1 hindiletter2 thaiarabic".split(
+    " ",
+  ),
+  ..."thaicardtext thailetter vietcardtext chosung ganada".split(" "),
+  ...[1, 2, 3, 4].flatMap((at) => [`dbnum${at}`, `gb${at}`, `chinesenum${at}`, `kanjinum${at}`]),
+  ...[1, 2, 3].map((at) => `zodiac${at}`),
+]);
 const TOKENS = /"[^"]*"|\S+/g;
+const bareOf = (token: string) => token.replace(/^"|"$/g, "");
+
+/** What of a number's picture in a field is shown as words: its quoted text and any letter but x, Word's digit. */
+function numberWords(picture: string): string {
+  const literal = [...picture.matchAll(/'([^']*)'/g)].map(([, quoted]) => quoted);
+  return [...literal, picture.replace(/'[^']*'/g, " ").replace(/x/gi, " ")].join(" ");
+}
 
 /**
- * What of a field's instruction is anyone's words: not the field's name, its switches and their
- * formats, the bookmarks Word names itself, or a table of contents' levels.
+ * What of a field's instruction is anyone's words: not the field's name, its switches, Word's own
+ * formats and what of a picture is Word's, the bookmarks Word names itself, a table of contents'
+ * levels, or a style's name that is Word's or one written here.
  */
 function instructionWords(instruction: string): string {
   const tokens = [...instruction.matchAll(TOKENS)].map(([token]) => token);
   const name = (tokens[0] ?? "").toUpperCase();
   if (!FIELD_NAMES.has(name)) return instruction;
-  const words: string[] = [];
+  const words = styleNamesIn(instruction).filter((style) => !isKnownStyleName(style));
+  let named = name === "STYLEREF";
   for (let at = 1; at < tokens.length; at++) {
     const token = tokens[at] ?? "";
-    const bare = token.replace(/^"|"$/g, "");
+    const next = tokens[at + 1];
+    const argument = next !== undefined && !next.startsWith("\\") ? bareOf(next) : undefined;
     if (token.startsWith("\\")) {
-      if (FORMAT_SWITCHES.has(token) || name === "TOC") at++;
-    } else if (!bare.startsWith("_")) words.push(bare);
+      if (argument === undefined) continue;
+      if (token === "\\@") words.push(dateWords(argument));
+      else if (token === "\\#") words.push(numberWords(argument));
+      else if (token === "\\*") {
+        if (!FORMATS.has(argument.toLowerCase())) words.push(argument);
+      } else if (name !== "TOC") continue;
+      at++;
+    } else if (named) named = false;
+    else if (!bareOf(token).startsWith("_")) words.push(bareOf(token));
   }
   return words.join(" ");
 }

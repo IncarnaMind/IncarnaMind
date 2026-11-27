@@ -29,7 +29,7 @@ import {
   without,
   withParts,
 } from "../helpers/plantedWordFile";
-import { escapeXml, paragraph, run, STYLES, tracked, wordFile } from "../helpers/word";
+import { escapeXml, field, paragraph, run, STYLES, tracked, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
 interface Saved {
@@ -442,6 +442,93 @@ function chartTitled(words: Words): Buffer {
   );
 }
 
+/** The header a file's last section shows, as rIdH1. */
+const HEADED =
+  '<w:headerReference w:type="default" r:id="rIdH1"/><w:pgSz w:w="11906" w:h="16838"/>';
+
+/** Runs that write a field's instruction in pieces, as Word often does. */
+const instructed = (pieces: readonly string[], result: string) =>
+  `<w:r><w:fldChar w:fldCharType="begin"/></w:r>${pieces.map((piece) => `<w:r><w:instrText xml:space="preserve">${escapeXml(piece)}</w:instrText></w:r>`).join("")}<w:r><w:fldChar w:fldCharType="separate"/></w:r>${run(result)}<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+
+/**
+ * A table of contents that lists a style someone named, its name cut across two runs, and a header
+ * that shows the text in that style; `styled`: false names a style the file doesn't have.
+ */
+function contentsByStyle(words: Words, styled = true): Buffer {
+  const cut = Math.ceil(words.styleName.length / 2);
+  return wordFile({
+    styles: styled
+      ? `${STYLES}<w:style w:type="paragraph" w:customStyle="1" w:styleId="${escapeXml(words.styleId)}"><w:name w:val="${escapeXml(words.styleName)}"/><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style>`
+      : STYLES,
+    body: [
+      paragraph(
+        instructed(
+          [
+            ` TOC \\o "1-1" \\h \\z \\t "${words.styleName.slice(0, cut)}`,
+            `${words.styleName.slice(cut)},2" `,
+          ],
+          words.street,
+        ),
+      ),
+      paragraph(run(words.street), styled ? { style: words.styleId } : {}),
+    ].join(""),
+    headers: styled
+      ? { rIdH1: paragraph(field(`STYLEREF "${words.styleName}" \\* MERGEFORMAT`, words.street)) }
+      : { rIdH1: paragraph(run(words.header)) },
+    sectPr: HEADED,
+  });
+}
+
+/** A field whose instruction holds `instruction` and whose result shows `result`. */
+const fielded = (words: Words, instruction: string, result: string) =>
+  wordFile({ body: paragraph(run(words.kept)) + paragraph(field(instruction, result)) });
+
+/** Fields whose pictures and formats show only what their results show, and Word's own formats. */
+const PICTURED = {
+  en: [
+    ['DATE \\@ "dddd, d MMMM yyyy" \\* MERGEFORMAT', "Friday, 2 October 2026"],
+    ["PAGE \\* roman", "ii"],
+    ['= 1234 \\# "#,##0.00"', "1,234.00"],
+  ],
+  "zh-CN": [
+    ["DATE \\@ \"yyyy'年'M'月'd'日'\" \\* MERGEFORMAT", "2026年10月2日"],
+    ['CREATEDATE \\@ "yyyy年M月d日"', "2026年10月1日"],
+    ["PAGE \\* CHINESENUM3", "二"],
+    ['= 1234 \\# "#,##0.00"', "1,234.00"],
+  ],
+} as const;
+
+/** A contract as Chinese Word writes one: its own short style ids, and 字符 after a linked style's name. */
+const CHINESE_WORD_STYLES = `<w:style w:type="paragraph" w:default="1" w:styleId="a"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:widowControl w:val="0"/><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="1"><w:name w:val="heading 1"/><w:basedOn w:val="a"/><w:next w:val="a"/><w:link w:val="10"/><w:qFormat/><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:kern w:val="44"/><w:sz w:val="44"/></w:rPr></w:style><w:style w:type="character" w:default="1" w:styleId="a0"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="table" w:default="1" w:styleId="a1"><w:name w:val="Normal Table"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style><w:style w:type="numbering" w:default="1" w:styleId="a2"><w:name w:val="No List"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="paragraph" w:styleId="a3"><w:name w:val="header"/><w:basedOn w:val="a"/><w:link w:val="a4"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr><w:tabs><w:tab w:val="center" w:pos="4153"/><w:tab w:val="right" w:pos="8306"/></w:tabs><w:snapToGrid w:val="0"/><w:jc w:val="center"/></w:pPr><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style><w:style w:type="character" w:customStyle="1" w:styleId="a4"><w:name w:val="页眉 字符"/><w:basedOn w:val="a0"/><w:link w:val="a3"/><w:uiPriority w:val="99"/><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="a5"><w:name w:val="footer"/><w:basedOn w:val="a"/><w:link w:val="a6"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="center" w:pos="4153"/><w:tab w:val="right" w:pos="8306"/></w:tabs><w:snapToGrid w:val="0"/><w:jc w:val="left"/></w:pPr><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style><w:style w:type="character" w:customStyle="1" w:styleId="a6"><w:name w:val="页脚 字符"/><w:basedOn w:val="a0"/><w:link w:val="a5"/><w:uiPriority w:val="99"/><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style><w:style w:type="character" w:customStyle="1" w:styleId="10"><w:name w:val="标题 1 字符"/><w:basedOn w:val="a0"/><w:link w:val="1"/><w:rPr><w:b/><w:kern w:val="44"/><w:sz w:val="44"/></w:rPr></w:style><w:style w:type="table" w:styleId="a7"><w:name w:val="Table Grid"/><w:basedOn w:val="a1"/><w:uiPriority w:val="39"/><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tblBorders></w:tblPr></w:style>`;
+
+function chineseWordContract(words: Words): Buffer {
+  return wordFile({
+    styles: CHINESE_WORD_STYLES,
+    body: [paragraph(run(words.kept), { style: "1" }), paragraph(run(words.street))].join(""),
+    headers: {
+      rIdH1: `<w:p><w:pPr><w:pStyle w:val="a3"/></w:pPr><w:r><w:rPr><w:rStyle w:val="a4"/></w:rPr><w:t>${escapeXml(words.header)}</w:t></w:r></w:p>`,
+    },
+    footers: {
+      rIdF1: paragraph(field("PAGE \\* Arabic \\* MERGEFORMAT", "1"), { style: "a5" }),
+    },
+    sectPr:
+      '<w:headerReference w:type="default" r:id="rIdH1"/><w:footerReference w:type="default" r:id="rIdF1"/><w:pgSz w:w="11906" w:h="16838"/>',
+  });
+}
+
+/** A shape someone named in the header and in the body, beside a shape Word numbered 5000. */
+function shapesNamed(words: Words): Buffer {
+  const shape = (color: string) =>
+    `<w:r><w:pict><v:rect id="${escapeXml(words.shapeName)}" style="width:20pt;height:10pt" fillcolor="${color}"/></w:pict></w:r>`;
+  return wordFile({
+    body: paragraph(
+      `${run(words.kept)}${shape("silver")}<w:r><w:pict><v:oval id="_x0000_s5000" o:spid="_x0000_s5000" style="width:10pt;height:10pt" fillcolor="gray"/></w:pict></w:r>`,
+    ),
+    headers: { rIdH1: paragraph(`${run(words.header)}${shape("gray")}`) },
+    sectPr: HEADED,
+  });
+}
+
 describe.each(LANGUAGES)(
   "the agent's Word file of a file it can't keep as it is (%s)",
   (language) => {
@@ -547,6 +634,83 @@ describe.each(LANGUAGES)(
         part(saved.original, "word/styles.xml"),
       );
       expectNoneOf(saved.files, [words.dateNote]);
+    });
+
+    // protects=a table of contents' \t list and STYLEREF name a style someone named by its new name, so the file is written into the original without the old one (#3751); fails_when=the old name is in the agent's file's bytes, or the file is written new
+    it("renames a style a table of contents or a header's field names", async () => {
+      const saved = await savedFor(language, contentsByStyle(words));
+      expect(part(saved.files, "word/styles.xml")).toContain(
+        '<w:style w:type="paragraph" w:customStyle="1" w:styleId="Style1"><w:name w:val="Style 1"/>',
+      );
+      const document = part(saved.files, "word/document.xml");
+      expect(document).toContain(escapeXml('TOC \\o "1-1" \\h \\z \\t "Style 1,2" '));
+      expect(document).toContain('<w:pStyle w:val="Style1"/>');
+      expect(part(saved.files, "word/header1.xml")).toContain(
+        escapeXml('STYLEREF "Style 1" \\* MERGEFORMAT'),
+      );
+      expectNoneOf(saved.files, [words.styleName, words.styleId]);
+    });
+
+    // protects=a style's name a field holds that is no style the file renames makes the agent's file be written new (#3751); fails_when=the name is in the agent's file
+    it("writes the file new when a table of contents names a style the file doesn't have", async () => {
+      const saved = await savedFor(language, contentsByStyle(words, false));
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
+      );
+      expectNoneOf(saved.files, [words.styleName]);
+    });
+
+    // protects=the check reads the words a field's date picture, number picture and \* format show, so ones the Note doesn't hold make the agent's file be written new (#3751); fails_when=the picture's or format's words are in the agent's file
+    it.each([
+      ["date", (note: string) => `DATE \\@ "'${note}' MMMM yyyy"`, "October 2026"],
+      ["number", (note: string) => `= 1+1 \\# "0 '${note}'"`, "2"],
+      ["format", (note: string) => `PAGE \\* "${note}"`, "1"],
+    ])(
+      "writes the file new when a field's %s picture shows words the agent wasn't given",
+      async (_, instruction, result) => {
+        const saved = await savedFor(language, fielded(words, instruction(words.dateNote), result));
+        expect(part(saved.files, "word/styles.xml")).not.toBe(
+          part(saved.original, "word/styles.xml"),
+        );
+        expectNoneOf(saved.files, [words.dateNote]);
+      },
+    );
+
+    // protects=a field's picture that shows only what its result shows, such as 'yyyy'年'M'月'd'日'', and Word's own formats keep the file written into the original (#3751); fails_when=the file is written new
+    it("keeps fields whose pictures show only what they show", async () => {
+      const instructions = PICTURED[language];
+      const saved = await savedFor(
+        language,
+        wordFile({
+          body: [
+            paragraph(run(words.kept)),
+            ...instructions.map(([instruction, result]) => paragraph(field(instruction, result))),
+          ].join(""),
+        }),
+      );
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      const document = part(saved.files, "word/document.xml");
+      for (const [instruction] of instructions) expect(document).toContain(escapeXml(instruction));
+    });
+
+    // protects=a contract Chinese Word made keeps its styles, header and footer byte for byte: Word's short ids (a, a0 to a7, 1, 10) and 字符 after a linked style's name are Word's own (#3751); fails_when=a style is renamed or the file is written new
+    it("keeps a Chinese Word contract's styles, header and footer as they are", async () => {
+      const saved = await savedFor(language, chineseWordContract(words));
+      for (const name of ["word/styles.xml", "word/header1.xml", "word/footer1.xml"]) {
+        expect(part(saved.files, name)).toBe(part(saved.original, name));
+      }
+    });
+
+    // protects=a shape Word gave no id of its own gets one no other shape in the package has, above the highest it holds (#3751); fails_when=the header's and the body's shapes share an id, or one is at or below an id the file holds
+    it("gives the shapes someone named ids no other shape has", async () => {
+      const saved = await savedFor(language, shapesNamed(words));
+      const idOf = (name: string) =>
+        Number(/<v:rect id="_x0000_s(\d+)"/.exec(part(saved.files, name))?.[1]);
+      const ids = [idOf("word/document.xml"), idOf("word/header1.xml")];
+      expect(new Set(ids).size).toBe(2);
+      for (const id of ids) expect(id).toBeGreaterThan(5000);
+      expect(part(saved.files, "word/document.xml")).toContain('<v:oval id="_x0000_s5000"');
+      expectNoneOf(saved.files, [words.shapeName]);
     });
 
     // protects=the check reads an address that is no schema's as words, so one the Note doesn't hold makes the agent's file be written new (#3751); fails_when=the address is in the agent's file

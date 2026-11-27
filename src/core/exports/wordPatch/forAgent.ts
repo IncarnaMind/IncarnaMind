@@ -20,6 +20,7 @@ import {
   isWebLink,
   partSplices,
   referenced,
+  spareShapeIds,
   UnkeptPart,
 } from "./forAgentParts";
 import {
@@ -351,6 +352,7 @@ async function cleaned(
     .get(main)
     ?.find((each) => each.kind === "settings" && !dropped.has(each.element))?.target;
   const finals = new Map<string, { text: string; root: XmlElement }>();
+  const spareId = spareShapeIds([...texts.values()].map(({ text }) => text));
   for (const [name, { text, root }] of texts) {
     at(name);
     const gone = new Set(
@@ -358,7 +360,7 @@ async function cleaned(
     );
     const also =
       name === settings ? elements(root).filter((each) => !SETTINGS_KEPT.has(each.name)) : [];
-    const once = applySplices(text, partSplices(root, text, gone, also));
+    const once = applySplices(text, partSplices(root, text, gone, also, spareId));
     const linked = parsedOrUnkept(once);
     const twice = applySplices(once, emptyLinks(linked));
     const final = parsedOrUnkept(twice);

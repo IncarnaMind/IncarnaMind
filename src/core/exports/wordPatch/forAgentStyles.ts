@@ -5,9 +5,10 @@
  * list no paragraph or style uses goes, so the words its numbers show are only those of lists the
  * file shows.
  */
-import { elements, walk, type XmlElement } from "../../documents/formats/xml";
+import { elements, textOf, walk, type XmlElement } from "../../documents/formats/xml";
 import { STYLE_DEFINITIONS } from "../docx";
 import { endOf, type Splice, startOf } from "../packagePatch/text";
+import { escapeXml } from "../wordml";
 import { withAttribute } from "./forAgentParts";
 
 /** Word's tables and lists that come in six accents besides their own. */
@@ -139,6 +140,8 @@ const NAMED = [
   "index heading",
   "line number",
   "macro",
+  // The character style Word links to "macro" is "Macro Text Char".
+  "Macro Text",
   "page number",
   "table of authorities",
   "table of figures",
@@ -159,6 +162,77 @@ const KNOWN = new Set(
     ...Object.values(STYLE_DEFINITIONS).map((definition) => definition.name),
   ].map((name) => name.toLowerCase()),
 );
+/**
+ * The names Word shows its own styles by in Chinese and Japanese. It writes them into the name of
+ * a style it links to one of them ("页眉 字符" is the header's character style) and into fields.
+ */
+const LOCALIZED = new Set([
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((at) => [`标题 ${at}`, `標題 ${at}`, `見出し ${at}`]),
+  "标题",
+  "副标题",
+  "页眉",
+  "页脚",
+  "脚注文本",
+  "尾注文本",
+  "批注文字",
+  "批注主题",
+  "批注框文本",
+  "正文文本",
+  "正文文本 2",
+  "正文文本 3",
+  "正文文本缩进",
+  "正文文本缩进 2",
+  "正文文本缩进 3",
+  "正文首行缩进",
+  "纯文本",
+  "引用",
+  "明显引用",
+  "HTML 预设格式",
+  "文档结构图",
+  "日期",
+  "称呼",
+  "结束语",
+  "签名",
+  "电子邮件签名",
+  "注释标题",
+  "宏文本",
+  "標題",
+  "副標題",
+  "頁首",
+  "頁尾",
+  "註腳文字",
+  "章節附註文字",
+  "註解文字",
+  "註解主旨",
+  "註解方塊文字",
+  "本文",
+  "本文 2",
+  "本文 3",
+  "本文縮排",
+  "本文縮排 2",
+  "本文縮排 3",
+  "純文字",
+  "引文",
+  "鮮明引文",
+  "HTML 預設格式",
+  "文件引導模式",
+  "問候",
+  "結語",
+  "簽名",
+  "表題",
+  "副題",
+  "ヘッダー",
+  "フッター",
+  "脚注文字列",
+  "文末脚注文字列",
+  "コメント文字列",
+  "コメント内容",
+  "吹き出し",
+  "書式なし",
+  "引用文",
+]);
+/** What Word puts after a style's name to name the character style it links to it. */
+const LINKED = / (?:Char|字符|字元|\(文字\))$/i;
 const NEUTRAL_NAME = /^Style \d+$/;
 const NEUTRAL_ID = /^Style\d+$/;
 /** Word's ids for its own styles that aren't their names run together. */
@@ -167,23 +241,42 @@ const IDS_OF: Record<string, string> = {
   annotationtext: "commenttext",
   annotationreference: "commentreference",
   annotationsubject: "commentsubject",
+  macro: "macrotext",
 };
 const compact = (name: string) => name.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
 /** The ids Word and the export give their own styles, run together in lower case. */
 const KNOWN_IDS = new Set(
   [...KNOWN].flatMap((name) => {
     const id = IDS_OF[compact(name)] ?? compact(name);
-    return [id, `${id}char`];
+    return [id, `${id}char`, id.replace(/\d+$/, "")];
   }),
 );
 
-/** Whether a style's name is none, Word's, the export's or one written here; a linked style's " Char" too. */
-export const isKnownStyleName = (name: string): boolean =>
-  name === "" || NEUTRAL_NAME.test(name) || KNOWN.has(name.toLowerCase().replace(/ char$/, ""));
+/**
+ * Whether a style's name holds no one's words: none or no letter, Word's, the export's or one
+ * written here, or the style Word links to one of its own, in its own words ("Heading 1 Char",
+ * "标题 1 字符").
+ */
+export const isKnownStyleName = (name: string): boolean => {
+  if (!/\p{L}/u.test(name) || NEUTRAL_NAME.test(name) || KNOWN.has(name.toLowerCase())) return true;
+  if (LOCALIZED.has(name)) return true;
+  const base = name.replace(LINKED, "");
+  return base !== name && (KNOWN.has(base.toLowerCase()) || LOCALIZED.has(base));
+};
 
-/** Whether a style's id is one of Word's, the export's or one written here, or holds no letter. */
+/** The short ids Chinese and other Word versions give their own styles: a, a0 to a9, af0 and on. */
+const SHORT_ID = /^a[0-9a-f]{0,3}$/;
+
+/**
+ * Whether a style's id holds no one's words: no letter, one of Word's (its names run together, or
+ * a short id), the export's or one written here. A style someone named has its id renamed whatever
+ * it is.
+ */
 export const isKnownStyleId = (id: string): boolean =>
-  !/\p{L}/u.test(id) || NEUTRAL_ID.test(id) || KNOWN_IDS.has(compact(id).replace(/\d+$/, ""));
+  !/\p{L}/u.test(id) ||
+  NEUTRAL_ID.test(id) ||
+  SHORT_ID.test(id) ||
+  KNOWN_IDS.has(compact(id).replace(/\d+$/, ""));
 
 /** Elements whose `w:val` names a style by its id. */
 export const STYLE_REFERENCES = new Set([
@@ -199,10 +292,94 @@ export const STYLE_REFERENCES = new Set([
   "w:clickAndTypeStyle",
 ]);
 
-/** The new names and ids of the styles someone named, by their ids in the file. */
+const ARGUMENTS = /"[^"]*"|\S+/g;
+
+/**
+ * Where a field's instruction names styles, as the offsets of each name: the list after a table of
+ * contents' \t ("Name,2,Other,3") and STYLEREF's first argument.
+ */
+function styleNamesAt(instruction: string): { from: number; to: number }[] {
+  const tokens = [...instruction.matchAll(ARGUMENTS)].map((match) => ({
+    text: match[0],
+    at: match.index,
+  }));
+  const field = (tokens[0]?.text ?? "").toUpperCase();
+  const inner = (token: { text: string; at: number }) => {
+    const quoted = token.text.startsWith('"') && token.text.endsWith('"') && token.text.length > 1;
+    return quoted
+      ? { from: token.at + 1, to: token.at + token.text.length - 1 }
+      : { from: token.at, to: token.at + token.text.length };
+  };
+  if (field === "STYLEREF") {
+    const argument = tokens.slice(1).find((token) => !token.text.startsWith("\\"));
+    return argument ? [inner(argument)] : [];
+  }
+  if (field !== "TOC") return [];
+  return tokens.flatMap((token, at) => {
+    const list = tokens[at + 1];
+    if (token.text.toLowerCase() !== "\\t" || !list || list.text.startsWith("\\")) return [];
+    const { from, to } = inner(list);
+    const spans: { from: number; to: number }[] = [];
+    // Names and levels take turns, split by the list separator of the User's region.
+    let start = from;
+    let item = 0;
+    for (let index = from; index <= to; index++) {
+      if (index < to && !/[,;，；]/.test(instruction[index] ?? "")) continue;
+      if (item % 2 === 0) {
+        const name = instruction.slice(start, index);
+        const lead = name.length - name.trimStart().length;
+        spans.push({ from: start + lead, to: start + name.trimEnd().length });
+      }
+      item++;
+      start = index + 1;
+    }
+    return spans;
+  });
+}
+
+/** The styles a field's instruction names. */
+export const styleNamesIn = (instruction: string): string[] =>
+  styleNamesAt(instruction).map(({ from, to }) => instruction.slice(from, to));
+
+/** A field's instruction with the styles someone named under their new names. */
+function renamedInstruction(instruction: string, byName: ReadonlyMap<string, string>): string {
+  let written = instruction;
+  for (const { from, to } of styleNamesAt(instruction).reverse()) {
+    const renamed = byName.get(instruction.slice(from, to).toLowerCase());
+    if (renamed !== undefined) written = `${written.slice(0, from)}${renamed}${written.slice(to)}`;
+  }
+  return written;
+}
+
+/** Each field's instruction in a part, whole, with the elements it is written in. */
+function instructionsIn(root: XmlElement): { text: string; written: XmlElement[] }[] {
+  const found: { text: string; written: XmlElement[] }[] = [];
+  const open: { text: string; written: XmlElement[]; separated: boolean }[] = [];
+  for (const element of walk(root)) {
+    if (element.name === "w:fldSimple") {
+      found.push({ text: element.attrs["w:instr"] ?? "", written: [element] });
+    } else if (element.name === "w:fldChar") {
+      const type = element.attrs["w:fldCharType"];
+      const top = open.at(-1);
+      if (type === "begin") open.push({ text: "", written: [], separated: false });
+      else if (type === "separate" && top) top.separated = true;
+      else if (type === "end" && top) found.push(open.pop() ?? top);
+    } else if (element.name === "w:instrText" || element.name === "w:delInstrText") {
+      const top = open.at(-1);
+      if (top && !top.separated) {
+        top.text += textOf(element);
+        top.written.push(element);
+      }
+    }
+  }
+  return found;
+}
+
+/** The new names and ids of the styles someone named, by their ids in the file and, for fields, by their names in lower case. */
 export interface StyleRenames {
   ids: Map<string, string>;
   names: Map<string, string>;
+  byName: Map<string, string>;
 }
 
 const stylesIn = (root: XmlElement) => [...walk(root)].filter((each) => each.name === "w:style");
@@ -213,7 +390,7 @@ const nameOf = (style: XmlElement) =>
 export function styleRenames(roots: readonly XmlElement[]): StyleRenames {
   const styles = roots.flatMap(stylesIn);
   const taken = new Set(styles.flatMap((style) => [nameOf(style), style.attrs["w:styleId"] ?? ""]));
-  const renames: StyleRenames = { ids: new Map(), names: new Map() };
+  const renames: StyleRenames = { ids: new Map(), names: new Map(), byName: new Map() };
   let number = 0;
   const neutral = () => {
     do number++;
@@ -224,10 +401,14 @@ export function styleRenames(roots: readonly XmlElement[]): StyleRenames {
     const id = style.attrs["w:styleId"] ?? "";
     if (renames.ids.has(id) || renames.names.has(id)) continue;
     const name = nameOf(style);
-    if (isKnownStyleName(name) && isKnownStyleId(id)) continue;
+    const named = !isKnownStyleName(name);
+    if (!named && isKnownStyleId(id)) continue;
     const at = neutral();
-    if (!isKnownStyleName(name)) renames.names.set(id, `Style ${at}`);
-    if (!isKnownStyleId(id)) renames.ids.set(id, `Style${at}`);
+    if (named) {
+      renames.names.set(id, `Style ${at}`);
+      renames.byName.set(name.toLowerCase(), `Style ${at}`);
+    }
+    if (named || !isKnownStyleId(id)) renames.ids.set(id, `Style${at}`);
   }
   return renames;
 }
@@ -238,6 +419,23 @@ export function styleRenames(roots: readonly XmlElement[]): StyleRenames {
  */
 export function styleSplices(root: XmlElement, text: string, renames: StyleRenames): Splice[] {
   const splices: Splice[] = [];
+  for (const instruction of instructionsIn(root)) {
+    const renamed = renamedInstruction(instruction.text, renames.byName);
+    if (renamed === instruction.text) continue;
+    const first = instruction.written[0];
+    if (first?.name === "w:fldSimple") {
+      splices.push(withAttribute(first, text, "w:instr", renamed));
+      continue;
+    }
+    // The instruction is written whole in its first run, the others left empty.
+    instruction.written.forEach((each, at) => {
+      splices.push({
+        from: startOf(each),
+        to: endOf(each),
+        text: `<${each.name} xml:space="preserve">${at === 0 ? escapeXml(renamed) : ""}</${each.name}>`,
+      });
+    });
+  }
   const set = (element: XmlElement, name: string, value: string | undefined) => {
     if (value !== undefined) splices.push(withAttribute(element, text, name, value));
   };
@@ -261,17 +459,24 @@ export function styleSplices(root: XmlElement, text: string, renames: StyleRenam
 
 /** Whether the part still holds a style's name or id that isn't known. */
 export function holdsStrangeStyle(root: XmlElement): boolean {
-  return [...walk(root)].some((element) => {
-    if (element.name === "w:style") {
+  const named = instructionsIn(root).some(({ text }) =>
+    styleNamesIn(text).some((name) => !isKnownStyleName(name)),
+  );
+  return (
+    named ||
+    [...walk(root)].some((element) => {
+      if (element.name === "w:style") {
+        return (
+          !isKnownStyleId(element.attrs["w:styleId"] ?? "") || !isKnownStyleName(nameOf(element))
+        );
+      }
+      if (STYLE_REFERENCES.has(element.name)) return !isKnownStyleId(element.attrs["w:val"] ?? "");
       return (
-        !isKnownStyleId(element.attrs["w:styleId"] ?? "") || !isKnownStyleName(nameOf(element))
+        element.name === "w:lsdException" &&
+        !KNOWN.has((element.attrs["w:name"] ?? "").toLowerCase())
       );
-    }
-    if (STYLE_REFERENCES.has(element.name)) return !isKnownStyleId(element.attrs["w:val"] ?? "");
-    return (
-      element.name === "w:lsdException" && !KNOWN.has((element.attrs["w:name"] ?? "").toLowerCase())
-    );
-  });
+    })
+  );
 }
 
 /** The lists any of these parts number a paragraph or a style with, by their ids. */

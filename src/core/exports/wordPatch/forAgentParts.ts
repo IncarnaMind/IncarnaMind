@@ -256,6 +256,20 @@ const SHAPES = new Set([
 export const SHAPE_ID = /^_x0000_[a-z]\d+$/i;
 
 /**
+ * Word's ids for the shapes that have none, numbered across the whole package above the highest
+ * it holds, as no two shapes in one file may share an id.
+ */
+export function spareShapeIds(parts: Iterable<string>): () => string {
+  let highest = 4095;
+  for (const text of parts) {
+    for (const [, number] of text.matchAll(/_x0000_[a-z](\d+)/gi)) {
+      highest = Math.max(highest, Number(number));
+    }
+  }
+  return () => `_x0000_s${++highest}`;
+}
+
+/**
  * An element's opening tag without `DROPPED_ATTRIBUTES`, with a drawing's name empty and a VML
  * shape's id Word's own (`spare`: one for a shape Word gave none); null when it keeps all.
  */
@@ -342,13 +356,14 @@ const showsNothing = (element: XmlElement) =>
 /**
  * The changes that make a part hold only what the agent was given. `gone`: the ids of the part's
  * relationships that go; a link to one stays as its text, anything else naming one goes. `also`:
- * more elements that go, such as settings no list keeps.
+ * more elements that go, such as settings no list keeps. `spareId`: an id for a shape Word gave none.
  */
 export function partSplices(
   root: XmlElement,
   text: string,
   gone: ReadonlySet<string>,
-  also: readonly XmlElement[] = [],
+  also: readonly XmlElement[],
+  spareId: () => string,
 ): Splice[] {
   const parents = parentsOf(root);
   const prefixes = relationshipPrefixes(root);
@@ -430,8 +445,6 @@ export function partSplices(
     return false;
   };
   const splices: Splice[] = [];
-  let spare = 4096;
-  const spareId = () => `_x0000_s${spare++}`;
   for (const element of [root, ...walk(root)]) {
     if (removed.has(element) || replaced.has(element) || unwrapped.has(element)) continue;
     if (within(element)) continue;
