@@ -31,6 +31,7 @@ export function sentenceKey(text: string): string {
 export function readMindCheck(settings: Y.Map<unknown>): MindCheckRun | null {
   const value = settings.get(KEY);
   if (!isRecord(value) || typeof value.at !== "string") return null;
+  const unchecked = keysOf(value.unchecked);
   return {
     at: value.at,
     sentences:
@@ -43,6 +44,7 @@ export function readMindCheck(settings: Y.Map<unknown>): MindCheckRun | null {
     ...("unexamined" in value
       ? { skipped: keysOf(value.skipped), unexamined: keysOf(value.unexamined) }
       : { skipped: [], unexamined: keysOf(value.skipped) }),
+    ...(unchecked.length > 0 && { unchecked }),
   };
 }
 
@@ -53,12 +55,30 @@ export const mindCheckOf = (doc: Y.Doc): MindCheckRun | null =>
   readMindCheck(doc.getMap(MIND_SETTINGS_FIELD));
 
 export function writeMindCheck(settings: Y.Map<unknown>, run: MindCheckRun): void {
+  const { unchecked, ...base } = run;
   settings.set(KEY, {
-    ...run,
+    ...base,
     stop: run.stop && { ...run.stop },
     skipped: [...run.skipped],
     unexamined: [...run.unexamined],
+    ...(unchecked && unchecked.length > 0 && { unchecked: [...unchecked] }),
   });
+}
+
+/**
+ * Adds `keys` to an existing complete `MindCheckRun`'s `unchecked` list without touching
+ * brand-new Notes (`readMindCheck === null`) or stopped runs (#3862).
+ */
+export function markMindCheckUnchecked(settings: Y.Map<unknown>, keys: readonly string[]): boolean {
+  if (keys.length === 0) return false;
+  const run = readMindCheck(settings);
+  if (!run || run.stop !== null) return false;
+  const next = new Set(run.unchecked ?? []);
+  const before = next.size;
+  for (const key of keys) next.add(key);
+  if (next.size === before) return false;
+  writeMindCheck(settings, { ...run, unchecked: [...next] });
+  return true;
 }
 
 /** Calls `listener` whenever the Mind's last check may have changed. Returns how to stop. */

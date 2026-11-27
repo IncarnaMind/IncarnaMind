@@ -77,6 +77,7 @@ const NO_HEALTH: Health = {
   supported: 0,
   checkedAt: null,
   unexamined: [],
+  unchecked: [],
 };
 
 /** The Mind's health as drawn, and whether it is counted from the Mind as it is now. */
@@ -95,6 +96,7 @@ export function useHealth(
   editor: Editor,
   skipped: ReadonlySet<string>,
   unexamined: ReadonlySet<string>,
+  unchecked: ReadonlySet<string>,
   doc: Y.Doc,
   running: boolean,
 ): CountedHealth {
@@ -124,6 +126,7 @@ export function useHealth(
             citationState(attributes, documents, kept).check,
           skipped,
           unexamined,
+          unchecked,
           omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
           tableShown: (table) =>
@@ -145,7 +148,7 @@ export function useHealth(
       editor.off("transaction", later);
       doc.off("afterTransaction", later);
     };
-  }, [editor, doc, documents, kept, skipped, unexamined, keptInside, running]);
+  }, [editor, doc, documents, kept, skipped, unexamined, unchecked, keptInside, running]);
   const counted = useCallback(() => drawnThrough.current === seen.current, []);
   return { health: drawn.health, counted };
 }

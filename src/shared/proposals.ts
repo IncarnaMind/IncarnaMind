@@ -19,6 +19,7 @@ import {
   FOOTNOTE_NODE,
   MIND_PROPOSAL_REQUESTS_FIELD,
   MIND_REVISIONS_FIELD,
+  MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -30,7 +31,9 @@ import {
 } from "../core/api";
 import { originOf, restoreOrigins } from "./blockOrigins";
 import { keyedMarkOf, markValueOf } from "./markKeys";
+import { readMindCheck } from "./mindCheck";
 import { setTextOrigin } from "./textOrigins";
+import { markOutsideWriteUnchecked } from "./uncheckedClaims";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -653,6 +656,54 @@ const requestsOf = (doc: Y.Doc) => doc.getMap<unknown>(MIND_PROPOSAL_REQUESTS_FI
 const DECISION_KEYS = { accept: "accepted", reject: "rejected" } as const;
 
 /**
+ * The ids of Blocks carrying pending `outside-agent` Proposals (inserts or deletes) matching
+ * `picked` when the Note already holds a complete `MindCheckRun`, so accepting them can record
+ * any newly unchecked claim sentences (#3862). Returns an empty set when no complete check exists.
+ */
+export function outsideProposalBlockIds(
+  doc: Y.Doc,
+  blocks: Y.XmlFragment,
+  picked: (proposal: ProposalRef) => boolean,
+): Set<string> {
+  const run = readMindCheck(doc.getMap(MIND_SETTINGS_FIELD));
+  if (!run || run.stop !== null) return new Set();
+  const touched = new Set<string>();
+  const isOutside = (ref: ProposalRef) =>
+    picked(ref) && proposalRequestOf(doc, ref.request)?.source === "outside-agent";
+  const record = (owner: string | null, top: string | null) => {
+    const target = owner ?? top;
+    if (target) touched.add(target);
+  };
+  const visit = (
+    parent: Y.XmlFragment | Y.XmlElement,
+    owner: string | null,
+    above: string | null,
+  ) => {
+    for (const child of parent.toArray()) {
+      if (child instanceof Y.XmlText) {
+        for (const run of child.toDelta() as Run[]) {
+          for (const [key, value] of Object.entries(run.attributes ?? {})) {
+            const mark = keyedMarkOf(key);
+            if (mark !== PROPOSAL_INSERT_MARK && mark !== PROPOSAL_DELETE_MARK) continue;
+            const ref = readProposalRef(value);
+            if (ref && isOutside(ref)) record(owner, above);
+          }
+        }
+        continue;
+      }
+      if (!(child instanceof Y.XmlElement)) continue;
+      const top = parent === blocks ? idOf(child) : above;
+      const own = (child.nodeName === FOOTNOTE_NODE ? null : idOf(child)) ?? owner;
+      const attribute = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (attribute && isOutside(attribute)) record(own, top);
+      visit(child, own, top);
+    }
+  };
+  visit(blocks, null, null);
+  return touched;
+}
+
+/**
  * `resolveProposals` for what the User decides, which the Mind also remembers
  * per request (how many were accepted and how many rejected), so a later
  * Question knows what became of an Answer's changes. What an outside agent
@@ -665,8 +716,9 @@ export function decideProposals(
   picked: (proposal: ProposalRef) => boolean,
   outcome: "accept" | "reject",
 ): ResolvedProposal[] {
-  const resolved = resolveProposals(blocks, picked, outcome);
   const { doc } = blocks;
+  const touched = outcome === "accept" && doc ? outsideProposalBlockIds(doc, blocks, picked) : null;
+  const resolved = resolveProposals(blocks, picked, outcome);
   if (!doc) return resolved;
   const requests = requestsOf(doc);
   if (outcome === "accept") {
@@ -674,6 +726,7 @@ export function decideProposals(
       .filter((each) => proposalRequestOf(doc, each.request)?.source === "outside-agent")
       .flatMap((each) => each.blockIds);
     if (agents.length > 0) setTextOrigin(doc, agents, "outside-agent");
+    if (touched && touched.size > 0) markOutsideWriteUnchecked(doc, blocks, touched);
   }
   const key = DECISION_KEYS[outcome];
   const counts = new Map<string, number>();

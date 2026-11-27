@@ -85,6 +85,8 @@ export interface NoteHealth {
   supported: number;
   checkedAt: string | null;
   unexamined: number[];
+  /** Sentences an outside AI wrote or left unreported (#3862) that still wait in `toCheck`. */
+  unchecked: number[];
 }
 
 /** A check that landed a verdict: an edit of its sentence is a re-check, not an upgrade of one that never ran. */
@@ -144,6 +146,7 @@ export const emptyHealth = (): NoteHealth => ({
   supported: 0,
   checkedAt: null,
   unexamined: [],
+  unchecked: [],
 });
 
 /** Adds a sentence to the health: what its check found and where it counts. */
@@ -151,6 +154,7 @@ export function countSentence(
   health: NoteHealth,
   { from, text, claim, citations, inTable: table, state, kind }: CountedSentence,
   unexamined: ReadonlySet<string> = new Set(),
+  unchecked: ReadonlySet<string> = new Set(),
 ): void {
   const checkedAt = (at: string) => {
     if (
@@ -214,6 +218,7 @@ export function countSentence(
         health.edited.push(from);
     }
     if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
+    if (unchecked.has(sentenceKey(text))) health.unchecked.push(from);
     if (table) health.tableCells.push(from);
     return;
   }

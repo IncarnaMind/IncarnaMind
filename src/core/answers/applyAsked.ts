@@ -6,10 +6,12 @@ import {
   aiUseOfAccepted,
   decisionsOn,
   outOfDateProposals,
+  outsideProposalBlockIds,
   pendingProposals,
   type ResolvedProposal,
   resolveProposals,
 } from "../../shared/proposals";
+import { markOutsideWriteUnchecked } from "../../shared/uncheckedClaims";
 import {
   type ApplyAskedChangesInput,
   type AskedChangeApplication,
@@ -146,12 +148,14 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
             captureTimeout: 0,
             trackedOrigins: new Set([origin]),
           });
+          const touched = outsideProposalBlockIds(doc, blocks, picked);
           const resolved = resolveProposals(blocks, picked, "accept");
           if (resolved.length === 0) {
             manager.destroy();
             return null;
           }
           accepted.push(...resolved);
+          if (touched.size > 0) markOutsideWriteUnchecked(doc, blocks, touched);
           const afterVector = Y.encodeStateVector(doc);
           steps.push({
             manager,

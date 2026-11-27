@@ -398,6 +398,7 @@ interface ParsedNote {
   root: ReturnType<typeof yXmlFragmentToProseMirrorRootNode>;
   scope: ReturnType<typeof mindScopeOf>;
   skipped: ReadonlySet<string>;
+  unchecked: ReadonlySet<string>;
   omitted: ReturnType<typeof opinionSentenceRanges>;
   filedAnswers: ReadonlySet<string>;
   footing: ReadonlyMap<string, Omit<FigureFootingNow, "id">>;
@@ -419,11 +420,13 @@ function parseNote(
       filedAnswers.add(reference.anchor.messageId);
     }
   });
+  const checked = mindCheckOf(doc);
   return {
     doc,
     root,
     scope: mindScopeOf(doc),
-    skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
+    skipped: new Set(checked?.skipped ?? []),
+    unchecked: new Set(checked?.unchecked ?? []),
     omitted: opinionSentenceRanges(root, doc),
     filedAnswers,
     footing: new Map(footing.map(({ id, ...live }) => [id, live])),
@@ -460,6 +463,7 @@ function evaluateParsedNote(
     claims,
     kept,
     skipped: parsed.skipped,
+    unchecked: parsed.unchecked,
     omitted: parsed.omitted,
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
     tableShown: (table) =>
@@ -595,6 +599,7 @@ export async function decodeHomeSnapshot(
         claims,
         kept,
         skipped: parsed.skipped,
+        unchecked: parsed.unchecked,
         omitted: parsed.omitted,
         citationCheck: (attributes) =>
           citationState(attributes, documents, keptCitationTexts).check,

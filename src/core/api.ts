@@ -8906,6 +8906,12 @@ export interface MindCheckRun {
    * the same (#2447).
    */
   unexamined: string[];
+  /**
+   * Sentences an outside AI wrote or left unreported (#3862), by `sentenceKey`: they keep the
+   * Check button on the Note until checked, undone, or removed, without marking them as
+   * classifier-undecided (`unexamined`, #1682).
+   */
+  unchecked?: string[];
 }
 
 /**

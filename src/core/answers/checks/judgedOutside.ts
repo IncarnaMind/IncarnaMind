@@ -13,6 +13,7 @@ import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { targetHash } from "../../../shared/proposals";
+import { isClaim } from "../../../shared/sentences";
 import { type Verification, verificationOf } from "../../../shared/verification";
 import {
   CHART_NODE,
@@ -192,6 +193,12 @@ const SETTLED: ReadonlySet<ClaimCheckAttributes["state"]> = new Set([
   "unsupported",
   "contradicted",
 ]);
+
+const needsCheck = (sentence: SelectedSentence, always: boolean): boolean =>
+  always ||
+  isClaim(sentence.text) ||
+  (sentence.figures?.length ?? 0) > 0 ||
+  sentence.cited.length > 0;
 
 /** The tasks given most lately, each with its sentences as given: enough for any check under way. */
 const TASKS_KEPT = 200;
@@ -496,20 +503,41 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       });
       if (!landed.ok) return landed;
       options.retainEvidence(mindId);
-      const { keys, sentences } = content.read(mindId, (blocks) => ({
-        keys: new Set([
-          ...everySentence(blocks).map((each) => sentenceKey(each.text)),
-          ...linesOf(blocks).lines.map((each) => each.key),
-        ]),
-        sentences: markedSentences(blocks).length,
-      }));
+      const { keys, sentences, unchecked, settled } = content.read(mindId, (blocks) => {
+        const { verification, lines } = linesOf(blocks);
+        const remaining = pending(blocks, lines, skipped, scope.reader);
+        const remainingKeys = new Set(remaining.map((each) => each.key));
+        const settledKeys = new Set(skipped);
+        for (const line of lines) {
+          if (!remainingKeys.has(line.key)) settledKeys.add(line.key);
+        }
+        const stillUnchecked = [
+          ...new Set(
+            remaining
+              .filter((sentence) => verification !== null || needsCheck(sentence, sentence.always))
+              .map((sentence) => sentence.key),
+          ),
+        ];
+        return {
+          keys: new Set([
+            ...everySentence(blocks).map((each) => sentenceKey(each.text)),
+            ...lines.map((each) => each.key),
+          ]),
+          sentences: markedSentences(blocks).length,
+          unchecked: stillUnchecked,
+          settled: settledKeys,
+        };
+      });
       content.editSettings(mindId, (settings) =>
         writeMindCheck(settings, {
           at,
           sentences,
           stop: null,
           skipped: [...skipped].filter((key) => keys.has(key)),
-          unexamined: (readMindCheck(settings)?.unexamined ?? []).filter((key) => keys.has(key)),
+          unexamined: (readMindCheck(settings)?.unexamined ?? []).filter(
+            (key) => keys.has(key) && !settled.has(key),
+          ),
+          ...(unchecked.length > 0 && { unchecked }),
         }),
       );
       return landed;

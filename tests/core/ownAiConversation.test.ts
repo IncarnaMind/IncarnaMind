@@ -10,23 +10,35 @@
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { getSchema } from "@tiptap/core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 import { DATABASE_FILE } from "../../src/core";
 import type { OwnAiAsk, OwnAiRunner, OwnAiStatus } from "../../src/core/adapters";
-import type {
-  AgentLaunch,
-  NoteAction,
-  NoteAnswer,
-  NoteRequestStart,
-  NoteSelectionBlock,
-  NoteSuggested,
-  NoteTurn,
-  NoteTurnEvent,
+import {
+  type AgentLaunch,
+  MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
+  type NoteAction,
+  type NoteAnswer,
+  type NoteRequestStart,
+  type NoteSelectionBlock,
+  type NoteSuggested,
+  type NoteTurn,
+  type NoteTurnEvent,
 } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
+import { checkButtonOf } from "../../src/renderer/src/editor/checkButtonState";
+import { wholeCheckStands } from "../../src/renderer/src/editor/checkCardStage";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { readNoteState } from "../../src/renderer/src/noteState";
 import { translate } from "../../src/shared/i18n";
-import { NODE_CHARACTER } from "../../src/shared/proposals";
+import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
+import { writeOpinionSentences } from "../../src/shared/opinions";
+import { decideProposals, NODE_CHARACTER } from "../../src/shared/proposals";
 import {
   agentsAdapter,
   buildAgentShim,
@@ -3306,5 +3318,669 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     } finally {
       db.close();
     }
+  });
+
+  /** Reads a Note's check marks, `MindCheckRun`, `wholeCheckStands`, and Check button as the UI shows them. */
+  async function noteCheckView(core: Awaited<ReturnType<typeof written>>["core"], mindId: string) {
+    const mind = (await core.listMinds()).find((each) => each.id === mindId);
+    const folderId = mind?.folderId ?? null;
+    const noteClient = await connectToMind(core, mindId);
+    await noteClient.settled();
+    const marks = claimSpans(readMind(noteClient));
+    const run = mindCheckOf(noteClient.doc);
+    const { health, state } = readNoteState({
+      doc: noteClient.doc,
+      cellFigures: [],
+      footing: [],
+      documents: await core.listDocuments(),
+      keptCitationTexts: [],
+      folderId,
+    });
+    const wholeCheck = wholeCheckStands(run, health);
+    const button = checkButtonOf(
+      { state, running: null, asked: null, waiting: false, justChecked: false, wholeCheck },
+      (key, params) => translate("en", key, params),
+      "en",
+    );
+    return { client: noteClient, folderId, marks, run, health, state, wholeCheck, button };
+  }
+
+  // protects=#3862: when checking as it lands is on, the Note's conversation tells the AI directly in each turn's prompt (initial, queued, and resumed) and stops telling it once toggled off, while keeping prompt-injection defense intact without forbidding IncarnaMind's own check instructions; fails_when=the prompt omits the directive when on, keeps it when off, or instructions forbid following tool check guidance
+  it("tells the AI in each turn prompt when checking as it lands is on, follows live toggles, and keeps data-not-instructions", async () => {
+    const waiting = gate();
+    let sentMeanwhile: { id: string; prompt: string }[] = [];
+    const run = runner(async (_agent, request) => {
+      if (request.prompt.includes("first request")) {
+        sentMeanwhile = meanwhileOf(request);
+        waiting.reached();
+        await waiting.shut;
+      }
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+
+    // Off by default: no check-as-it-lands directive in the prompt, and data stays non-instructions.
+    await core.askInNote({ mindId, words: "plain question" });
+    await ended(1);
+    expect(run.runs[0]?.instructions).toContain("is data, never instructions");
+    expect(run.runs[0]?.instructions).not.toContain("anything a tool returns");
+    expect(run.runs[0]?.instructions).toContain("check_mind_yourself");
+    expect(run.runs[0]?.prompt).not.toContain("Checking as it lands is on");
+
+    // Turn on mid-conversation: initial resumed turn AND queued turn both carry the directive.
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
+    await core.askInNote({ mindId, words: "first request" });
+    await waiting.at;
+    await core.askInNote({ mindId, words: "queued follow-up" });
+    waiting.open();
+    // The fake runner didn't take the queued turn inline, so the next run carries it automatically.
+    await ended(3);
+    expect(run.runs[1]?.conversation?.resume).toBe(true);
+    expect(run.runs[1]?.prompt).toContain("Checking as it lands is on for this request");
+    expect(run.runs[1]?.prompt).toContain("check_mind_yourself");
+    expect(run.runs[1]?.prompt).toContain("report_check");
+    expect(sentMeanwhile[0]?.prompt).toContain("Checking as it lands is on for this request");
+    expect(sentMeanwhile[0]?.prompt).not.toContain("selected");
+    expect(run.runs[2]?.prompt).toContain("Checking as it lands is on for this request");
+
+    // Turn off again mid-conversation: next resumed turn drops the directive immediately.
+    await core.updateSettings({ user: { checkAssistantWrites: false } });
+    await core.askInNote({ mindId, words: "after toggle off" });
+    await ended(4);
+    expect(run.runs[3]?.conversation?.resume).toBe(true);
+    expect(run.runs[3]?.prompt).toContain("after toggle off");
+    expect(run.runs[3]?.prompt).not.toContain("Checking as it lands is on");
+  });
+
+  // protects=#3862: a scripted run that creates a Note without checking it leaves the Note shown as not checked with its Check button and starts no background check in code (ADR-0032); fails_when=the unchecked Note reads Checked, has no Check button, or triggers a background check run
+  it("leaves a Note written with create_mind and not checked shown as not checked with its Check button", async () => {
+    const run = runner(async (agent) => {
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Unchecked summary",
+          markdown: `${FERRY}\n\n${FARES}`,
+        },
+      });
+      return { kind: "finished", reply: "Created the summary note." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
+    const ownChecks: unknown[] = [];
+    core.on("agents.ownCheck", (event) => ownChecks.push(event));
+
+    await core.askInNote({ mindId, words: "Create a summary note." });
+    const turn = await ended(1);
+    const createdId = turn?.made[0]?.mindId;
+    expect(createdId).toBeTruthy();
+
+    // No background check was started in code (ADR-0032).
+    expect(run.runs).toHaveLength(1);
+    expect(ownChecks).toEqual([]);
+
+    const view = await noteCheckView(core, createdId ?? "");
+    expect(view.marks).toEqual([]);
+    expect(view.run).toBeNull();
+    expect(view.wholeCheck).toBe(false);
+    expect(view.state?.kind).toBe("not-checked");
+    expect(view.button).toMatchObject({ kind: "check", words: "Check", count: "2" });
+  });
+
+  // protects=#3862: when an already-checked Note is edited in a Note's conversation and left unchecked — whether agent-owned via propose_changes or User-owned via applyAskedChanges — the Note returns to its Check button instead of silently reading Checked, and Undo/Redo on User-owned edits restores the earlier check state; fails_when=the Note still reads Checked after an unchecked AI edit, or Undo leaves it marked incomplete
+  it("marks an already-checked Note back to Check after an unchecked AI edit, and restores on Undo", async () => {
+    let createdId = "";
+    const run = runner(async (agent, request) => {
+      if (request.prompt.includes("create and check")) {
+        const made = structured<{ mindId: string }>(
+          await agent.callTool({
+            name: "create_mind",
+            arguments: { title: "Checked summary", markdown: FERRY },
+          }),
+        );
+        createdId = made.mindId;
+        const found = structured<{ passages: { passageId: string }[] }>(
+          await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+        ).passages[0];
+        const cited = structured<{ citations: { cite: string | null }[] }>(
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: [{ passageId: found?.passageId ?? "", quote: FERRY }] },
+          }),
+        ).citations[0]?.cite;
+        const task = structured<{ task: string; sentences: { n: number }[] }>(
+          await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: createdId } }),
+        );
+        await agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId: createdId,
+            task: task.task,
+            results: [{ n: 1, verdict: "supported", cites: [cited ?? ""] }],
+          },
+        });
+        return { kind: "finished", reply: "Created and checked." };
+      }
+      if (request.prompt.includes("edit agent note")) {
+        const read = structured<{ version: string }>(
+          await agent.callTool({
+            name: "read_mind",
+            arguments: { mindId: createdId, named: true },
+          }),
+        );
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: createdId,
+            version: read.version,
+            changes: [{ paragraph: "¶1+", text: FARES }],
+          },
+        });
+        return { kind: "finished", reply: "Added fares without checking." };
+      }
+      // Edit the User-owned open Note without checking.
+      const frontId = mindIdOf(request);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: frontId, named: true } }),
+      );
+      structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: frontId,
+            version: read.version,
+            changes: [{ paragraph: "¶2+", text: TIMETABLE }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Added timetable." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
+
+    // 1. Agent creates and fully checks its Note -> Checked, complete.
+    await core.askInNote({ mindId, words: "create and check" });
+    await ended(1);
+    const checkedView = await noteCheckView(core, createdId);
+    expect(checkedView.marks).toHaveLength(1);
+    expect(checkedView.run?.unchecked).toBeUndefined();
+    expect(checkedView.run?.unexamined).toEqual([]);
+    expect(checkedView.wholeCheck).toBe(true);
+    expect(checkedView.button).toMatchObject({ kind: "checked", words: "Checked" });
+
+    // 2. Agent edits that already-checked Note without checking -> Check 1 (not silently Checked).
+    await core.askInNote({ mindId, words: "edit agent note" });
+    await ended(2);
+    const editedAgentView = await noteCheckView(core, createdId);
+    expect(editedAgentView.run?.unchecked).toEqual([sentenceKey(FARES)]);
+    expect(editedAgentView.run?.unexamined).toEqual([]);
+    expect(editedAgentView.wholeCheck).toBe(false);
+    expect(editedAgentView.button).toMatchObject({ kind: "check", words: "Check", count: "1" });
+
+    // Deleting the AI's unchecked sentence and then typing a normal User sentence preserves #3840.
+    const editedAgentClient = editedAgentView.client;
+    const docNow = readMind(editedAgentClient);
+    const userTyped = "Harbour lights turn on at dusk every evening.";
+    writeMind(editedAgentClient, [
+      ...Array.from({ length: docNow.childCount - 1 }, (_, i) => docNow.child(i).toJSON()),
+      note(userTyped),
+    ]);
+    await editedAgentClient.settled();
+    const afterUserType = await noteCheckView(core, createdId);
+    expect(afterUserType.health.unchecked).toEqual([]);
+    expect(afterUserType.wholeCheck).toBe(true);
+    expect(afterUserType.button).toMatchObject({ kind: "checked", words: "Checked" });
+
+    // 3. User-owned open Note already checked -> AI proposes addition -> applyAskedChanges -> Check 1, Undo restores Checked, later User edit preserves #3840.
+    const checkedAt = "2026-11-27T10:00:00.000Z";
+    const frontFolderId =
+      (await core.listMinds()).find((each) => each.id === mindId)?.folderId ?? null;
+    const [reportDoc] = await core.listDocuments();
+    const markFor = (text: string) => ({
+      type: "claimCheck",
+      attrs: {
+        id: `mark-${text.slice(0, 8)}`,
+        request: "req-1",
+        action: "check-against-documents",
+        state: "supported",
+        text,
+        evidence: {
+          id: "ev-1",
+          passageId: "p-1",
+          documentId: reportDoc?.id ?? "",
+          documentName: "Report",
+          contentHash: reportDoc?.contentHash ?? "",
+          pageFrom: null,
+          pageTo: null,
+          location: null,
+          quote: FERRY,
+          check: "found",
+          checkReason: null,
+        },
+        says: null,
+        unsupported: null,
+        calculation: null,
+        reason: null,
+        detail: null,
+        providerId: null,
+        modelId: "Claude Code",
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: { folderId: frontFolderId, widened: false },
+        versions: [{ documentId: reportDoc?.id ?? "", contentHash: reportDoc?.contentHash ?? "" }],
+        excluded: [],
+        checkedAt,
+        outside: true,
+      },
+    });
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "checked-ferry" },
+        content: [{ type: "text", text: FERRY, marks: [markFor(FERRY)] }],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "checked-fares" },
+        content: [{ type: "text", text: FARES, marks: [markFor(FARES)] }],
+      },
+    ]);
+    client.doc.transact(() =>
+      writeMindCheck(client.doc.getMap(MIND_SETTINGS_FIELD), {
+        at: checkedAt,
+        sentences: 2,
+        stop: null,
+        skipped: [],
+        unexamined: [],
+      }),
+    );
+    await client.settled();
+
+    await core.askInNote({ mindId, words: "add timetable to my note" });
+    const frontTurn = await ended(3);
+    const applied = await core.applyAskedChanges({
+      answerId: frontTurn?.turnId ?? "",
+      mindId,
+      requests: (frontTurn?.applied ?? []).map((each) => each.request),
+    });
+    expect(applied?.held).toBe(false);
+    const afterApply = await noteCheckView(core, mindId);
+    expect(afterApply.run?.unchecked).toEqual([sentenceKey(TIMETABLE)]);
+    expect(afterApply.wholeCheck).toBe(false);
+    expect(afterApply.button).toMatchObject({ kind: "check", words: "Check", count: "1" });
+
+    // Undo restores Checked; Redo brings Check 1 back.
+    await core.undoAskedChanges(applied?.undoId ?? "");
+    const afterUndo = await noteCheckView(core, mindId);
+    expect(afterUndo.health.unchecked).toEqual([]);
+    expect(afterUndo.wholeCheck).toBe(true);
+    expect(afterUndo.button).toMatchObject({ kind: "checked", words: "Checked" });
+
+    await core.redoAskedChanges(applied?.undoId ?? "");
+    const afterRedo = await noteCheckView(core, mindId);
+    expect(afterRedo.health.unchecked).toHaveLength(1);
+    expect(afterRedo.wholeCheck).toBe(false);
+    expect(afterRedo.button).toMatchObject({ kind: "check", words: "Check", count: "1" });
+  });
+
+  // protects=#3862: in the live open-editor path (`writeAccepted`) and manual accept (`decideProposals`), accepting an outside AI's proposals on an already-checked Note returns the Note to Check N, Undo restores Checked, and omitted opinions / keptAsView / assistant-conclusion are never miscounted on a zero-claim edit; fails_when=open-editor apply leaves Checked, Undo stays on Check, or a heading/zero-claim edit marks an opinion or kept-as-view sentence unchecked
+  it("marks unchecked in open-editor writeAccepted and manual decideProposals, restores on Undo, and respects opinions, keptAsView, and assistant-conclusion", async () => {
+    const run = runner(async (agent, request) => {
+      const frontId = mindIdOf(request);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: frontId, named: true } }),
+      );
+      if (request.prompt.includes("zero-claim")) {
+        structured(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: {
+              mindId: frontId,
+              version: read.version,
+              changes: [{ paragraph: "¶1-", text: "# Harbour heading" }],
+            },
+          }),
+        );
+        return { kind: "finished", reply: "Added a heading." };
+      }
+      structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: frontId,
+            version: read.version,
+            changes: [{ paragraph: "¶2+", text: TIMETABLE }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Added timetable." };
+    });
+    const { core, mindId, client, claude, ended } = await written(run.adapter);
+    const checkedAt = "2026-11-27T10:00:00.000Z";
+    const frontFolderId =
+      (await core.listMinds()).find((each) => each.id === mindId)?.folderId ?? null;
+    const [reportDoc] = await core.listDocuments();
+    const baseMark = (id: string, text: string, extra: Record<string, unknown> = {}) => ({
+      type: "claimCheck",
+      attrs: {
+        id,
+        request: "req-1",
+        action: "check-against-documents",
+        state: "supported",
+        text,
+        evidence: {
+          id: `ev-${id}`,
+          passageId: "p-1",
+          documentId: reportDoc?.id ?? "",
+          documentName: "Report",
+          contentHash: reportDoc?.contentHash ?? "",
+          pageFrom: null,
+          pageTo: null,
+          location: null,
+          quote: FERRY,
+          check: "found",
+          checkReason: null,
+        },
+        says: null,
+        unsupported: null,
+        calculation: null,
+        reason: null,
+        detail: null,
+        providerId: null,
+        modelId: "Claude Code",
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: { folderId: frontFolderId, widened: false },
+        versions: [{ documentId: reportDoc?.id ?? "", contentHash: reportDoc?.contentHash ?? "" }],
+        excluded: [],
+        checkedAt,
+        outside: true,
+        ...extra,
+      },
+    });
+    const opinionText = "The harbour looks busiest on sunny weekends.";
+    const keptText = "Local riders seem happiest with the early boat.";
+    const conclusionText = "Overall ridership points to strong commuter demand.";
+
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p-ferry" },
+        content: [{ type: "text", text: FERRY, marks: [baseMark("m1", FERRY)] }],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p-fares" },
+        content: [{ type: "text", text: FARES, marks: [baseMark("m2", FARES)] }],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p-opinion" },
+        content: [{ type: "text", text: opinionText }],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p-kept" },
+        content: [
+          {
+            type: "text",
+            text: keptText,
+            marks: [baseMark("m3", keptText, { state: "unsupported", kept: true })],
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p-conclusion" },
+        content: [
+          {
+            type: "text",
+            text: conclusionText,
+            marks: [
+              baseMark("m4", conclusionText, {
+                state: "not-checked",
+                reason: "assistant-conclusion",
+              }),
+            ],
+          },
+        ],
+      },
+    ]);
+    client.doc.transact(() => {
+      writeMindCheck(client.doc.getMap(MIND_SETTINGS_FIELD), {
+        at: checkedAt,
+        sentences: 2,
+        stop: null,
+        skipped: [],
+        unexamined: [],
+      });
+      writeOpinionSentences(client.doc, [
+        {
+          id: "op-1",
+          blockId: "p-opinion",
+          text: opinionText,
+          occurrence: 0,
+          parts: [
+            {
+              span: { start: 0, end: opinionText.length },
+              kind: "opinion",
+              verdict: null,
+              evidence: [],
+              says: null,
+              unsupported: null,
+              calculation: null,
+              reason: null,
+              detail: null,
+              versions: [],
+              excluded: [],
+              citedCaseUnchecked: false,
+              citedCaseFound: false,
+              providerId: null,
+              modelId: "Claude Code",
+              checkedAt,
+            },
+          ],
+        },
+      ]);
+    });
+    await client.settled();
+
+    const schema = getSchema(noteExtensions());
+    const aside = { aside: true };
+    const tracked = { tracked: true };
+    const undo = new Y.UndoManager(client.doc.getXmlFragment(MIND_CONTENT_FIELD), {
+      captureTimeout: 0,
+      trackedOrigins: new Set([tracked]),
+    });
+
+    // 1. Open-editor writeAccepted on a zero-claim heading addition leaves Checked intact (opinions, kept, assistant-conclusion not miscounted).
+    await core.askInNote({ mindId, words: "zero-claim heading" });
+    const zeroTurn = await ended(1);
+    await client.settled();
+    writeAccepted(
+      client.doc,
+      new Set((zeroTurn?.applied ?? []).map((each) => each.request)),
+      aside,
+      tracked,
+      schema,
+    );
+    await client.settled();
+    const afterZero = await noteCheckView(core, mindId);
+    expect(afterZero.run?.unchecked).toBeUndefined();
+    expect(afterZero.wholeCheck).toBe(true);
+
+    // 2. Open-editor writeAccepted on a new claim sentence flips to Check 1, and editor Undo restores Checked.
+    await core.askInNote({ mindId, words: "add timetable in open editor" });
+    const editTurn = await ended(2);
+    await client.settled();
+    writeAccepted(
+      client.doc,
+      new Set((editTurn?.applied ?? []).map((each) => each.request)),
+      aside,
+      tracked,
+      schema,
+    );
+    await client.settled();
+    const afterOpenApply = await noteCheckView(core, mindId);
+    expect(afterOpenApply.run?.unchecked).toEqual([sentenceKey(TIMETABLE)]);
+    expect(afterOpenApply.wholeCheck).toBe(false);
+    expect(afterOpenApply.button).toMatchObject({ kind: "check", words: "Check", count: "1" });
+
+    undo.undo();
+    await client.settled();
+    const afterEditorUndo = await noteCheckView(core, mindId);
+    expect(afterEditorUndo.health.unchecked).toEqual([]);
+    expect(afterEditorUndo.wholeCheck).toBe(true);
+    expect(afterEditorUndo.button).toMatchObject({ kind: "checked", words: "Checked" });
+    undo.destroy();
+
+    // 3. Standalone MCP propose_changes on an agent-owned Note (outside askInNote) marks unchecked immediately via decideProposals.
+    const external = await connectLegacyAgent(claude.launch);
+    const created = structured<{ mindId: string }>(
+      await external.callTool({
+        name: "create_mind",
+        arguments: { title: "External agent note", markdown: FERRY },
+      }),
+    );
+    const found = structured<{ passages: { passageId: string }[] }>(
+      await external.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+    ).passages[0];
+    const cited = structured<{ citations: { cite: string | null }[] }>(
+      await external.callTool({
+        name: "cite",
+        arguments: { citations: [{ passageId: found?.passageId ?? "", quote: FERRY }] },
+      }),
+    ).citations[0]?.cite;
+    const task = structured<{ task: string }>(
+      await external.callTool({
+        name: "check_mind_yourself",
+        arguments: { mindId: created.mindId },
+      }),
+    );
+    structured(
+      await external.callTool({
+        name: "report_check",
+        arguments: {
+          mindId: created.mindId,
+          task: task.task,
+          results: [{ n: 1, verdict: "supported", cites: [cited ?? ""] }],
+        },
+      }),
+    );
+    const readOwn = structured<{ version: string }>(
+      await external.callTool({
+        name: "read_mind",
+        arguments: { mindId: created.mindId, named: true },
+      }),
+    );
+    structured(
+      await external.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: created.mindId,
+          version: readOwn.version,
+          changes: [{ paragraph: "¶1+", text: FARES }],
+        },
+      }),
+    );
+    const externalView = await noteCheckView(core, created.mindId);
+    expect(externalView.run?.unchecked).toEqual([sentenceKey(FARES)]);
+    expect(externalView.wholeCheck).toBe(false);
+    expect(externalView.button).toMatchObject({ kind: "check", words: "Check", count: "1" });
+
+    // 4. Manual accept (`decideProposals`) of a waiting proposal on a checked User Note also marks unchecked.
+    const readFront = structured<{ version: string }>(
+      await external.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    structured(
+      await external.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: readFront.version,
+          changes: [{ paragraph: "¶2+", text: "The evening boat leaves at 19:30 every Friday." }],
+        },
+      }),
+    );
+    await client.settled();
+    client.doc.transact(() =>
+      decideProposals(client.doc.getXmlFragment(MIND_CONTENT_FIELD), () => true, "accept"),
+    );
+    await client.settled();
+    const afterManual = await noteCheckView(core, mindId);
+    expect(afterManual.run?.unchecked).toContain(
+      sentenceKey("The evening boat leaves at 19:30 every Friday."),
+    );
+    expect(afterManual.wholeCheck).toBe(false);
+    expect(afterManual.button).toMatchObject({ kind: "check", words: "Check", count: "1" });
+  });
+
+  // protects=#3862: a partial report_check leaves the Note with remaining claim keys in unchecked so its Check button still counts the unreported sentences, and reporting the rest clears unchecked so the Note reads Checked; fails_when=partial report_check flips wholeCheckStands to true or leaves unchecked set after every sentence is reported
+  it("keeps a partially reported check on Check until every claim sentence is reported", async () => {
+    let createdId = "";
+    let savedTask = "";
+    const run = runner(async (agent, request) => {
+      if (request.prompt.includes("first half")) {
+        const made = structured<{ mindId: string }>(
+          await agent.callTool({
+            name: "create_mind",
+            arguments: { title: "Two claims", markdown: `${FERRY}\n\n${FARES}` },
+          }),
+        );
+        createdId = made.mindId;
+        const found = structured<{ passages: { passageId: string }[] }>(
+          await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+        ).passages[0];
+        const cited = structured<{ citations: { cite: string | null }[] }>(
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: [{ passageId: found?.passageId ?? "", quote: FERRY }] },
+          }),
+        ).citations[0]?.cite;
+        const task = structured<{ task: string; sentences: { n: number }[] }>(
+          await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: createdId } }),
+        );
+        savedTask = task.task;
+        // Report only sentence 1 of 2.
+        await agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId: createdId,
+            task: savedTask,
+            results: [{ n: 1, verdict: "supported", cites: [cited ?? ""] }],
+          },
+        });
+        return { kind: "finished", reply: "Reported one sentence." };
+      }
+      // Report the remaining sentence.
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId: createdId,
+          task: savedTask,
+          results: [{ n: 2, verdict: "not found", explanation: "Not in the report." }],
+        },
+      });
+      return { kind: "finished", reply: "Finished checking." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
+
+    await core.askInNote({ mindId, words: "first half" });
+    await ended(1);
+    const partial = await noteCheckView(core, createdId);
+    expect(partial.marks).toHaveLength(1);
+    expect(partial.run?.unchecked).toEqual([sentenceKey(FARES)]);
+    expect(partial.run?.unexamined).toEqual([]);
+    expect(partial.wholeCheck).toBe(false);
+    expect(partial.button).toMatchObject({ kind: "check", words: "Check", count: "1" });
+
+    await core.askInNote({ mindId, words: "finish the rest" });
+    await ended(2);
+    const finished = await noteCheckView(core, createdId);
+    expect(finished.marks).toHaveLength(2);
+    expect(finished.run?.unchecked).toBeUndefined();
+    expect(finished.run?.unexamined).toEqual([]);
+    expect(finished.wholeCheck).toBe(true);
+    expect(finished.button).toMatchObject({ kind: "look", words: "1 needs a look" });
   });
 });

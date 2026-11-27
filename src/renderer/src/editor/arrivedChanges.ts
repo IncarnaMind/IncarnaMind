@@ -24,12 +24,14 @@ import {
 } from "../../../core/api";
 import { copyOrigins } from "../../../shared/blockOrigins";
 import {
+  outsideProposalBlockIds,
   pendingProposals,
   type ResolvedProposal,
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";
 import { nameOlderCitations } from "../../../shared/signOffs";
+import { markOutsideWriteUnchecked } from "../../../shared/uncheckedClaims";
 import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
@@ -330,7 +332,9 @@ export function writeAccepted(
   schema: Schema,
 ): ResolvedProposal[] {
   const picked = (ref: ProposalRef) => requests.has(ref.request);
-  nameOlderCitations(doc.getXmlFragment(MIND_CONTENT_FIELD));
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  const touched = outsideProposalBlockIds(doc, blocks, picked);
+  nameOlderCitations(blocks);
   const scratch = new Y.Doc();
   try {
     Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
@@ -339,7 +343,6 @@ export function writeAccepted(
     scratch.transact(() => {
       resolved = resolveProposals(accepted, picked, "accept");
     });
-    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
     doc.transact(() => {
       for (let depth = 0; depth < 100; depth++) {
         resolveProposals(blocks, picked, "reject");
@@ -353,6 +356,11 @@ export function writeAccepted(
       writeAs(doc, blocks, accepted, schema);
       copyOrigins(scratch, doc);
     }, tracked);
+    if (touched.size > 0) {
+      doc.transact(() => {
+        markOutsideWriteUnchecked(doc, blocks, touched);
+      }, aside);
+    }
     return resolved;
   } finally {
     scratch.destroy();

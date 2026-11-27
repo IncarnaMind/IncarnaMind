@@ -101,6 +101,8 @@ export interface SentenceInput {
   skipped?: ReadonlySet<string>;
   /** The last whole-Mind check couldn't tell whether these make a claim, by `sentenceKey`. */
   unexamined?: ReadonlySet<string>;
+  /** Sentences an outside AI wrote or left unreported (#3862), by `sentenceKey`. */
+  unchecked?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
   omitted?: readonly KeptMark[];
@@ -293,6 +295,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
           })),
         },
         input.unexamined,
+        input.unchecked,
       ),
     (table, pos) => {
       const shown = input.tableShown?.(table);
