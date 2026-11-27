@@ -274,7 +274,12 @@ export function HealthCard({
   const rowsRef = useRef<HTMLDivElement>(null);
   const goToNext = (row: CheckRow) => {
     if (editor.isDestroyed) return;
-    const targets = placesOf(row);
+    // Under All supported the line counts every supported sentence, those that can still be cited
+    // among them, which no supported row lists: its Next goes to each (#3840).
+    const targets =
+      row === "supported" && stage?.kind === "clean"
+        ? [...placesOf("supported"), ...health.citable].sort((a, b) => a - b)
+        : placesOf(row);
     const head = editor.state.selection.head;
     const next = targets.find((pos) => pos > head) ?? targets[0];
     if (next === undefined) return;

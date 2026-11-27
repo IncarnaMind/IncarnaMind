@@ -45,7 +45,8 @@ export function useScopeDocumentCount(
   scope: SearchScope | null,
   { everyDocument = true }: { everyDocument?: boolean } = {},
 ): number | null {
-  const [count, setCount] = useState<number | null>(null);
+  // Kept with the scope it counts: another scope's count is never this one's while it is asked.
+  const [counted, setCounted] = useState<{ wanted: string; count: number | null } | null>(null);
   const wanted = scope ? JSON.stringify(scope) : everyDocument ? "null" : null;
   const state = useAppStore((store) =>
     [
@@ -60,24 +61,24 @@ export function useScopeDocumentCount(
   // biome-ignore lint/correctness/useExhaustiveDependencies: `state` is when to ask again.
   useEffect(() => {
     if (wanted === null) {
-      setCount(null);
+      setCounted(null);
       return;
     }
     let current = true;
     core
       .countScopeDocuments(JSON.parse(wanted) as SearchScope | null)
-      .then((counted) => {
-        if (current) setCount(counted);
+      .then((count) => {
+        if (current) setCounted({ wanted, count });
       })
       .catch((error: unknown) => {
         console.warn("Couldn't count the Documents of a Search scope.", error);
-        if (current) setCount(null);
+        if (current) setCounted({ wanted, count: null });
       });
     return () => {
       current = false;
     };
   }, [wanted, state]);
-  return count;
+  return counted !== null && counted.wanted === wanted ? counted.count : null;
 }
 
 /**
