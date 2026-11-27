@@ -3278,9 +3278,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(run.runs).toHaveLength(1);
   });
 
-  // protects=a held message being edited isn't sent, though the reply ends meanwhile; it goes once the editor closes: Save sends the new words, Cancel the old (#3765); fails_when=it goes while the editor is open, goes with the wrong words, or stays held after the editor closes
+  // protects=a held message being edited isn't sent, though the reply ends meanwhile, nor one sent after it; it goes once the editor closes: Save sends the new words, Cancel the old, and the later one after it (#3765); fails_when=it goes while the editor is open, the later one goes first, it goes with the wrong words, or stays held after the editor closes
   for (const close of ["save", "cancel"] as const) {
-    it(`sends a held request once its editor closes with ${close === "save" ? "Save, in its new words" : "Cancel, as it was"}`, async () => {
+    it(`sends a held request once its editor closes with ${close === "save" ? "Save, in its new words" : "Cancel, as it was"}, and one sent after it next`, async () => {
       const step = gate();
       const run = runner(async (_agent, request) => {
         if (askedIn(request) === "what does the plan add") {
@@ -3293,6 +3293,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       await core.askInNote({ mindId, words: "what does the plan add" });
       await step.at;
       const later = idOf(await core.askInNote({ mindId, words: "and when" }));
+      await core.askInNote({ mindId, words: "and who" });
       await core.editHeldInNote(mindId, later, { kind: "open" });
       step.open();
       await expect
@@ -3300,6 +3301,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         .toEqual([
           ["what does the plan add", "", "landed", "Answered: what does the plan add"],
           ["and when", "", "held", ""],
+          ["and who", "", "held", ""],
         ]);
       await pause(100);
       expect(run.runs).toHaveLength(1);
@@ -3314,8 +3316,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         .toEqual([
           ["what does the plan add", "", "landed", "Answered: what does the plan add"],
           [words, "", "landed", `Answered: ${words}`],
+          ["and who", "", "landed", "Answered: and who"],
         ]);
-      expect(run.runs).toHaveLength(2);
+      expect(run.runs.map(askedIn)).toEqual(["what does the plan add", words, "and who"]);
     });
   }
 

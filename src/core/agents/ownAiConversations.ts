@@ -731,11 +731,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     });
   }
 
-  /** With none of the Note's requests running, its oldest held message goes, unless it is being edited. */
+  /**
+   * With none of the Note's requests running, its oldest held message goes; while that one is being
+   * edited none goes, so they still go in the order sent.
+   */
   function nextHeld(mindId: string): void {
     if (running.has(mindId)) return;
-    const first = (held.get(mindId) ?? []).find((each) => !each.editing);
-    if (first && unhold(mindId, first.turnId)) startHeld(mindId, first);
+    const [first] = held.get(mindId) ?? [];
+    if (first && !first.editing && unhold(mindId, first.turnId)) startHeld(mindId, first);
   }
 
   async function converse(turn: {
