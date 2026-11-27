@@ -78,11 +78,46 @@ export function endPurgedHanded(db: Database, at: string): void {
 }
 
 /**
+ * Removes the copy of each version a refused hand-over took back (#3751) in an item that goes on,
+ * left behind when IncarnaMind quit before the take-back's last step: its version's own folder,
+ * unless a version that stands has its copy there or it is in `keep` (a take-back the start
+ * couldn't finish). Run at start, before any hand-over, so no copy being written for a version not
+ * yet recorded is taken for one; the database is read before anything is awaited, and a core
+ * closed meanwhile (`signal`) removes nothing.
+ */
+export async function dropTakenBackCopies(options: {
+  db: Database;
+  dataDir: string;
+  keep: readonly string[];
+  signal: AbortSignal;
+  reportError(error: unknown): void;
+}): Promise<void> {
+  const { db, dataDir, keep, signal, reportError } = options;
+  const rows = db.all<{ file: string; standing: number }>(
+    `SELECT v.file, v.deleted_at IS NULL AS standing FROM agent_file_versions v
+     JOIN agent_files f ON f.id = v.file_id WHERE f.deleted_at IS NULL`,
+  );
+  const standing = rows.filter((row) => row.standing === 1).map((row) => join(dataDir, row.file));
+  const dropped = rows
+    .filter((row) => row.standing !== 1)
+    .map((row) => dirname(join(dataDir, row.file)))
+    .filter((folder) => !keep.includes(folder) && !standing.some((path) => isInside(folder, path)));
+  const linked = db.all<{ path: string }>("SELECT path FROM linked_folders").map((row) => row.path);
+  const resolved = await Promise.all(linked.map((path) => realpath(path).catch(() => path)));
+  if (signal.aborted) return;
+  const removal: Removal = { dataDir, linked: [...new Set([...linked, ...resolved])], reportError };
+  await Promise.all(
+    [...new Set(dropped)].map((folder) => removeKept(removal, folder).catch(reportError)),
+  );
+}
+
+/**
  * Removes the folder of each item that ended with its Document (its rows deleted, as
  * `recentlyDeleted` does when the Document is deleted for good), and `ownFiles`: the files of
- * Documents deleted for good that an item which goes on with a newer Document no longer needs.
- * The file of a Document that can still come back stays, and the rest of its item's folder goes.
- * Run again at each start, so a removal that failed is tried again; each failure is reported.
+ * Documents deleted for good that an item which goes on with a newer Document no longer needs, and
+ * what a refused hand-over wrote (#3751). The file of a Document that can still come back stays,
+ * and the rest of its item's folder goes. Run again at each start, so a removal that failed is
+ * tried again; each failure is reported.
  */
 export async function dropPurgedHanded(options: {
   db: Database;
@@ -116,7 +151,9 @@ export async function dropPurgedHanded(options: {
       return [];
     });
   const there = new Set(await listing(root));
-  const targets = new Set(options.ownFiles);
+  const targets = new Set(
+    options.ownFiles.filter((target) => !holding.some((path) => isInside(target, path))),
+  );
   for (const folder of endedIds.filter((id) => there.has(id)).map((id) => join(root, id))) {
     const held = holding.filter((path) => isInside(folder, path));
     if (held.length === 0) {

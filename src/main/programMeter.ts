@@ -767,6 +767,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
   let refining = false;
   let turn = 0;
   let held = new Map<number, number>();
+  let footprintUnknownSince: number | null = null;
   const pending = new Set<Promise<void>>();
 
   const schedule = (work: Promise<void>) => {
@@ -946,9 +947,19 @@ export function createMeters(options: MetersOptions = {}): Meters {
       const all = [...new Set(programs.flatMap((each) => pidsOf(each, listed)))];
       try {
         held = await macFootprints(command, all);
+        footprintUnknownSince = null;
       } catch (error) {
         held = new Map();
-        reportAll(programs, error);
+        // A single footprint killed at COMMAND_MS under load is transient (resident memory counts
+        // that turn); report once deadline timeouts persist past UNKNOWN_DISK_MS, as ps timeouts do,
+        // while reporting crashes (killed !== true) immediately (#2644).
+        if ((error as { killed?: unknown }).killed === true) {
+          const at = now();
+          footprintUnknownSince ??= at;
+          if (at - footprintUnknownSince > UNKNOWN_DISK_MS) reportAll(programs, error);
+        } else {
+          reportAll(programs, error);
+        }
       }
     }
     for (const each of programs) {
@@ -1040,9 +1051,12 @@ export function createMeters(options: MetersOptions = {}): Meters {
         }
         return () => {
           watched.delete(each);
-          if (watched.size === 0 && timer !== undefined) {
-            clearInterval(timer);
-            timer = undefined;
+          if (watched.size === 0) {
+            footprintUnknownSince = null;
+            if (timer !== undefined) {
+              clearInterval(timer);
+              timer = undefined;
+            }
           }
         };
       },

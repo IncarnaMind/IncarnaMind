@@ -126,8 +126,12 @@ A number a Calculated figure or an Analysis is worked out from: a number in a Ci
 _Avoid_: argument, variable, source
 
 **Footnote**:
-Text the User attaches to a point in the text, shown there by its number; it can hold Citations. Footnotes and Citations share one numbering, in the order they appear, in the Note and in every export, where a Citation's footnote is its reference.
-_Avoid_: endnote, annotation, comment
+Text the User attaches to a point in the text, shown there by its number; it can hold Citations. Footnotes and Citations share one numbering, in the order they appear, in the Note and in every export, where a Citation's footnote is its reference. An Endnote is numbered on its own.
+_Avoid_: endnote for a note at the page's foot (an **Endnote** follows the text), annotation, comment
+
+**Endnote** (尾注):
+A Word file's note that follows the text rather than standing at the page's foot, which the Note imported from the file keeps as one: edited as a footnote is, but numbered by itself as the file numbers its endnotes (i, ii, iii unless the file sets another style), listed under Endnotes after the Note's footnotes, printed after the text under Endnotes in a PDF, HTML or Markdown export, and written back as an endnote in a Word export. Only a Word file brings one.
+_Avoid_: footnote for one, EndNote (the reference manager)
 
 **Reference record**:
 What a citation style needs to cite a Document: its type, title, authors, date, where it was published, volume, issue, pages, publisher, DOI, URL and language. It is read from the Document's file (its properties, and what a PDF's first page prints: title, authors, institution and year), the User can edit every field (an edit is never replaced by a later read), and Look up can fill its empty fields from the Document's DOI or arXiv ID. What was read from the file "needs checking" until the User marks it checked or edits it. A record of a known type that lacks its title, authors or date "needs details". A file exported from Zotero, EndNote or Mendeley (CSL JSON, BibTeX or RIS) can be imported: each reference is matched to a Document, or kept as a record with no Document until its PDF is added; the User's edits win over an import.

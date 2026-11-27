@@ -43,7 +43,7 @@ import {
   wordOriginOf,
 } from "../shared/wordFiles";
 import { setWordLook, wordLookOf } from "../shared/wordLook";
-import type { Logger } from "./adapters";
+import type { LogFields, Logger } from "./adapters";
 import { createElement } from "./answers/blocks";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -65,12 +65,15 @@ import {
   openWordPackage,
   refusalOf,
   reviewOf,
+  WordRefusedError,
   type WordReview,
 } from "./documents/formats/docxPackage";
+import { ExtractionError } from "./documents/formats/errors";
 import { packageSizeError } from "./documents/formats/zip";
 import { InvalidInputError, isRecord, MindReadOnlyError, TranslatableError } from "./errors";
 import type { MindContent } from "./mindContent";
 import { type createMinds, parseFolderChoice } from "./minds";
+import { redactMessage } from "./redact";
 import type { Database } from "./storage";
 import { applyLook, clearLook, type LookPlan, planLook } from "./wordLookBackfill";
 import { convertWordParts, needsPartsConverted } from "./wordParts";
@@ -122,6 +125,21 @@ function parseOrigin(origin: unknown): WordOrigin {
     throw new InvalidInputError('origin must be "own" or "someone-else".');
   }
   return origin;
+}
+
+/**
+ * What the log keeps of an error met reading a Word file or writing what it read into a Note.
+ * A file refused as unreadable keeps only its reason: its message names the package's parts and
+ * the tags it broke on as the file wrote them, unquoted, and in a damaged part such a "tag" is
+ * the Document's own words. Any other message is the code's or a library's, kept as
+ * `redactMessage` leaves it.
+ */
+export function wordErrorFields(error: unknown): LogFields {
+  if (error instanceof WordRefusedError || error instanceof ExtractionError) {
+    return { error: error.name, reason: error.reason };
+  }
+  if (!(error instanceof Error)) return { error: "unknown" };
+  return { error: error.name, message: redactMessage(error.message) };
 }
 
 /** A Word file read whole, ready to import, and how to tell it is still the file on disk. */
@@ -317,25 +335,27 @@ export function createWordImports(options: WordImportsOptions) {
     return row ? { documentId: row.id, name: row.name } : null;
   };
 
-  /** The Document the original becomes: a new version of an earlier draft's, or its own. */
+  /** The Document the original becomes: a new version of an earlier draft's, or its own; or why the Library didn't take it. */
   const addOriginal = async (
     path: string,
     folderId: string | null,
     newVersionOf: string | null,
-  ): Promise<string | null> => {
+  ): Promise<{ documentId: string } | { failed: unknown }> => {
     try {
       if (newVersionOf !== null && (await options.newVersion(newVersionOf, path))) {
-        return newVersionOf;
+        return { documentId: newVersionOf };
       }
-      return await options.addOriginal(path, folderId);
-    } catch (error) {
-      log.error("word.import.originalNotAdded", {
-        file: basename(path),
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
+      return { documentId: await options.addOriginal(path, folderId) };
+    } catch (failed) {
+      return { failed };
     }
   };
+  /** The Library's failure to take the original, for the Note made from it; null when none was made. */
+  const originalNotAdded = (mindId: string | null, failed: unknown) =>
+    log.error("word.import.originalNotAdded", {
+      ...(mindId !== null && { mindId }),
+      ...wordErrorFields(failed),
+    });
 
   /**
    * Every live package of these bytes was the same file: once one is linked to its Document, all
@@ -430,10 +450,14 @@ export function createWordImports(options: WordImportsOptions) {
       const title = original?.title ?? basename(fileName, extname(fileName)).trim();
       let mind: Mind;
       let documentId: string | null = original?.documentId ?? null;
+      let notAdded: { failed: unknown } | null = null;
       try {
         await keepPackage(sha256, bytes);
-        if (!original && input.addOriginal === true)
-          documentId = await addOriginal(path, folderId, newVersionOf);
+        if (!original && input.addOriginal === true) {
+          const added = await addOriginal(path, folderId, newVersionOf);
+          if ("documentId" in added) documentId = added.documentId;
+          else notAdded = added;
+        }
         const at = options.now();
         mind = db.transaction(() => {
           const made = minds.create({ title, kind: DEFAULT_MIND_KIND, folderId });
@@ -457,9 +481,13 @@ export function createWordImports(options: WordImportsOptions) {
           if (documentId !== null) linkSourceDocument(sha256, documentId);
           return made;
         });
+      } catch (error) {
+        if (notAdded) originalNotAdded(null, notAdded.failed);
+        throw error;
       } finally {
         keeping.delete(sha256);
       }
+      if (notAdded) originalNotAdded(mind.id, notAdded.failed);
       content.edit(mind.id, (blocks) => {
         if (blocks.doc) {
           startWordImport(
@@ -522,8 +550,12 @@ export function createWordImports(options: WordImportsOptions) {
         [mindId],
       );
       if (!row) throw new InvalidInputError({ key: "error.mind.notFromWord" });
-      const documentId = await addOriginal(path, minds.get(mindId).folderId, null);
-      if (documentId === null) return false;
+      const added = await addOriginal(path, minds.get(mindId).folderId, null);
+      if (!("documentId" in added)) {
+        originalNotAdded(mindId, added.failed);
+        return false;
+      }
+      const { documentId } = added;
       db.run(
         "UPDATE word_packages SET document_id = ?, source_document_id = ?, updated_at = ? WHERE id = ?",
         [documentId, documentId, options.now(), row.id],
@@ -742,11 +774,7 @@ export function createWordImports(options: WordImportsOptions) {
           }
         } catch (error) {
           if (error instanceof MindReadOnlyError) continue;
-          log.error("word.look.failed", {
-            mindId,
-            error: error instanceof Error ? error.name : "unknown",
-            message: error instanceof Error ? error.message : String(error),
-          });
+          log.error("word.look.failed", { mindId, ...wordErrorFields(error) });
         }
       }
       log.info("word.look.done", { minds: imported.length });
@@ -791,11 +819,7 @@ export function createWordImports(options: WordImportsOptions) {
         if (converted) log.info("word.parts.converted", { mindId, ...converted });
       } catch (error) {
         if (error instanceof MindReadOnlyError) return;
-        log.error("word.parts.failed", {
-          mindId,
-          error: error instanceof Error ? error.name : "unknown",
-          message: error instanceof Error ? error.message : String(error),
-        });
+        log.error("word.parts.failed", { mindId, ...wordErrorFields(error) });
       }
     },
 

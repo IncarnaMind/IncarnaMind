@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import type { OutputSettings } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { saveFailureReason } from "../../shared/systemReasons";
@@ -58,4 +59,21 @@ export function savedFileFailure(
   const message = errorMessage(failure, t);
   const reason = saveFailureReason(message);
   return t(failed, { reason: reason ? t(reason.key, reason.values) : message });
+}
+
+/**
+ * Open and Show in Finder on a file IncarnaMind saved, and the problem the newest press met: an
+ * older press that fails late never puts its line under a newer one's (#3751).
+ */
+export function useSavedFileActions(t: Translate) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const pressed = useRef(0);
+  const run = (act: () => Promise<void>, failed: "export.failed.open" | "export.failed.show") => {
+    const press = ++pressed.current;
+    setProblem(null);
+    act().catch((failure: unknown) => {
+      if (press === pressed.current) setProblem(savedFileFailure(failure, failed, t));
+    });
+  };
+  return { problem, run };
 }

@@ -141,7 +141,7 @@ export function declaredAccess(level: SandboxLevel, allow: ExecAllow): ExecAcces
  */
 export function stopProcessTree(child: ChildProcess): void {
   const { pid } = child;
-  if (pid === undefined) return;
+  if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return;
   const killChild = () => {
     try {
       child.kill("SIGKILL");
@@ -162,10 +162,110 @@ export function stopProcessTree(child: ChildProcess): void {
     return;
   }
   try {
-    process.kill(-pid, "SIGKILL");
+    process.kill(-pid, "SIGSTOP");
   } catch {
     // Not a group leader after all (a launcher that ignored `processGroup`), or gone.
     killChild();
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    killChild();
+  }
+}
+
+const DRAIN_TIMEOUT_MS = 5000;
+const DRAIN_INTERVAL_MS = 20;
+// macOS XNU returns EPERM from killpg when only unreaped zombies remain (e.g. right after
+// stopProcessTree); wait briefly for reaping to turn EPERM into ESRCH before treating it as denied.
+const EPERM_REAP_GRACE_MS = 500;
+
+export interface DrainProcessGroupOptions {
+  timeoutMs?: number;
+  intervalMs?: number;
+  /** Defaults to `process.kill`; a test may pass a stand-in. */
+  kill?: (target: number, signal: "SIGSTOP" | "SIGKILL" | 0) => void;
+}
+
+/**
+ * Freezes and kills a POSIX process group in a loop until the kernel reports `ESRCH` (no process
+ * left in the group), closing the fork-during-SIGKILL race on macOS and Linux (#2644). Never
+ * signals `-group` again once `ESRCH` is seen, and never signals 1 or less or this process.
+ * Returns true once the group is gone, false on persistent `EPERM` or timeout.
+ */
+export async function drainProcessGroup(
+  group: number,
+  options: DrainProcessGroupOptions = {},
+): Promise<boolean> {
+  if (
+    process.platform === "win32" ||
+    !Number.isSafeInteger(group) ||
+    group <= 1 ||
+    group === process.pid
+  ) {
+    return true;
+  }
+  const kill = options.kill ?? ((target, signal) => process.kill(target, signal));
+  const timeoutMs = options.timeoutMs ?? DRAIN_TIMEOUT_MS;
+  const intervalMs = options.intervalMs ?? DRAIN_INTERVAL_MS;
+  const deadline = performance.now() + timeoutMs;
+  const send = (signal: "SIGSTOP" | "SIGKILL" | 0): "sent" | "gone" | "denied" => {
+    try {
+      kill(-group, signal);
+      return "sent";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return "gone";
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return "denied";
+      throw error;
+    }
+  };
+  let epermDeadline: number | null = null;
+  const waitThroughEperm = async (): Promise<"gone" | "alive" | "denied"> => {
+    epermDeadline ??= Math.min(deadline, performance.now() + EPERM_REAP_GRACE_MS);
+    while (performance.now() < epermDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      const probe = send(0);
+      if (probe === "gone") return "gone";
+      if (probe === "sent") {
+        epermDeadline = null;
+        return "alive";
+      }
+    }
+    const finalProbe = send(0);
+    if (finalProbe === "gone") return "gone";
+    if (finalProbe === "sent") {
+      epermDeadline = null;
+      return "alive";
+    }
+    return "denied";
+  };
+  while (true) {
+    const stopped = send("SIGSTOP");
+    if (stopped === "gone") return true;
+    if (stopped === "denied") {
+      const resolved = await waitThroughEperm();
+      if (resolved === "gone") return true;
+      if (resolved === "denied") return false;
+      continue;
+    }
+    const killed = send("SIGKILL");
+    if (killed === "gone") return true;
+    if (killed === "denied") {
+      const resolved = await waitThroughEperm();
+      if (resolved === "gone") return true;
+      if (resolved === "denied") return false;
+      continue;
+    }
+    if (performance.now() >= deadline) return send(0) === "gone";
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    const alive = send(0);
+    if (alive === "gone") return true;
+    if (alive === "denied") {
+      const resolved = await waitThroughEperm();
+      if (resolved === "gone") return true;
+      if (resolved === "denied") return false;
+    }
   }
 }
 
@@ -392,8 +492,27 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
         // One sweep at a time: the program's end, a stop and the run's end each ask for one.
         let sweeping = Promise.resolve();
         let group = 0;
-        const leftovers = () => {
-          sweeping = sweeping.then(() => program.sweep?.(group));
+        let groupDrained = false;
+        const leftovers = (final = false) => {
+          sweeping = sweeping.then(async () => {
+            if (!groupDrained && group > 0) {
+              try {
+                groupDrained = await drainProcessGroup(group);
+              } catch (error) {
+                options.reportError(error);
+              }
+              if (final && !groupDrained && !program.sweep) {
+                options.reportError(
+                  new Error(`Process group ${group} couldn't be drained when the run ended.`),
+                );
+              }
+            }
+            try {
+              await program.sweep?.(group);
+            } catch (error) {
+              options.reportError(error);
+            }
+          });
           return sweeping;
         };
         try {
@@ -417,7 +536,7 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
           return await collect(child, request, cwd, leftovers, options.reportError, program.meter);
         } finally {
           // Also when it couldn't start: the run's record goes only once a sweep has found it over.
-          await leftovers();
+          await leftovers(true);
           confinement?.release();
         }
       } finally {

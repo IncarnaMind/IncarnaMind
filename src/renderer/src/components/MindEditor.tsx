@@ -172,6 +172,7 @@ import { useCountSettings, WordCount } from "../editor/WordCount";
 import { OriginalNotAdded, useWordFile, WordImportProgress } from "../editor/WordOrigin";
 import { WordTableFades } from "../editor/WordTableFades";
 import { useWordLookStyle } from "../editor/wordLookStyle";
+import { WordMarkerKeys } from "../editor/wordMarkerKeys";
 import { WordPaste } from "../editor/wordPaste";
 import { setWritingPlace, WritingPlace } from "../editor/writingPlace";
 import { requestEdit, startEditing, TRANSLATE_LANGUAGES, useEdits } from "../editWithAi";
@@ -693,6 +694,7 @@ function MindEditorView({
         }),
         FootnoteKeys,
         DocumentChipKeys,
+        WordMarkerKeys,
         ListKeys,
         MeetingFillPlace,
         MeetingNotes.configure({

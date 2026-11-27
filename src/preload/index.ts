@@ -47,21 +47,11 @@ import {
   type PermissionGuideState,
 } from "../shared/permissionGuide";
 import { titleBarOf } from "../shared/titleBar";
+import { createServedGate } from "./servedGate";
 
 // Once served, a call goes straight through in the turn it is made: deferring every call by a
 // turn moved an Answer's change card as it finished (#2104).
-let isServed = false;
-const served = ipcRenderer.invoke(SERVED_CHANNEL).then(() => {
-  isServed = true;
-});
-const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
-  isServed
-    ? ipcRenderer.invoke(channel, ...args)
-    : served.then(() => ipcRenderer.invoke(channel, ...args));
-const send = (channel: string, ...args: unknown[]): void => {
-  if (isServed) ipcRenderer.send(channel, ...args);
-  else void served.then(() => ipcRenderer.send(channel, ...args));
-};
+const { invoke, send } = createServedGate(ipcRenderer, SERVED_CHANNEL);
 
 function listen<T>(channel: string, listener: (value: T) => void): () => void {
   const receive = (_event: unknown, value: T) => listener(value);

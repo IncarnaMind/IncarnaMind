@@ -9222,6 +9222,12 @@ export const zhCN = {
   "agents.ask.request.wordFolder": "，保存时带上 folderId {folderId}",
   "agents.ask.request.wordNote":
     "我这条消息说的是在 IncarnaMind 中从我的笔记{title}生成的 Word 文件（第 {version} 版，mindId：{mindId}）。",
+  "agents.ask.request.fixWordDeletedNote":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n这篇笔记已删除。文件的文字在笔记 mindId {mindId} 中（用 read_mind 读取）。请根据我的文档改正，其他内容不要改动，然后用 save_as_word、标题{saveAs}、folderId {folderId} 和改正后的 markdown 生成。",
+  "agents.ask.request.fixWordDeletedNoteAll":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n这篇笔记已删除。文件的文字在笔记 mindId {mindId} 中（用 read_mind 读取）。请根据我的文档逐一改正，其他内容不要改动，然后用 save_as_word、标题{saveAs}、folderId {folderId} 和改正后的 markdown 生成。",
+  "agents.ask.request.wordDeletedNote":
+    "我这条消息说的是在 IncarnaMind 中从我的笔记{title}生成的 Word 文件（第 {version} 版）。这篇笔记已删除，文件的文字在笔记 mindId {mindId} 中。",
   "agents.ask.request.fixWordText":
     "在 IncarnaMind 中，你用自己写的文字生成的 Word 文件{title}（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n它的文字在笔记 mindId {mindId} 中（用 read_mind 读取）。请根据我的文档改正，其他内容不要改动，然后用 save_as_word、标题{title}、folderId {folderId} 和改正后的 markdown 重新生成。",
   "agents.ask.request.fixWordTextAll":

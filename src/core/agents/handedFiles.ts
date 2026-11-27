@@ -117,6 +117,8 @@ export interface HandOverDone {
   mindId: string | null;
   /** Why no Note was made of it: the file can't be read as its kind, in plain words. */
   unread: string | null;
+  /** Takes back what this hand-over made, for a refusal after it (#3751); nothing new, nothing to do. */
+  undo(): Promise<void>;
 }
 
 export interface HandedFileToolDeps {
@@ -187,6 +189,20 @@ export function createHandedFileTool(context: HandedFileToolContext) {
     if (left > 0) underWay.set(pairingId, left);
     else underWay.delete(pairingId);
   };
+  /** Each item's hand-over under way, by pairing and path, for the next call of it to wait for. */
+  const items = new Map<string, Promise<void>>();
+  const oneAtATime = <R>(item: string, run: () => Promise<R>): Promise<R> => {
+    const next = (items.get(item) ?? Promise.resolve()).then(run);
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    items.set(item, settled);
+    void settled.then(() => {
+      if (items.get(item) === settled) items.delete(item);
+    });
+    return next;
+  };
 
   const kindOf = (path: string): HandedFile["kind"] => {
     const dot = path.lastIndexOf(".");
@@ -201,7 +217,9 @@ export function createHandedFileTool(context: HandedFileToolContext) {
   /**
    * A hand-over made as the call `tool`: refused unless the pairing may write. The item `plan`
    * names keeps its Folder; a new one goes where the plan says. A place in the pairing's hour is
-   * taken before the plan gives the bytes, and held until the call ends.
+   * taken before the plan gives the bytes, and held until the call ends. Calls for one item go one
+   * at a time: the second finds the first's item, its date and its saved file (#3751). A refusal
+   * after the hand-over takes back what it made.
    */
   function handOver<T extends object>(
     tool: AgentToolName,
@@ -210,11 +228,9 @@ export function createHandedFileTool(context: HandedFileToolContext) {
     plan: (pairing: AdmittedPairing) => PlannedHandOver<T>,
   ): Promise<AgentHandedFile & T> {
     let reserved: string | null = null;
-    const asked = call(tool, summary, effects, async (pairing) => {
-      if (!pairing.propose) {
-        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
-      }
-      const planned = plan(pairing);
+    /** The hand-over in its item's turn, with the grant as it is then: it may have waited. */
+    const handedOver = async (planned: PlannedHandOver<T>) => {
+      const pairing = context.again();
       const known = deps.handedAt(pairing.id, planned.path);
       const reached = context.reached(pairing);
       if (
@@ -265,53 +281,66 @@ export function createHandedFileTool(context: HandedFileToolContext) {
         reachesNote: (mindId) => context.noteReached(context.again(), mindId),
         reach: () => context.documentsIn(context.again()),
       });
-      const check: HandedCheck =
-        done.mindId === null
-          ? {
-              status: "not-checked",
-              why: done.unread,
-              supported: 0,
-              needLook: 0,
-              claims: [],
-              formulas: null,
-            }
-          : await deps.handedCheck(
-              done.mindId,
-              context.waitMs,
-              context.documentsIn(context.again()),
-            );
-      // What the agent reaches may have changed while the check ran, as check_mind reads it.
-      const granted = context.again();
-      if (done.mindId !== null && !context.noteReached(granted, done.mindId)) {
-        throw new AgentRefusedError("not-found", t("agents.handOver.notFound"));
+      try {
+        const check: HandedCheck =
+          done.mindId === null
+            ? {
+                status: "not-checked",
+                why: done.unread,
+                supported: 0,
+                needLook: 0,
+                claims: [],
+                formulas: null,
+              }
+            : await deps.handedCheck(
+                done.mindId,
+                context.waitMs,
+                context.documentsIn(context.again()),
+              );
+        // What the agent reaches may have changed while the check ran, as check_mind reads it.
+        const granted = context.again();
+        if (done.mindId !== null && !context.noteReached(granted, done.mindId)) {
+          throw new AgentRefusedError("not-found", t("agents.handOver.notFound"));
+        }
+        planned.stillAllowed?.(granted);
+        const inScope = context.documentsIn(granted);
+        const claims = check.claims
+          .slice(0, MAX_LISTED)
+          .map(
+            ({ documents, ...claim }): HandedClaim =>
+              documents.every((id) => inScope.has(id)) ? claim : { ...claim, says: null },
+          );
+        const { also, saved } = await planned.kept();
+        return {
+          ...(saved && { saved }),
+          result: {
+            ...also,
+            fileId: done.file.id,
+            title: done.file.title,
+            // The item's own: a hand-over of a file it saved is answered with that item (#3751).
+            folder: folderName(done.file.folderId),
+            version: done.version,
+            mindId: done.mindId,
+            ...check,
+            claims,
+          },
+          count: 1,
+          documentIds: [
+            ...(done.file.documentId === null ? [] : [done.file.documentId]),
+            ...documentIds,
+          ],
+        };
+      } catch (error) {
+        if (error instanceof AgentRefusedError) await done.undo();
+        throw error;
       }
-      planned.stillAllowed?.(granted);
-      const inScope = context.documentsIn(granted);
-      const claims = check.claims
-        .slice(0, MAX_LISTED)
-        .map(
-          ({ documents, ...claim }): HandedClaim =>
-            documents.every((id) => inScope.has(id)) ? claim : { ...claim, says: null },
-        );
-      const { also, saved } = await planned.kept();
-      return {
-        ...(saved && { saved }),
-        result: {
-          ...also,
-          fileId: done.file.id,
-          title: done.file.title,
-          folder: folder.name,
-          version: done.version,
-          mindId: done.mindId,
-          ...check,
-          claims,
-        },
-        count: 1,
-        documentIds: [
-          ...(done.file.documentId === null ? [] : [done.file.documentId]),
-          ...documentIds,
-        ],
-      };
+    };
+    const asked = call(tool, summary, effects, async (called) => {
+      if (!called.propose) {
+        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+      }
+      const planned = plan(called);
+      return oneAtATime(`${called.id}\n${planned.path}`, () => handedOver(planned));
     });
     // Its place in the hour's count is the call's record from now on.
     return asked.finally(() => {

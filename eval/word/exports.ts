@@ -156,7 +156,7 @@ const same = (a: Uint8Array | undefined, b: Uint8Array | undefined) =>
 /** A word in a text that no change still waiting adds or removes: where it starts, its length and formatting. */
 function plainWord(
   text: Y.XmlText,
-): { index: number; length: number; attributes: Record<string, unknown> } | null {
+): { index: number; word: string; attributes: Record<string, unknown> } | null {
   let at = 0;
   for (const run of text.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[]) {
     const length = typeof run.insert === "string" ? run.insert.length : 1;
@@ -168,7 +168,7 @@ function plainWord(
         ? /[\p{L}]{4,}|[\p{Script=Han}]{2,}/u.exec(run.insert)
         : null;
     if (word) {
-      return { index: at + word.index, length: word[0].length, attributes: run.attributes ?? {} };
+      return { index: at + word.index, word: word[0], attributes: run.attributes ?? {} };
     }
     at += length;
   }
@@ -178,11 +178,11 @@ function plainWord(
 /**
  * The scripted edit: a word of the first imported paragraph that has one
  * changed, and a paragraph with a Citation added after the Block it is in.
- * Returns the place of the paragraph changed, or null if none has a word.
+ * Returns the place of the paragraph changed and the word it had, or null if none has a word.
  */
-function edit(doc: Y.Doc): string | null {
+function edit(doc: Y.Doc): { place: string; word: string } | null {
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
-  let changed: string | null = null;
+  let changed: { place: string; word: string } | null = null;
   let after = blocks.length;
   const visit = (element: Y.XmlElement, top: number): boolean => {
     if (element.nodeName === "paragraph" || element.nodeName === "heading") {
@@ -192,9 +192,9 @@ function edit(doc: Y.Doc): string | null {
         if (!(text instanceof Y.XmlText) || !source) continue;
         const word = plainWord(text);
         if (!word) continue;
-        text.delete(word.index, word.length);
+        text.delete(word.index, word.word.length);
         text.insert(word.index, EDITED, word.attributes);
-        changed = source.n;
+        changed = { place: source.n, word: word.word };
         after = top + 1;
         return true;
       }
@@ -334,7 +334,7 @@ async function bodyPieces(bytes: Uint8Array, place: string | null) {
   const document = await readWordDocument(pkg, await reviewOf(pkg));
   const body = child(document.root, "w:body");
   const edited = place ? document.places.get(place) : undefined;
-  return (body ? elements(body) : []).map((element) => ({
+  const pieces = (body ? elements(body) : []).map((element) => ({
     place: document.places.placeOf(element) ?? "",
     xml: document.text.slice(element.start ?? 0, element.end ?? 0),
     holdsEdit:
@@ -342,6 +342,78 @@ async function bodyPieces(bytes: Uint8Array, place: string | null) {
       (element.start ?? 0) <= (edited.start ?? 0) &&
       (edited.end ?? 0) <= (element.end ?? 0),
   }));
+  const editedXml = edited ? document.text.slice(edited.start ?? 0, edited.end ?? 0) : "";
+  const bookmarks = new Set(
+    [...editedXml.matchAll(/<w:bookmarkStart\b[^>]*\bw:name="([^"]+)"/g)].map(
+      (each) => each[1] ?? "",
+    ),
+  );
+  return { pieces, bookmarks };
+}
+
+const TEXT = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g;
+const wordless = (xml: string) => xml.replace(TEXT, "<w:t/>");
+
+/** Where each paragraph of `xml` starts and ends. */
+function paragraphsOf(xml: string): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  const open: number[] = [];
+  for (const tag of xml.matchAll(/<(\/?)w:p(?=[\s>/])[^>]*>/g)) {
+    if (tag[1]) {
+      const start = open.pop();
+      if (start !== undefined) spans.push({ start, end: tag.index + tag[0].length });
+    } else if (!tag[0].endsWith("/>")) open.push(tag.index);
+  }
+  return spans;
+}
+
+/**
+ * Whether `after` is the table of contents `before` with only the words of the entries that name
+ * the renamed heading by one of its `bookmarks` changed, each as the heading was: `word` became
+ * the edit's word.
+ */
+function renamedEntries(
+  before: string,
+  after: string,
+  bookmarks: ReadonlySet<string>,
+  word: string,
+): boolean {
+  if (wordless(before) !== wordless(after)) return false;
+  const was = [...before.matchAll(TEXT)];
+  const now = [...after.matchAll(TEXT)].map((each) => each[1] ?? "");
+  const paragraphs = paragraphsOf(before);
+  const entries = new Map<{ start: number; end: number }, number[]>();
+  for (const [at, text] of was.entries()) {
+    let entry: { start: number; end: number } | undefined;
+    for (const each of paragraphs) {
+      const holds = each.start <= text.index && text.index < each.end;
+      if (holds && (!entry || each.start > entry.start)) entry = each;
+    }
+    if (entry) entries.set(entry, [...(entries.get(entry) ?? []), at]);
+    else if (text[1] !== now[at]) return false;
+  }
+  let renamed = 0;
+  for (const [entry, texts] of entries) {
+    const then = texts.map((at) => was[at]?.[1] ?? "").join("");
+    const next = texts.map((at) => now[at] ?? "").join("");
+    if (then === next) {
+      if (texts.some((at) => was[at]?.[1] !== now[at])) return false;
+      continue;
+    }
+    const xml = before.slice(entry.start, entry.end);
+    const named = [
+      ...xml.matchAll(/\bw:anchor="([^"]+)"/g),
+      ...xml.matchAll(/PAGEREF\s+([^\s<\\]+)/g),
+    ].some((each) => bookmarks.has(each[1] ?? ""));
+    if (!named) return false;
+    let found = false;
+    for (let at = then.indexOf(word); at >= 0 && !found; at = then.indexOf(word, at + 1)) {
+      found = then.slice(0, at) + EDITED + then.slice(at + word.length) === next;
+    }
+    if (!found) return false;
+    renamed++;
+  }
+  return renamed > 0;
 }
 
 function* textsOf(node: NodeJSON): Generator<string> {
@@ -415,27 +487,39 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
       return { ok: false, detail: `left out ${missing.join(", ")}`, exported: result.data };
 
     // Every other paragraph and table of the body is as it was, in order, and so is everything
-    // before the body: the root's namespaces, mc:Ignorable among them, are never pruned. The one
-    // difference allowed is the mark (w:dirty) on a TOC, REF or PAGEREF field the edit can have
-    // changed, which asks Word to refresh it (#746); a field whose result was written again is in
-    // a paragraph the edit holds or fails here.
+    // before the body: the root's namespaces, mc:Ignorable among them, are never pruned. The
+    // differences allowed (#746): the mark (w:dirty) on a REF whose new result can't be known,
+    // which asks Word to refresh it, and in a table of contents the words of the entry of the
+    // heading the edit renamed, renamed as the heading was. A field whose result was written
+    // again is in a paragraph the edit holds or fails here.
     const main = new TextDecoder().decode(exported.get(pkg.part));
     const head = (xml: string) => xml.slice(0, xml.search(/<(?:[\w.-]+:)?body[\s>]/));
     if (head(main) !== head(new TextDecoder().decode(original.get(pkg.part)))) {
       return { ok: false, detail: "the document's start changed", exported: result.data };
     }
     const unmarked = (xml: string) => xml.replace(/\sw:dirty\s*=\s*(["'])[^"']*\1/g, "");
-    const comparable = unmarked(main);
+    const contents = (xml: string) => /<w:instrText[^>]*>\s*TOC\b/.test(xml);
+    const written = (await bodyPieces(result.data, null)).pieces.map((piece) =>
+      unmarked(piece.xml),
+    );
+    const { pieces, bookmarks } = await bodyPieces(bytes, edited?.place ?? null);
     let at = 0;
     let kept = 0;
-    for (const piece of await bodyPieces(bytes, edited)) {
+    for (const piece of pieces) {
       if (piece.holdsEdit) continue;
       const xml = unmarked(piece.xml);
-      const found = comparable.indexOf(xml, at);
+      const found = written.findIndex(
+        (each, index) =>
+          index >= at &&
+          (each === xml ||
+            (edited !== null &&
+              contents(xml) &&
+              renamedEntries(xml, each, bookmarks, edited.word))),
+      );
       if (found < 0) {
         return { ok: false, detail: `${piece.place} isn't as it was`, exported: result.data };
       }
-      at = found + xml.length;
+      at = found + 1;
       kept++;
     }
 

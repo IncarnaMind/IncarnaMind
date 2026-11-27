@@ -9891,6 +9891,12 @@ export const en = {
   "agents.ask.request.wordFolder": ", with folderId {folderId}",
   "agents.ask.request.wordNote":
     "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}, mindId: {mindId}).",
+  "agents.ask.request.fixWordDeletedNote":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nThat note has since been deleted. The file’s text is in the note mindId {mindId} (read_mind). Fix it from my Documents, change nothing else, and save it with save_as_word, the title {saveAs}, folderId {folderId} and the corrected markdown.",
+  "agents.ask.request.fixWordDeletedNoteAll":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nThat note has since been deleted. The file’s text is in the note mindId {mindId} (read_mind). Fix each of them from my Documents, change nothing else, and save it with save_as_word, the title {saveAs}, folderId {folderId} and the corrected markdown.",
+  "agents.ask.request.wordDeletedNote":
+    "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}). That note has since been deleted; the file’s text is in the note mindId {mindId}.",
   "agents.ask.request.fixWordText":
     "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says this {verdict}:\n\n{where}{sentence}{quote}\n\nIts text is in the note mindId {mindId} (read_mind). Fix it from my Documents, change nothing else, and save it again with save_as_word, the title {title}, folderId {folderId} and the corrected markdown.",
   "agents.ask.request.fixWordTextAll":

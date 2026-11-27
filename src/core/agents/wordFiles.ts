@@ -108,6 +108,16 @@ export function wordItemOf(
   return kind === "text" ? { kind: "text" } : null;
 }
 
+/**
+ * The title of the agent's own text a Word file at `path` was saved from in this Folder (null: Not
+ * in a Folder), which a save of Markdown under that title there makes the next version of; null
+ * for a file of any other.
+ */
+export function textTitleOf(path: string, folderId: string | null): string | null {
+  const start = `${ITEM}text:${folderId ?? NOT_IN_A_FOLDER_ID}:`;
+  return path.startsWith(start) ? path.slice(start.length) : null;
+}
+
 export function createWordFileTool(context: WordFileToolContext) {
   const { t } = context;
 
@@ -148,8 +158,13 @@ export function createWordFileTool(context: WordFileToolContext) {
           if ((input?.mindId === undefined) === (input?.markdown === undefined)) {
             throw new AgentRefusedError("invalid", t("agents.handOver.word.which"));
           }
-          let made: { source: WordSource; fileName: string; data: Uint8Array } | null = null;
+          let made: (Extract<WordMade, { kind: "made" }> & { source: WordSource }) | null = null;
           let draft: DraftBlocks | null = null;
+          /** The file names only what the agent reaches as the User grants it now, after any wait. */
+          const stillNamed = (now: AdmittedPairing) => {
+            const why = made?.unreached(context.reaches(now)) ?? null;
+            if (why) throw new AgentRefusedError("outside-scope", t(UNREACHED[why]));
+          };
           const kept = async () => {
             if (!made) throw new Error("A Word file is saved only once it is written.");
             const { source, fileName, data } = made;
@@ -173,7 +188,7 @@ export function createWordFileTool(context: WordFileToolContext) {
             if (word.kind === "unreached") {
               throw new AgentRefusedError("outside-scope", t(UNREACHED[word.why]));
             }
-            made = { source, fileName: word.fileName, data: word.data };
+            made = { ...word, source };
             return word.data;
           };
           if (input.mindId !== undefined) {
@@ -196,6 +211,7 @@ export function createWordFileTool(context: WordFileToolContext) {
               stillAllowed: (now) => {
                 mayWrite(now);
                 context.noteInScope(now, mind.id);
+                stillNamed(now);
               },
             };
           }
@@ -221,7 +237,10 @@ export function createWordFileTool(context: WordFileToolContext) {
               };
             },
             kept,
-            stillAllowed: mayWrite,
+            stillAllowed: (now) => {
+              mayWrite(now);
+              stillNamed(now);
+            },
           };
         },
       );

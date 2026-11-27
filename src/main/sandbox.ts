@@ -104,8 +104,8 @@ export interface OsExecutorOptions {
   runRecords: string;
   /** Where each signal a run's sweep sends is logged. */
   log?: Logger;
-  /** A test's stopper for the sweep, which records instead of signalling. */
-  sweep?: Pick<RunSweeperOptions, "stopper">;
+  /** A test's stoppers for the sweep, which record or guard instead of signalling freely. */
+  sweep?: Pick<RunSweeperOptions, "stopper" | "groupStopper">;
 }
 
 /**

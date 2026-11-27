@@ -190,11 +190,15 @@ for (const language of ["en", "zh-CN"] as const) {
         timeout: 60_000,
       },
     );
-    // The two bullets wait for Check, so the button is the Check, with what needs a look in its tooltip.
-    const needsLook = language === "en" ? /^1 needs a look/ : /^需要留意 1 处/;
+    // Before a whole check the two bullets wait for Check, so the button is Check 2, and its
+    // tooltip explains those 2 first with what needs a look beside them (#3840).
+    const title =
+      language === "en"
+        ? "2 sentences not checked yet · 1 needs a look"
+        : "2 句未核对 · 需要留意 1 处";
     await expect(button).toHaveAttribute("data-state", "check", { timeout: 60_000 });
     await expect(button.locator(".note-check-count")).toHaveText("2");
-    await expect(button).toHaveAttribute("title", needsLook);
+    await expect(button).toHaveAttribute("title", title);
     // Where both marks stand, the ✓ included, which shows with every result (#3358).
     await showEveryCheckResult(window);
     // Resizing the Note across the 760px fold, both ways, never changes what its checks say.
@@ -202,7 +206,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await sizeMind(app, window, across);
       await expect(button).toHaveAttribute("data-state", "check");
       await expect(button.locator(".note-check-count")).toHaveText("2");
-      await expect(button).toHaveAttribute("title", needsLook);
+      await expect(button).toHaveAttribute("title", title);
     }
 
     const column = window.locator(".mind-column");

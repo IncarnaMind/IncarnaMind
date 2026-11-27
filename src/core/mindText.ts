@@ -60,7 +60,13 @@ import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
-import { countingCheckOf, countingMarksOf, hasMarkIn, markValueOf } from "../shared/markKeys";
+import {
+  countingCheckOf,
+  countingMarksOf,
+  hasMarkIn,
+  isCheckKey,
+  markValueOf,
+} from "../shared/markKeys";
 import { cutTitle } from "../shared/naming";
 import {
   isNumberingScheme,
@@ -1548,6 +1554,55 @@ export function blockText(element: Y.XmlElement): string {
     .map((line) => line.trim())
     .filter((line) => line !== "")
     .join("\n");
+}
+
+/** An object's keys but those `drop` names, in one order, its values the same way, for one text of it. */
+function sortedWithout(value: unknown, drop: (key: string) => boolean = () => false): unknown {
+  if (Array.isArray(value)) return value.map((each) => sortedWithout(each));
+  if (!isRecord(value)) return value;
+  return Object.keys(value)
+    .filter((key) => !drop(key))
+    .sort()
+    .map((key) => [key, sortedWithout(value[key])]);
+}
+
+function nodeWithoutChecks(node: unknown): unknown {
+  if (node instanceof Y.XmlText) {
+    const runs: { insert: unknown; marks: string }[] = [];
+    for (const run of node.toDelta() as {
+      insert: unknown;
+      attributes?: Record<string, unknown>;
+    }[]) {
+      const marks = JSON.stringify(sortedWithout(run.attributes ?? {}, isCheckKey));
+      const insert = run.insert instanceof Y.AbstractType ? run.insert.toJSON() : run.insert;
+      const last = runs.at(-1);
+      // A check's mark splits a run where it starts and ends: without it, the run is one again.
+      if (
+        last &&
+        last.marks === marks &&
+        typeof last.insert === "string" &&
+        typeof insert === "string"
+      )
+        last.insert += insert;
+      else runs.push({ insert, marks });
+    }
+    return runs;
+  }
+  if (!(node instanceof Y.XmlElement)) return null;
+  return [
+    node.nodeName,
+    sortedWithout(node.getAttributes(), isCheckKey),
+    node.toArray().map(nodeWithoutChecks),
+  ];
+}
+
+/**
+ * A Note's whole content as one text (#3751): every Block with its attributes, every run with its
+ * marks, an empty table cell as one. Only a check's results are left out, so a Note that was only
+ * checked reads the same.
+ */
+export function contentWithoutChecks(blocks: Y.XmlFragment): string {
+  return JSON.stringify(blocks.toArray().map(nodeWithoutChecks));
 }
 
 /** The start of a Mind's text, Block by Block, at least `length` characters of it when it has them. */

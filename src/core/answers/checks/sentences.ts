@@ -828,6 +828,20 @@ export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
   return firstMarks(blocks, marksOfBlock);
 }
 
+/** Whether a check holds the User's keep as their own view, of it whole or of a part or figure. */
+const holdsKeep = (value: unknown): boolean =>
+  Array.isArray(value)
+    ? value.some(holdsKeep)
+    : typeof value === "object" &&
+      value !== null &&
+      Object.entries(value).some(([key, inner]) =>
+        key === "kept" ? inner === true : holdsKeep(inner),
+      );
+
+/** Whether the User kept a sentence of a Mind as their own view (#1111), whole or a part of it. */
+export const keepsAView = (blocks: Y.XmlFragment): boolean =>
+  markedSentences(blocks).some(({ check }) => holdsKeep(check));
+
 /** Text that came from someone else's file or agent, whatever marks it carries (#78). */
 const SOMEONE_ELSES: ReadonlySet<ThirdPartySource> = new Set([
   "imported",
