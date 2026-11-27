@@ -6739,6 +6739,10 @@ export const en = {
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.noteAsk.heldEditing":
     "This message is open to edit in another window. Save or cancel it there, then send it.",
+  "error.noteAsk.heldNotSent":
+    "IncarnaMind couldn’t send this message. Press Send now to try again.",
+  "error.noteAsk.heldNotSaved": "IncarnaMind couldn’t save your changes. Press Save to try again.",
+  "error.noteAsk.notDiscarded": "IncarnaMind couldn’t discard this message. Try again.",
   "error.noteAsk.tooLong":
     "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":

@@ -744,21 +744,35 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     return run;
   }
 
-  /** Sends a held message as a request of its own, in a run begun now. */
-  function startHeld(mindId: string, message: Held): void {
+  /**
+   * Sends a message still held as a request of its own, in a run begun now. False if that couldn't
+   * be written: the message stays held, as it was.
+   */
+  function startHeld(mindId: string, message: Held): boolean {
     const conversation = conversationOf(mindId, message.pairing.id);
     if (
       !conversation ||
       options.lifetime.aborted ||
       options.heldBack(message.pairing, mindId) !== null
     ) {
+      unhold(mindId, message.turnId);
       if (heldUnsent(mindId, [message])) toldHeld(mindId);
-      return;
+      return true;
     }
-    db.run(
-      "UPDATE own_ai_turns SET outcome = 'working', updated_at = ? WHERE id = ? AND outcome = 'waiting'",
-      [options.now(), message.turnId],
-    );
+    try {
+      db.run(
+        "UPDATE own_ai_turns SET outcome = 'working', updated_at = ? WHERE id = ? AND outcome = 'waiting'",
+        [options.now(), message.turnId],
+      );
+    } catch (error) {
+      options.log.warn("agents.ownAiConversation.heldNotStarted", {
+        turnId: message.turnId,
+        error: error instanceof Error ? error.name : "unknown",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+    unhold(mindId, message.turnId);
     begin({
       mindId,
       pairing: message.pairing,
@@ -770,16 +784,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       selection: null,
       model: message.model,
     });
+    return true;
   }
 
   /**
    * With none of the Note's requests running, its oldest held message goes; while that one is being
-   * edited none goes, so they still go in the order sent.
+   * edited none goes, so they still go in the order sent. One whose start couldn't be written stays
+   * held, its Send now there to try again.
    */
   function nextHeld(mindId: string): void {
     if (running.has(mindId)) return;
     const [first] = held.get(mindId) ?? [];
-    if (first && first.editors.size === 0 && unhold(mindId, first.turnId)) startHeld(mindId, first);
+    if (first && first.editors.size === 0) startHeld(mindId, first);
   }
 
   async function converse(turn: {
@@ -1624,16 +1640,26 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      * never sent, as a deletion to sync (#3765).
      */
     discard(mindId: string, turnId: string): void {
-      const wasHeld = unhold(mindId, turnId) !== null;
+      const wasHeld = (held.get(mindId) ?? []).some((each) => each.turnId === turnId);
       const at = options.now();
-      db.run(
-        `UPDATE own_ai_turns SET request = '', selection = '', reply = '', deleted_at = ?, updated_at = ?
-         WHERE id = ? AND outcome IN ('unsent', ?) AND deleted_at IS NULL
-           AND conversation_id IN
-             (SELECT id FROM own_ai_conversations WHERE mind_id = ? AND deleted_at IS NULL)`,
-        [at, at, turnId, wasHeld ? "waiting" : "unsent", mindId],
-      );
+      try {
+        db.run(
+          `UPDATE own_ai_turns SET request = '', selection = '', reply = '', deleted_at = ?, updated_at = ?
+           WHERE id = ? AND outcome IN ('unsent', ?) AND deleted_at IS NULL
+             AND conversation_id IN
+               (SELECT id FROM own_ai_conversations WHERE mind_id = ? AND deleted_at IS NULL)`,
+          [at, at, turnId, wasHeld ? "waiting" : "unsent", mindId],
+        );
+      } catch (error) {
+        options.log.warn("agents.ownAiConversation.notDiscarded", {
+          turnId,
+          error: error instanceof Error ? error.name : "unknown",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw new TranslatableError({ key: "error.noteAsk.notDiscarded" });
+      }
       if (!wasHeld) return;
+      unhold(mindId, turnId);
       toldHeld(mindId);
       // The oldest gone, the next may go now, if no request runs.
       nextHeld(mindId);
@@ -1645,13 +1671,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      * Not while its editor is open in a window: its words may still change there.
      */
     sendNow(mindId: string, turnId: string): void {
-      const open = (held.get(mindId) ?? []).find((each) => each.turnId === turnId)?.editors.size;
-      if (open) throw new TranslatableError({ key: "error.noteAsk.heldEditing" });
-      const message = unhold(mindId, turnId);
+      const message = (held.get(mindId) ?? []).find((each) => each.turnId === turnId);
       if (!message) return;
+      if (message.editors.size > 0)
+        throw new TranslatableError({ key: "error.noteAsk.heldEditing" });
       const run = running.get(mindId);
-      if (run) run.live.send(message.turnId, message.words);
-      else startHeld(mindId, message);
+      if (run) {
+        unhold(mindId, turnId);
+        run.live.send(message.turnId, message.words);
+      } else if (!startHeld(mindId, message))
+        throw new TranslatableError({ key: "error.noteAsk.heldNotSent" });
     },
 
     /**
@@ -1671,10 +1700,19 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (edit.kind === "save") {
         const changed = words(edit.words, MAX_WORDS);
         if (changed === "") throw new InvalidInputError({ key: "error.agent.askRequest" });
-        db.run(
-          "UPDATE own_ai_turns SET request = ?, updated_at = ? WHERE id = ? AND outcome = 'waiting'",
-          [changed, options.now(), turnId],
-        );
+        try {
+          db.run(
+            "UPDATE own_ai_turns SET request = ?, updated_at = ? WHERE id = ? AND outcome = 'waiting'",
+            [changed, options.now(), turnId],
+          );
+        } catch (error) {
+          options.log.warn("agents.ownAiConversation.heldNotSaved", {
+            turnId,
+            error: error instanceof Error ? error.name : "unknown",
+            message: error instanceof Error ? error.message : String(error),
+          });
+          throw new TranslatableError({ key: "error.noteAsk.heldNotSaved" });
+        }
         message.words = changed;
       }
       message.editors.delete(clientId);

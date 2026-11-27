@@ -655,14 +655,32 @@ export function focusNoteAsk(mindId: string): void {
     ?.focus();
 }
 
-/** Words a sent request's Edit gives back to the Note's input, which takes them once (#3765). */
-export const useEditedRequests = create<{ byMind: Readonly<Record<string, string>> }>(() => ({
-  byMind: {},
-}));
+/**
+ * Words given back to the Note's input, which takes them once (#3765). `after`: they go after what
+ * is typed there, on a line of their own, rather than only into an empty input.
+ */
+export const useEditedRequests = create<{
+  byMind: Readonly<Record<string, { words: string; after: boolean }>>;
+}>(() => ({ byMind: {} }));
 
 /** Puts a sent request's words back in the Note's input, to change and send as a new request. */
 export function editRequest(mindId: string, words: string): void {
-  useEditedRequests.setState((state) => ({ byMind: { ...state.byMind, [mindId]: words } }));
+  useEditedRequests.setState((state) => ({
+    byMind: { ...state.byMind, [mindId]: { words, after: false } },
+  }));
+}
+
+/** Keeps words the User wrote for a message that has gone, in the input after what it holds. */
+export function keepInInput(mindId: string, words: string): void {
+  useEditedRequests.setState((state) => ({
+    byMind: { ...state.byMind, [mindId]: { words, after: true } },
+  }));
+}
+
+/** What the input holds once it takes words given back: `typed`, then those on a line of their own. */
+export function withGivenBack(typed: string, given: { words: string; after: boolean }): string {
+  if (typed.trim() === "") return given.words;
+  return given.after ? `${typed.trimEnd()}\n${given.words}` : typed;
 }
 
 /** The label goes once the User starts the next request, or closes it. */

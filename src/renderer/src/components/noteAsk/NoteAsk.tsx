@@ -36,6 +36,7 @@ import {
   useNoteAskShown,
   useNoteAsks,
   useNoteColumns,
+  withGivenBack,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, ConversationLineIcon } from "../icons";
@@ -154,8 +155,9 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       const { [mindId]: _taken, ...rest } = state.byMind;
       return { byMind: rest };
     });
-    if (typedNow.current.trim() !== "") return;
-    setWords(edited);
+    const next = withGivenBack(typedNow.current, edited);
+    if (next === typedNow.current) return;
+    setWords(next);
     setWhole(true);
     requestAnimationFrame(() => {
       focusNoteAsk(mindId);

@@ -1,21 +1,17 @@
 import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
-import { keysHere } from "../../commands/keymap";
 import { useLanguage, useT } from "../../i18n";
 import {
   askAgainInNote,
   discardInNote,
-  editHeldInNote,
   editRequest,
   firstWordsOf,
   isGoing,
   type NoteAsk,
   type NoteTrail,
-  sendNowInNote,
   sendUnsent,
   setColumnOpen,
   useNoteAsks,
@@ -34,8 +30,9 @@ import {
   TrashLineIcon,
 } from "../icons";
 import { SidebarToggle } from "../SidebarToggle";
-import { TypingTextarea } from "../TypingTextarea";
 import { ConversationMenu } from "./ConversationMenu";
+import { CopyRequest } from "./CopyRequest";
+import { HeldMessage } from "./HeldMessage";
 import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 import { Reply } from "./Reply";
@@ -465,7 +462,7 @@ function Turn({
         data-newest={newest || undefined}
         className="note-column-turn"
       >
-        <Held mindId={mindId} turn={turn} oldest={oldest} />
+        <HeldMessage mindId={mindId} turn={turn} oldest={oldest} />
       </div>
     );
   }
@@ -698,24 +695,6 @@ function EditRequest({ mindId, words }: { mindId: string; words: string }) {
   );
 }
 
-function CopyRequest({ words }: { words: string }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      data-testid="note-column-copy-request"
-      aria-label={t("noteColumn.copy")}
-      title={t("noteColumn.copy")}
-      onClick={() =>
-        void navigator.clipboard.writeText(words).catch(useAppStore.getState().reportError)
-      }
-      className="note-column-icon"
-    >
-      <CopyLineIcon />
-    </button>
-  );
-}
-
 /**
  * Under a message sent at once into the request running, until its AI takes it (#3765). Copy is
  * all it offers: the AI has it already, so it can't be changed or taken back.
@@ -728,137 +707,6 @@ function Waiting({ words }: { words: string }) {
         {t("noteColumn.waiting")}
       </span>
       <CopyRequest words={words} />
-    </div>
-  );
-}
-
-/**
- * A message sent while another request ran, held until that reply ends (#3765): Edit opens it in
- * place, and it isn't sent while the editor is open; Copy; Discard, and it is never sent; Send now
- * gives it to the AI at once; on the oldest, ⌘↵ in the input does too.
- */
-function Held({ mindId, turn, oldest }: { mindId: string; turn: NoteTurn; oldest: boolean }) {
-  const t = useT();
-  const report = useAppStore.getState().reportError;
-  const [draft, setDraft] = useState<string | null>(null);
-  const area = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    const element = area.current;
-    if (!element) return;
-    element.style.height = "auto";
-    element.style.height = `${element.scrollHeight}px`;
-  });
-  // An editor that goes without Cancel or Save, as the conversation folds, lets the message go.
-  const open = useRef(false);
-  open.current = draft !== null;
-  useEffect(
-    () => () => {
-      if (open.current) void editHeldInNote(mindId, turn.id, { kind: "cancel" }).catch(report);
-    },
-    [mindId, turn.id, report],
-  );
-  // The editor stays open with its words until the core has them.
-  const close = async (edit: { kind: "cancel" } | { kind: "save"; words: string }) => {
-    try {
-      const held = await editHeldInNote(mindId, turn.id, edit);
-      // It went meanwhile, never sent as its run failed: the new words go to the input, not lost.
-      if (!held && edit.kind === "save") editRequest(mindId, edit.words);
-      setDraft(null);
-    } catch (error) {
-      report(error);
-    }
-  };
-  if (draft !== null) {
-    return (
-      <div data-testid="note-column-editor" className="note-column-editor">
-        <TypingTextarea
-          ref={area}
-          aria-label={t("noteColumn.edit.message")}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            void close({ kind: "cancel" });
-          }}
-          rows={1}
-          className="note-column-editor-text"
-        />
-        <div className="note-column-editor-foot">
-          <button
-            type="button"
-            data-testid="note-column-edit-cancel"
-            onClick={() => void close({ kind: "cancel" })}
-            className="approval-button approval-button--ghost note-column-editor-button"
-          >
-            {t("noteColumn.edit.cancel")}
-          </button>
-          <button
-            type="button"
-            data-testid="note-column-edit-save"
-            disabled={draft.trim() === "" || draft === turn.request}
-            onClick={() => void close({ kind: "save", words: draft })}
-            className="approval-button approval-button--primary note-column-editor-button"
-          >
-            {t("noteColumn.edit.save")}
-          </button>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="note-column-sent">
-      <div className="note-column-bubble">
-        <p>{turn.request}</p>
-      </div>
-      <div data-testid="note-column-held" className="note-column-sent-state" data-waiting="">
-        <button
-          type="button"
-          data-testid="note-column-edit"
-          aria-label={t("noteColumn.edit")}
-          title={t("noteColumn.edit")}
-          onClick={() =>
-            // Only a message still held opens: one gone meanwhile reads again as sent.
-            void editHeldInNote(mindId, turn.id, { kind: "open" })
-              .then((held) => {
-                if (!held) return;
-                // Drawn at once, out of the press's own event, so its field can take the focus.
-                flushSync(() => setDraft(turn.request));
-                const field = area.current;
-                field?.focus();
-                field?.setSelectionRange(field.value.length, field.value.length);
-              })
-              .catch(report)
-          }
-          className="note-column-icon"
-        >
-          <PencilLineIcon />
-        </button>
-        <CopyRequest words={turn.request} />
-        <button
-          type="button"
-          data-testid="note-column-discard"
-          aria-label={t("noteColumn.discard")}
-          title={t("noteColumn.discard")}
-          onClick={() => void discardInNote(mindId, turn.id).catch(report)}
-          className="note-column-icon"
-        >
-          <TrashLineIcon />
-        </button>
-        <span role="status" className="note-column-sent-word">
-          {t("noteColumn.waiting")}
-        </span>
-        <button
-          type="button"
-          data-testid="note-column-send-now"
-          title={oldest ? `${t("noteColumn.sendNow")} ${keysHere("CmdOrCtrl+Enter")}` : undefined}
-          onClick={() => void sendNowInNote(mindId, turn.id).catch(report)}
-          className="note-column-send-now"
-        >
-          {t("noteColumn.sendNow")}
-          {oldest && <kbd className="note-column-send-now-keys">{keysHere("CmdOrCtrl+Enter")}</kbd>}
-        </button>
-      </div>
     </div>
   );
 }

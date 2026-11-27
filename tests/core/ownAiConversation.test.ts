@@ -3448,6 +3448,53 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       ]);
   });
 
+  // protects=a held message whose start, Save or Discard can't be written stays held as it was, and Send now, Save and Discard say so in plain words; it goes once the writes work again (#3765); fails_when=it leaves the held list and stays Waiting for good, or the User hears nothing
+  it("keeps a held message held, and says so, when its start, Save or Discard can't be written", async () => {
+    const { step, run } = gatedFirst();
+    const { core, mindId, dataDir } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "first" });
+    await step.at;
+    const a = idOf(await core.askInNote({ mindId, words: "held a" }));
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(`CREATE TRIGGER refuse_held BEFORE UPDATE ON own_ai_turns WHEN OLD.id = '${a}'
+        BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`);
+      step.open();
+      await expect
+        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .toEqual([
+          ["first", "", "landed", "Answered: first"],
+          ["held a", "", "held", ""],
+        ]);
+      await expect(core.sendNowInNote(mindId, a)).rejects.toThrow(
+        translate("en", "error.noteAsk.heldNotSent"),
+      );
+      expect(await editIn(core, 1, mindId, a, { kind: "open" })).toBe(true);
+      await expect(
+        editIn(core, 1, mindId, a, { kind: "save", words: "changed a" }),
+      ).rejects.toThrow(translate("en", "error.noteAsk.heldNotSaved"));
+      await expect(editIn(core, 1, mindId, a, { kind: "cancel" })).resolves.toBe(true);
+      await expect(core.discardInNote(mindId, a)).rejects.toThrow(
+        translate("en", "error.noteAsk.notDiscarded"),
+      );
+      expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+        ["first", "", "landed", "Answered: first"],
+        ["held a", "", "held", ""],
+      ]);
+      expect(run.runs).toHaveLength(1);
+      db.run("DROP TRIGGER refuse_held");
+    } finally {
+      db.close();
+    }
+    await core.sendNowInNote(mindId, a);
+    await expect
+      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .toEqual([
+        ["first", "", "landed", "Answered: first"],
+        ["held a", "", "landed", "Answered: held a"],
+      ]);
+  });
+
   // protects=a run that fails after its AI answered tells every window its held messages are never sent, not still held (#3765); fails_when=the last event still lists them as held
   it("tells every window held messages are never sent when the run fails after its answer", async () => {
     const failing = gate();
