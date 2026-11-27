@@ -33,6 +33,7 @@ import { showFileLabelKey } from "../fileInfo";
 import { moveIntoFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { fileStatusLabel } from "../linkedFolders";
+import { useMindSource } from "../mindSources";
 import { useMindStylePanel } from "../mindStylePanel";
 import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
@@ -96,6 +97,7 @@ export function PageMenu({
   );
   const away = original ? fileStatusLabel(original.fileStatus) : null;
   const writer = noteWriterOf(doc);
+  const snapshotAt = useMindSource(mindId)?.yourNote?.snapshotAt;
   const otherExamples = useAppStore(
     (state) => allExamples(state).find((each) => each.mindId === mindId)?.more,
   );
@@ -272,17 +274,19 @@ export function PageMenu({
               )
         }
         foot={
-          <>
-            <MindSourceFoot mindId={mindId} />
-            {writer && (
-              <p className="page-menu-counts" data-testid="page-written-by">
-                {t("agents.note.writtenBy", {
-                  name: writer.agent,
-                  when: formatDateTime(writer.createdAt, language),
-                })}
-              </p>
-            )}
-          </>
+          snapshotAt || writer ? (
+            <>
+              <MindSourceFoot mindId={mindId} />
+              {writer && (
+                <p className="page-menu-counts" data-testid="page-written-by">
+                  {t("agents.note.writtenBy", {
+                    name: writer.agent,
+                    when: formatDateTime(writer.createdAt, language),
+                  })}
+                </p>
+              )}
+            </>
+          ) : undefined
         }
       />
       {/* Mounted only while open: closed, it would sit in the page beside the sidebar row's. */}
