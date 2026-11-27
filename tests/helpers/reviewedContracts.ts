@@ -55,6 +55,8 @@ interface Words {
   chunk: string;
   identifier: string;
   version: string;
+  /** A last line that names the clauses as their numbers do, so the words of those numbers are in the Note. */
+  closing: string;
 }
 
 const WORDS: Record<"en" | "zh-CN", Words> = {
@@ -84,6 +86,7 @@ const WORDS: Record<"en" | "zh-CN", Words> = {
     chunk: "Fallback clause from the Ortega draft",
     identifier: "MATTER-2291-DK",
     version: "4.2-review",
+    closing: "This agreement has three clauses.",
   },
   "zh-CN": {
     contract: CHINESE_CONTRACT,
@@ -111,6 +114,7 @@ const WORDS: Record<"en" | "zh-CN", Words> = {
     chunk: "陈伟草稿中的备用条款",
     identifier: "案件-2291-王",
     version: "4.2-审阅",
+    closing: "本协议共三条。",
   },
 };
 
@@ -173,6 +177,7 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
     bookmarked,
     termination,
     sub(contract.reference),
+    paragraph(run(words.closing)),
     chartParagraph,
     objectParagraph,
   ].join("");

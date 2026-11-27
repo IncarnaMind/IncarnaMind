@@ -78,7 +78,18 @@ export const WORDS = {
     formDefault: "Kim default answer",
     formChosen: "Low offer",
     formOther: "High offer withheld",
-    watermark: "KIM CONFIDENTIAL DRAFT",
+    watermark: "SAMPLE WATERMARK WORDS",
+    shapeName: "Shape renamed by hand",
+    category: "Reviewer parts",
+    styleName: "Client clause look",
+    styleId: "ClientClauseLook",
+    styleAlias: "Older clause look",
+    listName: "Client list scheme",
+    latent: "Client latent style",
+    unusedLabel: "Rider",
+    label: "Article %1",
+    labelled: "See Article 2 for the fees.",
+    unit: "Settlement units",
     linkTip: "Kim private tip",
     web: "https://harbour.example/plan",
     webText: "Harbour plan",
@@ -126,7 +137,18 @@ export const WORDS = {
     formDefault: "王丽默认答复",
     formChosen: "低报价",
     formOther: "未选的高报价",
-    watermark: "王丽机密草稿",
+    watermark: "示例水印文字",
+    shapeName: "手动改名的形状",
+    category: "审阅人部件",
+    styleName: "客户条款样式",
+    styleId: "客户样式标识",
+    styleAlias: "旧版条款样式",
+    listName: "客户列表方案",
+    latent: "客户隐含样式",
+    unusedLabel: "附约",
+    label: "第%1条",
+    labelled: "费用见第二条。",
+    unit: "和解单位",
     linkTip: "王丽的私人提示",
     web: "https://harbour.example/plan",
     webText: "港口规划",
@@ -168,6 +190,8 @@ export const plantedIn = (words: Words): string[] => [
   words.formDefault,
   words.formOther,
   words.watermark,
+  words.shapeName,
+  words.category,
   words.linkTip,
   "SECRETPICTURE",
   "HEADERDELPIC",
@@ -186,6 +210,14 @@ const formField = (words: Words, kind: "FORMTEXT" | "FORMDROPDOWN") => {
     ? `${begin}<w:r><w:fldChar w:fldCharType="separate"/></w:r>${run(words.formAnswer)}<w:r><w:fldChar w:fldCharType="end"/></w:r>`
     : `${begin}<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
 };
+
+/** A legacy check box, ticked or not, with its name. */
+const checkBoxField = (words: Words, ticked: boolean) =>
+  `<w:r><w:fldChar w:fldCharType="begin"><w:ffData><w:name w:val="${escapeXml(words.formName)}"/><w:enabled/><w:checkBox><w:sizeAuto/><w:default w:val="0"/>${ticked ? "<w:checked/>" : ""}</w:checkBox></w:ffData></w:fldChar></w:r><w:r><w:instrText xml:space="preserve"> FORMCHECKBOX </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+
+/** Shapes in VML whose ids are the names someone gave them, one with Word's own id beside it. */
+const namedShapes = (name: string) =>
+  `<w:r><w:pict><v:rect id="${escapeXml(name)}" o:spid="_x0000_s1030" style="width:20pt;height:10pt" fillcolor="silver"/></w:pict></w:r><w:r><w:pict><v:oval id="${escapeXml(name)} 2" style="width:10pt;height:10pt" fillcolor="gray"/></w:pict></w:r>`;
 
 /** A watermark, as Word writes one in a header: WordArt in VML. */
 const watermark = (text: string) =>
@@ -207,8 +239,9 @@ export function withParts(bytes: Buffer, parts: Record<string, string>, types: s
  * A contract someone reviewed: their deletions and insertions in the body, a note and the header,
  * pictures and a link inside deletions, a link nothing uses, a field reading another file, a
  * content control and a smart tag with their names and data, a property shown only in deleted
- * text, a drop-down's other choices, legacy form fields' names, help and lists, a watermark, a
- * link's tip, a picture the package's root names, a protection's hash and the file's ids in its
+ * text, a drop-down's other choices, legacy form fields' names, help and lists, check boxes, a
+ * watermark, shapes someone named, a building block's category, a link's tip, a picture the
+ * package's root names, a protection's hash and the file's ids in its
  * settings, and its properties' names and paths; a clause with a picture and the footer are the
  * ones the User takes out of the Note.
  */
@@ -222,7 +255,7 @@ export function reviewed(words: Words): Buffer {
     paragraph(
       `${run(words.link)}${field(`LINK Excel.Sheet.12 "${words.path}" "Sheet1!R1C1" \\a \\f 4 \\h`, words.linked)}`,
     ),
-    `<w:sdt><w:sdtPr><w:alias w:val="${escapeXml(words.alias)}"/><w:tag w:val="${escapeXml(words.tag)}"/><w:id w:val="9"/></w:sdtPr><w:sdtContent>${paragraph(run(words.control))}</w:sdtContent></w:sdt>`,
+    `<w:sdt><w:sdtPr><w:alias w:val="${escapeXml(words.alias)}"/><w:tag w:val="${escapeXml(words.tag)}"/><w:id w:val="9"/><w:docPartObj><w:docPartGallery w:val="Quick Parts"/><w:docPartCategory w:val="${escapeXml(words.category)}"/></w:docPartObj></w:sdtPr><w:sdtContent>${paragraph(run(words.control))}</w:sdtContent></w:sdt>`,
     paragraph(
       `<w:smartTag w:uri="urn:schemas-microsoft-com:office:smarttags" w:element="address"><w:smartTagPr><w:attr w:name="Owner" w:val="${escapeXml(words.smart)}"/></w:smartTagPr>${run(words.street)}</w:smartTag>`,
     ),
@@ -234,6 +267,8 @@ export function reviewed(words: Words): Buffer {
     `<w:sdt><w:sdtPr><w:id w:val="11"/><w:dropDownList w:lastValue="${escapeXml(words.choiceValue)}"><w:listItem w:displayText="${escapeXml(words.choice)}" w:value="${escapeXml(words.choiceValue)}"/><w:listItem w:displayText="${escapeXml(words.hiddenChoice)}" w:value="${escapeXml(words.hiddenValue)}"/></w:dropDownList></w:sdtPr><w:sdtContent>${paragraph(run(words.choice))}</w:sdtContent></w:sdt>`,
     paragraph(formField(words, "FORMTEXT")),
     paragraph(`${run(words.kept)}${formField(words, "FORMDROPDOWN")}`),
+    paragraph(`${run(words.kept)}${checkBoxField(words, true)}${checkBoxField(words, false)}`),
+    paragraph(`${run(words.kept)}${namedShapes(words.shapeName)}`),
     paragraph(
       `<w:hyperlink r:id="rIdWeb" w:tooltip="${escapeXml(words.linkTip)}">${run(words.webText)}</w:hyperlink>`,
     ),

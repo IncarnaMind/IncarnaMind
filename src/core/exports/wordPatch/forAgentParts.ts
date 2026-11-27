@@ -3,10 +3,10 @@
  * agent was given: what someone deleted goes as if accepted, what someone inserted and every other
  * tracked change's mark goes, as do comments' marks, a person's editing permission, content
  * controls' ties, names and choices not shown, smart tags' and custom XML's data, legacy form
- * fields' names, help and lists, watermarks, links' tips, drawings' names, embedded objects (their
- * picture stays), fields that read another file, program or the file's properties (their result
- * stays), a chart's tie to its workbook (its cached values stay) and whatever points at a
- * relationship that goes.
+ * fields' names, help and lists (a check box stays as ☒ or ☐), watermarks, links' tips, drawings'
+ * and shapes' names, lists' names, styles' other names, embedded objects (their picture stays),
+ * fields that read another file, program or the file's properties (their result stays), a chart's
+ * tie to its workbook (its cached values stay) and whatever points at a relationship that goes.
  */
 import { elements, textOf, walk, type XmlElement } from "../../documents/formats/xml";
 import { endOf, parentsOf, type Splice, startOf } from "../packagePatch/text";
@@ -120,6 +120,10 @@ const REMOVED = new Set([
   "w:alias",
   "w:smartTagPr",
   "w:customXmlPr",
+  // Other names a style or a building block goes by, and a field's data in its own form.
+  "w:aliases",
+  "w:docPartCategory",
+  "w:fldData",
   // A legacy form field's name, help, status text and list, should one be left outside its field.
   "w:ffData",
   // A chart's workbook and the pivot table it was drawn from.
@@ -219,17 +223,61 @@ const NAMED = /^(?:wp:docPr|\w+:cNvPr)$/;
 // The names are this file's own, with no character a pattern reads as more than itself.
 const attributeAt = (name: string) => new RegExp(`\\s${name}\\s*=\\s*(?:"[^"]*"|'[^']*')`);
 
-/** An element's opening tag without `DROPPED_ATTRIBUTES`, and with a drawing's name empty; null when it keeps all. */
-function openingCleaned(element: XmlElement, text: string): Splice | null {
+/** An element's opening tag with one of its attributes holding `value`. */
+export function withAttribute(
+  element: XmlElement,
+  text: string,
+  name: string,
+  value: string,
+): Splice {
+  const from = startOf(element);
+  const to = element.openEnd ?? from;
+  return {
+    from,
+    to,
+    text: text.slice(from, to).replace(attributeAt(name), ` ${name}="${escapeXml(value)}"`),
+  };
+}
+
+/** VML shapes, whose id is the name the selection pane shows, which anyone can type. */
+const SHAPES = new Set([
+  "v:shape",
+  "v:rect",
+  "v:roundrect",
+  "v:oval",
+  "v:line",
+  "v:polyline",
+  "v:curve",
+  "v:arc",
+  "v:group",
+  "v:image",
+]);
+/** An id Word gives a shape or a shape's type itself. */
+export const SHAPE_ID = /^_x0000_[a-z]\d+$/i;
+
+/**
+ * An element's opening tag without `DROPPED_ATTRIBUTES`, with a drawing's name empty and a VML
+ * shape's id Word's own (`spare`: one for a shape Word gave none); null when it keeps all.
+ */
+function openingCleaned(element: XmlElement, text: string, spare: () => string): Splice | null {
   const from = startOf(element);
   const to = element.openEnd ?? from;
   const opening = text.slice(from, to);
   let written = opening;
+  const set = (name: string, value: string) => {
+    written = written.replace(attributeAt(name), ` ${name}="${value}"`);
+  };
+  const { id, "o:spid": spid } = element.attrs;
+  const shapeId = spid !== undefined && SHAPE_ID.test(spid) ? spid : undefined;
   for (const name of Object.keys(element.attrs)) {
     if (DROPPED_ATTRIBUTES.has(name)) written = written.replace(attributeAt(name), "");
     else if (name === "name" && NAMED.test(element.name) && element.attrs.name !== "") {
-      written = written.replace(attributeAt(name), ' name=""');
+      set(name, "");
     }
+  }
+  if (SHAPES.has(element.name)) {
+    if (spid !== undefined && shapeId === undefined) set("o:spid", spare());
+    if (id !== undefined && !SHAPE_ID.test(id)) set("id", shapeId ?? spare());
   }
   return written === opening ? null : { from, to, text: written };
 }
@@ -258,6 +306,20 @@ function shownChoice(list: XmlElement, parents: Map<XmlElement, XmlElement>): st
     ? `<w:listItem w:displayText="${escapeXml(shown)}" w:value="${escapeXml(shown)}"/>`
     : "";
   return `<${list.name}>${item}</${list.name}>`;
+}
+
+/** A legacy check box as what it shows: ☒ when ticked, ☐ when not, in the field's first run. */
+function checkBox(begin: XmlElement, run: XmlElement, text: string): string {
+  const box = [...walk(begin)].find((each) => each.name === "w:checkBox");
+  const state = (name: string) => {
+    const element = box && elements(box).find((each) => each.name === name);
+    if (!element) return undefined;
+    return !/^(?:0|false|off)$/i.test(element.attrs["w:val"] ?? "true");
+  };
+  const ticked = state("w:checked") ?? state("w:default") ?? false;
+  const look = elements(run).find((each) => each.name === "w:rPr");
+  const rPr = look ? text.slice(startOf(look), endOf(look)) : "";
+  return `<w:r>${rPr}<w:t>${ticked ? "☒" : "☐"}</w:t></w:r>`;
 }
 
 /**
@@ -315,7 +377,10 @@ export function partSplices(
     else if (element.name === "w:hyperlink" && points) unwrapped.add(element);
     else if (REMOVED.has(element.name) || points) removed.add(element);
     else if (UNWRAPPED.has(element.name)) unwrapped.add(element);
-    else if (element.name === "w:object") replaced.set(element, picture(element, text));
+    else if (element.name === "w:name" && parents.get(element)?.name === "w:abstractNum") {
+      // A list's name someone gave it: its look is in its levels.
+      removed.add(element);
+    } else if (element.name === "w:object") replaced.set(element, picture(element, text));
     else if (element.name === "w:dropDownList" || element.name === "w:comboBox") {
       replaced.set(element, shownChoice(element, parents));
     } else if (element.name === "v:textpath") removed.add(shapeOfText(element, parents));
@@ -348,7 +413,11 @@ export function partSplices(
         fields.pop();
         // The field's result stays as plain runs: what it showed, without what it read from.
         if (readsOutside(top.instruction)) {
-          for (const run of [runOf(top.begin), ...top.runs, runOf(element)]) removed.add(run);
+          const first = runOf(top.begin);
+          if (/^\s*FORMCHECKBOX\b/i.test(top.instruction) && first !== top.begin) {
+            replaced.set(first, checkBox(top.begin, first, text));
+          } else removed.add(first);
+          for (const run of [...top.runs, runOf(element)]) removed.add(run);
         }
       }
     }
@@ -361,10 +430,12 @@ export function partSplices(
     return false;
   };
   const splices: Splice[] = [];
+  let spare = 4096;
+  const spareId = () => `_x0000_s${spare++}`;
   for (const element of [root, ...walk(root)]) {
     if (removed.has(element) || replaced.has(element) || unwrapped.has(element)) continue;
     if (within(element)) continue;
-    const opening = openingCleaned(element, text);
+    const opening = openingCleaned(element, text, spareId);
     if (opening) splices.push(opening);
   }
   for (const element of removed) {

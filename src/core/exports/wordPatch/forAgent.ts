@@ -22,6 +22,13 @@ import {
   referenced,
   UnkeptPart,
 } from "./forAgentParts";
+import {
+  holdsStrangeStyle,
+  listsUsed,
+  styleRenames,
+  styleSplices,
+  unusedLists,
+} from "./forAgentStyles";
 import { leftIn, textsOf } from "./forAgentWords";
 
 /** The relationships kept, by the last part of their type: the text and what makes its look. */
@@ -98,7 +105,6 @@ const APP_KEPT = new Set([
   "CharactersWithSpaces",
   "Lines",
   "Paragraphs",
-  "Application",
   "AppVersion",
   "DocSecurity",
   "ScaleCrop",
@@ -359,6 +365,28 @@ async function cleaned(
     const left = leftIn(final);
     if (left !== null) throw new UnkeptPart(`${left} stays`);
     finals.set(name, { text: twice, root: final });
+  }
+  const renames = styleRenames([...finals.values()].map(({ root }) => root));
+  for (const [name, { text, root }] of finals) {
+    at(name);
+    const splices = styleSplices(root, text, renames);
+    const renamed = splices.length > 0 ? applySplices(text, splices) : text;
+    const final = splices.length > 0 ? parsedOrUnkept(renamed) : root;
+    if (holdsStrangeStyle(final)) throw new UnkeptPart("a style someone named");
+    finals.set(name, { text: renamed, root: final });
+  }
+  const numbering = listed
+    .get(main)
+    ?.find((each) => each.kind === "numbering" && !dropped.has(each.element))?.target;
+  const lists = numbering === undefined ? undefined : finals.get(numbering);
+  if (numbering !== undefined && lists) {
+    at(numbering);
+    const used = listsUsed([...finals.values()].map(({ root }) => root));
+    const splices = unusedLists(lists.root, used);
+    if (splices.length > 0) {
+      const text = applySplices(lists.text, splices);
+      finals.set(numbering, { text, root: parsedOrUnkept(text) });
+    }
   }
 
   // A relationship nothing in its part names any more goes, and with it what only it reached.

@@ -108,7 +108,8 @@ export interface AgentWordFilesDeps {
   log: Logger;
 }
 
-const LINK = /\b(?:https?|ftp):\/\/[^\s<>()[\]"']+|\b(?:mailto|tel):[^\s<>()[\]"']+/gi;
+// A link may hold parentheses in pairs, as in …/Tea_(drink), but not the one that closes Markdown's link.
+const LINK = /\b(?:(?:https?|ftp):\/\/|mailto:|tel:)(?:[^\s<>()[\]"']|\([^\s<>()[\]"']*\))+/gi;
 /** The links a Note holds as the agent reads it: its links' targets, and addresses in its words. */
 const linksIn = (markdown: string): Set<string> =>
   new Set([...markdown.matchAll(LINK)].map(([link]) => link.replace(/[.,;:!?]+$/, "")));

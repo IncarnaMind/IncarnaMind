@@ -29,7 +29,7 @@ import {
   without,
   withParts,
 } from "../helpers/plantedWordFile";
-import { escapeXml, paragraph, run, tracked, wordFile } from "../helpers/word";
+import { escapeXml, paragraph, run, STYLES, tracked, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
 interface Saved {
@@ -171,7 +171,7 @@ describe.each(LANGUAGES)("the agent's Word file of a reviewed contract (%s)", (l
     const saved = await reviewedFile();
     const names = (name: string) =>
       [...part(saved.files, name).matchAll(/<([\w:]+)[\s>/]/g)].map(([, tag]) => tag);
-    expect(names("docProps/app.xml")).toEqual(["Properties", "Pages", "Application"]);
+    expect(names("docProps/app.xml")).toEqual(["Properties", "Pages"]);
     expect(names("docProps/core.xml")).toEqual([
       "cp:coreProperties",
       "cp:revision",
@@ -215,6 +215,20 @@ describe.each(LANGUAGES)("the agent's Word file of a reviewed contract (%s)", (l
     for (const text of [words.formName, words.formHelp, words.formStatus, words.formOther]) {
       expect(saved.all).not.toContain(escapeXml(text));
     }
+    expect(document).toContain(`${run(words.kept)}<w:r><w:t>☒</w:t></w:r><w:r><w:t>☐</w:t></w:r>`);
+  });
+
+  // protects=a VML shape's id, the name someone gave it in the selection pane, is written as Word's own id for it, or a neutral one when it has none (#3751); fails_when=the name is in the agent's file, or a shape loses its look
+  it("writes shapes someone named under Word's own ids", async () => {
+    const saved = await reviewedFile();
+    const document = part(saved.files, "word/document.xml");
+    expect(document).toContain(
+      '<v:rect id="_x0000_s1030" o:spid="_x0000_s1030" style="width:20pt;height:10pt" fillcolor="silver"/>',
+    );
+    expect(document).toMatch(
+      /<v:oval id="_x0000_s\d+" style="width:10pt;height:10pt" fillcolor="gray"\/>/,
+    );
+    expectNoneOf(saved.files, [words.shapeName]);
   });
 
   // protects=a watermark goes from the header with its words, and a link keeps its text and target without its tip (#3751); fails_when=the watermark's words or shape, or the link's tip, are in the agent's file, or the link is not
@@ -268,6 +282,59 @@ function linkPlaced(words: Words): Buffer {
     body: paragraph(
       `${run(words.kept)}<w:hyperlink w:docLocation="${escapeXml(words.formHelp)}">${run(words.webText)}</w:hyperlink>`,
     ),
+  });
+}
+
+/**
+ * A file whose styles someone named, one Word's own under an id someone gave it, with other names
+ * a style goes by, a list someone named and one nothing uses whose numbers show `unusedLabel`.
+ */
+function styledByClient(words: Words): Buffer {
+  const id = escapeXml(words.styleId);
+  return wordFile({
+    styles: `<w:latentStyles w:defLockedState="0" w:count="2"><w:lsdException w:name="Normal" w:qFormat="1"/><w:lsdException w:name="${escapeXml(words.latent)}" w:qFormat="1"/></w:latentStyles>${STYLES}<w:style w:type="paragraph" w:customStyle="1" w:styleId="${id}"><w:name w:val="${escapeXml(words.styleName)}"/><w:aliases w:val="${escapeXml(words.styleAlias)}"/><w:basedOn w:val="Normal"/><w:next w:val="${id}"/><w:link w:val="${id}Char"/><w:pPr><w:ind w:left="1234"/></w:pPr></w:style><w:style w:type="character" w:customStyle="1" w:styleId="${id}Char"><w:name w:val="${escapeXml(words.styleName)} Char"/><w:link w:val="${id}"/><w:rPr><w:color w:val="1F4E79"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="${id}Quote"><w:name w:val="Quote"/><w:basedOn w:val="${id}"/></w:style>`,
+    numbering: `<w:abstractNum w:abstractNumId="0"><w:name w:val="${escapeXml(words.listName)}"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="${escapeXml(words.unusedLabel)} %1"/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>`,
+    body: [
+      paragraph(
+        `<w:r><w:rPr><w:rStyle w:val="${id}Char"/></w:rPr><w:t>${escapeXml(words.kept)}</w:t></w:r>`,
+        { style: words.styleId },
+      ),
+      paragraph(run(words.control), { style: `${words.styleId}Quote` }),
+      paragraph(run(words.street), { numId: 1, ilvl: 0 }),
+    ].join(""),
+  });
+}
+
+/** A list whose numbers show `label`, and a line that says `labelled`. */
+function numberedWith(label: string, labelled: string): Buffer {
+  return wordFile({
+    numbering: `<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="${escapeXml(label)}"/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>`,
+    body: `${paragraph(run(labelled))}${paragraph(run("1200"), { numId: 1, ilvl: 0 })}`,
+  });
+}
+
+/** A chart whose numbers are shown with words the Note doesn't hold. */
+function chartFormatted(words: Words): Buffer {
+  return withParts(
+    wordFile({
+      body: `${paragraph(run(words.kept))}<w:p><w:r><w:drawing><wp:inline><wp:extent cx="3000000" cy="2000000"/><wp:docPr id="51" name=""/><a:graphic><a:graphicData uri="${CHART}"><c:chart xmlns:c="${CHART}" r:id="rIdChart1"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`,
+      rels: `<Relationship Id="rIdChart1" Type="${REL}/chart" Target="charts/chart1.xml"/>`,
+    }),
+    {
+      "word/charts/chart1.xml": `${DECLARATION}<c:chartSpace xmlns:c="${CHART}" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:plotArea><c:layout/><c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:ser><c:idx val="0"/><c:order val="0"/><c:val><c:numLit><c:formatCode>0 "${escapeXml(words.unit)}"</c:formatCode><c:ptCount val="1"/><c:pt idx="0"><c:v>3</c:v></c:pt></c:numLit></c:val></c:ser><c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:axPos val="l"/><c:crossAx val="1"/></c:valAx></c:plotArea></c:chart></c:chartSpace>`,
+    },
+    '<Override PartName="/word/charts/chart1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>',
+  );
+}
+
+/** A link to a page whose address holds parentheses. */
+const TEA = "https://encyclopedia.example/wiki/Tea_(drink)";
+function linkParenthesised(words: Words): Buffer {
+  return wordFile({
+    body: paragraph(
+      `${run(words.kept)}<w:hyperlink r:id="rIdTea">${run(words.webText)}</w:hyperlink>`,
+    ),
+    rels: `<Relationship Id="rIdTea" Type="${REL}/hyperlink" Target="${TEA}" TargetMode="External"/>`,
   });
 }
 
@@ -365,6 +432,68 @@ describe.each(LANGUAGES)(
       );
       expect(part(saved.files, "word/document.xml")).toContain(escapeXml(words.webText));
       expectNoneOf(saved.files, [words.formHelp]);
+    });
+
+    // protects=a style someone named is renamed Style 1, Style 2 and so on, its id Style1 and so on, everywhere the file names it, with its look kept; Word's own styles keep their names; a list's name, a style's other names, a latent style not Word's and a list nothing uses go (#3751); fails_when=any of those names or the unused list's words are in the agent's file, or the style's look or a reference to it is lost, or the file is written new
+    it("renames the styles someone named, keeping their look", async () => {
+      const saved = await savedFor(language, styledByClient(words));
+      const styles = part(saved.files, "word/styles.xml");
+      expect(styles).toContain(
+        '<w:style w:type="paragraph" w:customStyle="1" w:styleId="Style1"><w:name w:val="Style 1"/><w:basedOn w:val="Normal"/><w:next w:val="Style1"/><w:link w:val="Style2"/><w:pPr><w:ind w:left="1234"/></w:pPr></w:style>',
+      );
+      expect(styles).toContain(
+        '<w:style w:type="character" w:customStyle="1" w:styleId="Style2"><w:name w:val="Style 2"/><w:link w:val="Style1"/>',
+      );
+      expect(styles).toContain(
+        '<w:style w:type="paragraph" w:styleId="Style3"><w:name w:val="Quote"/><w:basedOn w:val="Style1"/>',
+      );
+      expect(styles).toContain('<w:name w:val="heading 1"/>');
+      expect(styles).toContain('<w:lsdException w:name="Normal" w:qFormat="1"/>');
+      const document = part(saved.files, "word/document.xml");
+      expect(document).toContain('<w:pStyle w:val="Style1"/>');
+      expect(document).toContain('<w:rStyle w:val="Style2"/>');
+      expect(document).toContain('<w:pStyle w:val="Style3"/>');
+      const numbering = part(saved.files, "word/numbering.xml");
+      expect(numbering).toContain('<w:lvlText w:val="%1."/>');
+      expect(numbering).not.toContain('w:numId="2"');
+      expectNoneOf(saved.files, [
+        words.styleName,
+        words.styleId,
+        words.styleAlias,
+        words.listName,
+        words.latent,
+        words.unusedLabel,
+      ]);
+    });
+
+    // protects=the words a list's numbers show on every item are checked against what the agent was given: kept when the Note holds them, the file written new when it doesn't (#3751); fails_when=a list whose numbers show words the Note doesn't hold is in the agent's file, or one whose words it holds is written new
+    it("checks the words a list's numbers show", async () => {
+      const given = await savedFor(language, numberedWith(words.label, words.labelled));
+      expect(part(given.files, "word/styles.xml")).toBe(part(given.original, "word/styles.xml"));
+      expect(part(given.files, "word/numbering.xml")).toBe(
+        part(given.original, "word/numbering.xml"),
+      );
+      const unseen = await savedFor(language, numberedWith(`${words.unusedLabel} %1`, words.kept));
+      expect(part(unseen.files, "word/styles.xml")).not.toBe(
+        part(unseen.original, "word/styles.xml"),
+      );
+      expectNoneOf(unseen.files, [words.unusedLabel]);
+    });
+
+    // protects=the check reads a chart's number format, so words it shows that the Note doesn't hold make the agent's file be written new (#3751); fails_when=the format's words are in the agent's file
+    it("writes the file new when a chart's numbers show words the agent wasn't given", async () => {
+      const saved = await savedFor(language, chartFormatted(words));
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
+      );
+      expectNoneOf(saved.files, [words.unit]);
+    });
+
+    // protects=a link whose address holds parentheses is matched whole against the Note's links, so it doesn't make the agent's file be written new (#3751); fails_when=the file is written new
+    it("keeps a link whose address holds parentheses", async () => {
+      const saved = await savedFor(language, linkParenthesised(words));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      expect(part(saved.files, "word/_rels/document.xml.rels")).toContain(TEA);
     });
 
     // protects=deleting the header the Note shows takes out that header's part alone; another section's header stays (#3751); fails_when=the deleted header's part or words stay, or the other header goes

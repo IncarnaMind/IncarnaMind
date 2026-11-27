@@ -5,10 +5,24 @@
  */
 import { textOf, walk, type XmlElement } from "../../documents/formats/xml";
 import { parentsOf } from "../packagePatch/text";
-import { relationshipPrefixes } from "./forAgentParts";
+import { relationshipPrefixes, SHAPE_ID } from "./forAgentParts";
+import { isKnownStyleId, isKnownStyleName, STYLE_REFERENCES } from "./forAgentStyles";
 
-/** Elements whose text a file shows or keeps. */
-const TEXTS = new Set(["w:t", "w:delText", "a:t", "c:v"]);
+/** Elements whose text a file shows or keeps; any other element's text with a letter is read too. */
+const TEXTS = new Set(["w:t", "w:delText", "a:t", "c:v", "m:t"]);
+/** Elements whose text is a place, a measure, a date or a switch in Word's own words. */
+const NON_WORD_TEXTS = new Set([
+  "wp:align",
+  "wp:posOffset",
+  "wp14:pctWidth",
+  "wp14:pctHeight",
+  "dcterms:created",
+  "dcterms:modified",
+  "ScaleCrop",
+  "LinksUpToDate",
+  "SharedDoc",
+  "HyperlinksChanged",
+]);
 
 /**
  * Attributes that hold no one's words, by name: ids, sizes, measures, colours, kinds and switches,
@@ -19,15 +33,15 @@ const NON_WORD = new Set(
   [
     // The package's own: content types, relationships, markup compatibility, spaces.
     "ContentType Extension PartName Id Type Target TargetMode Requires mc:Ignorable xsi:type",
-    "mc:PreserveAttributes mc:ProcessContent mc:MustUnderstand xml:space xml:lang uri",
+    "mc:PreserveAttributes mc:ProcessContent mc:MustUnderstand xml:space xml:lang",
     // WordprocessingML.
     "w:type w:id w:color w:themeColor w:themeTint w:themeShade w:fill w:themeFill w:themeFillTint",
     "w:themeFillShade w:ascii w:hAnsi w:eastAsia w:cs w:asciiTheme w:hAnsiTheme w:eastAsiaTheme",
     "w:cstheme w:hint w:bidi w:lineRule w:fldCharType w:hRule w:hAnchor w:vAnchor w:horzAnchor",
     "w:vertAnchor w:xAlign w:yAlign w:tblpXSpec w:tblpYSpec w:wrap w:leader w:orient w:offsetFrom",
     "w:display w:zOrder w:usb0 w:usb1 w:usb2 w:usb3 w:csb0 w:csb1 w:characterSet w:char w:font",
-    "w:fmt w:tplc w:displacedByCustomXml w:spelling w:grammar w:date w:fullDate w:edGrp w:uri",
-    "w:default w:customStyle w:styleId w:t1 w:t2 w:bg1 w:bg2 w:accent1 w:accent2 w:accent3",
+    "w:fmt w:tplc w:displacedByCustomXml w:spelling w:grammar w:date w:fullDate w:edGrp",
+    "w:default w:customStyle w:t1 w:t2 w:bg1 w:bg2 w:accent1 w:accent2 w:accent3",
     "w:accent4 w:accent5 w:accent6 w:hyperlink w:followedHyperlink w:appName w:dirty w:lock",
     "w:fldLock w:space w:shadow w:frame w:chapStyle w:chapSep w:dropCap w:lines w:hSpace",
     "w:vSpace w:x w:y w:w w:h w:val2 w:shapeid w:pos w:restart w:start w:end w:lang",
@@ -36,10 +50,10 @@ const NON_WORD = new Set(
     "w15:done wp14:anchorId wp14:editId wp14:pctWidth wp14:pctHeight w16cid:paraId",
     "w16cid:durableId w16cex:durableId w16cex:dateUtc w16du:dateUtc",
     // VML and Office's drawing attributes.
-    "id type style fillcolor filled strokecolor stroked strokeweight coordsize coordorigin path",
+    "type style fillcolor filled strokecolor stroked strokeweight coordsize coordorigin path",
     "adj eqn joinstyle gradientshapeok connectlocs extrusionok textpathok on fitshape fitpath",
     "trim xscale arrowok aspectratio shadowcolor color color2 opacity origin",
-    "position focus focussize focusposition method angle wrapcoords v:ext o:spid o:spt",
+    "position focus focussize focusposition method angle wrapcoords v:ext o:spt",
     "o:allowincell o:allowoverlap o:connecttype o:extrusionok o:preferrelative o:hr o:hrstd",
     "o:hrnoshade o:hrpct o:hralign o:bullet o:bwmode o:userdrawn o:dgmlayout o:dgmnodekind",
     "o:oned o:regroupid o:insetmode o:connectortype o:button o:hralign o:relid o:clip",
@@ -50,7 +64,7 @@ const NON_WORD = new Set(
     "qsTypeId max min meth minVer modelId mods op presAssocID presId presName presStyleLbl",
     "presStyleIdx presStyleCnt parTransId sibTransId prst ptType refType relativeFrom relId rig",
     "rotWithShape scaled script side strike styleLbl symbol typeface panose pitchFamily charset",
-    "u uniqueId vert vid wrap wrapText cstate formatCode lang x y cx cy rot flipH flipV sz spc",
+    "u uniqueId vert vid wrap wrapText cstate lang x y cx cy rot flipH flipV sz spc",
     "baseline dirty err noProof smtClean smtId kern fontAlgn latinLnBrk hangingPunct rtl eaLnBrk",
     "indent marL marR lvl defTabSz numCol rtlCol spcFirstLastPara lIns tIns rIns bIns forceAA",
     "upright compatLnSpc distT distB distL distR simplePos relativeHeight behindDoc locked",
@@ -71,12 +85,11 @@ const NON_WORD = new Set(
  */
 const VALUED = new Set(
   [
-    "w:pStyle w:rStyle w:tblStyle w:basedOn w:next w:link w:aliases w:numStyleLink w:styleLink",
-    "w:lvlText w:numFmt w:lvlJc w:suff w:multiLevelType w:nsid w:tmpl w:jc w:highlight w:u w:shd",
+    "w:numFmt w:lvlJc w:suff w:multiLevelType w:nsid w:tmpl w:jc w:highlight w:u w:shd",
     "w:vertAlign w:em w:effect w:textDirection w:textAlignment w:vAlign w:vMerge w:hMerge w:type",
-    "w:color w:lang w:lid w:calendar w:dateFormat w:storeMappedDataAs w:docPartGallery",
-    "w:docPartCategory w:gallery w:behavior w:family w:pitch w:charset w:panose1 w:altName",
-    "w:encoding w:view w:zoom w:characterSpacingControl w:themeFontLang w:defaultTableStyle",
+    "w:color w:lang w:lid w:calendar w:storeMappedDataAs w:docPartGallery",
+    "w:gallery w:behavior w:family w:pitch w:charset w:panose1 w:altName",
+    "w:encoding w:view w:zoom w:characterSpacingControl w:themeFontLang",
     "w:stylePaneFormatFilter w:stylePaneSortMethod w:targetScreenSz w:rsid w:rsidRoot w:formProt",
     "w:tab w:top w:bottom w:left w:right w:insideH w:insideV w:between w:bar w:start w:end",
     "w:tl2br w:tr2bl w:bdr w:b w:bCs w:i w:iCs w:caps w:smallCaps w:strike w:dstrike w:outline",
@@ -118,7 +131,9 @@ const VALUES = new Set(["w:val", "val", "m:val", "w14:val", "w15:val"]);
 /** Namespaces whose `val` is a kind, a measure or a colour wherever it is: charts, drawings, diagrams, maths. */
 const VALUED_NAMESPACE = /^(?:a|c|cs|dgm|c14|c15|c16|c16r2|c16r3|a14|a16|m|thm15):/;
 /** Attributes whose names are a font's, which are its look: a font in the fonts' table, a setting's own name. */
-const NAMED = new Set(["w:font", "w:compatSetting", "w:lsdException", "w:latentStyles"]);
+const NAMED = new Set(["w:font", "w:compatSetting", "w:latentStyles"]);
+/** A diagram's title and description, which are words wherever a diagram's other `val`s aren't. */
+const DIAGRAM_WORDS = new Set(["dgm:title", "dgm:desc"]);
 /** Elements whose `name` is a theme's or one of its schemes', the look the file was made with. */
 const THEMED = new Set([
   "a:theme",
@@ -127,26 +142,90 @@ const THEMED = new Set([
   "a:fmtScheme",
   "thm15:themeFamily",
 ]);
-/** Where a `w:name` element names a style or a list's numbering, the file's look. */
-const LOOK_NAMED = new Set(["w:style", "w:abstractNum"]);
 
-/** Whether an attribute holds anyone's words, by its name, its element's and its element's parent's. */
-function isWorded(
-  element: XmlElement,
-  parent: string,
-  name: string,
-  relationships: readonly string[],
-): boolean {
+/** Whether an attribute holds anyone's words, by its name and its element's. */
+function isWorded(element: XmlElement, name: string, relationships: readonly string[]): boolean {
   if (name === "xmlns" || name.startsWith("xmlns:")) return false;
   if (relationships.some((prefix) => name.startsWith(prefix))) return false;
   if (name.startsWith("w:rsid")) return false;
-  // A style's name is the file's look; a legacy form field's, under w:ffData, is someone's words.
-  if (VALUES.has(name) && element.name === "w:name") return !LOOK_NAMED.has(parent);
+  if (VALUES.has(name) && DIAGRAM_WORDS.has(element.name)) return true;
   if (VALUES.has(name)) return !(VALUED.has(element.name) || VALUED_NAMESPACE.test(element.name));
   if (name === "w:name") return !NAMED.has(element.name);
   // A diagram's layout names its own nodes and rules.
   if (name === "name") return !(THEMED.has(element.name) || element.name.startsWith("dgm:"));
   return !NON_WORD.has(name);
+}
+
+/** A schema's name, or an id of a GUID's form: no one's words. */
+const SCHEMA =
+  /^(?:\{[0-9A-F-]{36}\}|https?:\/\/schemas\.(?:microsoft\.com|openxmlformats\.org)\/\S*|urn:schemas-microsoft-com:\S*)$/i;
+
+/**
+ * What of a number's format in a chart is shown as words: its quoted and escaped text, and any
+ * letter that isn't one of the format's own (General, d, m, y, h, s, AM/PM, E).
+ */
+function formatWords(code: string): string {
+  const literal = [...code.matchAll(/"([^"]*)"|\\(.)/g)].map(
+    ([, quoted, escaped]) => quoted ?? escaped,
+  );
+  const rest = code
+    .replace(/"[^"]*"|\\.|\[[^\]]*\]/g, " ")
+    .replace(/General|AM\/PM|A\/P|[dmyhsbgeE]+/gi, " ");
+  return [...literal, rest].join(" ");
+}
+
+/** What of a date's picture is shown as words: its quoted text and any letter that isn't one of its own. */
+function dateWords(picture: string): string {
+  const literal = [...picture.matchAll(/'([^']*)'/g)].map(([, quoted]) => quoted);
+  const rest = picture.replace(/'[^']*'/g, " ").replace(/am\/pm|[dMyHhms]+/gi, " ");
+  return [...literal, rest].join(" ");
+}
+
+/** A list level's number as words: its text without the numbers it shows, unless it is a bullet. */
+function levelWords(level: XmlElement | undefined, text: string): string {
+  const format = level?.children.find(
+    (each): each is XmlElement => typeof each !== "string" && each.name === "w:numFmt",
+  );
+  return format?.attrs["w:val"] === "bullet" ? "" : text.replace(/%\d/g, " ");
+}
+
+/**
+ * What of an attribute is anyone's words, by its name, its element's and its parent's; null when
+ * none. A value with no letter in it is a number or a measure, and a bookmark Word names itself,
+ * from "_", is no one's words.
+ */
+function attributeWords(
+  element: XmlElement,
+  parent: XmlElement | undefined,
+  name: string,
+  value: string,
+  relationships: readonly string[],
+): string | null {
+  if (!/\p{L}/u.test(value)) return null;
+  if (name === "w:instr") return instructionWords(value);
+  if ((name === "w:name" || name === "w:anchor") && value.startsWith("_")) return null;
+  if (name === "formatCode") return formatWords(value);
+  if (name === "uri" || name === "w:uri") return SCHEMA.test(value) ? null : value;
+  // A VML shape's id and its type's, which Word gives them itself.
+  if (name === "id" || name === "o:spid") {
+    return SHAPE_ID.test(value) || SCHEMA.test(value) ? null : value;
+  }
+  if (name === "type" && element.name.startsWith("v:") && value.startsWith("#")) {
+    return SHAPE_ID.test(value.slice(1)) ? null : value;
+  }
+  if (name === "w:styleId") return isKnownStyleId(value) ? null : value;
+  if (name === "w:name" && element.name === "w:lsdException") {
+    return isKnownStyleName(value) ? null : value;
+  }
+  if (VALUES.has(name)) {
+    if (STYLE_REFERENCES.has(element.name)) return isKnownStyleId(value) ? null : value;
+    if (element.name === "w:name" && parent?.name === "w:style") {
+      return isKnownStyleName(value) ? null : value;
+    }
+    if (element.name === "w:lvlText") return levelWords(parent, value);
+    if (element.name === "w:dateFormat") return dateWords(value);
+  }
+  return isWorded(element, name, relationships) ? value : null;
 }
 
 /** Word's own fields, whose names are its words rather than anyone's. */
@@ -203,13 +282,14 @@ export function textsOf(root: XmlElement): string[] {
       if (instructions.length > 0) instructions[instructions.length - 1] += textOf(element);
       else texts.push(textOf(element));
     } else if (TEXTS.has(element.name)) texts.push(textOf(element));
+    else if (!NON_WORD_TEXTS.has(element.name)) {
+      const own = element.children.filter((each) => typeof each === "string").join("");
+      if (/\p{L}/u.test(own)) texts.push(element.name === "c:formatCode" ? formatWords(own) : own);
+    }
+    const parent = parents.get(element);
     for (const [name, value] of Object.entries(element.attrs)) {
-      const parent = parents.get(element)?.name ?? "";
-      if (!/\p{L}/u.test(value) || !isWorded(element, parent, name, relationships)) continue;
-      if (name === "w:instr") texts.push(instructionWords(value));
-      // Word names its own bookmarks from "_" (headings, references, links); a person names the rest.
-      else if ((name === "w:name" || name === "w:anchor") && value.startsWith("_")) continue;
-      else texts.push(value);
+      const words = attributeWords(element, parent, name, value, relationships);
+      if (words !== null) texts.push(words);
     }
   }
   return [...texts, ...instructions];
