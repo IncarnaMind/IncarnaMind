@@ -55,6 +55,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  GalleryVerticalEnd,
   GripHorizontal,
   GripVertical,
   Hash,
@@ -68,7 +69,6 @@ import {
   Laptop,
   Layers,
   LayoutTemplate,
-  Library,
   Link,
   List,
   ListChevronsUpDown,
@@ -263,7 +263,8 @@ export const IndentIncreaseIcon = line(ListIndentIncrease);
 export const InfoLineIcon = line(Info);
 export const KeyLineIcon = line(KeyRound);
 export const LineSpacingIcon = line(ListChevronsUpDown);
-export const LibraryLineIcon = line(Library);
+/** A stack, as a chat app draws its collections: the bookshelf reads as bars at 16px. */
+export const LibraryLineIcon = line(GalleryVerticalEnd);
 export const LinkLineIcon = line(Link);
 export const LockLineIcon = line(Lock);
 export const LooseDocumentsLineIcon = line(Files);
