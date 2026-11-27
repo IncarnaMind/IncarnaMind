@@ -292,7 +292,7 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
     notes: [],
   });
   const version = libraryVersion(scoped);
-  const markOf = (source: LibrarySource): ClaimCheckAttributes => {
+  const markOf = (source: LibrarySource, outside = true): ClaimCheckAttributes => {
     const citation = {
       passageId: version,
       documentId: LIBRARY_FACTS,
@@ -329,6 +329,7 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
       versions: [{ documentId: LIBRARY_FACTS, contentHash: version }],
       excluded: [],
       checkedAt: "2026-11-26T09:00:00.000Z",
+      ...(outside && { outside: true as const }),
     };
   };
   const nowBase = {
@@ -361,6 +362,14 @@ test("a Library-backed mark stands for an outside reader only at its grant versi
       versions: new Map([[LIBRARY_FACTS, "different-version"]]),
     }),
   ).toEqual({ state: "needs-recheck", why: "library" });
+
+  // User-made mark inside a walled Folder carries source.kind "scope" without `outside: true`: never stands for an outside reader.
+  expect(
+    claimCheckShown(markOf({ kind: "scope", name: "Coast", more: 0 }, false), {
+      ...nowBase,
+      versions: new Map([[LIBRARY_FACTS, version]]),
+    }),
+  ).toEqual({ state: "needs-recheck", why: "reach" });
 
   // Same rows, but mark carries User's whole-Library or left-out wall source -> never stands for an outside reader.
   expect(

@@ -23,7 +23,9 @@ export const isLibraryList = (name: string): name is LibraryListName =>
 
 export interface LibrarySeen {
   source: LibrarySource;
-  documents: readonly Pick<Document, "id" | "name" | "kind" | "tags">[];
+  documents: readonly (Pick<Document, "id" | "name" | "kind"> & {
+    tags: readonly { tagId: string }[];
+  })[];
   folders: readonly Pick<LibraryGroup, "id" | "name" | "parentId">[];
   /** The Folder each filed Document is in, by the Document's id. */
   folderOf: ReadonlyMap<string, string>;

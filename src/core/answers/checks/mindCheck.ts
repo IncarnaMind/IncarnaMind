@@ -544,6 +544,14 @@ export function createMindCheck(options: MindCheckOptions) {
           (mark) =>
             mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
         );
+      const hasUserLibraryMark = (sentence: SelectedSentence) =>
+        marks.some(
+          (mark) =>
+            mark.element === sentence.element &&
+            mark.from < sentence.to &&
+            mark.to > sentence.from &&
+            isUserLibraryCheck(mark.check),
+        );
       if (figureIds !== null) {
         const known = new Set(
           sentences.flatMap((sentence) => sentence.figures?.map((figure) => figure.id) ?? []),
@@ -575,10 +583,10 @@ export function createMindCheck(options: MindCheckOptions) {
           if (state.kind === "kept" || state.kind === "checking" || state.kind === "not-claim") {
             continue;
           }
+          if (reach && hasUserLibraryMark(sentence)) userOwned.add(sentence);
           if (mark && (mark.check.text === sentence.text || !isClaim(sentence.text))) {
             again.push(sentence);
             if (mark.check.scope.widened) widened.add(sentence);
-            if (reach && isUserLibraryCheck(mark.check)) userOwned.add(sentence);
           } else fresh.push(sentence);
         }
         return { fresh, again, keys, skipped, widened, userOwned, held: [] };
@@ -592,7 +600,7 @@ export function createMindCheck(options: MindCheckOptions) {
           if (!mark || !added.has(mark.check.id)) continue;
           again.push(sentence);
           if (mark.check.scope.widened) widened.add(sentence);
-          if (reach && isUserLibraryCheck(mark.check)) userOwned.add(sentence);
+          if (reach && hasUserLibraryMark(sentence)) userOwned.add(sentence);
           continue;
         }
         const shown = mark ? shownOf(sentence, mark.check) : null;
@@ -619,12 +627,12 @@ export function createMindCheck(options: MindCheckOptions) {
           continue;
         }
         if (state.kind === "to-check") {
+          if (reach && hasUserLibraryMark(sentence)) userOwned.add(sentence);
           if (state.fresh || (mark?.check.text !== sentence.text && isClaim(sentence.text)))
             fresh.push(sentence);
           else {
             again.push(sentence);
             if (mark?.check.scope.widened) widened.add(sentence);
-            if (reach && mark && isUserLibraryCheck(mark.check)) userOwned.add(sentence);
           }
           continue;
         }
@@ -821,6 +829,7 @@ export function createMindCheck(options: MindCheckOptions) {
         versions: [],
         excluded: [],
         checkedAt,
+        ...(reach && { outside: true as const }),
       };
       const rowClaim = sentence.figures?.some(
         (figure) =>

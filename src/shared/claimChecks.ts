@@ -235,6 +235,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     ...(read && { read }),
     ...(text(value.fromAnswer) !== null && { fromAnswer: text(value.fromAnswer) as string }),
     ...(value.citedOnly === true && { citedOnly: true }),
+    ...(value.outside === true && { outside: true }),
     ...(text(value.judgedWith) !== null && { judgedWith: text(value.judgedWith) as string }),
   };
   if (value.parts !== undefined && value.parts !== null) {
@@ -913,17 +914,26 @@ function reliedOn(check: ClaimCheckAttributes): string[] {
 }
 
 /**
- * Whether a stored result rests on the User's own Library lists (whole-Library or walled `left-out`
- * count, never a scoped grant's), so an outside agent may neither read nor overwrite it (#2525).
+ * Whether a stored result rests on the User's own Library lists (whole-Library, walled `left-out`
+ * count, or a User Check inside a walled Folder — never an outside agent's scoped grant), so an
+ * outside agent may neither read nor overwrite it (#2525).
  */
 export function isUserLibraryCheck(check: ClaimCheckAttributes): boolean {
-  const userCitation = restsOn(check).some(
+  const hasLibraryCitation = restsOn(check).some(
+    (each) => each.documentId === LIBRARY_FACTS && each.location?.kind === "library",
+  );
+  const hasLibraryWorking = [...resultsIn(check)].some((each) =>
+    (each.parts ?? []).some((part) => part.working?.library != null),
+  );
+  if (!hasLibraryCitation && !hasLibraryWorking) return false;
+  if (check.outside !== true) return true;
+  const nonScopeCitation = restsOn(check).some(
     (each) =>
       each.documentId === LIBRARY_FACTS &&
       each.location?.kind === "library" &&
       each.location.source.kind !== "scope",
   );
-  if (userCitation) return true;
+  if (nonScopeCitation) return true;
   return [...resultsIn(check)].some((each) =>
     (each.parts ?? []).some(
       (part) => part.working?.library != null && part.working.library.source.kind !== "scope",

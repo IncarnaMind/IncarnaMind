@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
@@ -524,12 +525,187 @@ describe("an outside agent has its Note checked (#3317)", () => {
     expect(calls).toEqual([]);
     expect(runtime.jobs).toHaveLength(4);
 
+    // Editing that sentence in place while the User's Library mark still overlaps it is ALSO
+    // refused beyond-reach instead of queueing as `fresh` and overwriting the User's mark.
+    const edited = await connectToMind(core, mindId);
+    await edited.settled();
+    edited.doc.transact(() => {
+      const paragraph = edited.doc.getXmlFragment("blocks").get(0);
+      if (paragraph instanceof Y.XmlElement) {
+        const textNode = paragraph.get(0);
+        if (textNode instanceof Y.XmlText) {
+          const at = textNode.toString().indexOf("2");
+          if (at >= 0) {
+            textNode.delete(at, 1);
+            textNode.insert(at, "5");
+          }
+        }
+      }
+    });
+    await edited.settled();
+    calls.length = 0;
+    expect(refusal(await check(agent, mindId))).toContain("outside the Folders");
+    expect(calls).toEqual([]);
+    expect(runtime.jobs).toHaveLength(4);
+
     // 5. Revoking all Folders leaves no grant: check_mind is refused and sends nothing.
     await core.updateAgent(pairing.id, { folderIds: [] });
     calls.length = 0;
     expect(refusal(await check(agent, mindId))).toContain("No such passage");
     expect(calls).toEqual([]);
     expect(runtime.jobs).toHaveLength(4);
+  });
+
+  // protects=a User Check inside a walled Folder (whose Library source carries kind "scope") is still User-owned so an outside agent can neither read nor overwrite it when stale, while the agent's own stale scoped pairing mark can still be re-checked (#2525); fails_when=isUserLibraryCheck mistakes a User check inside a walled Folder for a pairing check, or blocks an agent from re-checking its own stale pairing mark.
+  it("preserves a User-made Library mark inside a walled Folder while letting an agent re-check its own stale pairing mark", async () => {
+    const CLAIM = "The Library holds 2 Documents.";
+    const CODE = 'result("documents", len(inputs["files"]))';
+    const runtime = createFakeAnalysisRuntime({
+      answer: (job) => {
+        const table = job.inputs.find((each) => each.kind === "table" && each.name === "files");
+        const count = table && table.kind === "table" ? table.rows.length : 0;
+        return {
+          output: {
+            results: [
+              { kind: "figure", name: "documents", label: "documents", unit: null, value: count },
+            ],
+            printed: "",
+          },
+        };
+      },
+    });
+    const calls: string[] = [];
+    const model = scriptedModel(
+      (call) => {
+        calls.push(JSON.stringify(call));
+        if (!isCheckRun(call)) return { text: JSON.stringify({ claims: [CLAIM] }) };
+        const ran = call.results.find((result) => result.tool === ANALYSIS_TOOLS.run);
+        if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+          return {
+            calls: [
+              {
+                tool: ANALYSIS_TOOLS.run,
+                input: {
+                  title: "Count Documents",
+                  inputs: [{ name: "files", library: "documents" }],
+                  code: CODE,
+                },
+              },
+            ],
+          };
+        }
+        const docs = Number(/- documents:\s*(\d+)/.exec(ran?.text ?? "")?.[1] ?? 0);
+        return {
+          text:
+            docs === 2
+              ? "Verdict: supported\nExplanation: The list has 2 Documents.\nEvidence: []\nWorking: Counted the Documents list."
+              : `Verdict: contradicted\nExplanation: The list has ${docs} Documents.\nEvidence: []\nWorking: Counted the Documents list.`,
+        };
+      },
+      { generate: (call) => ({ text: sortReply(call.prompt) }) },
+    );
+    const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+    const sources = await createSourceFolder();
+    const [secretDoc, publicDoc] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret.md", "# Secret\n\nWalled document.\n"),
+      await writeSourceFile(sources, "Public.md", "# Public\n\nShared sub-folder document.\n"),
+    ]);
+    if (!secretDoc || !publicDoc) throw new Error("Missing fixture Documents.");
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    const pub = await core.createLibraryGroup({
+      name: "Public",
+      description: "",
+      parentId: vault.id,
+    });
+    await core.updateLibraryGroup(vault.id, {
+      name: "Vault",
+      description: "",
+      keepInside: true,
+    });
+    await core.assignDocumentGroup(secretDoc.id, vault.id);
+    await core.assignDocumentGroup(publicDoc.id, pub.id);
+
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [pub.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+
+    // User checks a Note inside the walled Folder (stored with source.kind: "scope", outside absent).
+    const { mindId: userNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Vault count", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    expect(
+      (await core.checkMind({ requestId: "user-wall", mindId: userNote, mode: "all" })).kind,
+    ).toBe("checked");
+
+    // While current, the User's walled-Folder Library mark is masked as beyond-reach (never revealed).
+    calls.length = 0;
+    expect(structured<Checked>(await check(agent, userNote))).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 0,
+      notChecked: 1,
+      claims: [
+        {
+          sentence: CLAIM,
+          group: "notChecked",
+          result: "not-checked",
+          reason: "beyond-reach",
+          says: null,
+          document: null,
+          location: null,
+          quote: null,
+          cite: null,
+        },
+      ],
+    });
+    expect(calls).toEqual([]);
+
+    // Once stale, the agent still may not overwrite the User's walled-Folder Library mark.
+    const [extraVault] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret2.md", "# Secret 2\n\nAnother walled document.\n"),
+    ]);
+    if (!extraVault) throw new Error("Missing Secret2.");
+    await core.assignDocumentGroup(extraVault.id, vault.id);
+    calls.length = 0;
+    expect(refusal(await check(agent, userNote))).toContain("outside the Folders");
+    expect(calls).toEqual([]);
+
+    // Meanwhile, an agent's own pairing mark (outside: true) IS re-checked once its grant changes.
+    const { mindId: agentNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Agent count", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    expect(structured<Checked>(await check(agent, agentNote))).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 1,
+    });
+    const [extraPub] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Public2.md", "# Public 2\n\nSecond shared document.\n"),
+    ]);
+    if (!extraPub) throw new Error("Missing Public2.");
+    await core.assignDocumentGroup(extraPub.id, pub.id);
+    expect(structured<Checked>(await check(agent, agentNote))).toMatchObject({
+      status: "checked",
+      supported: 1,
+      needLook: 0,
+    });
   });
 
   // protects=every User-side reader (editor, Word export, check record, AI use statement) reads an agent's grant-only Library check as needs-recheck when the User's Library differs, Not cited workings are counted alike by User and agent, and check_mind names the granted source with sourceWords and libraryRow rather than "library-facts" or "Your Library" (#2525); fails_when=export/check-record/AI-use-statement show an agent's grant-only Library check as Supported, agent and User disagree on Not cited workings, or check_mind leaks "library-facts" or "Your Library".

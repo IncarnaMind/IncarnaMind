@@ -3214,8 +3214,12 @@ export function createCore(adapters: CoreAdapters): Core {
   const libraryListsOf = (mindId: string | null) => {
     const ownWall = walledFolder(mindId);
     const sees = (folderId: string | null) => walledFolderId(folderId) === ownWall;
-    const listed = new Set(documents.ids({ listed: true }));
-    const seen = (scopeDocuments(null, mindId) ?? [...listed]).filter((id) => listed.has(id));
+    const listedRows = documents.rows({ listed: true });
+    const scoped = scopeDocuments(null, mindId);
+    const scopedSet = scoped === null ? null : new Set(scoped);
+    const seen =
+      scopedSet === null ? listedRows : listedRows.filter((row) => scopedSet.has(row.id));
+    const docTags = tags.linksByDocument();
     const walls = library.folders().filter((folder) => folder.keepInside).length;
     return libraryLists({
       source:
@@ -3228,7 +3232,7 @@ export function createCore(adapters: CoreAdapters): Core {
           : walls > 0
             ? { kind: "left-out", folders: walls }
             : { kind: "library" },
-      documents: documents.getMany(seen),
+      documents: seen.map((row) => ({ ...row, tags: docTags.get(row.id) ?? [] })),
       folders: library.folders().filter((folder) => sees(folder.id)),
       folderOf: new Map(
         library
@@ -3307,9 +3311,12 @@ export function createCore(adapters: CoreAdapters): Core {
         ),
     );
     // A meeting is counted once, as its Note (#2528, #3384).
+    const grantedIds = new Set(documentIds);
+    const docTags = tags.linksByDocument();
     const listed = documents
-      .getMany([...documentIds])
-      .filter((document) => document.meetingMindId === null);
+      .rows()
+      .filter((document) => grantedIds.has(document.id) && document.meetingMindId === null)
+      .map((document) => ({ ...document, tags: docTags.get(document.id) ?? [] }));
     return libraryLists({
       source,
       documents: listed,
@@ -8010,7 +8017,6 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError("A list of Note ids must be an array.");
       }
       const found: MindContentSnapshot[] = [];
-      const docVersions = documentVersions();
       for (const mindId of mindIds) {
         if (typeof mindId !== "string") {
           throw new InvalidInputError("A Note id must be text.");
@@ -8023,7 +8029,7 @@ export function createCore(adapters: CoreAdapters): Core {
           if (error instanceof NotFoundError) continue;
           throw error;
         }
-        const versions = versionsWithLibrary(docVersions, userLibraryVersion(mind.id));
+        const versions = versionsFor(mind.id);
         const snapshot = await content.inspectStored(
           mindId,
           async ({ state, blocks, settings, yieldTurn }) => {
