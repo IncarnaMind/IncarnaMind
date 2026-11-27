@@ -7,7 +7,7 @@
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { OwnAiEnd, OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
@@ -17,6 +17,7 @@ import { ClaudeCodeHookError, ClaudeCodeIsolationError, runClaudeCodeTurn } from
 import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./claudeCodeAsks";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
 import { modelsIn } from "./ownAiModels";
+import { quotingNow, sayingNow, writingNow } from "./streamedInput";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
 export const LOWEST_CLAUDE_CODE = "2.1.248";
@@ -49,6 +50,37 @@ const INITIALIZE_MS = 60_000;
 
 /** How often the core hears that the run is alive, whatever it sent. */
 const HEARD_EVERY_MS = 1_000;
+
+/**
+ * How often the line above a Note's input may take the next words of what the AI thinks or
+ * writes at most (#3677): a quote takes a fifth of a second to write, too fast to read.
+ */
+const SAY_EVERY_MS = 1_000;
+/** As much of the AI's thinking as its latest heading or sentence needs. */
+const MAX_THOUGHT_CHARS = 4000;
+
+/** An executable as it is on disk (its real path, size and time), or null when it can't be read. */
+async function identityOf(executable: string): Promise<string | null> {
+  try {
+    const real = await realpath(executable);
+    const { size, mtimeMs } = await stat(real);
+    return `${real}\u0000${size}\u0000${mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
+
+/** A call's input once it is written whole, or null for one that isn't an object. */
+function parsedInput(json: string): Record<string, unknown> | null {
+  try {
+    const input: unknown = JSON.parse(json === "" ? "{}" : json);
+    return typeof input === "object" && input !== null && !Array.isArray(input)
+      ? object(input)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
 const NOTHING_TO_PURGE = /No Claude Code project data found/;
@@ -171,6 +203,9 @@ export function createOwnAi({
     );
   }
   const codex = () => (codexCommand === null ? Promise.resolve(null) : findCodex(codexCommand));
+  // The executable whose version last passed: it is asked again only once Claude Code is replaced,
+  // as an update does, so a request starts it only for its sign-in first (#3677).
+  let versionPassed: string | null = null;
 
   return {
     async installed(client) {
@@ -206,12 +241,16 @@ export function createOwnAi({
       }
       if (command === null) return { kind: "missing" };
       const executable = (await resolveCommand(command)) ?? command;
-      const version = await short(executable, ["--version"]);
-      if (version.kind === "no-answer") return { kind: "unknown" };
-      if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
-      const found = version.out.match(/\d+\.\d+\.\d+/)?.[0];
-      if (!found || older(found, LOWEST_CLAUDE_CODE)) {
-        return { kind: "too-old", found: found ?? "", lowest: LOWEST_CLAUDE_CODE };
+      const identity = await identityOf(executable);
+      if (identity === null || identity !== versionPassed) {
+        const version = await short(executable, ["--version"]);
+        if (version.kind === "no-answer") return { kind: "unknown" };
+        if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
+        const found = version.out.match(/\d+\.\d+\.\d+/)?.[0];
+        if (!found || older(found, LOWEST_CLAUDE_CODE)) {
+          return { kind: "too-old", found: found ?? "", lowest: LOWEST_CLAUDE_CODE };
+        }
+        versionPassed = identity;
       }
       // 0 signed in, 1 not: anything else says nothing about the sign-in.
       const signedIn = await short(executable, ["auth", "status"]);
@@ -334,18 +373,73 @@ export function createOwnAi({
         }, compactMs);
         request.progress?.({ kind: "compacting" });
       };
+      // Each call of IncarnaMind's server whose input is streaming, by its block in the message.
+      const writing = new Map<number, { name: string; json: string; told: string; at: number }>();
+      let thought = "";
+      let thoughtTold = "";
+      let thoughtAt = 0;
+      let thinkingBlock = -1;
+      // A summary comes in bursts: what the limit held back of one is told once the limit allows,
+      // not when the next burst comes, seconds later.
+      let thoughtLater: ReturnType<typeof setTimeout> | null = null;
+      const tellThought = (saying: string | null) => {
+        if (thoughtLater !== null) clearTimeout(thoughtLater);
+        thoughtLater = null;
+        if (saying === null || saying === "" || saying === thoughtTold) return;
+        thoughtAt = performance.now();
+        thoughtTold = saying;
+        request.progress?.({ kind: "thinking", text: saying });
+      };
       const heardPart = (event: Record<string, unknown>) => {
         const block = object(event.content_block);
         const delta = object(event.delta);
+        const index = typeof event.index === "number" ? event.index : -1;
+        if (event.type === "message_start") writing.clear();
         if (event.type === "content_block_start" && block.type === "tool_use" && ours(block.name)) {
-          request.progress?.({
-            kind: "tool",
-            name: String(block.name).slice(`mcp__${SERVER}__`.length),
-          });
+          const name = String(block.name).slice(`mcp__${SERVER}__`.length);
+          writing.set(index, { name, json: "", told: "", at: Number.NEGATIVE_INFINITY });
+          request.progress?.({ kind: "tool", name });
         } else if (event.type === "content_block_start" && block.type === "text") {
           written = "";
         } else if (event.type === "content_block_start" && block.type === "thinking") {
-          request.progress?.({ kind: "thinking" });
+          tellThought(null);
+          thought = "";
+          thoughtTold = "";
+          thoughtAt = Number.NEGATIVE_INFINITY;
+          thinkingBlock = index;
+          request.progress?.({ kind: "thinking", text: "" });
+        } else if (event.type === "content_block_stop") {
+          // Its last words, whole, before the calls it led to start.
+          if (index === thinkingBlock) {
+            thinkingBlock = -1;
+            tellThought(thought.trim());
+          }
+          const call = writing.get(index);
+          writing.delete(index);
+          const input = call ? parsedInput(call.json) : null;
+          if (call && input) request.progress?.({ kind: "tool", name: call.name, input });
+        } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
+          if (delta.thinking === "") return;
+          thought = `${thought}${delta.thinking}`.slice(-MAX_THOUGHT_CHARS);
+          const wait = thoughtAt + SAY_EVERY_MS - performance.now();
+          if (wait <= 0) tellThought(sayingNow(thought));
+          else thoughtLater ??= setTimeout(() => tellThought(sayingNow(thought)), wait);
+        } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
+          const call = writing.get(index);
+          if (!call || call.json.length > MAX_RUN_BYTES) return;
+          call.json += delta.partial_json;
+          if (performance.now() - call.at < SAY_EVERY_MS) return;
+          const text = writingNow(call.name, call.json);
+          const passageId = text === null ? quotingNow(call.name, call.json) : null;
+          const told = text ?? passageId ?? "";
+          if (told === "" || told === call.told) return;
+          call.told = told;
+          call.at = performance.now();
+          request.progress?.(
+            text !== null
+              ? { kind: "writing", tool: call.name, text }
+              : { kind: "quoting", passageId: told },
+          );
         } else if (delta.type === "text_delta" && typeof delta.text === "string") {
           written = `${written}${delta.text}`.slice(0, MAX_REPLY_CHARS);
           request.progress?.({ kind: "said", text: written });
@@ -569,6 +663,7 @@ export function createOwnAi({
         for (const waiting of asking.values()) waiting.abort();
         asking.clear();
         if (compacting !== null) clearTimeout(compacting);
+        if (thoughtLater !== null) clearTimeout(thoughtLater);
         await rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() =>
           console.warn("Could not remove the temporary folder of a run of the User's own AI."),
         );

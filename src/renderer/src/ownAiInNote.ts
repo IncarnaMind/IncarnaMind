@@ -256,7 +256,8 @@ function heard(event: NoteTurnEvent): void {
   // never takes the line back (#3765).
   const shown =
     !was ||
-    was.turnId === null ||
+    (was.turnId === null &&
+      (was.state !== "working" || event.startedAt >= (was.startedAt ?? ""))) ||
     was.turnId === event.turnId ||
     ((was.state !== "working" || was.queued.includes(event.turnId)) &&
       (was.startedAt === null || event.startedAt >= was.startedAt));
@@ -372,14 +373,29 @@ export async function askInNote(
     const { [mindId]: _shown, ...at } = state.at;
     return { started: { ...state.started, [mindId]: false }, at };
   });
-  const start = await core.askInNote({
-    mindId,
-    words: asked.words,
-    ...(model && { model }),
-    ...(asked.quote !== "" && { quote: asked.quote }),
-    ...(asked.selection && { selection: asked.selection }),
-    ...(asked.caret && !asked.selection && { caret: asked.caret }),
-  });
+  // Sent, the request shows at once, as a chat shows a message sent: the core's answer settles it
+  // once its AI is under way, or puts back the line before it.
+  const before = useNoteAsks.getState().byMind[mindId];
+  const sending = isGoing(before) ? null : sendingAsk(mindId, asked);
+  if (sending) put(mindId, sending);
+  const unsent = () => {
+    if (sending && useNoteAsks.getState().byMind[mindId] === sending) put(mindId, before ?? null);
+  };
+  let start: Awaited<ReturnType<typeof core.askInNote>>;
+  try {
+    start = await core.askInNote({
+      mindId,
+      words: asked.words,
+      ...(model && { model }),
+      ...(asked.quote !== "" && { quote: asked.quote }),
+      ...(asked.selection && { selection: asked.selection }),
+      ...(asked.caret && !asked.selection && { caret: asked.caret }),
+    });
+  } catch (error) {
+    unsent();
+    throw error;
+  }
+  if (start.kind === "link" || start.kind === "busy" || start.kind === "sent") unsent();
   if (start.kind === "link") return "link";
   if (start.kind === "busy") {
     useNotices.getState().confirm("noteAsk.busy", { agent: start.pairing.name }, { look: true });
@@ -401,7 +417,7 @@ export async function askInNote(
     agent: start.pairing.name,
     state: start.kind === "started" ? "working" : "failed",
     doing: null,
-    startedAt: start.kind === "started" ? new Date().toISOString() : null,
+    startedAt: start.kind === "started" ? (sending?.startedAt ?? new Date().toISOString()) : null,
     problem: start.kind === "problem" ? start.problem : null,
     versions: start.kind === "problem" ? (start.versions ?? null) : null,
     reply: "",
@@ -425,6 +441,33 @@ export async function askInNote(
   if (current?.turnId !== base.turnId || base.turnId === null) put(mindId, base);
   else put(mindId, { ...current, asked });
   return start.kind;
+}
+
+/** A request as it is sent, before the core answers: working, on the agent the Note's input runs. */
+function sendingAsk(mindId: string, asked: NoteAsked): NoteAsk | null {
+  const agent = agentsToAsk(mindId).find((each) => runsInBackground(each, ownAiRunsHereNow()));
+  if (!agent) return null;
+  return {
+    turnId: null,
+    pairingId: agent.id,
+    agent: agent.name,
+    state: "working",
+    doing: null,
+    startedAt: new Date().toISOString(),
+    problem: null,
+    versions: null,
+    reply: "",
+    changed: 0,
+    waiting: [],
+    made: [],
+    fresh: false,
+    quiet: false,
+    documentsFound: 0,
+    questions: [],
+    mode: null,
+    queued: [],
+    asked,
+  };
 }
 
 export const stopInNote = (mindId: string): Promise<void> => core.stopInNote(mindId);

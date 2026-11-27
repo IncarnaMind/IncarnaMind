@@ -13850,7 +13850,12 @@ export type NoteDoing =
   /** A step with a tool of its own (#3653). */
   | { kind: "own"; action: NoteAction }
   | { kind: "said"; text: string }
-  | { kind: "thinking" }
+  /** `summary`: what the AI said of its thinking so far, where its agent gives it (#3677). */
+  | { kind: "thinking"; summary?: string }
+  /** The paragraph a change or a new Note is at, as the AI writes it (#3677). */
+  | { kind: "writing"; tool: AgentToolName; text: string }
+  /** The Document of the quote the AI is writing, by its name (#3677). */
+  | { kind: "quoting"; document: string }
   | { kind: "compacting" };
 
 /**

@@ -19,6 +19,7 @@ import type {
   OwnAiModel,
   OwnAiProgress,
   OwnAiRunner,
+  OwnAiStatus,
 } from "../adapters";
 import {
   AGENT_TOOLS,
@@ -133,6 +134,8 @@ const BEGUN: Record<OwnAiProgress["kind"], boolean> = {
   thinking: true,
   said: true,
   tool: true,
+  writing: true,
+  quoting: true,
   own: true,
   compacting: true,
   compacted: true,
@@ -147,6 +150,11 @@ export interface OwnAiConversationsOptions {
   askable(mindId: string): AgentPairing[];
   /** Of `tokens`, the Citations IncarnaMind gave this connection, found in their Document now. */
   citationsOf(pairingId: string, tokens: readonly string[]): NoteCitation[];
+  /** The name of a Document the connection reaches, by its id or one of its Passages; else null. */
+  documentNamed?(
+    pairingId: string,
+    ref: { documentId?: string; passageId?: string },
+  ): string | null;
   /** A grant for one run, which tells it of its own calls and changes, and of no one else's. */
   conversationGrant(
     pairingId: string,
@@ -367,7 +375,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       [conversationId, turnId],
     ) !== undefined;
 
-  const stop = (mindId: string) => running.get(mindId)?.stop.abort();
+  // The requests whose checks still run, by Note: the line shows one working, with Stop, as it is
+  // sent, so a Stop then stops its run as it begins (#3677).
+  const checking = new Map<string, Set<AbortController>>();
+  const stop = (mindId: string) => {
+    const run = running.get(mindId);
+    if (run) run.stop.abort();
+    else for (const each of checking.get(mindId) ?? []) each.abort();
+  };
 
   /** The Note's conversation with this agent, started if it has none: its id names its working folder. */
   const startedConversation = (mindId: string, pairingId: string): ConversationRow => {
@@ -542,10 +557,19 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       .askable(mindId)
       .find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
     if (!runner || !pairing) return { kind: "link" };
-    if (!(await runner.installed("claude-code"))) return { kind: "link" };
-    // Nothing of the User's agent is started, its `--version` included, before the consent.
-    if (!(await options.consented(pairing))) return { kind: "link" };
-    const status = await runner.status("claude-code");
+    const stopped = new AbortController();
+    const checks = checking.get(mindId) ?? new Set<AbortController>();
+    checking.set(mindId, checks.add(stopped));
+    let status: OwnAiStatus;
+    try {
+      if (!(await runner.installed("claude-code"))) return { kind: "link" };
+      // Nothing of the User's agent is started, its `--version` included, before the consent.
+      if (!(await options.consented(pairing))) return { kind: "link" };
+      status = await runner.status("claude-code");
+    } finally {
+      checks.delete(stopped);
+      if (checks.size === 0) checking.delete(mindId);
+    }
     if (status.kind === "missing" || status.kind === "unsupported") return { kind: "link" };
     if (status.kind === "signed-out") return { kind: "problem", pairing, problem: "signed-out" };
     if (status.kind === "unknown") return { kind: "problem", pairing, problem: "no-answer" };
@@ -570,7 +594,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
        VALUES (?, ?, ?, ?, 'working', ?, ?)`,
       [turnId, conversation.id, request, quote, at, at],
     );
-    begin({ mindId, pairing, turnId, conversation, request, quote, caret, selection, model });
+    const run = begin({
+      mindId,
+      pairing,
+      turnId,
+      conversation,
+      request,
+      quote,
+      caret,
+      selection,
+      model,
+    });
+    if (stopped.signal.aborted) run.stop.abort();
     return { kind: "started", pairing, turnId };
   }
 
@@ -771,6 +806,23 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         },
         Math.min(1_000, quietMs / 4),
       );
+    /**
+     * What a call's whole input names that the line says while it runs: a search's words, or the
+     * Document a read reaches, by its name; null where the call names it only as it runs.
+     */
+    const namedIn = (tool: AgentToolName, input: Record<string, unknown>): string | null => {
+      if (tool === "search") return typeof input.query === "string" ? input.query : null;
+      if (tool === "create_mind") return typeof input.title === "string" ? input.title : null;
+      if (tool === "read_mind" || tool === "propose_changes") {
+        return input.mindId === mindId ? options.titleOf(mindId) : null;
+      }
+      if (tool !== "read_passages" || !options.documentNamed) return null;
+      const passageId = [input.passageId, input.from].find((each) => typeof each === "string");
+      if (typeof passageId === "string") return options.documentNamed(pairing.id, { passageId });
+      return typeof input.documentId === "string"
+        ? options.documentNamed(pairing.id, { documentId: input.documentId })
+        : null;
+    };
     const doingCall = (of: Taken, tool: AgentToolName, summary: string) => {
       const seen = of.named.get(tool) ?? new Set<string>();
       if (summary !== "") seen.add(summary);
@@ -889,6 +941,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (current) {
           current.doing = compacting ? { kind: "compacting" } : { kind: "thinking" };
           current.saidForStep = false;
+          current.thought = "";
         }
         tellWorking();
         return;
@@ -948,6 +1001,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (step.state === "refused") taken.by = "refused";
         if (step.state === "done" || step.state === "failed") {
           delete taken.going;
+          if (now.calls === 0 && !now.saidForStep && !ownGoing(now)) now.doing = thinkingOf(now);
         } else if (step.state === "going") {
           now.calledSince = true;
           // A tool it names by its own name only ("ToolSearch") says nothing to the User: the line
@@ -968,15 +1022,39 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         now.doing = { kind: "said", text: step.text };
         now.saidForStep = true;
         now.calledSince = false;
+        now.thought = "";
       } else if (step.kind === "tool") {
-        // A Tool's name the stream gives as the call starts; what it names comes when it ends.
-        if (isAgentTool(step.name)) doingCall(now, step.name, "");
-      } else if (now.doing?.kind !== "said" || now.calledSince) {
-        now.doing = { kind: "thinking" };
+        // A Tool's name the stream gives as the call starts, and what it reads once its input is
+        // written whole; what else it names comes as IncarnaMind runs it.
+        if (!isAgentTool(step.name)) return;
+        if (!step.input) doingCall(now, step.name, "");
+        else {
+          const named = namedIn(step.name, step.input);
+          if (named === null) return;
+          doingCall(now, step.name, named);
+        }
+      } else if (step.kind === "writing") {
+        if (!isAgentTool(step.tool) || now.saidForStep) return;
+        now.doing = { kind: "writing", tool: step.tool, text: step.text };
+      } else if (step.kind === "quoting") {
+        // Only a Document the connection reaches: the quote is its own, from what it was given.
+        const document = options.documentNamed?.(pairing.id, { passageId: step.passageId });
+        if (!document || now.saidForStep) return;
+        now.doing = { kind: "quoting", document };
+      } else if (step.text) {
+        now.thought = step.text;
+        now.doing = thinkingOf(now);
+        now.saidForStep = false;
+      } else if (
+        (now.doing?.kind !== "said" || now.calledSince) &&
+        !(step.text === undefined && now.doing?.kind === "thinking")
+      ) {
+        now.doing = thinkingOf(now);
         now.saidForStep = false;
       }
       tellWorking();
     };
+    const ownGoing = (of: Taken) => of.steps.some((step) => step.kind === "own" && step.going);
     /** The step of the agent's own call `id`, begun now in `of` if it wasn't heard yet. */
     const ownStep = (of: Taken, id: string | null, action: NoteAction) => {
       const known = id === null ? undefined : ownSteps.get(id);
@@ -1190,6 +1268,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             of.calls -= 1;
             heard();
             if (of.calls === 0) closeLater(of);
+            // Its result goes back to the AI, which works on its next step: the line never names
+            // as going on a call that has ended.
+            if (of.calls === 0 && current === of && !of.saidForStep && !ownGoing(of)) {
+              of.doing = thinkingOf(of);
+              tellWorking();
+            }
           },
         };
       },
@@ -1642,6 +1726,11 @@ interface Taken {
    */
   saidForStep: boolean;
   calledSince: boolean;
+  /**
+   * The AI's latest summary of its thinking: the line says it with Thinking until a newer one or
+   * words of its own to the User take its place, the calls it led to being too quick to read.
+   */
+  thought: string;
   /** Its calls still running, and its end, once its AI took a later request, kept until they end. */
   calls: number;
   closing: (() => void) | null;
@@ -1664,7 +1753,11 @@ const taking = (turnId: string, startedAt: string): Taken => ({
   readOf: new Map(),
   saidForStep: false,
   calledSince: false,
+  thought: "",
   calls: 0,
   closing: null,
   own: new Set(),
 });
+
+const thinkingOf = (of: Taken): NoteDoing =>
+  of.thought === "" ? { kind: "thinking" } : { kind: "thinking", summary: of.thought };
