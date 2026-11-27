@@ -1960,6 +1960,27 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
   });
 
+  // protects=a Stop pressed while a request's checks run, before its run has begun, stops it as it begins and starts nothing of the User's agent: the line shows the request working, with Stop, the moment it is sent (#3677); fails_when=the request starts after its checks and runs on as if Stop was never pressed
+  it("stops a request as it begins when Stop came while its checks ran", async () => {
+    const checks = gate();
+    const run = runner(untilStopped);
+    run.adapter.status = async () => {
+      checks.reached();
+      await checks.shut;
+      return { kind: "ready" };
+    };
+    const { core, mindId, client, ended } = await written(run.adapter);
+    const start = core.askInNote({ mindId, words: "rewrite everything" });
+    await checks.at;
+    await core.stopInNote(mindId);
+    checks.open();
+    await expect(start).resolves.toMatchObject({ kind: "started" });
+    expect(await ended()).toMatchObject({ state: "stopped", applied: [] });
+    expect(run.runs).toEqual([]);
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
+  });
+
   // protects=looking for the models starts nothing of the User's agent, with or without the consent; the list comes from a request's own run, which asks for it, and shows only while a request from the Note could run; the model a Note's last run named is held for that Note alone, so any window shows it and another Note shows none; fails_when=the list starts the agent, shows before a run answered it, or outlives the consent or the connection, or the box names the list's first model for a Note that ran on another
   it("lists the models a request's run heard, and starts nothing to look", async () => {
     let calls = 0;

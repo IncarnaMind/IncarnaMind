@@ -84,5 +84,6 @@ export function sayingNow(text: string): string | null {
 export function quotingNow(tool: string, json: string): string | null {
   if (!QUOTES.has(tool)) return null;
   const ids = [...json.matchAll(/"passageId"\s*:\s*"((?:[^"\\]|\\.)*)"/g)];
-  return ids.at(-1)?.[1] ?? null;
+  const id = ids.at(-1)?.[1];
+  return id === undefined ? null : stringSoFar(id);
 }

@@ -19,6 +19,7 @@ import type {
   OwnAiModel,
   OwnAiProgress,
   OwnAiRunner,
+  OwnAiStatus,
 } from "../adapters";
 import {
   AGENT_TOOLS,
@@ -374,7 +375,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       [conversationId, turnId],
     ) !== undefined;
 
-  const stop = (mindId: string) => running.get(mindId)?.stop.abort();
+  // The requests whose checks still run, by Note: the line shows one working, with Stop, as it is
+  // sent, so a Stop then stops its run as it begins (#3677).
+  const checking = new Map<string, Set<AbortController>>();
+  const stop = (mindId: string) => {
+    const run = running.get(mindId);
+    if (run) run.stop.abort();
+    else for (const each of checking.get(mindId) ?? []) each.abort();
+  };
 
   /** The Note's conversation with this agent, started if it has none: its id names its working folder. */
   const startedConversation = (mindId: string, pairingId: string): ConversationRow => {
@@ -549,10 +557,19 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       .askable(mindId)
       .find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
     if (!runner || !pairing) return { kind: "link" };
-    if (!(await runner.installed("claude-code"))) return { kind: "link" };
-    // Nothing of the User's agent is started, its `--version` included, before the consent.
-    if (!(await options.consented(pairing))) return { kind: "link" };
-    const status = await runner.status("claude-code");
+    const stopped = new AbortController();
+    const checks = checking.get(mindId) ?? new Set<AbortController>();
+    checking.set(mindId, checks.add(stopped));
+    let status: OwnAiStatus;
+    try {
+      if (!(await runner.installed("claude-code"))) return { kind: "link" };
+      // Nothing of the User's agent is started, its `--version` included, before the consent.
+      if (!(await options.consented(pairing))) return { kind: "link" };
+      status = await runner.status("claude-code");
+    } finally {
+      checks.delete(stopped);
+      if (checks.size === 0) checking.delete(mindId);
+    }
     if (status.kind === "missing" || status.kind === "unsupported") return { kind: "link" };
     if (status.kind === "signed-out") return { kind: "problem", pairing, problem: "signed-out" };
     if (status.kind === "unknown") return { kind: "problem", pairing, problem: "no-answer" };
@@ -577,7 +594,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
        VALUES (?, ?, ?, ?, 'working', ?, ?)`,
       [turnId, conversation.id, request, quote, at, at],
     );
-    begin({ mindId, pairing, turnId, conversation, request, quote, caret, selection, model });
+    const run = begin({
+      mindId,
+      pairing,
+      turnId,
+      conversation,
+      request,
+      quote,
+      caret,
+      selection,
+      model,
+    });
+    if (stopped.signal.aborted) run.stop.abort();
     return { kind: "started", pairing, turnId };
   }
 
@@ -973,7 +1001,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (step.state === "refused") taken.by = "refused";
         if (step.state === "done" || step.state === "failed") {
           delete taken.going;
-          if (calls === 0 && !now.saidForStep && !ownGoing(now)) now.doing = thinkingOf(now);
+          if (now.calls === 0 && !now.saidForStep && !ownGoing(now)) now.doing = thinkingOf(now);
         } else if (step.state === "going") {
           now.calledSince = true;
           // A tool it names by its own name only ("ToolSearch") says nothing to the User: the line
@@ -1242,7 +1270,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             if (of.calls === 0) closeLater(of);
             // Its result goes back to the AI, which works on its next step: the line never names
             // as going on a call that has ended.
-            if (calls === 0 && current === of && !of.saidForStep && !ownGoing(of)) {
+            if (of.calls === 0 && current === of && !of.saidForStep && !ownGoing(of)) {
               of.doing = thinkingOf(of);
               tellWorking();
             }

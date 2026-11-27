@@ -70,6 +70,9 @@ describe("what a call is writing, from its input as it streams (#3677)", () => {
     expect(quotingNow("cite", cutAt(input, whole.indexOf("p-two") + 3))).toBe("p-one");
     expect(quotingNow("cite", whole)).toBe("p-two");
     expect(quotingNow("read_passages", JSON.stringify({ passageId: "p-one" }))).toBeNull();
+    expect(quotingNow("cite", '{"citations":[{"passageId":"p\\u002done","quote":"x"}]}')).toBe(
+      "p-one",
+    );
   });
 
   // protects=what the AI thinks reaches the line in words that say something: a sentence or paragraph just begun waits until it has a few words, the ones before it stand meanwhile, in English and Chinese; fails_when=the line shows "Thinking · I'm nar"
