@@ -13555,8 +13555,9 @@ export type NoteTurnProblem =
 
 /**
  * How a request at a Note's foot went to the User's own AI: "started", in the background; "sent",
- * into the Note's request running already, whose AI takes it at its next step (#3765); "link", no
- * agent can run it so and it goes by the link; "problem", one can't run now, with why.
+ * while a request of the Note runs: held by IncarnaMind until that reply ends, then sent as a
+ * request of its own (#3765); "link", no agent can run it so and it goes by the link; "problem",
+ * one can't run now, with why.
  */
 export type NoteRequestStart =
   | { kind: "started"; pairing: AgentPairing; turnId: string }
@@ -13599,10 +13600,12 @@ export interface NoteTurn {
   /** The agent's last words. */
   reply: string;
   /**
-   * "waiting": sent while another request ran, and not yet taken by its AI (#3765); "unsent": that
-   * run ended before its AI took it, so it never reached the AI.
+   * "held": sent while another request ran, and held by IncarnaMind until that reply ends: the User
+   * may still send it at once, change it or discard it (#3765). "waiting": sent at once into the
+   * request running, and not yet taken by its AI. "unsent": it could never be sent (its run
+   * failed, IncarnaMind quit, the AI went), so it never reached the AI.
    */
-  outcome: "working" | "landed" | "stopped" | "failed" | "waiting" | "unsent";
+  outcome: "working" | "landed" | "stopped" | "failed" | "held" | "waiting" | "unsent";
   problem: NoteTurnProblem | null;
   /** ISO 8601, UTC. */
   at: string;
@@ -13775,7 +13778,16 @@ export interface NoteTurnEvent {
    * oldest first (#3765): while there are any, the run goes on after this request ends.
    */
   queued: string[];
+  /** The messages the User sent meanwhile that IncarnaMind holds for the Note, oldest first (#3765). */
+  held: string[];
 }
+
+/**
+ * A held message's editor (#3765): opened, the message isn't sent until it closes; closed with
+ * Cancel, the message stays as it was; with Save, it takes the new words. Closed while no request
+ * of the Note runs, it is sent at once.
+ */
+export type NoteHeldEdit = { kind: "open" } | { kind: "cancel" } | { kind: "save"; words: string };
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
 export type NoteStep =
@@ -16520,14 +16532,27 @@ export interface CoreApi {
    * Sends a request typed at a Note's foot to the User's own command-line AI, in the background, in
    * the Note's one conversation (ADR-0034): on `pairingId`, or the first agent that can run it.
    * Asks once for the consent to send it. Its progress and end are told by "agents.noteTurn".
-   * While a request of the Note's runs, this one goes into that run at once, about the whole Note,
-   * as a turn of its own (#3765).
+   * While a request of the Note's runs, this one is held, about the whole Note, and sent as a
+   * request of its own once that reply ends, each held in the order sent (#3765).
    */
   askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
-  /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
+  /**
+   * Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo,
+   * and the oldest message held for it is sent at once (#3765).
+   */
   stopInNote(mindId: string): Promise<void>;
-  /** Removes a request of the Note's conversation that was never sent (#3765); any other stays. */
+  /**
+   * Removes a request of the Note's conversation that was never sent, or a message held for it,
+   * which then is never sent (#3765); any other stays.
+   */
   discardInNote(mindId: string, turnId: string): Promise<void>;
+  /**
+   * Sends a message held for the Note at once (#3765): into the request running, whose AI takes it
+   * at its next step, or as a request of its own when none runs. Any other does nothing.
+   */
+  sendNowInNote(mindId: string, turnId: string): Promise<void>;
+  /** Opens or closes a held message's editor (#3765); any other message does nothing. */
+  editHeldInNote(mindId: string, turnId: string, edit: NoteHeldEdit): Promise<void>;
   /**
    * Answers what the User's own AI asks in the Note's conversation (#3653), with one of the
    * answers the question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
@@ -17474,6 +17499,8 @@ const methods: Record<CoreApiMethod, true> = {
   askInNote: true,
   stopInNote: true,
   discardInNote: true,
+  sendNowInNote: true,
+  editHeldInNote: true,
   answerInNote: true,
   noteTurnNow: true,
   noteConversation: true,

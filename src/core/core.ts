@@ -10234,6 +10234,26 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.discard(mindId, turnId);
     },
+    sendNowInNote: async (mindId, turnId) => {
+      if (typeof mindId !== "string" || typeof turnId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.sendNow(mindId, turnId);
+    },
+    editHeldInNote: async (mindId, turnId, edit) => {
+      if (
+        typeof mindId !== "string" ||
+        typeof turnId !== "string" ||
+        typeof edit !== "object" ||
+        edit === null ||
+        !(
+          edit.kind === "open" ||
+          edit.kind === "cancel" ||
+          (edit.kind === "save" && typeof edit.words === "string")
+        )
+      )
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.editHeld(mindId, turnId, edit);
+    },
     answerInNote: async (mindId, questionId, answer) => {
       if (
         typeof mindId !== "string" ||

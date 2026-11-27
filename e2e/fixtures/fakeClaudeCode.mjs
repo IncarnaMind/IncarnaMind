@@ -3,7 +3,8 @@
 // stream, reaching IncarnaMind's server only through the settings file it was given. What it does
 // is read from the file INCARNAMIND_TEST_OWN_AI_MODE_FILE names at each start: "check" (the
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped;
-// "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
+// "signed-out" is not signed in; "limit" ends as a plan's limit does, and "limit-gated" too once
+// the mode file's ".step" reaches 1. A request typed at a Note's
 // foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
 // "explain" answers and changes nothing ("plan" too, about the harbour plan, and "timetable", about
 // the 07:40 crossing); "write" writes a new Note, "Ferry summary"; "summary" writes a summary into
@@ -306,7 +307,8 @@ async function run(message) {
     });
     await new Promise(() => {});
   }
-  if (mode === "limit") {
+  if (mode === "limit" || mode === "limit-gated") {
+    if (mode === "limit-gated") await gate(1);
     say({ type: "system", subtype: "api_retry", error: "rate_limit", attempt: 1 });
     say({ type: "result", subtype: "success", is_error: true, result: "Limit reached." });
     return;

@@ -3,15 +3,18 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
+import { keysHere } from "../../commands/keymap";
 import { useLanguage, useT } from "../../i18n";
 import {
   askAgainInNote,
   discardInNote,
+  editHeldInNote,
   editRequest,
   firstWordsOf,
   isGoing,
   type NoteAsk,
   type NoteTrail,
+  sendNowInNote,
   sendUnsent,
   setColumnOpen,
   useNoteAsks,
@@ -30,6 +33,7 @@ import {
   TrashLineIcon,
 } from "../icons";
 import { SidebarToggle } from "../SidebarToggle";
+import { TypingTextarea } from "../TypingTextarea";
 import { ConversationMenu } from "./ConversationMenu";
 import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
@@ -231,6 +235,8 @@ export function NoteColumn({
   );
 }
 
+const isHeld = (turn: NoteTurn) => turn.outcome === "held";
+
 /** Marks the turns scrolled past their start, where their top fades out (styles.css). */
 const markScrolled = (element: HTMLElement) =>
   element.toggleAttribute("data-scrolled", element.scrollTop > 0);
@@ -284,7 +290,7 @@ export function NoteConversationBody({
   // The last request that ran: a request sent meanwhile may stand after it, waiting or never sent.
   const ranAt =
     turns
-      ?.map((turn) => turn.outcome !== "waiting" && turn.outcome !== "unsent")
+      ?.map((turn) => !isHeld(turn) && turn.outcome !== "waiting" && turn.outcome !== "unsent")
       .lastIndexOf(true) ?? -1;
   const at = useNoteColumns((state) => state.at[mindId] ?? null);
   const body = useRef<HTMLDivElement>(null);
@@ -371,8 +377,11 @@ export function NoteConversationBody({
           modeLine={turn.id === modeTurn}
           newest={
             index === turns.length - 1 &&
-            (ask?.turnId === turn.id || (ask?.queued.includes(turn.id) ?? false))
+            (ask?.turnId === turn.id ||
+              (ask?.queued.includes(turn.id) ?? false) ||
+              (ask?.held.includes(turn.id) ?? false))
           }
+          oldest={turn.outcome === "held" && turn.id === turns.find(isHeld)?.id}
           // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
           accept={
             index === ranAt && !going && ask && ask.turnId === turn.id ? (
@@ -406,6 +415,7 @@ function Turn({
   first,
   modeLine,
   newest,
+  oldest,
   accept,
   failed,
 }: {
@@ -418,6 +428,8 @@ function Turn({
   modeLine: boolean;
   /** The last turn, and the request sent from this window: it starts under the top row. */
   newest: boolean;
+  /** The oldest message held for the Note, which ⌘↵ in the input sends now. */
+  oldest: boolean;
   accept: ReactNode;
   /** The request, while this turn is its newest and failed: its line has the one thing to do. */
   failed: NoteAsk | null;
@@ -434,6 +446,18 @@ function Turn({
   // what the run had read.
   const stopSaid =
     steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
+  if (state === "held") {
+    return (
+      <div
+        data-testid="note-column-turn"
+        data-turn-id={turn.id}
+        data-newest={newest || undefined}
+        className="note-column-turn"
+      >
+        <Held mindId={mindId} turn={turn} oldest={oldest} />
+      </div>
+    );
+  }
   return (
     <div
       data-testid="note-column-turn"
@@ -682,22 +706,137 @@ function CopyRequest({ words }: { words: string }) {
 }
 
 /**
- * Under a request sent while another ran, until its AI takes it (#3765). Copy is all it offers:
- * the AI has it already, so it can't be changed or taken back.
+ * Under a message sent at once into the request running, until its AI takes it (#3765). Copy is
+ * all it offers: the AI has it already, so it can't be changed or taken back.
  */
 function Waiting({ words }: { words: string }) {
   const t = useT();
   return (
     <div data-testid="note-column-waiting" className="note-column-sent-state" data-waiting="">
-      <span aria-hidden="true" className="note-ask-dots">
-        <span />
-        <span />
-        <span />
-      </span>
       <span role="status" className="note-column-sent-word">
         {t("noteColumn.waiting")}
       </span>
       <CopyRequest words={words} />
+    </div>
+  );
+}
+
+/**
+ * A message sent while another request ran, held until that reply ends (#3765): Edit opens it in
+ * place, and it isn't sent while the editor is open; Copy; Discard, and it is never sent; Send now
+ * gives it to the AI at once; on the oldest, ⌘↵ in the input does too.
+ */
+function Held({ mindId, turn, oldest }: { mindId: string; turn: NoteTurn; oldest: boolean }) {
+  const t = useT();
+  const report = useAppStore.getState().reportError;
+  const [draft, setDraft] = useState<string | null>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const element = area.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight}px`;
+  });
+  // An editor that goes without Cancel or Save, as the conversation folds, lets the message go.
+  const open = useRef(false);
+  open.current = draft !== null;
+  useEffect(
+    () => () => {
+      if (open.current) void editHeldInNote(mindId, turn.id, { kind: "cancel" }).catch(report);
+    },
+    [mindId, turn.id, report],
+  );
+  const close = (edit: { kind: "cancel" } | { kind: "save"; words: string }) => {
+    setDraft(null);
+    void editHeldInNote(mindId, turn.id, edit).catch(report);
+  };
+  if (draft !== null) {
+    return (
+      <div data-testid="note-column-editor" className="note-column-editor">
+        <TypingTextarea
+          ref={area}
+          aria-label={t("noteColumn.edit.message")}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            close({ kind: "cancel" });
+          }}
+          rows={1}
+          className="note-column-editor-text"
+        />
+        <div className="note-column-editor-foot">
+          <button
+            type="button"
+            data-testid="note-column-edit-cancel"
+            onClick={() => close({ kind: "cancel" })}
+            className="approval-button approval-button--ghost note-column-editor-button"
+          >
+            {t("noteColumn.edit.cancel")}
+          </button>
+          <button
+            type="button"
+            data-testid="note-column-edit-save"
+            disabled={draft.trim() === "" || draft === turn.request}
+            onClick={() => close({ kind: "save", words: draft })}
+            className="approval-button approval-button--primary note-column-editor-button"
+          >
+            {t("noteColumn.edit.save")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="note-column-sent">
+      <div className="note-column-bubble">
+        <p>{turn.request}</p>
+      </div>
+      <div data-testid="note-column-held" className="note-column-sent-state" data-waiting="">
+        <button
+          type="button"
+          data-testid="note-column-edit"
+          aria-label={t("noteColumn.edit")}
+          title={t("noteColumn.edit")}
+          onClick={() => {
+            setDraft(turn.request);
+            requestAnimationFrame(() => {
+              const field = area.current;
+              field?.focus();
+              field?.setSelectionRange(field.value.length, field.value.length);
+            });
+            void editHeldInNote(mindId, turn.id, { kind: "open" }).catch(report);
+          }}
+          className="note-column-icon"
+        >
+          <PencilLineIcon />
+        </button>
+        <CopyRequest words={turn.request} />
+        <button
+          type="button"
+          data-testid="note-column-discard"
+          aria-label={t("noteColumn.discard")}
+          title={t("noteColumn.discard")}
+          onClick={() => void discardInNote(mindId, turn.id).catch(report)}
+          className="note-column-icon"
+        >
+          <TrashLineIcon />
+        </button>
+        <span role="status" className="note-column-sent-word">
+          {t("noteColumn.waiting")}
+        </span>
+        <button
+          type="button"
+          data-testid="note-column-send-now"
+          title={oldest ? `${t("noteColumn.sendNow")} ${keysHere("CmdOrCtrl+Enter")}` : undefined}
+          onClick={() => void sendNowInNote(mindId, turn.id).catch(report)}
+          className="note-column-send-now"
+        >
+          {t("noteColumn.sendNow")}
+          {oldest && <kbd className="note-column-send-now-keys">{keysHere("CmdOrCtrl+Enter")}</kbd>}
+        </button>
+      </div>
     </div>
   );
 }

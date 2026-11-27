@@ -9548,6 +9548,10 @@ export const en = {
   "noteColumn.waiting": "Waiting",
   "noteColumn.notSent": "Not sent",
   "noteColumn.discard": "Discard",
+  "noteColumn.sendNow": "Send now",
+  "noteColumn.edit.message": "Edit message",
+  "noteColumn.edit.cancel": "Cancel",
+  "noteColumn.edit.save": "Save",
   "noteColumn.citation": "Citation {number}",
   // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
   // steps with them (#3653).

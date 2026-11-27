@@ -11,6 +11,7 @@ import { create } from "zustand";
 import type {
   NoteAnswer,
   NoteChangeApplied,
+  NoteHeldEdit,
   NoteQuestion,
   NoteSelectionBlock,
   NoteStep,
@@ -67,6 +68,8 @@ export interface NoteAsk {
   mode: string | null;
   /** The requests sent into its run meanwhile that the AI hasn't taken yet (#3765). */
   queued: string[];
+  /** The messages sent meanwhile that IncarnaMind holds until the reply ends, oldest first (#3765). */
+  held: string[];
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -299,6 +302,7 @@ function heard(event: NoteTurnEvent): void {
     questions: event.state === "working" ? event.questions : [],
     mode: event.state === "working" && event.modeNew ? event.mode : null,
     queued: event.queued,
+    held: event.held,
     // Another turn's words are never this one's: a request another window sent has none here, and
     // its record gives it again.
     asked:
@@ -356,15 +360,16 @@ export function listen(): void {
 }
 
 /**
- * Sends a request typed at the Note's foot. "sent": a request of the Note's runs, and this one
- * went into its run, about the whole Note (#3765). "busy": one runs, and this one, about words
- * selected, is not sent; a line says so. "link": no agent can run it in the background now, and
- * the caller asks by the link instead.
+ * Sends a request typed at the Note's foot. "sent": a request of the Note's runs, and this one is
+ * held until its reply ends, about the whole Note, or with `now` goes into that run at once
+ * (#3765). "busy": one runs, and this one, about words selected, is not sent; a line says so.
+ * "link": no agent can run it in the background now, and the caller asks by the link instead.
  */
 export async function askInNote(
   mindId: string,
   asked: NoteAsked,
   tabId?: string,
+  now = false,
 ): Promise<"started" | "sent" | "busy" | "problem" | "link"> {
   listen();
   const model = useNoteColumns.getState().model[mindId];
@@ -407,8 +412,9 @@ export async function askInNote(
     sentHere.set(start.turnId, asked);
     // Shown at once, whether or not the core's word of it came first.
     const running = useNoteAsks.getState().byMind[mindId];
-    if (running && running.turnId !== start.turnId && !running.queued.includes(start.turnId))
-      put(mindId, { ...running, queued: [...running.queued, start.turnId] });
+    if (running && running.turnId !== start.turnId && !running.held.includes(start.turnId))
+      put(mindId, { ...running, held: [...running.held, start.turnId] });
+    if (now) await sendNowInNote(mindId, start.turnId);
     return "sent";
   }
   const base: NoteAsk = {
@@ -430,6 +436,7 @@ export async function askInNote(
     questions: [],
     mode: null,
     queued: [],
+    held: [],
     asked,
   };
   if (start.kind === "started") {
@@ -466,21 +473,62 @@ function sendingAsk(mindId: string, asked: NoteAsked): NoteAsk | null {
     questions: [],
     mode: null,
     queued: [],
+    held: [],
     asked,
   };
 }
 
 export const stopInNote = (mindId: string): Promise<void> => core.stopInNote(mindId);
 
-/** Removes a request of the Note's that was never sent, and reads the conversation again. */
+/** The held messages whose editor is open in this window, which ⌘↵ in the input leaves alone. */
+const editingHere = new Set<string>();
+
+const readAgain = (mindId: string) =>
+  useNoteColumns.setState((state) => ({
+    changed: { ...state.changed, [mindId]: (state.changed[mindId] ?? 0) + 1 },
+  }));
+
+/**
+ * Removes a request of the Note's that was never sent, or a message held for it, and reads the
+ * conversation again.
+ */
 export async function discardInNote(mindId: string, turnId: string): Promise<void> {
+  editingHere.delete(turnId);
   await core.discardInNote(mindId, turnId);
   sentHere.delete(turnId);
   askedTab.delete(turnId);
   askedHere.delete(turnId);
-  useNoteColumns.setState((state) => ({
-    changed: { ...state.changed, [mindId]: (state.changed[mindId] ?? 0) + 1 },
-  }));
+  readAgain(mindId);
+}
+
+/** Sends a message held for the Note at once (#3765), and reads the conversation again. */
+export async function sendNowInNote(mindId: string, turnId: string): Promise<void> {
+  editingHere.delete(turnId);
+  await core.sendNowInNote(mindId, turnId);
+  readAgain(mindId);
+}
+
+/** ⌘↵ in an empty input: the oldest message held for the Note goes now, unless its editor is open. */
+export async function sendOldestNow(mindId: string): Promise<boolean> {
+  const turnId = useNoteAsks.getState().byMind[mindId]?.held.find((each) => !editingHere.has(each));
+  if (turnId === undefined) return false;
+  await sendNowInNote(mindId, turnId);
+  return true;
+}
+
+/**
+ * Opens or closes a held message's editor (#3765): while it is open the message isn't sent; closed,
+ * the conversation is read again, as it may have gone meanwhile.
+ */
+export async function editHeldInNote(
+  mindId: string,
+  turnId: string,
+  edit: NoteHeldEdit,
+): Promise<void> {
+  if (edit.kind === "open") editingHere.add(turnId);
+  else editingHere.delete(turnId);
+  await core.editHeldInNote(mindId, turnId, edit);
+  if (edit.kind !== "open") readAgain(mindId);
 }
 
 /**

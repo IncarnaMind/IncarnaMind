@@ -103,6 +103,10 @@ const meanwhileOf = (request: RunRequest) => {
   return sent;
 };
 
+/** What the User typed, as the run's prompt asks it. */
+const askedIn = (request: RunRequest | undefined) =>
+  request?.prompt.match(/the User asks: (.*)/)?.[1] ?? "";
+
 const idOf = (start: NoteRequestStart) =>
   start.kind === "started" || start.kind === "sent" ? start.turnId : "";
 
@@ -2935,6 +2939,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const first = idOf(await core.askInNote({ mindId, words: "make a page of the ferry figures" }));
     await held.at;
     const later = idOf(await core.askInNote({ mindId, words: "and keep it short" }));
+    await core.sendNowInNote(mindId, later);
     followed.open();
     const ends = [await ended(1), await ended(2)];
     const of = (turnId: string) => ends.find((end) => end?.turnId === turnId);
@@ -2946,8 +2951,8 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(of(later)?.steps).toEqual([]);
   });
 
-  // protects=a request typed while one runs goes into that run at once, about the whole Note, as a turn of its own that waits until its AI takes it (#3765), and one about words selected is not sent, as the run can't take a new selection; taken at the AI's next step, the request before ends with its steps and no reply of its own, and what follows, the next step and the reply, is the later one's; fails_when=it is refused, held for later, starts a second run, one about words selected goes in without them, or its reply lands under the request before
-  it("sends a request typed meanwhile into the run, taken at its next step and answered there", async () => {
+  // protects=a request typed while one runs is held by IncarnaMind, about the whole Note, as a turn of its own, and one about words selected is not sent, as the run can't take a new selection; Send now hands the held one into that run at once (#3765); taken at the AI's next step, the request before ends with its steps and no reply of its own, and what follows, the next step and the reply, is the later one's; fails_when=it is refused, reaches the AI before Send now, starts a second run, one about words selected goes in without them, or its reply lands under the request before
+  it("holds a request typed meanwhile, and Send now hands it into the run, taken at its next step and answered there", async () => {
     const step = gate();
     let sent: { id: string; prompt: string }[] = [];
     const run = runner(async (agent, request) => {
@@ -2979,6 +2984,14 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const start = await core.askInNote({ mindId, words: "and the fares?" });
     expect(start.kind).toBe("sent");
     const later = idOf(start);
+    expect(sent).toEqual([]);
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["what changed this year?", "", "working", ""],
+      ["and the fares?", "", "held", ""],
+    ]);
+    expect(turns.at(-1)).toMatchObject({ turnId: first, queued: [], held: [later] });
+
+    await core.sendNowInNote(mindId, later);
     expect(run.runs).toHaveLength(1);
     expect(sent.map((each) => each.id)).toEqual([later]);
     expect(sent[0]?.prompt).toContain(`(mindId: ${mindId}), the User asks: and the fares?`);
@@ -2987,7 +3000,12 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       ["what changed this year?", "", "working", ""],
       ["and the fares?", "", "waiting", ""],
     ]);
-    expect(turns.at(-1)).toMatchObject({ turnId: first, state: "working", queued: [later] });
+    expect(turns.at(-1)).toMatchObject({
+      turnId: first,
+      state: "working",
+      queued: [later],
+      held: [],
+    });
 
     step.open();
     expect(await ended(1)).toMatchObject({
@@ -3031,9 +3049,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       selection: selectionOf(0, "212,000 passengers"),
     });
     await step.at;
-    expect(await core.askInNote({ mindId, words: "and say a tenth for the fares" })).toMatchObject({
-      kind: "sent",
-    });
+    const sent = await core.askInNote({ mindId, words: "and say a tenth for the fares" });
+    expect(sent).toMatchObject({ kind: "sent" });
+    await core.sendNowInNote(mindId, idOf(sent));
     step.open();
     const later = await ended(2);
     expect(status).toBe("applied");
@@ -3075,6 +3093,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const asked = idOf(await core.askInNote({ mindId, words: "say people, not passengers" }));
     await step.at;
     const taken = idOf(await core.askInNote({ mindId, words: "and say a tenth for the fares" }));
+    await core.sendNowInNote(mindId, taken);
     step.open();
     const ends = [await ended(1), await ended(2)];
     const of = (turnId: string) => ends.find((end) => end?.turnId === turnId);
@@ -3084,8 +3103,8 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(of(taken)?.applied).toEqual([expect.objectContaining({ changed: 1, added: 0 })]);
   });
 
-  // protects=a request typed while the AI writes a plain reply waits through that reply, which stays the earlier request's, and is then answered as the next turn of the same run (#3765); one sent before the run could take any reaches it once it can; fails_when=the run ends with it unanswered, its reply lands under the earlier request, or the earlier reply is lost
-  it("answers a request sent during a plain reply as the next turn, each reply under its own request", async () => {
+  // protects=a request sent now while the AI writes a plain reply waits through that reply, which stays the earlier request's, and is then answered as the next turn of the same run (#3765); one sent before the run could take any reaches it once it can; fails_when=the run ends with it unanswered, its reply lands under the earlier request, or the earlier reply is lost
+  it("answers a request sent now during a plain reply as the next turn, each reply under its own request", async () => {
     const step = gate();
     const run = runner(async (_agent, request) => {
       request.progress?.({ kind: "said", text: "Writing the answer now." });
@@ -3104,6 +3123,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const first = idOf(await core.askInNote({ mindId, words: "what does the plan add?" }));
     await step.at;
     const later = idOf(await core.askInNote({ mindId, words: "and when?" }));
+    await core.sendNowInNote(mindId, later);
     step.open();
     // Ended with the request after it still to be taken: the run goes on.
     expect(await ended(1)).toMatchObject({
@@ -3125,45 +3145,225 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     ]);
   });
 
-  // protects=Stop ends the whole run; a request sent into it that its AI hadn't taken stays in the conversation as never sent, for the User to send again or discard, and only such a request can be discarded (#3765); fails_when=it is lost, shows as stopped or still waiting, or Discard removes a request that ran
-  it("keeps a request Stop left untaken as never sent, which alone can be discarded", async () => {
+  // protects=a message sent while a reply runs reaches the AI only once that reply ends, as a request of its own with its own reply, and several go in the order sent (#3765); fails_when=it is handed to the running request, two go in one run, they go out of order, or one is lost or sent twice
+  it("holds each request sent meanwhile until the reply ends, then sends each with its own reply, in order", async () => {
+    const step = gate();
+    const handed: string[] = [];
+    const run = runner(async (_agent, request) => {
+      const sent = meanwhileOf(request);
+      if (askedIn(request) === "what does the plan add") {
+        step.reached();
+        await step.shut;
+      }
+      handed.push(...sent.map((each) => each.id));
+      return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
+    });
+    const { core, mindId, turns } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the plan add" });
+    await step.at;
+    const second = idOf(await core.askInNote({ mindId, words: "and when" }));
+    const third = idOf(await core.askInNote({ mindId, words: "and where" }));
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["what does the plan add", "", "working", ""],
+      ["and when", "", "held", ""],
+      ["and where", "", "held", ""],
+    ]);
+    expect(turns.at(-1)).toMatchObject({ queued: [], held: [second, third] });
+    step.open();
+    await expect
+      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .toEqual([
+        ["what does the plan add", "", "landed", "Answered: what does the plan add"],
+        ["and when", "", "landed", "Answered: and when"],
+        ["and where", "", "landed", "Answered: and where"],
+      ]);
+    expect(run.runs.map(askedIn)).toEqual(["what does the plan add", "and when", "and where"]);
+    expect(handed).toEqual([]);
+  });
+
+  // protects=a Note's requests go in the order sent though the first is still being checked when the next is sent, as the input shows the first working at once (#3765); fails_when=the later one's checks end first and it starts a run of its own, the first one held behind it
+  it("asks a Note's requests in the order sent, though the first is still checked", async () => {
+    const checks = gate();
+    const step = gate();
+    let checked = 0;
+    const run = runner(async (_agent, request) => {
+      if (askedIn(request) === "what does the plan add") {
+        step.reached();
+        await step.shut;
+      }
+      return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
+    });
+    const { core, mindId } = await written({
+      ...run.adapter,
+      async status() {
+        checked += 1;
+        if (checked === 1) {
+          checks.reached();
+          await checks.shut;
+        }
+        return { kind: "ready" };
+      },
+    });
+    const first = core.askInNote({ mindId, words: "what does the plan add" });
+    await checks.at;
+    const later = core.askInNote({ mindId, words: "and when" });
+    await pause(50);
+    checks.open();
+    expect((await first).kind).toBe("started");
+    expect((await later).kind).toBe("sent");
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["what does the plan add", "", "working", ""],
+      ["and when", "", "held", ""],
+    ]);
+    step.open();
+    await expect
+      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .toEqual([
+        ["what does the plan add", "", "landed", "Answered: what does the plan add"],
+        ["and when", "", "landed", "Answered: and when"],
+      ]);
+  });
+
+  // protects=Stop stops the reply and sends the oldest message held for it at once, as a request of its own; the others keep waiting for that one's reply; Stop never drops one (#3765); fails_when=the held message is left never sent, lost, or the next one jumps the queue
+  it("sends the oldest held request at once on Stop, the others after its reply", async () => {
+    const run = runner(async (agent, request) =>
+      askedIn(request) === "and a date"
+        ? { kind: "finished", reply: "In 2027." }
+        : untilStopped(agent, request),
+    );
+    const { core, mindId } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "rewrite everything" });
+    await expect.poll(() => run.runs.length).toBe(1);
+    await core.askInNote({ mindId, words: "and add a title" });
+    await core.askInNote({ mindId, words: "and a date" });
+    await core.stopInNote(mindId);
+    await expect.poll(() => run.runs.length).toBe(2);
+    expect(askedIn(run.runs[1])).toBe("and add a title");
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["rewrite everything", "", "stopped", ""],
+      ["and add a title", "", "working", ""],
+      ["and a date", "", "held", ""],
+    ]);
+    await core.stopInNote(mindId);
+    await expect
+      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .toEqual([
+        ["rewrite everything", "", "stopped", ""],
+        ["and add a title", "", "stopped", ""],
+        ["and a date", "", "landed", "In 2027."],
+      ]);
+    expect(run.runs).toHaveLength(3);
+  });
+
+  // protects=Discard takes a held message away before the AI has it: it is never sent, and only a held or never-sent request can be discarded (#3765); fails_when=it is sent anyway, Discard removes a request that ran, or one in another Note
+  it("never sends a held request discarded", async () => {
     const run = runner(untilStopped);
-    const { core, mindId, ended } = await written(run.adapter);
+    const { core, mindId, turns } = await written(run.adapter);
     const first = idOf(await core.askInNote({ mindId, words: "rewrite everything" }));
     await expect.poll(() => run.runs.length).toBe(1);
     const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
-    await core.stopInNote(mindId);
-    expect(await ended()).toMatchObject({ turnId: first, state: "stopped", queued: [] });
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
-      ["rewrite everything", "", "stopped", ""],
-      ["and add a title", "", "unsent", ""],
-    ]);
     await core.discardInNote(mindId, first);
     await core.discardInNote("another-note", later);
     expect((await core.noteConversation(mindId)).map(recordOf)).toHaveLength(2);
     await core.discardInNote(mindId, later);
     expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
-      ["rewrite everything", "", "stopped", ""],
+      ["rewrite everything", "", "working", ""],
+    ]);
+    expect(turns.at(-1)).toMatchObject({ turnId: first, held: [] });
+    await core.sendNowInNote(mindId, later);
+    await core.stopInNote(mindId);
+    await expect
+      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .toEqual([["rewrite everything", "", "stopped", ""]]);
+    expect(run.runs).toHaveLength(1);
+  });
+
+  // protects=a held message being edited isn't sent, though the reply ends meanwhile; it goes once the editor closes: Save sends the new words, Cancel the old (#3765); fails_when=it goes while the editor is open, goes with the wrong words, or stays held after the editor closes
+  for (const close of ["save", "cancel"] as const) {
+    it(`sends a held request once its editor closes with ${close === "save" ? "Save, in its new words" : "Cancel, as it was"}`, async () => {
+      const step = gate();
+      const run = runner(async (_agent, request) => {
+        if (askedIn(request) === "what does the plan add") {
+          step.reached();
+          await step.shut;
+        }
+        return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
+      });
+      const { core, mindId } = await written(run.adapter);
+      await core.askInNote({ mindId, words: "what does the plan add" });
+      await step.at;
+      const later = idOf(await core.askInNote({ mindId, words: "and when" }));
+      await core.editHeldInNote(mindId, later, { kind: "open" });
+      step.open();
+      await expect
+        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .toEqual([
+          ["what does the plan add", "", "landed", "Answered: what does the plan add"],
+          ["and when", "", "held", ""],
+        ]);
+      await pause(100);
+      expect(run.runs).toHaveLength(1);
+      await core.editHeldInNote(
+        mindId,
+        later,
+        close === "save" ? { kind: "save", words: "and where" } : { kind: "cancel" },
+      );
+      const words = close === "save" ? "and where" : "and when";
+      await expect
+        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .toEqual([
+          ["what does the plan add", "", "landed", "Answered: what does the plan add"],
+          [words, "", "landed", `Answered: ${words}`],
+        ]);
+      expect(run.runs).toHaveLength(2);
+    });
+  }
+
+  // protects=a held message whose run failed can't be sent, so it stays in the conversation as never sent, for the User to send again or discard, and only such a request can be discarded (#3765); fails_when=it is lost, shows as held or waiting, or Discard removes a request that ran
+  it("keeps a request held when its run failed as never sent, which alone can be discarded", async () => {
+    const failing = gate();
+    const run = runner(async (_agent, request) => {
+      if (askedIn(request) !== "rewrite everything") return { kind: "finished", reply: "Done." };
+      failing.reached();
+      await failing.shut;
+      return { kind: "failed", reason: "other" };
+    });
+    const { core, mindId } = await written(run.adapter);
+    const first = idOf(await core.askInNote({ mindId, words: "rewrite everything" }));
+    await failing.at;
+    const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
+    failing.open();
+    await expect
+      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .toEqual([
+        ["rewrite everything", "", "failed", ""],
+        ["and add a title", "", "unsent", ""],
+      ]);
+    await core.discardInNote(mindId, first);
+    expect((await core.noteConversation(mindId)).map(recordOf)).toHaveLength(2);
+    await core.discardInNote(mindId, later);
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["rewrite everything", "", "failed", ""],
     ]);
     // Sent again, it is a request of its own.
     expect((await core.askInNote({ mindId, words: "and add a title" })).kind).toBe("started");
     await expect.poll(() => run.runs.length).toBe(2);
-    await core.stopInNote(mindId);
-    await ended(2);
   });
 
   // protects=New conversation marks the last request that ran, so discarding a request never sent after it keeps the line, and the next request begins anew (#3765); fails_when=the Discard takes the line with it and the next request resumes the conversation before
   it("keeps New conversation when a request never sent after it is discarded", async () => {
-    const run = runner(async (agent, request) =>
-      request.prompt.includes("rewrite")
-        ? untilStopped(agent, request)
-        : { kind: "finished", reply: "Done." },
-    );
+    const failing = gate();
+    const run = runner(async (_agent, request) => {
+      if (!request.prompt.includes("rewrite")) return { kind: "finished", reply: "Done." };
+      failing.reached();
+      await failing.shut;
+      return { kind: "failed", reason: "other" };
+    });
     const { core, mindId, ended } = await written(run.adapter);
     await core.askInNote({ mindId, words: "rewrite everything" });
-    await expect.poll(() => run.runs.length).toBe(1);
+    await failing.at;
     const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
-    await core.stopInNote(mindId);
+    failing.open();
     await ended();
     await core.startNewNoteConversation(mindId);
     await core.discardInNote(mindId, later);

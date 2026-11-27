@@ -100,6 +100,7 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   mode: null,
   modeNew: false,
   queued: [],
+  held: [],
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {
