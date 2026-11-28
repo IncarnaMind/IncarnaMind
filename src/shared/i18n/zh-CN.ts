@@ -883,7 +883,6 @@ export const zhCN = {
   "page.count.characters.one": "字符数 1",
   "page.count.selected.words": "字数 {selected}/{count}",
   "page.count.selected.characters": "字符数 {selected}/{count}",
-  "page.countShown": "写作时显示字数",
   "page.countShown.command": "写作时显示字数",
   "page.countHidden.command": "写作时隐藏字数",
   "page.countShown.keywords": "字数 字符数 统计 目标 写作 页面",

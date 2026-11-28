@@ -72,6 +72,24 @@ async function screenshot(target: Page | Locator, name: string) {
   await test.info().attach(name, { path, contentType: "image/png" });
 }
 
+/**
+ * Waits until every mark has its verdict and none is sliding into place: a mark's box includes the
+ * slide its reveal gives it (4px over 160ms) when its check lands after the result is shown.
+ */
+async function expectMarksSettled(marks: Locator) {
+  await expect
+    .poll(() =>
+      marks.evaluateAll((elements) =>
+        elements.every(
+          (element) =>
+            element.getAttribute("data-check") !== "checking" &&
+            element.getAnimations().length === 0,
+        ),
+      ),
+    )
+    .toBe(true);
+}
+
 async function box(locator: Locator) {
   const found = await locator.boundingBox();
   if (!found) throw new Error("The element isn't visible.");
@@ -670,6 +688,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // Both ✓, which show with every result (#3358).
     await showEveryCheckResult(window);
     await expect(marks.first()).toBeVisible();
+    await expectMarksSettled(marks);
     expect((await box(column)).width, "the Mind is under the old 900px fold").toBeLessThan(900);
     const wide = await gutters();
     expect.soft(wide.left, "the left margin holds the controls").toBeGreaterThanOrEqual(40);

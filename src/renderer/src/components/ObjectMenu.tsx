@@ -197,6 +197,7 @@ export function ObjectMenu({
   controls,
   first,
   more,
+  moreInGroup = false,
   aside,
   foot,
   icon: Icon = MoreLineIcon,
@@ -238,6 +239,8 @@ export function ObjectMenu({
   first?: (close: () => void) => ReactNode;
   /** Items after the kind's own and before its Delete, which stays last, a rule before them; `close` closes the menu. */
   more?: (close: () => void) => ReactNode;
+  /** `more` goes on the group before it, with no rule between, as a Note's Style follows its Rename. */
+  moreInGroup?: boolean;
   /** Beside the menu while it is open, outside it: the submenus of items in `more`. */
   aside?: (close: () => void) => ReactNode;
   /** Below everything, after a rule, and kept in view while the menu scrolls. */
@@ -394,7 +397,7 @@ export function ObjectMenu({
         {entries.slice(0, dangerAt).map((entry, index) => itemOf(entry, index))}
         {menu.open && more && (
           <>
-            {(first || dangerAt > 0) && <div className={menuRuleClass} />}
+            {(first || dangerAt > 0) && !moreInGroup && <div className={menuRuleClass} />}
             {more(menu.close)}
           </>
         )}
