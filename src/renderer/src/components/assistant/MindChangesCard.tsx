@@ -117,8 +117,8 @@ export function MindChangesCard({
   const headLeft = rows.length === 1 && only ? leftText(t, only, stillWaiting(waiting[0])) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
   const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, ownWaiting(waiting[0])) : null;
-  // Its changes apply at once, so none waits: Open reaches the write until Review changes comes
-  // when the Answer ends, as one Undo for the turn (#1358).
+  // Its changes apply at once, so none waits: Open reaches the write until the Answer ends, as one
+  // Undo for the turn (#1358).
   const openWritten =
     !first && !headInNote && only !== undefined && (waiting[0]?.applying ?? 0) > 0;
 

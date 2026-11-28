@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import { GROUP_MIN_WIDTH } from "../src/renderer/src/assistantPlace";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -9,6 +10,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   launchApp,
   motionSettled,
   nameMind,
@@ -32,7 +34,8 @@ import { holdModel, modelHeld } from "./heldModel";
  * whatever its width: Export and the conversation's button leave, the Note's other controls give
  * up their room, then the Check gives up its word, before the tab goes under its least width; only
  * past the tab's icon and ✕ does the Check give up its start, never its end; the ⋯ and its Stop
- * stay.
+ * stay. A row that is full only while a check runs gives up what the run would take before the
+ * press, so the press moves nothing to the right of the Check, nor the card that follows it (#3765).
  */
 
 const TIDES = buildPdf([
@@ -174,6 +177,29 @@ const stripsNow = (window: Page) =>
     });
   });
 
+/** What stands right of the Check, and the room beside it, as the strip draws them now. */
+const besideTheCheck = (strip: Locator) =>
+  strip.evaluate((band) => {
+    const edges = (selector: string) => {
+      const rect = band.querySelector(selector)?.getBoundingClientRect();
+      return rect ? [Math.round(rect.left), Math.round(rect.right)] : null;
+    };
+    const word = band.querySelector('[data-testid="export-mind"] > span');
+    return {
+      checkEnd: edges('[data-testid="note-check-place"]')?.[1] ?? null,
+      checkWidth: Math.round(
+        band.querySelector('[data-testid="note-check-place"]')?.getBoundingClientRect().width ?? 0,
+      ),
+      export: edges('[data-testid="export-mind"]'),
+      split: edges('[data-testid="split-group"]'),
+      more: edges('[data-testid="page-menu"]'),
+      exportWord: word !== null && word.getClientRects().length > 0,
+      spare: Math.round(
+        band.querySelector(".tab-strip-spacer")?.getBoundingClientRect().width ?? 0,
+      ),
+    };
+  });
+
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
@@ -258,6 +284,121 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, button);
       await expect(window.getByTestId("check-card")).toBeVisible();
       await expect(window.getByTestId("mind-tab")).toHaveCount(tabs);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`a press moves nothing right of the Check in a row full only while the check runs, and a row with room keeps Export's word (${language}) (#3765)`, async () => {
+    test.setTimeout(180_000);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    try {
+      await setWindowSize(app, window, 1600, 900);
+      await noteToCheck(window, language);
+      const strip = window.getByTestId("tab-strip");
+      const controls = strip.getByTestId("note-controls");
+      const editor = window.getByTestId("mind-editor");
+      const button = noteCheck(window);
+      const stop = strip.getByTestId("note-check-stop");
+
+      /** The strip once it has fitted: two looks, a moment apart, that agree. */
+      const settled = async () => {
+        let last = "";
+        await expect
+          .poll(async () => {
+            const now = JSON.stringify(await besideTheCheck(strip));
+            const same = now === last;
+            last = now;
+            return same;
+          })
+          .toBe(true);
+        return besideTheCheck(strip);
+      };
+      /** The press, and the run held at its first sentence. */
+      const started = async () => {
+        await holdModel(app, "hold", true);
+        await checkNote(window);
+        await expect.poll(() => modelHeld(app)).toBe(true);
+        await expect(stop).toBeVisible();
+      };
+      /** Stop, and a typed word: the run's room is held until the User types, which gives it back. */
+      const ended = async () => {
+        await pointAndClick(window, stop);
+        await expect(stop).toHaveCount(0);
+        await holdModel(app, "hold", false);
+        await expect(button).toHaveAttribute("data-state", "check");
+        await editor.evaluate((dom) => {
+          (dom as unknown as { editor: Editor }).editor.commands.focus("end");
+        });
+        await focusSettled(window, editor);
+        await window.keyboard.type(language === "en" ? " Gulls nest here." : " 海鸥在这里筑巢。");
+        await expect(button).toHaveAttribute("data-state", "check");
+      };
+      /** The strip at rest, and again in a run held after the press. */
+      const pressed = async () => {
+        await motionSettled(window);
+        const rest = await settled();
+        await started();
+        const running = await settled();
+        await ended();
+        return { rest, running };
+      };
+      const stays = (at: Awaited<ReturnType<typeof pressed>>, about: string) => {
+        const note = `${about}: ${JSON.stringify(at)}`;
+        expect(at.running.checkEnd, note).toBe(at.rest.checkEnd);
+        expect(at.running.export, note).toEqual(at.rest.export);
+        expect(at.running.split, note).toEqual(at.rest.split);
+        expect(at.running.more, note).toEqual(at.rest.more);
+        expect(at.running.exportWord, note).toBe(at.rest.exportWord);
+      };
+      /** Room taken from the row's end, as the window's own buttons take it on Windows. */
+      const take = (px: number) =>
+        controls.evaluate((element, margin) => {
+          element.style.marginLeft = `${margin}px`;
+        }, px);
+
+      // A row with room: Export keeps its word, before the press and in the run.
+      const roomy = await pressed();
+      stays(roomy, "a row with room");
+      expect(roomy.rest.exportWord, "a row with room keeps Export's word").toBe(true);
+      expect(roomy.running.exportWord, "and in the run").toBe(true);
+      const growth = roomy.running.checkWidth - roomy.rest.checkWidth;
+      expect(growth, "the running Check is wider than the resting one").toBeGreaterThan(20);
+
+      // In a run held, the room taken from the row until it first gives up Export's word: the
+      // edge of the rows the running Check fills. A little more room taken leaves a row that has
+      // room for the Check at rest, and none for it running.
+      await started();
+      const wordAt = async (taken: number) => {
+        await take(taken);
+        return (await settled()).exportWord;
+      };
+      let [lo, hi] = [0, roomy.rest.spare];
+      while (await wordAt(hi)) {
+        expect(hi, "the row gives up Export's word as room is taken").toBeLessThan(2000);
+        [lo, hi] = [hi, hi + 40];
+      }
+      while (hi - lo > 4) {
+        const middle = Math.round((lo + hi) / 2);
+        if (await wordAt(middle)) lo = middle;
+        else hi = middle;
+      }
+      await take(0);
+      await ended();
+
+      let gaveUpEarly = false;
+      for (const past of [0, 8, 20]) {
+        const taken = hi + past;
+        await take(taken);
+        const at = await pressed();
+        stays(at, `${taken} px taken, a row full only while it runs`);
+        gaveUpEarly ||= !at.rest.exportWord;
+      }
+      // Those rows had no room for the running Check, and gave up Export's word before the press.
+      expect(
+        gaveUpEarly,
+        "a row without room for the running Check gives up Export's word at rest",
+      ).toBe(true);
     } finally {
       await app.close();
     }

@@ -25,7 +25,7 @@ import {
  * What the assistant writes into a Note is checked after its reply (#2830), and while that check
  * runs the Answer's card counts only what really waits, and its Review opens that at once (#1358).
  * The changes the User asked for are applied, so a Note the assistant has just made shows no
- * count, and its Review changes shows the write while its sentences are still checked. The
+ * count, and its Open shows the write while its sentences are still checked. The
  * scripted model holds each sentence's check until the test releases it.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
@@ -71,7 +71,6 @@ const WORDS = {
   en: {
     made: "Wrote “Tide summary”",
     checking: /^Checking: /,
-    reviewChanges: "Review changes",
     open: "Open",
     table: "Add a revenue table for checking",
     added: "Added a table to “Harbour notes”",
@@ -82,7 +81,6 @@ const WORDS = {
   "zh-CN": {
     made: "已写入“Tide summary”",
     checking: /^正在核对：/,
-    reviewChanges: "查看改动",
     open: "打开",
     table: "添加核对用的收入表格",
     added: "在“Harbour notes”中添加了 1 个表格",
@@ -192,7 +190,7 @@ const stopSamplingRows = (window: Page) =>
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`a Note the assistant made says nothing waits while its write is checked, its Open goes to the write's first change, and Review changes opens it, in ${language}`, async () => {
+  test(`a Note the assistant made says nothing waits while its write is checked, and its Open goes to the write's first change, in ${language}`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await start(language, "Tides.md", TIDES);
     await holdChecks(app);
@@ -222,14 +220,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor).toBeFocused();
     expect(await caretBlock(window)).toBe("Summary");
 
-    // Review changes shows it while its sentences are still checked, and once they are.
+    // Its sentences are still checked after Open, and not once they are.
     await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);
-    const review = card.getByTestId("mind-changes-review");
-    await expect(review).toHaveText(words.reviewChanges);
-    await pointAndClick(window, review);
-    await expect(
-      editor.locator(".applied-new").filter({ hasText: "Your Documents answer this" }).first(),
-    ).toBeVisible();
     await releaseChecks(app);
     await expect(answer.getByTestId("self-check-checking")).toHaveCount(0, { timeout: 30_000 });
     await app.close();

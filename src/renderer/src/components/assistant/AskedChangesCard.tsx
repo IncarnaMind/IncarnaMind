@@ -3,12 +3,10 @@ import { appliedWaiting } from "../../../../shared/proposals";
 import { type ArrivingInMind, arrivingInMind } from "../../arrivingChanges";
 import {
   type AskedOutcome,
-  reviewAsked,
   undoAsked,
   useAcceptedChanges,
   useArrivingAnswers,
   useAskedFacts,
-  useAskedReview,
   useAskedState,
   useWrittenOnTop,
 } from "../../askedChanges";
@@ -21,7 +19,6 @@ import {
   leftText,
   ownWaiting,
 } from "../../changeFacts";
-import { shortcutLabel } from "../../commands/keymap";
 import { useConversations } from "../../conversations";
 import { useT } from "../../i18n";
 import {
@@ -39,8 +36,7 @@ import { useReadMindId } from "./readMind";
  * "Wrote it into “Untitled” · Undo" for the empty Mind in front, "Changed 3
  * paragraphs in “Q3 review” · Undo" for an edit, with Open too when that Mind
  * isn't the one in front. Undo takes back this Answer's changes there alone,
- * and says why it can't once the Mind changed since or closed; Review changes
- * shows them while the Mind's ⌘K and ⋯ offer it (#1795). Then a line of
+ * and says why it can't once the Mind changed since or closed. Then a line of
  * their own for the changes that wait: "I also suggested 2 changes in
  * “Sources” · Review".
  */
@@ -333,7 +329,6 @@ function AppliedActions({
   const t = useT();
   const { mindId } = row;
   const state = useAskedState(answerId, mindId);
-  const reviewable = useAskedReview(answerId, mindId);
   const onTop = useWrittenOnTop(answerId, mindId);
   const inFront = useReadMindId() === mindId;
   if (state === "undone") {
@@ -348,9 +343,7 @@ function AppliedActions({
   }
   const why =
     state === "changed-since"
-      ? reviewable
-        ? t("mindChanges.undo.changedSince", { mind: name, palette: shortcutLabel("palette.open") })
-        : t("mindChanges.undo.changedSince.noReview", { mind: name })
+      ? t("mindChanges.undo.changedSince", { mind: name })
       : state === "closed"
         ? t("mindChanges.undo.closed", { mind: name })
         : undefined;
@@ -387,22 +380,6 @@ function AppliedActions({
       >
         {t("edit.applied.undo")}
       </button>
-      {/* Review changes holds its room before the Mind can offer it, so the row keeps its height
-          when it appears (#400). */}
-      <span
-        className={reviewable ? undefined : "invisible"}
-        aria-hidden={reviewable ? undefined : true}
-      >
-        <Dot />
-        <button
-          type="button"
-          data-testid={reviewable ? id("mind-changes-review") : undefined}
-          onClick={() => reviewAsked(answerId, mindId)}
-          className="mind-changes-review"
-        >
-          {t("edit.applied.review")}
-        </button>
-      </span>
     </>
   );
 }

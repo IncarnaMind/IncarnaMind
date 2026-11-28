@@ -166,10 +166,10 @@ export async function drained(
   );
 }
 
-/** The run sent nothing for as long as `stallMs`, and was stopped. */
+/** The run got nowhere for as long as `stallMs`, and was stopped. */
 export class StalledError extends Error {
   constructor(agent: string) {
-    super(`${agent} stopped sending anything, so the request was stopped.`);
+    super(`${agent} made no progress for too long, so the request was stopped.`);
     this.name = "StalledError";
   }
 }
@@ -414,8 +414,13 @@ export interface JsonLines<T> {
   rawMaxBytes: number;
   /** Whether a message counts towards `maxBytes`: one that repeats what whole messages say doesn't. */
   counted?(message: Record<string, unknown>): boolean;
-  /** How long it may send nothing before it is stopped as stalled. */
+  /** How long it may send nothing that `progressed` counts before it is stopped as stalled. */
   stallMs?: number;
+  /**
+   * Whether a message shows the run getting somewhere, and so starts the count towards `stallMs`
+   * again; every message does unless it says no (a heartbeat or a retry doesn't).
+   */
+  progressed?(message: Record<string, unknown>): boolean;
   /** Whether it waits on something that may take long without a word, which doesn't count towards `stallMs`. */
   busy?(): boolean;
   /** Written to its input before the first line is read. */
@@ -427,7 +432,8 @@ export interface JsonLines<T> {
 /**
  * Reads a started command's stream of JSON lines until `onMessage` gives a value, then stops the
  * command and every process it started; stopped at once when `signal` aborts, when it prints more
- * than it may, when it stays silent past `stallMs`, or when a line isn't JSON.
+ * than it may, when it sends nothing that `progressed` counts for `stallMs`, or when a line isn't
+ * JSON.
  */
 export async function readJsonLines<T>(child: ChildProcess, run: JsonLines<T>): Promise<T> {
   const { signal, agent } = run;
@@ -466,7 +472,6 @@ export async function readJsonLines<T>(child: ChildProcess, run: JsonLines<T>): 
   let heard = performance.now();
   let stalled = false;
   child.stdout.on("data", (chunk: Buffer) => {
-    heard = performance.now();
     raw += chunk.length;
     if (raw <= run.rawMaxBytes) return;
     tooMuch = true;
@@ -500,6 +505,7 @@ export async function readJsonLines<T>(child: ChildProcess, run: JsonLines<T>): 
       } catch {
         throw new UnreadableLineError(agent);
       }
+      if (run.progressed?.(message) ?? true) heard = performance.now();
       if (run.counted?.(message) ?? true) bytes += Buffer.byteLength(line);
       if (bytes > run.maxBytes) {
         tooMuch = true;
