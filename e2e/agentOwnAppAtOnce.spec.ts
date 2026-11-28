@@ -282,19 +282,28 @@ for (const language of ["en", "zh-CN"] as const) {
         ]);
         await expect(paragraphsOf(window).first()).toContainText(concurrentSuffix.trim());
         const concurrentError = (concurrentResult as { isError?: boolean }).isError === true;
+        const expectedP1 = concurrentError
+          ? `${copy.p1}${concurrentSuffix}`
+          : `${copy.p1Front}${concurrentSuffix}`;
         if (concurrentError) {
           expect(refusal(concurrentResult)).toBe(
             translate(language, "agents.problem.changedByUser"),
           );
-          await expect(paragraphsOf(window).first()).toHaveText(`${copy.p1}${concurrentSuffix}`);
+          await expect(paragraphsOf(window).first()).toHaveText(expectedP1);
         } else {
           expect(structured<{ status: string }>(concurrentResult).status).toBe("applied");
-          await pointAndClick(window, frontMind(window).getByTestId("applied-undo"));
+          await expect(paragraphsOf(window).first()).toHaveText(expectedP1);
+          await expect(frontMind(window).getByTestId("applied-line")).toHaveCount(0);
         }
-        // Reset paragraph 1 back to copy.p1 cleanly via re-read & reapply, keeping User's typed copy.typed in paragraph 2.
-        const rAfterType = structured<{ version: string }>(
-          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
-        );
+        let rAfterType = { version: "", markdown: "" };
+        await expect
+          .poll(async () => {
+            rAfterType = structured<{ version: string; markdown: string }>(
+              await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+            );
+            return rAfterType.markdown;
+          })
+          .toContain(expectedP1);
         const reapplied = structured<{ status: string }>(
           await agent.callTool({
             name: "propose_changes",
@@ -655,9 +664,15 @@ for (const [label, composeParagraph] of [
           .toBe(false);
         await expect(paragraphsOf(window).nth(composeParagraph)).toContainText("海港");
 
-        const afterIme = structured<{ version: string }>(
-          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
-        );
+        let afterIme = { version: "", markdown: "" };
+        await expect
+          .poll(async () => {
+            afterIme = structured<{ version: string; markdown: string }>(
+              await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+            );
+            return afterIme.markdown;
+          })
+          .toContain("海港");
         const applied = structured<{ status: string }>(
           await agent.callTool({
             name: "propose_changes",
