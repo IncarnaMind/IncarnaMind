@@ -151,7 +151,12 @@ describe("what the Mind didn't change", () => {
     });
     const { files, word } = await exported(core, mindId);
     expect(changed(unzip(bytes), files)).toEqual([]);
-    expect(word).toEqual({ notKept: [], unknownParts: [], keptFurniture: [] });
+    expect(word).toEqual({
+      notKept: [],
+      unknownParts: [],
+      keptFurniture: [],
+      furnitureParts: [],
+    });
   });
 
   test("the package is the Mind's own, whatever its document says the file's hash is", async () => {

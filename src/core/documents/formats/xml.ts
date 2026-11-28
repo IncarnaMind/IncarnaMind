@@ -46,8 +46,12 @@ export function decodeEntities(text: string): string {
 
 const broken = (message: string) => new ExtractionError("unreadable", `Broken XML: ${message}`);
 
-/** Parses one XML document (or a well-formed fragment with one root element). */
-export function parseXml(xml: string): XmlElement {
+/**
+ * Parses one XML document (or a well-formed fragment with one root element). `skipped` is given
+ * where the comments and processing instructions it skips are, the XML declaration apart, for a
+ * writer that must take them out (#3751).
+ */
+export function parseXml(xml: string, skipped?: { from: number; to: number }[]): XmlElement {
   const root: XmlElement = { name: "#document", attrs: {}, children: [] };
   const stack: XmlElement[] = [root];
   let at = 0;
@@ -68,6 +72,7 @@ export function parseXml(xml: string): XmlElement {
     if (xml.startsWith("<!--", lt)) {
       const end = xml.indexOf("-->", lt + 4);
       if (end < 0) throw broken("an unclosed comment.");
+      skipped?.push({ from: lt, to: end + 3 });
       at = end + 3;
     } else if (xml.startsWith("<![CDATA[", lt)) {
       const end = xml.indexOf("]]>", lt + 9);
@@ -79,6 +84,9 @@ export function parseXml(xml: string): XmlElement {
     } else if (xml.startsWith("<?", lt)) {
       const end = xml.indexOf("?>", lt + 2);
       if (end < 0) throw broken("an unclosed processing instruction.");
+      const declaration =
+        /^<\?xml\s/.test(xml.slice(lt, lt + 6)) && /^\uFEFF?$/.test(xml.slice(0, lt));
+      if (!declaration) skipped?.push({ from: lt, to: end + 2 });
       at = end + 2;
     } else {
       const gt = xml.indexOf(">", lt + 1);

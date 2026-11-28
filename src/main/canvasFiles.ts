@@ -68,7 +68,12 @@ export function createCanvasFiles(
           read += bytesRead;
         }
         if (read !== opened.size) return UNREADABLE;
-        return { kind: "read", bytes: bytes.subarray(0, read), path: real };
+        return {
+          kind: "read",
+          bytes: bytes.subarray(0, read),
+          path: real,
+          file: `${opened.dev}:${opened.ino}`,
+        };
       } catch {
         return UNREADABLE;
       } finally {

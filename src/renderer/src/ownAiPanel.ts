@@ -118,14 +118,14 @@ const askedOnOf = (merged: boolean): AskedOn => {
  * An agent IncarnaMind can run in the background, its command line on this computer: a Note it can
  * read has its own input (#3627).
  */
-export const runsInBackground = (pairing: AgentPairing, runsHere: boolean): boolean =>
-  runsHere && pairing.client === "claude-code";
+export const runsInBackground = (pairing: AgentPairing, runsHere: readonly string[]): boolean =>
+  pairing.client !== null && runsHere.includes(pairing.client);
 
 const pillOf = (
   hidden: boolean,
   on: AskedOn,
   agents: readonly AgentPairing[],
-  runsHere: boolean,
+  runsHere: readonly string[],
 ): OwnAiPill | null =>
   hidden &&
   (on.mindId !== null || on.documentId !== null) &&

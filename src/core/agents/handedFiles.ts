@@ -43,6 +43,26 @@ const KIND_OF: Readonly<Record<string, HandedFile["kind"]>> = {
   ".pdf": "pdf",
 };
 
+/** Runs `run` once every call before it with the same key has ended. */
+export type HandOverTurns = <R>(key: string, run: () => Promise<R>) => Promise<R>;
+
+/** Hand-overs taking turns, shared by every connection of every agent (#3751). */
+export function createHandOverTurns(): HandOverTurns {
+  const items = new Map<string, Promise<void>>();
+  return <R>(key: string, run: () => Promise<R>): Promise<R> => {
+    const next = (items.get(key) ?? Promise.resolve()).then(run);
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    items.set(key, settled);
+    void settled.then(() => {
+      if (items.get(key) === settled) items.delete(key);
+    });
+    return next;
+  };
+}
+
 /** A claim of the file that needs a look, where it is in the file, and what the check found. */
 export interface HandedClaim {
   where: string | null;
@@ -84,6 +104,8 @@ export interface AgentHandedFile extends Omit<HandedCheck, "claims"> {
 export interface GivenFile {
   /** Where the file is, links followed: what a Linked folder knows it by. */
   place: string;
+  /** The file itself, the same by every path to it; its place where that can't be told. */
+  same?: string;
   title: string;
   kind: HandedFile["kind"];
   bytes: Uint8Array;
@@ -132,6 +154,7 @@ export interface HandedFileToolDeps {
   doneSince(pairingId: string, tools: readonly AgentToolName[], since: string): number;
   folders(): { id: string; name: string }[];
   now(): string;
+  handOverTurns: HandOverTurns;
 }
 
 export interface HandedFileToolContext {
@@ -189,21 +212,6 @@ export function createHandedFileTool(context: HandedFileToolContext) {
     if (left > 0) underWay.set(pairingId, left);
     else underWay.delete(pairingId);
   };
-  /** Each item's hand-over under way, by pairing and path, for the next call of it to wait for. */
-  const items = new Map<string, Promise<void>>();
-  const oneAtATime = <R>(item: string, run: () => Promise<R>): Promise<R> => {
-    const next = (items.get(item) ?? Promise.resolve()).then(run);
-    const settled = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    items.set(item, settled);
-    void settled.then(() => {
-      if (items.get(item) === settled) items.delete(item);
-    });
-    return next;
-  };
-
   const kindOf = (path: string): HandedFile["kind"] => {
     const dot = path.lastIndexOf(".");
     const kind = dot < 0 ? undefined : KIND_OF[path.slice(dot).toLowerCase()];
@@ -218,8 +226,9 @@ export function createHandedFileTool(context: HandedFileToolContext) {
    * A hand-over made as the call `tool`: refused unless the pairing may write. The item `plan`
    * names keeps its Folder; a new one goes where the plan says. A place in the pairing's hour is
    * taken before the plan gives the bytes, and held until the call ends. Calls for one item go one
-   * at a time: the second finds the first's item, its date and its saved file (#3751). A refusal
-   * after the hand-over takes back what it made.
+   * at a time: the second finds the first's item, its date and its saved file (#3751); so do calls
+   * of one file, by any path to it and from any agent, from its hand-over to its answer or its
+   * take-back. A refusal after the hand-over takes back what it made.
    */
   function handOver<T extends object>(
     tool: AgentToolName,
@@ -255,6 +264,19 @@ export function createHandedFileTool(context: HandedFileToolContext) {
       reserved = pairing.id;
       const createdAt = known?.createdAt ?? (tool === "save_as_word" ? newItemDate() : deps.now());
       const { file, documentIds } = await planned.give(folder, createdAt);
+      // Whatever path it was named by and whichever agent named it, one file is one Document.
+      return deps.handOverTurns(`place\n${file.same ?? file.place}`, () =>
+        keptOrTakenBack(planned, pairing, folder, file, documentIds, known ? null : createdAt),
+      );
+    };
+    const keptOrTakenBack = async (
+      planned: PlannedHandOver<T>,
+      pairing: AdmittedPairing,
+      folder: { id: string | null; name: string },
+      file: GivenFile,
+      documentIds: readonly string[],
+      newItemAt: string | null,
+    ) => {
       const done = await deps.handOver({
         pairingId: pairing.id,
         agent: pairing.name,
@@ -262,7 +284,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
         connectedAt: pairing.createdAt,
         ...file,
         folderId: folder.id,
-        ...(!known && { createdAt }),
+        ...(newItemAt !== null && { createdAt: newItemAt }),
         ...(tool === "save_as_word" && { written: true }),
         // The grant as it is when the hand-over's turn comes: the User may have taken it back.
         allowed: () => {
@@ -340,7 +362,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
         throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
       }
       const planned = plan(called);
-      return oneAtATime(`${called.id}\n${planned.path}`, () => handedOver(planned));
+      return deps.handOverTurns(`item\n${called.id}\n${planned.path}`, () => handedOver(planned));
     });
     // Its place in the hour's count is the call's record from now on.
     return asked.finally(() => {
@@ -383,7 +405,13 @@ export function createHandedFileTool(context: HandedFileToolContext) {
             // The file's own name is its title, as a Document's is.
             const title = titleOf(path) || t("agents.handOver.untitled");
             return {
-              file: { place: read.path, title, kind, bytes: read.bytes },
+              file: {
+                place: read.path,
+                ...(read.file !== undefined && { same: read.file }),
+                title,
+                kind,
+                bytes: read.bytes,
+              },
               documentIds: [],
             };
           },

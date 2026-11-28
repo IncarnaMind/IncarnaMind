@@ -56,7 +56,7 @@ const bridge = {
     bridge.stopped.push(mindId);
   },
   /** Whether the User's command line is on this computer, as the core finds it (#3627). */
-  runsHere: false,
+  runsHere: [] as string[],
   ownAiRunsHere: async () => bridge.runsHere,
   listAgentsToAsk: async () => bridge.agents,
   // Connecting an agent turns connecting on.
@@ -274,7 +274,7 @@ beforeEach(() => {
   bridge.stopped = [];
   bridge.opens = false;
   bridge.fronts = false;
-  bridge.runsHere = false;
+  bridge.runsHere = [];
   bridge.frontedAfter = [];
   useAgentAsked.setState({ byKey: {} });
   copied.length = 0;
@@ -323,11 +323,11 @@ describe("the assistant and its pill", () => {
 
   // protects=a Note whose agent IncarnaMind runs in the background asks from its own input at its foot, so the pill gives way there; where its command line isn't on this computer, the pill still asks it by its link (#3627); fails_when=the pill and the Note's input both offer to ask, or a Note offers an input that can only open the link
   test("a Note whose agent runs in the background has its own input, not the pill", async () => {
-    bridge.runsHere = true;
+    bridge.runsHere = ["claude-code"];
     user(NO_MODEL, agents);
     expect(await windowShown()).toEqual({ folded: true, rail: false, quiet: true, pill: null });
     await unmount?.();
-    bridge.runsHere = false;
+    bridge.runsHere = [];
     user(NO_MODEL, agents);
     expect(await windowShown()).toEqual({
       folded: true,

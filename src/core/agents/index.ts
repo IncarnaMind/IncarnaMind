@@ -73,6 +73,7 @@ import {
 } from "./askedChecks";
 import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
+import { createHandOverTurns } from "./handedFiles";
 import type { AgentChallengeSession, OpenedAgentConnection, ServedConnection } from "./mcp";
 import { createAgentRequests, type KeptRequest } from "./requests";
 import {
@@ -130,6 +131,18 @@ const secretName = (pairingId: string) => `agent-pairing:${pairingId}`;
 export const serviceOf = (pairing: { id: string; name: string }): ExternalService => ({
   id: `agent:${pairing.id}`,
   name: pairing.name,
+});
+/**
+ * A pairing as its flows' service: with the client it was set up for, so its consent and
+ * Settings › Privacy, which shows its flows together, say what that agent does (#3639, #3653).
+ */
+export const agentServiceOf = (pairing: {
+  id: string;
+  name: string;
+  client: string | null;
+}): ExternalService => ({
+  ...serviceOf(pairing),
+  ...(pairing.client && { agentClient: pairing.client }),
 });
 /** The activity kept per pairing; older calls go. */
 const ACTIVITY_KEPT = 500;
@@ -191,6 +204,7 @@ export interface AgentsOptions {
     | "notesWrittenSince"
     | "checkRuns"
     | "workings"
+    | "handOverTurns"
     | "versions"
     | "citations"
     | "requests"
@@ -405,7 +419,7 @@ export function createAgents(options: AgentsOptions) {
     options.consent.registry.register({
       id: "agents",
       sends: AGENT_FLOW_SENDS,
-      services: async () => livePairings().map(serviceOf),
+      services: async () => livePairings().map(agentServiceOf),
     });
     options.consent.registry.register({
       id: "hosted-agents",
@@ -413,7 +427,7 @@ export function createAgents(options: AgentsOptions) {
       services: async () =>
         livePairings()
           .filter((pairing) => HOSTED_CLIENTS.includes(pairing.client ?? ""))
-          .map(serviceOf),
+          .map(agentServiceOf),
     });
   }
 
@@ -662,6 +676,7 @@ export function createAgents(options: AgentsOptions) {
     doneSince,
     checkRuns: createCheckRuns(),
     workings: createAgentWorkings(),
+    handOverTurns: createHandOverTurns(),
     versions: new Map(),
     citations,
     requests: {

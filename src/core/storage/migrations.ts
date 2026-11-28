@@ -3532,6 +3532,15 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
+    version: 167,
+    description: "A request in a Note's conversation its AI ended at a question told no (#3653)",
+    sql: `
+      -- Its AI ended the request at a question the User denied, or IncarnaMind refused, so what
+      -- it asked didn't run: the conversation says so under its last words.
+      ALTER TABLE own_ai_turns ADD COLUMN ended_at_ask INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
     version: 169,
     description:
       "A provider's key added for meeting transcription and Document search alone (#3767)",

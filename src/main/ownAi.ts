@@ -7,7 +7,18 @@
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { OwnAiEnd, OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
@@ -16,7 +27,9 @@ import { resolveCommandOnPath } from "./claudeBinary";
 import { ClaudeCodeHookError, ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
 import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./claudeCodeAsks";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
+import { deleteCodexThreads, runCodexConversation } from "./codexConversation";
 import { modelsIn } from "./ownAiModels";
+import { codexHomeOf } from "./ownPlaces";
 import { quotingNow, sayingNow, writingNow } from "./streamedInput";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
@@ -138,8 +151,23 @@ function parsedInput(json: string): Record<string, unknown> | null {
   }
 }
 
+/** Whether a path is gone: only the system's own word for it counts, so an error it can't be told by (EIO, ELOOP) is null. */
+const gone = (path: string): Promise<boolean | null> =>
+  stat(path).then(
+    () => false,
+    (error: unknown) => {
+      const code = errorCode(error);
+      return code === "ENOENT" || code === "ENOTDIR" ? true : null;
+    },
+  );
+
+const errorCode = (error: unknown) =>
+  error instanceof Error && "code" in error ? String(error.code) : "unknown";
+
 /** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
 const NOTHING_TO_PURGE = /No Claude Code project data found/;
+/** How long deleting a conversation's threads may take Codex. */
+const PURGE_MS = 30_000;
 const SERVER = "incarnamind";
 
 /**
@@ -211,11 +239,182 @@ export function createOwnAi({
     }
     return join(conversations, key);
   };
-  /** A check on Codex (./codex); a kept conversation isn't one it runs (#3639). */
-  async function runCodexCheck(
+  /**
+   * The threads Codex keeps each conversation as, newest last, by its key: in a file of
+   * IncarnaMind's own beside the conversations' folders, out of reach of what Codex writes in one.
+   */
+  const threadsFolder = () => join(conversations ?? "", ".codex-threads");
+  const threadsFile = (key: string) => join(threadsFolder(), `${basename(folderOf(key))}.json`);
+  /** None only where no file is kept; one that can't be read throws, so nothing writes over it. */
+  const threadsOf = async (key: string): Promise<string[]> => {
+    let kept: unknown;
+    try {
+      kept = JSON.parse(await readFile(threadsFile(key), "utf8"));
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return [];
+      throw new Error(
+        `The ids of a conversation's threads in Codex couldn't be read (${errorCode(error)}).`,
+      );
+    }
+    if (!Array.isArray(kept) || !kept.every((id) => typeof id === "string")) {
+      throw new Error("The ids of a conversation's threads in Codex weren't a list of ids.");
+    }
+    return kept;
+  };
+  const keepThread = async (key: string, id: string) => {
+    const threads = await threadsOf(key);
+    if (threads.includes(id)) return;
+    await mkdir(threadsFolder(), { recursive: true, mode: 0o700 });
+    // Written aside and moved over it: a write cut short never leaves the ids kept before lost.
+    const aside = join(threadsFolder(), `.${randomUUID()}.tmp`);
+    try {
+      await writeFile(aside, JSON.stringify([...threads, id]), { mode: 0o600 });
+      await rename(aside, threadsFile(key));
+    } finally {
+      await rm(aside, { force: true });
+    }
+  };
+  /**
+   * Deletes a conversation's threads in Codex, by the ids kept of them, and then the file of
+   * them: false, the file kept, when Codex couldn't be asked or didn't delete each.
+   */
+  const deleteThreads = async (key: string, threads: readonly string[]): Promise<boolean> => {
+    const path = await codex();
+    const folder = folderOf(key);
+    const folders = [folder, join(await realpath(conversations ?? "").catch(() => ""), key)];
+    const deleted =
+      path !== null &&
+      (await deleteCodexThreads(path, threads, folders, AbortSignal.timeout(PURGE_MS)).catch(
+        (error: unknown) => {
+          console.warn(
+            "Codex couldn't delete a conversation's threads:",
+            error instanceof Error ? error.message : "unknown",
+          );
+          return false;
+        },
+      ));
+    if (deleted) await rm(threadsFile(key), { force: true });
+    return deleted;
+  };
+  let sweeping: Promise<void> | null = null;
+  /**
+   * Deletes, in Codex, the threads of each conversation that is gone, its folder deleted, whose
+   * threads Codex didn't delete with it (#3653): at start-up and after each request, as the Check's
+   * folders left behind are.
+   */
+  const sweepThreads = () => {
+    sweeping ??= (async () => {
+      const names = await readdir(threadsFolder()).catch((error: unknown) => {
+        if (errorCode(error) !== "ENOENT") {
+          console.warn("Could not look for Codex threads left behind:", errorCode(error));
+        }
+        return [];
+      });
+      for (const name of names) {
+        const key = name.replace(/\.json$/, "");
+        if (key === name || !/^[A-Za-z0-9-]{1,64}$/.test(key)) continue;
+        const folderGone = await gone(folderOf(key));
+        if (folderGone === null) {
+          console.warn(
+            "Could not tell whether a conversation's folder is gone; its Codex threads stay.",
+          );
+        }
+        if (folderGone !== true) continue;
+        const threads = await threadsOf(key).catch((error: unknown) => {
+          console.warn("Could not read a gone conversation's Codex threads:", error);
+          return null;
+        });
+        if (threads === null) continue;
+        if (threads.length === 0) await rm(threadsFile(key), { force: true });
+        else if (!(await deleteThreads(key, threads))) {
+          console.warn(
+            "Codex didn't delete a gone conversation's threads; they're tried again later.",
+          );
+        }
+      }
+    })()
+      .catch((error: unknown) => console.warn("Could not delete Codex threads left behind:", error))
+      .finally(() => {
+        sweeping = null;
+      });
+    return sweeping;
+  };
+
+  /** A request of a Note's conversation on Codex, with its own abilities (#3653). */
+  async function runCodexOwn(
+    request: Parameters<OwnAiRunner["run"]>[0],
+    path: string,
+    conversation: NonNullable<Parameters<OwnAiRunner["run"]>[0]["conversation"]>,
+    own: NonNullable<Parameters<OwnAiRunner["run"]>[0]["own"]>,
+  ): ReturnType<OwnAiRunner["run"]> {
+    const cwd = folderOf(conversation.key);
+    let thread: string | null = null;
+    try {
+      thread = conversation.resume ? ((await threadsOf(conversation.key)).at(-1) ?? null) : null;
+    } catch (error) {
+      console.warn("A request of a Note's conversation on Codex couldn't continue:", error);
+      return { kind: "failed", reason: "other" };
+    }
+    if (conversation.resume && thread === null)
+      return { kind: "failed", reason: "lost-conversation" };
+    // The time a question waits on the User isn't the run's, as on Claude Code.
+    let waiting = 0;
+    const worked = workingTime(runMs, () => waiting > 0);
+    const signal = AbortSignal.any([request.signal, worked.signal]);
+    const asking: typeof own = {
+      ...own,
+      ask: (question, until) => {
+        waiting++;
+        return own.ask(question, until).finally(() => {
+          waiting--;
+        });
+      },
+    };
+    try {
+      await mkdir(cwd, { recursive: true, mode: 0o700 });
+      return await runCodexConversation({
+        path,
+        cwd,
+        server: request.server,
+        tools: request.tools,
+        instructions: request.instructions,
+        prompt: request.prompt,
+        thread,
+        kept: (id) => keepThread(conversation.key, id),
+        own: asking,
+        ...(request.model && { model: request.model }),
+        ...(request.listModels && { listModels: true }),
+        ...(request.progress && { progress: request.progress }),
+        ...(request.started && { started: request.started }),
+        signal,
+        maxBytes: MAX_RUN_BYTES,
+        maxReplyChars: MAX_REPLY_CHARS,
+        stallMs,
+        ...(noted && { processes: noted }),
+      });
+    } catch (error) {
+      if (request.signal.aborted) throw error;
+      if (error instanceof StalledError) return { kind: "failed", reason: "stalled" };
+      if (signal.aborted) return { kind: "failed", reason: "timeout" };
+      console.warn(
+        "A request of a Note's conversation on Codex failed:",
+        error instanceof Error ? error.message : "unknown",
+      );
+      return { kind: "failed", reason: "other" };
+    } finally {
+      worked.end();
+      void sweepThreads();
+    }
+  }
+
+  /** A check on Codex (./codex), or a request of a Note's conversation on it. */
+  async function runOnCodex(
     request: Parameters<OwnAiRunner["run"]>[0],
   ): ReturnType<OwnAiRunner["run"]> {
     const path = await codex();
+    if (path !== null && request.conversation && request.own) {
+      return runCodexOwn(request, path, request.conversation, request.own);
+    }
     if (path === null || request.conversation || request.tools === "all") {
       return { kind: "failed", reason: "unsupported" };
     }
@@ -262,11 +461,15 @@ export function createOwnAi({
     );
   }
   const codex = () => (codexCommand === null ? Promise.resolve(null) : findCodex(codexCommand));
+  if (conversations && codexCommand !== null) void sweepThreads();
   // The executable whose version last passed: it is asked again only once Claude Code is replaced,
   // as an update does, so a request starts it only for its sign-in first (#3677).
   let versionPassed: string | null = null;
 
   return {
+    // Codex's approval policy is the User's own: the input chooses Claude Code's modes alone.
+    choosesModes: (client) => client === "claude-code",
+
     async installed(client) {
       if (client === "codex") return (await codex()) !== null;
       return command !== null && (await resolveCommand(command)) !== null;
@@ -281,6 +484,20 @@ export function createOwnAi({
 
     async purge(key) {
       const folder = folderOf(key);
+      const threads = await threadsOf(key).catch((error: unknown) => {
+        console.warn("Could not read a conversation's Codex threads to delete them:", error);
+        return null;
+      });
+      // With its folder gone, the sweep tries its threads again.
+      if (threads === null) {
+        await rm(folder, { recursive: true, force: true, maxRetries: 3 });
+        return false;
+      }
+      if (threads.length > 0) {
+        const deleted = await deleteThreads(key, threads);
+        await rm(folder, { recursive: true, force: true, maxRetries: 3 });
+        return deleted;
+      }
       if (command === null) {
         await rm(folder, { recursive: true, force: true, maxRetries: 3 });
         return false;
@@ -319,7 +536,7 @@ export function createOwnAi({
     },
 
     async run(request) {
-      if (request.client === "codex") return runCodexCheck(request);
+      if (request.client === "codex") return runOnCodex(request);
       if (command === null) return { kind: "failed", reason: "other" };
       request.started?.();
       const compactionOver = new AbortController();
@@ -509,7 +726,13 @@ export function createOwnAi({
       };
       try {
         if (conversation) await mkdir(cwd, { recursive: true, mode: 0o700 });
-        if (own) places = { ...places, folders: [cwd, await realpath(cwd).catch(() => cwd)] };
+        if (own) {
+          places = {
+            ...places,
+            folders: [cwd, await realpath(cwd).catch(() => cwd)],
+            codexHome: codexHomeOf(await processes.environment()),
+          };
+        }
         const configFile = join(scratch, "mcp.json");
         const { command: server, args, env } = request.server;
         // A Note's conversation has its Tools in its first turn: deferred, they cost each request a
@@ -546,6 +769,7 @@ export function createOwnAi({
           ...(own && {
             own: {
               asked: ask,
+              places: () => places,
               withdrawn: (id: string) => {
                 asking.get(id)?.abort();
                 asking.delete(id);

@@ -1,6 +1,7 @@
 /**
- * The words of the answers a question of the User's own AI offers on its card (#3653), and of what
- * the line above the input says it does with a tool of its own (#3762).
+ * The words of the answers a question of the User's own AI offers on its card (#3653) and of the
+ * AI a file there steers, and of what the line above the input says it does with a tool of its own
+ * (#3762).
  */
 import type { NoteAction, NoteKept, NoteRule, NoteSuggested } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
@@ -28,6 +29,18 @@ const DOING: Record<NoteAction["kind"], MessageKey> = {
  */
 export const ownDoingWords = (t: Translate, action: NoteAction): string => t(DOING[action.kind]);
 
+const STEERED: Record<NonNullable<NoteAction["steers"]>, string> = {
+  "claude-code": "Claude Code",
+  codex: "Codex",
+};
+
+/**
+ * What a card says of a file one of the command-line AIs reads as its own: the AI it steers, by
+ * whose file it is, which may not be the AI asking.
+ */
+export const steersWords = (t: Translate, agent: NonNullable<NoteAction["steers"]>): string =>
+  t("ownAsk.steers", { agent: STEERED[agent] });
+
 /** What a rule covers, as Claude Code's own prompt names it after "don't ask again for". */
 function ruleWords(t: Translate, rule: NoteRule): string {
   if (rule.kind === "commands") return t("ownAsk.what.commands", { start: visible(rule.start) });
@@ -41,6 +54,7 @@ function ruleWords(t: Translate, rule: NoteRule): string {
     const folder = rule.folder === "" ? t("ownAsk.here.folder") : visible(rule.folder);
     return t(rule.change ? "ownAsk.what.changes" : "ownAsk.what.reads", { folder });
   }
+  if (rule.kind === "file") return t("ownAsk.what.file", { file: visible(rule.path) });
   return visible(rule.rule);
 }
 

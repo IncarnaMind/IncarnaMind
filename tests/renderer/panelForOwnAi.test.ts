@@ -68,7 +68,7 @@ const bridge = {
   agentsOn: false,
   getAgents: async () => ({ enabled: bridge.agentsOn, pairings: [] }),
   /** Whether the User's command-line AI runs on this computer, so a Note has its own input. */
-  runsHere: false,
+  runsHere: [] as string[],
   ownAiRunsHere: async () => bridge.runsHere,
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
@@ -315,7 +315,7 @@ const PANEL_COMMANDS = [
 
 beforeEach(() => {
   bridge.asked = [];
-  bridge.runsHere = false;
+  bridge.runsHere = [];
   bridge.editWithAi.mockClear();
   bridge.getConversation.mockClear();
   bridge.showMeetingPanel.mockClear();
@@ -507,7 +507,7 @@ describe("⌘J", () => {
 
   // protects=#3764: with their own AI running on this computer, ⌘J puts the caret in the Note's own input, the words selected kept as its quote, and opens no other app; fails_when=it hands the words to their AI's app, or the input isn't focused
   test("a Note with its own input: the caret goes there, the words still selected", async () => {
-    bridge.runsHere = true;
+    bridge.runsHere = ["claude-code"];
     user("own AI");
     await shown();
     const { editor } = selectedNote();
@@ -520,7 +520,7 @@ describe("⌘J", () => {
 
   // protects=#3764: Edit with AI… and Translate… from ⌘K, with nothing said yet, put the caret in the Note's own input, where the User says it; fails_when=either hands the words over by a link, which opens a terminal for Claude Code
   test.each(["edit.withAi", "edit.translate"] as const)("%s with its own input", async (id) => {
-    bridge.runsHere = true;
+    bridge.runsHere = ["claude-code"];
     user("own AI");
     await shown();
     selectedNote();
