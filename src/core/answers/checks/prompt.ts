@@ -371,18 +371,20 @@ const LIBRARY_LINE = new RegExp(
   `^[\\s>*_#\`"'“”-]*library[\\s*_]*[:：][\\s*_"'“”\`]*(${LIBRARY_WORDS})[\\s*_"'”\`.,;。，；]*$`,
   "i",
 );
-const LIBRARY_INLINE = `Library[ \\t]*[:：][ \\t*_"'“”\`]*(?:${LIBRARY_WORDS_CI})[ \\t*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}))`;
-const UNITS_INLINE = `Units[ \\t]*[:：][ \\t*_"'“”\`]*(?:${UNITS_WORDS_CI})[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|${LIBRARY_INLINE}))`;
+const LIBRARY_INLINE = `Library[ \\t]*[:：][ \\t*_"'“”\`]*(?:${LIBRARY_WORDS_CI})[ \\t*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|Units[ \\t]*[:：]))`;
+const UNITS_INLINE = `Units[ \\t]*[:：][ \\t*_"'“”\`]*(?:${UNITS_WORDS_CI})[ \\t*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|Library[ \\t]*[:：]))`;
 /**
  * Where a field's label stands after other words on its line. Only the labels the reply form
  * gives: a Chinese label's word followed by a colon is ordinary prose inside an explanation
- * ("这是作者的判断：…"), so it names a field only at a line's start. "Units:" and "Library:" start
- * a field only after whitespace when one of their enum words stands alone as the value.
+ * ("这是作者的判断：…"), so it names a field only at a line's start. "Units:" starts a field only
+ * after whitespace when one of its enum words stands alone as the value; "Library:" is split
+ * inline only on Verdict/Units lines so prose at the end of Explanation: never spoofs it.
  */
 const FIELD_START = new RegExp(
-  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=${UNITS_INLINE})|(?<=\\s)(?=${LIBRARY_INLINE})`,
+  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=${UNITS_INLINE})`,
   "gm",
 );
+const LIBRARY_SPLIT = new RegExp(`(?<=\\s)(?=${LIBRARY_INLINE})`, "g");
 
 type Finer = NonNullable<UnsupportedReason["word"]>;
 
@@ -444,6 +446,11 @@ export function readVerdict(reply: string): ReadVerdict | null {
     // written after a turn's own words follows them with no break.
     .replace(FIELD_START, "\n")
     .split("\n")
+    .flatMap((line, index) =>
+      VERDICT.test(line) || UNITS_LINE.test(line) || (index === 0 && BARE.test(line))
+        ? line.replace(LIBRARY_SPLIT, "\n").split("\n")
+        : [line],
+    )
     .map((line) => line.trim())
     .filter((line) => line !== "");
   const field = (of: RegExp) => of.exec(lines.findLast((line) => of.test(line)) ?? "")?.[1];

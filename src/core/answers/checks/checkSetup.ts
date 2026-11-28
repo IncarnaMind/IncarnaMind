@@ -356,6 +356,12 @@ export function setUpRun(
     workings: (): readonly AnswerAnalysis[] => workings,
     /** The Library's lists a run read; none for a run over a data file's rows alone. */
     libraryRead: (run: AnswerAnalysis): LibraryRead | undefined => listsRead.get(run),
+    /** Records the Library lists' version in `results` even when no `run_analysis` read them (#2525). */
+    recordLibraryVersion() {
+      if (!libraryLists) return;
+      lists ??= libraryLists(request.mindId ?? null);
+      if (lists) results.readVersion(LIBRARY_FACTS, libraryVersion(lists));
+    },
     tools,
   };
 }

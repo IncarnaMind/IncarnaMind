@@ -2151,6 +2151,26 @@ describe("Library field in check prompts and replies (#2525)", () => {
     });
 
     expect(
+      readVerdict(
+        "Verdict: not found Library: unsettled Units: none Explanation: Not stored. Evidence: []",
+      ),
+    ).toEqual({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+      says: "Not stored.",
+      evidence: [],
+    });
+
+    expect(readVerdict("Verdict: not found Units: none Library: unsettled")).toMatchObject({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+    });
+
+    expect(
       readVerdict("Verdict: not found\nLibrary: settled\nLibrary: unsettled\nEvidence: []"),
     ).toMatchObject({ library: "unsettled" });
 
@@ -2208,6 +2228,24 @@ describe("Library field in check prompts and replies (#2525)", () => {
     );
     expect(proseInExplanation?.library).toBeUndefined();
     expect(proseInExplanation?.says).toBe("Library: none of the files mention dates added.");
+
+    const endSpoof = readVerdict(
+      "Verdict: not found\nUnits: none\nLibrary: none\nExplanation: The memo refers to Library: unsettled.\nEvidence: []",
+    );
+    expect(endSpoof?.library).toBe("none");
+    expect(endSpoof?.says).toBe("The memo refers to Library: unsettled.");
+
+    const endOverwrite = readVerdict(
+      "Verdict: not found\nUnits: none\nLibrary: unsettled\nExplanation: Your Library: none.\nEvidence: []",
+    );
+    expect(endOverwrite?.library).toBe("unsettled");
+    expect(endOverwrite?.says).toBe("Your Library: none.");
+
+    const collapsedExplanationSpoof = readVerdict(
+      "Verdict: not found\nExplanation: The memo says Library: unsettled. Evidence: []",
+    );
+    expect(collapsedExplanationSpoof?.library).toBeUndefined();
+    expect(collapsedExplanationSpoof?.says).toBe("The memo says Library: unsettled.");
 
     const badJson = readVerdict(
       JSON.stringify({

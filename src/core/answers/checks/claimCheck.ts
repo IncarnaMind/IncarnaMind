@@ -295,6 +295,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     tools,
     workings,
     libraryRead,
+    recordLibraryVersion,
   } = setUpRun(
     deps,
     request,
@@ -462,6 +463,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
   const [quoted, ...more] = quotes;
   if (isLibraryUnsettled(read) && !(read.verdict === "contradicted" && quoted !== undefined)) {
+    recordLibraryVersion();
     return notChecked("library-unsettled");
   }
   const recordedQuotes = () =>

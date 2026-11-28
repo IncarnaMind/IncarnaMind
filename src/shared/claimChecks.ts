@@ -925,7 +925,21 @@ export function isUserLibraryCheck(check: ClaimCheckAttributes): boolean {
   const hasLibraryWorking = [...resultsIn(check)].some((each) =>
     (each.parts ?? []).some((part) => part.working?.library != null),
   );
-  if (!hasLibraryCitation && !hasLibraryWorking) return false;
+  const hasLibraryVersion = [...resultsIn(check)].some(
+    (each) =>
+      each.versions.some((version) => version.documentId === LIBRARY_FACTS) ||
+      (each.parts ?? []).some((part) =>
+        part.versions.some((version) => version.documentId === LIBRARY_FACTS),
+      ),
+  );
+  const isLibraryUnsettled = [...resultsIn(check)].some(
+    (each) =>
+      each.reason === "library-unsettled" ||
+      (each.parts ?? []).some((part) => part.reason === "library-unsettled"),
+  );
+  if (!hasLibraryCitation && !hasLibraryWorking && !hasLibraryVersion && !isLibraryUnsettled) {
+    return false;
+  }
   if (check.outside !== true) return true;
   const nonScopeCitation = restsOn(check).some(
     (each) =>
@@ -943,24 +957,32 @@ export function isUserLibraryCheck(check: ClaimCheckAttributes): boolean {
 
 /**
  * Whether a result's reliance on the Library's own lists stands for a reader with `reach` (#2525):
- * only when the reader has a scoped version of those lists, every Library Citation matches that
- * version, and each carries a scoped source (never a User check's whole-Library or `left-out`
- * wall count).
+ * only when the mark is an outside check, the reader has a scoped version of those lists, every
+ * Library Citation carries a scoped source at that version, and every recorded Library version
+ * matches it.
  */
 function libraryInReach(
   check: ClaimCheckAttributes,
   now: Pick<ClaimCheckNow, "versions">,
 ): boolean {
   const current = now.versions?.get(LIBRARY_FACTS);
-  if (current === undefined || isUserLibraryCheck(check)) return false;
-  return restsOn(check)
-    .filter((each) => each.documentId === LIBRARY_FACTS)
-    .every(
+  if (current === undefined || check.outside !== true || isUserLibraryCheck(check)) return false;
+  const citations = restsOn(check).filter((each) => each.documentId === LIBRARY_FACTS);
+  const versions = [...resultsIn(check)].flatMap((each) => [
+    ...each.versions.filter((version) => version.documentId === LIBRARY_FACTS),
+    ...(each.parts ?? []).flatMap((part) =>
+      part.versions.filter((version) => version.documentId === LIBRARY_FACTS),
+    ),
+  ]);
+  if (citations.length === 0 && versions.length === 0) return false;
+  return (
+    citations.every(
       (each) =>
         each.contentHash === current &&
         each.location?.kind === "library" &&
         each.location.source.kind === "scope",
-    );
+    ) && versions.every((version) => version.contentHash === current)
+  );
 }
 
 /**
@@ -983,9 +1005,12 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
       relied.includes(LIBRARY_FACTS) ||
       [...resultsIn(check)].some(
         (each) =>
+          each.reason === "library-unsettled" ||
           each.versions.some((version) => version.documentId === LIBRARY_FACTS) ||
-          (each.parts ?? []).some((part) =>
-            part.versions.some((version) => version.documentId === LIBRARY_FACTS),
+          (each.parts ?? []).some(
+            (part) =>
+              part.reason === "library-unsettled" ||
+              part.versions.some((version) => version.documentId === LIBRARY_FACTS),
           ),
       );
     if (

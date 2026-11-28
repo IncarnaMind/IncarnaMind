@@ -144,6 +144,8 @@ interface Checked {
   outcome: Outcome | "no mark";
   reason: string | null;
   notFound: boolean;
+  /** Mirrors `offersNotFound` in `unsupportedFixes.ts`: any uncited unsupported card offers Cut. */
+  offersCut: boolean;
   evidence: string[];
   requests: number;
   elapsedMs: number;
@@ -250,12 +252,18 @@ async function checkedAsNote(
           ? ({ state } as const)
           : null;
   const notFound = check !== undefined && shown !== null && saysNotFound(shown, check, 0);
+  const offersCut =
+    check !== undefined &&
+    shown?.state === "unsupported" &&
+    check.unsupported?.kind !== "analysis-name" &&
+    !check.citedCaseUnchecked;
 
   return {
     outcome,
     reason:
       state === "not-checked" ? (check?.reason ?? null) : (check?.unsupported?.reason ?? null),
     notFound,
+    offersCut,
     evidence: [...new Set(evidence)],
     requests,
     elapsedMs,
@@ -281,6 +289,7 @@ describe.each(["en", "zh-CN"] as const)(
         const lines = [`## ${MODEL} · ${language}`];
         const falseSupported: string[] = [];
         const wrongNotFound: string[] = [];
+        const wrongCut: string[] = [];
         let right = 0;
         let totalRequests = 0;
         const timesMs: number[] = [];
@@ -316,7 +325,7 @@ describe.each(["en", "zh-CN"] as const)(
               (each.expected as readonly string[]).includes(result.outcome) &&
               (each.reason === undefined || result.reason === each.reason) &&
               (result.outcome !== "supported" || !each.aboutLibrary || byLibrary) &&
-              (!each.mustNotBeNotFound || !result.notFound);
+              (!each.mustNotBeNotFound || (!result.notFound && !result.offersCut));
             if (holds) right++;
             totalRequests += result.requests;
             timesMs.push(result.elapsedMs);
@@ -329,8 +338,12 @@ describe.each(["en", "zh-CN"] as const)(
             if (each.mustNotBeNotFound && result.notFound) {
               wrongNotFound.push(`${each.id}: ${each.sentence}`);
             }
+            if (each.mustNotBeNotFound && result.offersCut) {
+              wrongCut.push(`${each.id}: ${each.sentence}`);
+            }
+            const flags = result.notFound ? " [NOT-FOUND+CUT]" : result.offersCut ? " [CUT]" : "";
             lines.push(
-              `- ${holds ? "ok" : "MISS"} [${each.id} · ${each.group}/${each.category} · ${each.library}] ${each.sentence} → ${result.outcome}${result.reason ? ` (${result.reason})` : ""}${result.notFound ? " [NOT-FOUND+CUT]" : ""} · ${result.requests} req · ${(result.elapsedMs / 1000).toFixed(1)}s${result.evidence.length ? ` · ${result.evidence.join("; ")}` : ""}`,
+              `- ${holds ? "ok" : "MISS"} [${each.id} · ${each.group}/${each.category} · ${each.library}] ${each.sentence} → ${result.outcome}${result.reason ? ` (${result.reason})` : ""}${flags} · ${result.requests} req · ${(result.elapsedMs / 1000).toFixed(1)}s${result.evidence.length ? ` · ${result.evidence.join("; ")}` : ""}`,
             );
             spent.push((await core.getCostSummary()).spent);
           } finally {
@@ -338,7 +351,7 @@ describe.each(["en", "zh-CN"] as const)(
           }
         }
         lines.push(
-          `Right: ${right} of ${cases.length}. False Supported: ${falseSupported.length}. Wrong Not-found+Cut: ${wrongNotFound.length}. Requests: ${totalRequests}. Median seconds: ${(median(timesMs) / 1000).toFixed(2)}s.`,
+          `Right: ${right} of ${cases.length}. False Supported: ${falseSupported.length}. Wrong Not-found: ${wrongNotFound.length}. Wrong Cut: ${wrongCut.length}. Requests: ${totalRequests}. Median seconds: ${(median(timesMs) / 1000).toFixed(2)}s.`,
           `Spent, each case: ${JSON.stringify(spent)}`,
           "",
         );
