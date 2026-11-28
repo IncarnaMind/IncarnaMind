@@ -247,7 +247,7 @@ export function ProviderForm({
   standalone?: boolean;
   /**
    * The default model stays as it is, so while there is one the form asks for no model. "always":
-   * a key saved for other jobs, which never becomes the model Questions use and asks for none.
+   * a key saved for other jobs alone (`ChatProvider.jobsOnly`), which asks for no model.
    */
   keepDefault?: boolean | "always";
   initialEndpoint?: string | null;
@@ -500,7 +500,11 @@ export function ProviderForm({
         return;
       }
       const provider = await core.saveChatProvider(
-        keepDefault ? { ...request, keepDefault } : request,
+        keepDefault === "always"
+          ? { ...request, keepDefault, jobsOnly: true }
+          : keepDefault
+            ? { ...request, keepDefault }
+            : request,
       );
       key.clear();
       setNotChecked(notChecked);

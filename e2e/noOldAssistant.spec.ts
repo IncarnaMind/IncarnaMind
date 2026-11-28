@@ -17,6 +17,7 @@ import {
   saveProvider,
   setLanguage,
   setWindowSize,
+  useCloudChatModel,
   useLocalChatModel,
   writeNote,
 } from "./app";
@@ -283,4 +284,43 @@ test("with no model, a key for meetings and search is added from the transcripti
       return (await bridge.getSettings()).user.chatModel;
     }),
   ).toBeNull();
+});
+
+test("with a Claude model, an OpenAI key added for transcription leaves the Questions model picker with Claude's models alone", async () => {
+  const launched = await launchApp(dataDir, { fakeChat: true });
+  app = launched.app;
+  const window = launched.window;
+  await setWindowSize(launched.app, window, 1440, 900);
+  await acceptPlainTextKeys(window);
+  await useCloudChatModel(window);
+  const claude = await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await bridge.getSettings()).user.chatModel?.providerId ?? "";
+  });
+  const settings = await openSettings(window, "ai");
+  const answers = settings.getByTestId("model-default-chatModel");
+  const answerValues = () =>
+    answers.evaluate((select) =>
+      [...(select as HTMLSelectElement).options].map((each) => each.value).filter(Boolean),
+    );
+  await expect.poll(answerValues).not.toEqual([]);
+  const before = await answerValues();
+  expect(before.every((value) => value.startsWith(`${claude}\n`))).toBe(true);
+
+  await settings.getByTestId("meetings-route").selectOption({ label: "Add a key…" });
+  const sheet = settings.getByTestId("ai-add-sheet");
+  await sheet.locator('[data-catalog-id="openai"]').click();
+  const form = settings.getByTestId("provider-add");
+  await expect(form).toHaveAttribute("data-catalog-id", "openai");
+  await form.getByLabel(/^API key/).fill("sk-openai-for-meetings");
+  await form.getByTestId("provider-use-key").click();
+  await expect(settings.getByTestId("provider-page")).toBeVisible();
+  await settings.getByTestId("models-back").click();
+  await expect(
+    settings.getByTestId("meetings-route").locator('option[value="openai"]'),
+  ).toHaveCount(1);
+
+  // The Questions picker still lists Claude's models alone, and Claude still answers.
+  await expect.poll(answerValues).toEqual(before);
+  await expect(answers).toHaveValue(new RegExp(`^${claude}\\n`));
 });

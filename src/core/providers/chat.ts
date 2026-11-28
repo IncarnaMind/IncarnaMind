@@ -146,9 +146,11 @@ interface ProviderRow {
   catalog_id: string | null;
   /** A hosted provider's endpoint (its region); null for a server the User gives. */
   endpoint: string | null;
+  /** 1 for a key added for meeting transcription and Document search alone (#3767). */
+  jobs_only: number;
 }
 
-const ROW_COLUMNS = "id, kind, base_url, catalog_id, endpoint";
+const ROW_COLUMNS = "id, kind, base_url, catalog_id, endpoint, jobs_only";
 
 /** A row of a kind this version knows, and of a preset it knows: a newer version's isn't used. */
 const isKnownRow = (row: ProviderRow): row is ProviderRow & { kind: ChatProviderKind } =>
@@ -556,6 +558,9 @@ export function createChat(options: {
       )
       .filter(isKnownRow);
 
+  /** The saved providers whose models answer: a key added for other jobs alone isn't one (#3767). */
+  const chatRows = () => knownRows().filter((row) => row.jobs_only === 0);
+
   /** Where a row's requests go. */
   const rowService = (row: ProviderRow) =>
     serviceFor(row.kind as ChatProviderKind, row.base_url, row.endpoint, row.catalog_id);
@@ -686,6 +691,7 @@ export function createChat(options: {
       catalogId: row.catalog_id,
       endpoint: row.endpoint,
       baseUrl: row.base_url,
+      ...(row.jobs_only === 1 && { jobsOnly: true as const }),
       hasApiKey: key.saved,
       ...(key.unreadable && { apiKeyUnreadable: true }),
       service: modelId === undefined ? rowService(row) : knownService(row, modelId),
@@ -806,7 +812,7 @@ export function createChat(options: {
     sends: CHAT_FLOW_SENDS,
     async services() {
       const services: ExternalService[] = [];
-      for (const row of knownRows()) {
+      for (const row of chatRows()) {
         const service = (await withDefaultModel(row)).service;
         if (service) services.push(service);
       }
@@ -830,7 +836,7 @@ export function createChat(options: {
     flow: DataFlowId,
   ): Promise<ChatReadiness> => {
     const row = choice && rowById(choice.providerId);
-    if (!choice || !row || !isKnownRow(row)) {
+    if (!choice || !row || !isKnownRow(row) || row.jobs_only === 1) {
       return { ready: false, reason: "no-provider" };
     }
     const { modelId } = choice;
@@ -869,6 +875,11 @@ export function createChat(options: {
       return Promise.all(knownRows().map(withDefaultModel));
     },
 
+    /** The saved providers whose models answer: none added for other jobs alone (#3767). */
+    async chatList(): Promise<ChatProvider[]> {
+      return Promise.all(chatRows().map(withDefaultModel));
+    },
+
     /**
      * Saves the provider and makes the model on it the default: choosing a
      * cloud provider allows the flows that send to it (`CHOSEN_PROVIDER_FLOWS`,
@@ -880,11 +891,14 @@ export function createChat(options: {
       const server = parseServer(input);
       const apiKey = parseApiKey(input.apiKey, server);
       const modelId = parseModelId(input.modelId);
+      const existing = rowByServer(server);
+      // A company already saved keeps what it is; only a new one is saved for other jobs alone.
+      const jobsOnly = existing ? existing.jobs_only === 1 : input.jobsOnly === true;
       const makeDefault =
+        !jobsOnly &&
         input.keepDefault !== "always" &&
         (input.keepDefault !== true || settings.get().user.chatModel === null);
 
-      const existing = rowByServer(server);
       const id = existing?.id ?? randomUUID();
       const keyAfterSave =
         apiKey === undefined
@@ -904,9 +918,18 @@ export function createChat(options: {
           db.run("UPDATE chat_providers SET updated_at = ? WHERE id = ?", [at, id]);
         } else {
           db.run(
-            `INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [id, server.kind, server.baseUrl, server.catalogId, server.endpoint, at, at],
+            `INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, jobs_only, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              id,
+              server.kind,
+              server.baseUrl,
+              server.catalogId,
+              server.endpoint,
+              jobsOnly ? 1 : 0,
+              at,
+              at,
+            ],
           );
         }
         // Quick tasks and reading images go back to Automatic with the Answers model, with no row of their own (#1922).
@@ -927,7 +950,7 @@ export function createChat(options: {
       // Ollama is chosen for models on this computer, where no line says what goes elsewhere:
       // a cloud model in it asks once, at its first send. The line doesn't name what a
       // Connector's Tools return either: with one on, the first Question asks for that.
-      const service = server.kind === "ollama" ? null : rowService(row);
+      const service = server.kind === "ollama" || jobsOnly ? null : rowService(row);
       if (service) consent.choose(CHOSEN_PROVIDER_FLOWS, service, ["tool-results"]);
       return toProvider(row);
     },
@@ -957,7 +980,7 @@ export function createChat(options: {
       });
       await secrets.delete(keyName(id));
       if (chatModel?.providerId !== id) return;
-      for (const row of knownRows()) {
+      for (const row of chatRows()) {
         const modelId = await answersModelOf(row);
         if (modelId) {
           settings.update({ user: { chatModel: { providerId: row.id, modelId } } });
@@ -1174,7 +1197,7 @@ export function createChat(options: {
     async listModels(): Promise<ChatModelGroup[]> {
       const chatModel = settings.get().user.chatModel;
       return Promise.all(
-        knownRows().map(async (row) => {
+        chatRows().map(async (row) => {
           const provider = await toProvider(row);
           const listed = await listedModels(row, provider);
           const defaultModel = chatModel?.providerId === row.id ? [chatModel.modelId] : [];
@@ -1543,6 +1566,7 @@ export function createChat(options: {
         base_url: provider.baseUrl,
         catalog_id: provider.catalogId,
         endpoint: provider.endpoint,
+        jobs_only: provider.jobsOnly ? 1 : 0,
       };
       // Read before the first request: a local preset's list says what its models can do, so one is sized to its window.
       if (!provider.service && isPreset(catalogProvider(provider.catalogId))) {
