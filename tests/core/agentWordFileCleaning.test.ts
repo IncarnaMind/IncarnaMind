@@ -20,6 +20,7 @@ import {
   expectOnlyGiven,
   HEADER_TYPE,
   type Language,
+  PACKAGE,
   plantedIn,
   REL,
   reviewed,
@@ -29,7 +30,7 @@ import {
   without,
   withParts,
 } from "../helpers/plantedWordFile";
-import { escapeXml, field, paragraph, run, STYLES, tracked, wordFile } from "../helpers/word";
+import { escapeXml, field, PNG, paragraph, run, STYLES, tracked, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
 interface Saved {
@@ -316,6 +317,63 @@ function numberedClauses(words: Words, unused: string): Buffer {
     body: [words.street, words.webText]
       .map((text) => paragraph(run(text), { numId: 1, ilvl: 0 }))
       .join(""),
+  });
+}
+
+const BULLET_PICTURES = {
+  kept: Buffer.concat([PNG, Buffer.from("KEPTBULLETPIC")]),
+  override: Buffer.concat([PNG, Buffer.from("OVERRIDEBULLETPIC")]),
+  unused: Buffer.concat([PNG, Buffer.from("UNUSEDBULLETPIC")]),
+  orphan: Buffer.concat([PNG, Buffer.from("ORPHANBULLETPIC")]),
+};
+
+/** A picture bullet, as Word keeps it in the numbering part, drawing the image of relationship `id`. */
+const pictureBullet = (bullet: number, id: string) =>
+  `<w:numPicBullet w:numPicBulletId="${bullet}"><w:pict><v:shape id="_x0000_i${1025 + bullet}" type="#_x0000_t75" style="width:9pt;height:9pt" o:bullet="t"><v:imagedata r:id="${id}"/></v:shape></w:pict></w:numPicBullet>`;
+
+/**
+ * Lists bulleted with pictures. One list, a paragraph's, draws picture bullet 0 and another's
+ * override draws 3; a list nothing uses draws 1 and labels its bullets with `unusedLabel`, and
+ * picture bullet 2 is drawn by no list.
+ */
+function pictureBulleted(words: Words): Buffer {
+  const level = (format: string, text: string, bullet: number) =>
+    `<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${escapeXml(text)}"/><w:lvlPicBulletId w:val="${bullet}"/></w:lvl>`;
+  const numbering = [
+    pictureBullet(0, "rIdBulletKept"),
+    pictureBullet(1, "rIdBulletUnused"),
+    pictureBullet(2, "rIdBulletOrphan"),
+    pictureBullet(3, "rIdBulletOverride"),
+    `<w:abstractNum w:abstractNumId="0">${level("bullet", "•", 0)}</w:abstractNum>`,
+    `<w:abstractNum w:abstractNumId="1">${level("bullet", words.unusedLabel, 1)}</w:abstractNum>`,
+    '<w:abstractNum w:abstractNumId="2"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>',
+    '<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>',
+    '<w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>',
+    `<w:num w:numId="3"><w:abstractNumId w:val="2"/><w:lvlOverride w:ilvl="0">${level("bullet", "•", 3)}</w:lvlOverride></w:num>`,
+  ].join("");
+  const bullets = `${DECLARATION}<Relationships xmlns="${PACKAGE}">${[
+    ["Kept", "keptbullet"],
+    ["Unused", "unusedbullet"],
+    ["Orphan", "orphanbullet"],
+    ["Override", "overridebullet"],
+  ]
+    .map(
+      ([id, name]) =>
+        `<Relationship Id="rIdBullet${id}" Type="${REL}/image" Target="media/${name}.png"/>`,
+    )
+    .join("")}</Relationships>`;
+  return wordFile({
+    numbering,
+    body: [words.street, words.webText]
+      .map((text, at) => paragraph(run(text), { numId: at === 0 ? 1 : 3, ilvl: 0 }))
+      .join(""),
+    parts: [
+      { name: "word/_rels/numbering.xml.rels", data: bullets },
+      { name: "word/media/keptbullet.png", data: BULLET_PICTURES.kept },
+      { name: "word/media/unusedbullet.png", data: BULLET_PICTURES.unused },
+      { name: "word/media/orphanbullet.png", data: BULLET_PICTURES.orphan },
+      { name: "word/media/overridebullet.png", data: BULLET_PICTURES.override },
+    ],
   });
 }
 
@@ -625,6 +683,25 @@ describe.each(LANGUAGES)(
       );
       expect(numbering).not.toContain('w:numId="2"');
       expectNoneOf(saved.files, [words.unusedLabel]);
+    });
+
+    // protects=a picture bullet no list the file shows draws goes with its picture, and so does a bullet list nothing uses with the words its bullets are labelled with, while the picture bullets a list and a list's override draw stay (#3751); fails_when=an unused list's or an undrawn picture bullet's image or a label's words are in the agent's file, a drawn picture bullet is lost, or the file is written new
+    it("leaves out the picture bullets no list draws, and a bullet list nothing uses", async () => {
+      const saved = await savedFor(language, pictureBulleted(words));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      expectNoneOf(saved.files, [words.unusedLabel, "UNUSEDBULLETPIC", "ORPHANBULLETPIC"]);
+      expect([...saved.files.keys()].filter((name) => name.includes("bullet.png")).sort()).toEqual([
+        "word/media/keptbullet.png",
+        "word/media/overridebullet.png",
+      ]);
+      const numbering = part(saved.files, "word/numbering.xml");
+      expect(
+        [...numbering.matchAll(/w:numPicBulletId="(\d+)"/g)].map(([, bullet]) => bullet),
+      ).toEqual(["0", "3"]);
+      const relationships = part(saved.files, "word/_rels/numbering.xml.rels");
+      expect(relationships).toContain("media/keptbullet.png");
+      expect(relationships).toContain("media/overridebullet.png");
+      expect(relationships).not.toMatch(/unusedbullet|orphanbullet/);
     });
 
     // protects=the check reads the words a date control's picture shows, so ones the Note doesn't hold make the agent's file be written new (#3751); fails_when=the picture's words are in the agent's file

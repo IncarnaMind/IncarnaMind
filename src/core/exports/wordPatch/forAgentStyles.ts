@@ -2,8 +2,8 @@
  * Styles' and lists' names in the Word file written for an outside agent (#3751). A style someone
  * named is renamed "Style 1", "Style 2" and so on, its id Style1 and so on, wherever the file names
  * it, so its look stays and its name goes. Word's own styles and the export's keep their names. A
- * list no paragraph or style uses goes, so the words its numbers show are only those of lists the
- * file shows.
+ * list no paragraph or style uses goes with the picture bullets only it draws, so the words its
+ * numbers show and the pictures its bullets draw are only those of lists the file shows.
  */
 import { elements, textOf, walk, type XmlElement } from "../../documents/formats/xml";
 import { STYLE_DEFINITIONS } from "../docx";
@@ -492,7 +492,10 @@ export function listsUsed(roots: readonly XmlElement[]): Set<string> {
   return used;
 }
 
-/** The numbering part's lists that `used` doesn't hold, and the definitions only they used. */
+/**
+ * The numbering part's lists that `used` doesn't hold, the definitions only they used, and the
+ * picture bullets no level of a list left draws.
+ */
 export function unusedLists(root: XmlElement, used: ReadonlySet<string>): Splice[] {
   const lists = elements(root).filter((each) => each.name === "w:num");
   const kept = lists.filter((each) => used.has(each.attrs["w:numId"] ?? ""));
@@ -502,11 +505,24 @@ export function unusedLists(root: XmlElement, used: ReadonlySet<string>): Splice
         elements(each).find((child) => child.name === "w:abstractNumId")?.attrs["w:val"] ?? [],
     ),
   );
+  const left = elements(root).filter(
+    (each) =>
+      (each.name === "w:num" && kept.includes(each)) ||
+      (each.name === "w:abstractNum" && definitions.has(each.attrs["w:abstractNumId"] ?? "")),
+  );
+  const drawn = new Set(
+    left.flatMap((each) =>
+      [...walk(each)]
+        .filter((child) => child.name === "w:lvlPicBulletId")
+        .map((child) => child.attrs["w:val"] ?? ""),
+    ),
+  );
   return elements(root)
     .filter(
       (each) =>
         (each.name === "w:num" && !kept.includes(each)) ||
-        (each.name === "w:abstractNum" && !definitions.has(each.attrs["w:abstractNumId"] ?? "")),
+        (each.name === "w:abstractNum" && !definitions.has(each.attrs["w:abstractNumId"] ?? "")) ||
+        (each.name === "w:numPicBullet" && !drawn.has(each.attrs["w:numPicBulletId"] ?? "")),
     )
     .map((each) => ({ from: startOf(each), to: endOf(each), text: "" }));
 }
