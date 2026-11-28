@@ -4507,10 +4507,39 @@ export async function leaveText(window: Page): Promise<void> {
 }
 
 /**
+ * Waits for the tab strip's row to stand still. A Note's sentences are counted 300 ms after the
+ * last key, and the Check that then comes into the row can cost Export its word (#3765): a person
+ * aims at Export once it has settled.
+ */
+async function stripSettled(window: Page): Promise<void> {
+  let last = "";
+  let same = 0;
+  await expect
+    .poll(
+      async () => {
+        const now = await window.evaluate(() =>
+          [...document.querySelectorAll('[data-testid="tab-strip"] button')]
+            .map((each) => {
+              const box = each.getBoundingClientRect();
+              return `${Math.round(box.left)},${Math.round(box.width)}`;
+            })
+            .join(" "),
+        );
+        same = now === last ? same + 1 : 0;
+        last = now;
+        return same;
+      },
+      { intervals: [200] },
+    )
+    .toBeGreaterThanOrEqual(2);
+}
+
+/**
  * Exports the Mind in the shown tab from Export's menu: in `format`, or in the
  * one it lists first, the last one used.
  */
 export async function exportFromMenu(window: Page, format?: ExportFormat): Promise<void> {
+  await stripSettled(window);
   const menu = window.getByTestId("export-menu");
   const more = pageMenuButton(window);
   // A strip too tight for Export keeps it in the Note's ⋯ (#3765).
@@ -4551,6 +4580,7 @@ export async function exportFromMenu(window: Page, format?: ExportFormat): Promi
 
 /** Export's More formats › menu for the Mind in the shown tab, opened as a person opens it. */
 export async function openExportMore(window: Page): Promise<Locator> {
+  await stripSettled(window);
   await pointAndClick(window, window.getByTestId("export-mind"));
   const menu = window.getByTestId("export-menu");
   await expect(menu).toBeVisible();
