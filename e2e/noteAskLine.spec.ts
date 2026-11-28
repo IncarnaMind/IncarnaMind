@@ -229,7 +229,8 @@ for (const [language, words] of Object.entries(LANGUAGES) as [
       await expect(frontMind(window)).toContainText(written, { timeout: 30_000 });
       await expect(pill).toHaveAttribute("data-state", "working");
       const typed = language === "en" ? "Checked with the crew." : "已和船员核对。";
-      await pointAndClick(window, frontMind(window).locator(".mind-editor > :last-child"));
+      // The Note's empty first paragraph, which the change replaces, is drawn as gone already (#3885).
+      await pointAndClick(window, frontMind(window).locator(".mind-editor > :visible").last());
       await window.keyboard.press("End");
       await window.keyboard.press("Enter");
       await window.keyboard.type(typed);
