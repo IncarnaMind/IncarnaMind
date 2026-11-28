@@ -85,6 +85,8 @@ export interface NoteHealth {
   supported: number;
   checkedAt: string | null;
   unexamined: number[];
+  /** Sentences an outside AI wrote or left unreported (#3862) that still wait in `toCheck`. */
+  unchecked: number[];
 }
 
 /** A check that landed a verdict: an edit of its sentence is a re-check, not an upgrade of one that never ran. */
@@ -115,6 +117,8 @@ export interface CountedSentence {
   /** It is in a table cell. */
   inTable: boolean;
   state: CheckedSentence;
+  /** The sentence sits in a Block an outside AI wrote or changed since the last whole check (#3862). */
+  inUncheckedBlock?: boolean;
 }
 
 export const emptyHealth = (): NoteHealth => ({
@@ -144,13 +148,15 @@ export const emptyHealth = (): NoteHealth => ({
   supported: 0,
   checkedAt: null,
   unexamined: [],
+  unchecked: [],
 });
 
 /** Adds a sentence to the health: what its check found and where it counts. */
 export function countSentence(
   health: NoteHealth,
-  { from, text, claim, citations, inTable: table, state, kind }: CountedSentence,
+  { from, text, claim, citations, inTable: table, state, kind, inUncheckedBlock }: CountedSentence,
   unexamined: ReadonlySet<string> = new Set(),
+  unchecked: ReadonlySet<string> = new Set(),
 ): void {
   const checkedAt = (at: string) => {
     if (
@@ -196,6 +202,9 @@ export function countSentence(
     health.checkable++;
     lookFor(true);
     health.toCheck.push(from);
+    const cantSettle =
+      (claim !== null && cantBeChecked(claim.shown)) ||
+      (claim?.shown.state === "not-checked" && ANALYSIS_REASONS.has(claim.shown.reason));
     if (state.why === "failed") {
       health.failed.push(from);
       if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
@@ -214,6 +223,8 @@ export function countSentence(
         health.edited.push(from);
     }
     if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
+    if (!cantSettle && (inUncheckedBlock || unchecked.has(sentenceKey(text))))
+      health.unchecked.push(from);
     if (table) health.tableCells.push(from);
     return;
   }

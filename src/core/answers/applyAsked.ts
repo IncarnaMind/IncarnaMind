@@ -1,11 +1,13 @@
 import * as Y from "yjs";
 import { askedFor, checkpointBeforeAccept, waitsForUser } from "../../shared/askedChanges";
 import { originMaps } from "../../shared/blockOrigins";
+import { markMindCheckUncheckedBlocks } from "../../shared/mindCheck";
 import { fingerprintOfMind, transitionOfMind } from "../../shared/mindState";
 import {
   aiUseOfAccepted,
   decisionsOn,
   outOfDateProposals,
+  outsideProposalBlockIds,
   pendingProposals,
   type ResolvedProposal,
   resolveProposals,
@@ -15,6 +17,7 @@ import {
   type AskedChangeApplication,
   type AskedChangeTransition,
   MIND_REVISIONS_FIELD,
+  MIND_SETTINGS_FIELD,
   type RecordAiUseInput,
 } from "../api";
 import { InvalidInputError, isRecord } from "../errors";
@@ -146,12 +149,16 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
             captureTimeout: 0,
             trackedOrigins: new Set([origin]),
           });
+          const touched = outsideProposalBlockIds(doc, blocks, picked);
           const resolved = resolveProposals(blocks, picked, "accept");
           if (resolved.length === 0) {
             manager.destroy();
             return null;
           }
           accepted.push(...resolved);
+          if (touched.size > 0) {
+            markMindCheckUncheckedBlocks(doc.getMap(MIND_SETTINGS_FIELD), touched);
+          }
           const afterVector = Y.encodeStateVector(doc);
           steps.push({
             manager,

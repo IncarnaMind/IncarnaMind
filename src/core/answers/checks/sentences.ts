@@ -901,6 +901,52 @@ export function assistantWrote(blocks: Y.XmlFragment, checkId: string): boolean 
   return marked ? writtenByAssistant(blocks, marked) : null;
 }
 
+/**
+ * Whether `from`..`to` of `element` holds AI-written content (`GENERATED_MARK`, an Answer whose
+ * words are AI text as a whole, or a Chart from an outside agent): text the User typed themselves
+ * carries none.
+ */
+export function hasAiText(
+  blocks: Y.XmlFragment,
+  { element, from, to }: Pick<SelectedSentence, "element" | "from" | "to">,
+): boolean {
+  const top = topOf(element);
+  if (element.nodeName === CHART_NODE) {
+    const blockId = top.getAttribute(BLOCK_ID_ATTRIBUTE);
+    return (
+      blocks.doc !== null &&
+      typeof blockId === "string" &&
+      textOriginOf(blocks.doc, blockId) === "outside-agent"
+    );
+  }
+  if (
+    top.nodeName === ANSWER_BLOCK &&
+    (top.getAttributes() as Record<string, unknown>).generatedMarks !== true
+  )
+    return true;
+  for (const { node, start } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    let offset = start;
+    for (const run of node.toDelta() as Run[]) {
+      const length = typeof run.insert === "string" ? run.insert.length : 1;
+      const runStart = offset;
+      const runEnd = offset + length;
+      offset = runEnd;
+      if (runEnd <= from || runStart >= to || typeof run.insert !== "string") continue;
+      const attributes = run.attributes ?? {};
+      if (
+        hasMarkIn(PROPOSAL_DELETE_MARK, attributes) ||
+        hasMarkIn(PROPOSAL_INSERT_MARK, attributes) ||
+        attributes[GENERATED_MARK] == null
+      )
+        continue;
+      const slice = run.insert.slice(Math.max(0, from - runStart), Math.min(length, to - runStart));
+      if (slice.trim() !== "") return true;
+    }
+  }
+  return false;
+}
+
 /** Whether the User keeps a sentence as their own view (#1111, #1909): a kept mark at its place, with its words as they were. */
 export function keptAsView(
   marks: readonly MarkedSentence[],

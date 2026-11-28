@@ -7697,6 +7697,7 @@ export function createCore(adapters: CoreAdapters): Core {
     titleOf: hostedTitleOf,
     liveMeeting: liveMeetingOf,
     language: () => LANGUAGE_NAMES[settings.get().language],
+    checksWritten: () => settings.get().user.checkAssistantWrites,
     newId: () => crypto.randomUUID(),
     now,
     lifetime: lifetime.signal,
