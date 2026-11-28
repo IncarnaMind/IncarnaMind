@@ -131,7 +131,7 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
             const { accepted: yes, rejected: no } = decisionsOn(doc, request);
             return yes + no > 0;
           });
-          if (decided || waitsForUser(doc, requests)) {
+          if (decided || waitsForUser(doc, requests, mindId)) {
             return {
               undoId,
               reviewBefore: new Uint8Array(),

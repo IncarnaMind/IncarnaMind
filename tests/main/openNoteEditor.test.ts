@@ -87,7 +87,8 @@ describe("createOpenNoteEditor multi-window guard and timeout handling (#3839)",
       if (req.kind === "prepare")
         return { kind: "prepare", callId: req.callId, open: true, busy: false, token: "tok-1" };
       if (req.kind === "verify") return { kind: "verify", callId: req.callId, ok: true };
-      return { kind: "accept", callId: req.callId, result: "applied" };
+      if (req.kind === "accept") return { kind: "accept", callId: req.callId, result: "applied" };
+      return null;
     });
     const win2 = fakeWindow((req) => {
       if (req.kind === "prepare")
@@ -117,8 +118,9 @@ describe("createOpenNoteEditor multi-window guard and timeout handling (#3839)",
     expect(outcome).toBe("changed");
     expect(win2.requests.some((req) => req.kind === "verify" && req.token === "tok-2")).toBe(true);
     expect(win1.requests.some((req) => req.kind === "accept")).toBe(false);
-    // Primary token is released on refusal.
-    expect(win1.requests.some((req) => req.kind === "verify" && req.token === "tok-1")).toBe(true);
+    // Primary token is released via one-way cancel without generating spurious unexpectedReply logs.
+    expect(win1.requests.some((req) => req.kind === "cancel" && req.token === "tok-1")).toBe(true);
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   // protects=when Window 2 verifies clean (ok: true), acceptInEditor proceeds to Window 1 and returns applied (#3839); fails_when=two clean windows fail to apply
@@ -167,7 +169,8 @@ describe("createOpenNoteEditor multi-window guard and timeout handling (#3839)",
       if (req.kind === "prepare")
         return { kind: "prepare", callId: req.callId, open: true, busy: false, token: "tok-x" };
       if (req.kind === "accept") return { kind: "accept", callId: req.callId, result: "applied" };
-      return { kind: "verify", callId: req.callId, ok: true };
+      if (req.kind === "verify") return { kind: "verify", callId: req.callId, ok: true };
+      return null;
     });
     const win2 = fakeWindow((req) => {
       if (req.kind === "prepare") {
@@ -175,7 +178,8 @@ describe("createOpenNoteEditor multi-window guard and timeout handling (#3839)",
           ? { kind: "prepare", callId: req.callId, open: true, busy: false, token: "tok-late" }
           : { kind: "prepare", callId: req.callId, open: false };
       }
-      return { kind: "verify", callId: req.callId, ok: true };
+      if (req.kind === "verify") return { kind: "verify", callId: req.callId, ok: true };
+      return null;
     });
     focusedWindow = win1.window;
     const editor = createOpenNoteEditor({
@@ -198,9 +202,10 @@ describe("createOpenNoteEditor multi-window guard and timeout handling (#3839)",
     });
     expect(outcome).toBe("changed");
     expect(win1.requests.some((req) => req.kind === "accept")).toBe(false);
-    expect(win2.requests.some((req) => req.kind === "verify" && req.token === "tok-late")).toBe(
+    expect(win2.requests.some((req) => req.kind === "cancel" && req.token === "tok-late")).toBe(
       true,
     );
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   // protects=when acceptInEditor times out waiting for the renderer reply, main returns "timeout" (never guessing "changed"), logs the timeout, and sends a cancel message so a slow renderer will not apply late (#3839); fails_when=timeout assumes changed or skips cancel

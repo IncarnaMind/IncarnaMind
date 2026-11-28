@@ -198,9 +198,10 @@ export function createOpenNoteEditor({
     if (window.isDestroyed() || window.webContents.isDestroyed()) return;
     try {
       window.webContents.send(FILES_CHANNELS.openNoteWriteRequest, {
-        kind: "verify",
+        kind: "cancel",
         callId: randomUUID(),
         mindId,
+        request: "",
         token,
       } satisfies OpenNoteWriteRequest);
     } catch (error) {

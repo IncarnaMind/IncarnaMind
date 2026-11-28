@@ -1414,7 +1414,7 @@ export function mindTools(options: MindToolsOptions): {
     const asked = askedIn.get(mind.id) ?? new Set<string>();
     asked.add(request);
     askedIn.set(mind.id, asked);
-    const wait = whyItWaits(doc, asked);
+    const wait = whyItWaits(doc, asked, mind.id);
     if (wait === null) return APPLIES;
     const why =
       wait.why === "more-than-taken-out"

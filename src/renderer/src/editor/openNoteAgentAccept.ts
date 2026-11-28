@@ -417,6 +417,7 @@ function releasePrepared(token: string): Prepared | null {
 
 export function cancelOpenNoteWrite(_mindId: string, request: string, token: string): void {
   releasePrepared(token);
+  if (request === "") return;
   const existing = cancelledRequests.get(request);
   if (existing !== undefined) clearTimeout(existing);
   const timer = setTimeout(() => cancelledRequests.delete(request), TOKEN_TTL_MS);

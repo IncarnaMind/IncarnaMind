@@ -922,7 +922,7 @@ export function createEdits(options: EditsOptions) {
       if (requestId === undefined) {
         const waits = content.read(
           mindId,
-          (mind) => mind.doc !== null && waitsForUserIn(mind.doc, new Set([request])),
+          (mind) => mind.doc !== null && waitsForUserIn(mind.doc, new Set([request]), mindId),
         );
         if (waits) return;
       }

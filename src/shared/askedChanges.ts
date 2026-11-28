@@ -99,7 +99,7 @@ function syntheticTitleHeading(
   if (!(blocks instanceof Y.XmlFragment) || !blocks.doc) return null;
   const writer = noteWriterOf(blocks.doc);
   if (!writer) return null;
-  if (mindId !== undefined && writer.mindId !== undefined && writer.mindId !== mindId) {
+  if (writer.mindId !== undefined && writer.mindId !== mindId) {
     return null;
   }
   const first = blocks.get(0);

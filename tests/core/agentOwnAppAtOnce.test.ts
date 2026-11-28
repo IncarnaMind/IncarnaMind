@@ -794,6 +794,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
       });
     });
     await aiClient.settled();
+    const duplicated = await core.duplicateMind(aiMind.id);
 
     const rAi = structured<{ version: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: aiMind.id, named: true } }),
@@ -809,6 +810,25 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
       }),
     );
     expect(titleRewrite.status).toBe("applied");
+
+    // A User-duplicated copy of that AI Note still treats its opening H1 as User text and holds.
+    const rDup = structured<{ version: string }>(
+      await agent.callTool({
+        name: "read_mind",
+        arguments: { mindId: duplicated.id, named: true },
+      }),
+    );
+    const heldDupTitle = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: duplicated.id,
+          version: rDup.version,
+          changes: [{ paragraph: "¶0", text: "# Revised Coastal Briefing" }],
+        },
+      }),
+    );
+    expect(heldDupTitle.status).toBe("waiting");
 
     // Contrast: a User-written Note with only an unmarked heading 1 holds when rewritten (>50% User text).
     const userMind = await core.createMind({ title: "My Private Title", folderId: coast.id });
