@@ -58,7 +58,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       folder: "Examples",
       title: "Draft: credit committee paper",
       intro:
-        "A short credit paper on Northwind Retail, a UK grocer. Its two Documents are the Q3 results and the facilities agreement.",
+        "A short credit paper on Northwind Retail. Its two Documents are the Q3 results and the facilities agreement.",
       draft: [
         "## Recommendation",
         "",
@@ -146,7 +146,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       folder: "Example papers",
       title: "Retrieval for language models: a short literature review",
       intro:
-        "Three open-access papers on retrieval-augmented generation (RAG), the way language models look things up before they answer. They are linked as Documents.",
+        "Three papers on retrieval-augmented generation (RAG), the way language models look things up before they answer. They are linked as Documents.",
       draft: [
         "## Notes",
         "",
@@ -197,8 +197,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       source: "papers/zh-CN",
       folder: "示例论文",
       title: "从中药里筛选活性成分：一份简短的文献综述",
-      intro:
-        "三篇发表在《色谱》上的开放获取综述，讲的是怎样从中药和天然产物里找出有活性的成分。它们作为文档链接在这里。",
+      intro: "三篇综述，讲的是怎样从中药和天然产物里找出有活性的成分。它们作为文档链接在这里。",
       draft: [
         "## 摘要",
         "",
@@ -223,7 +222,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
         "",
         "生物亲和垂钓是另一类靶向筛选技术，它把复杂体系中的分离和活性筛选结合在一起 [^2]。",
         "",
-        "而这些方法能不能做好，关键在色谱分离材料：第三篇综述认为，材料的发展是提升中药复杂体系分离能力的关键驱动因素 [^3]。",
+        "丰静等的综述则讲分离材料：色谱分离材料的发展是提升中药复杂体系分离能力的关键驱动因素 [^3]。",
       ].join("\n"),
       quotes: [
         {
@@ -307,8 +306,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       source: "reports/zh-CN",
       folder: "示例报告",
       title: "三年的政府工作报告：目标怎么变？",
-      intro:
-        "国务院总理在全国人民代表大会上所作的政府工作报告，2024、2025、2026 年各一份，全文来自中国政府网。它们作为文档链接在这里。",
+      intro: "2024、2025、2026 年的政府工作报告各一份。它们作为文档链接在这里。",
       draft: [
         "## 要点",
         "",
@@ -375,7 +373,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       folder: "Example contracts",
       title: "Three agreements: term, ending and liability",
       intro:
-        "Three commercial agreements filed with the US Securities and Exchange Commission and shared in the CUAD dataset (CC BY 4.0). They are linked as Documents.",
+        "Three commercial agreements: a web site hosting agreement and two distributor agreements. They are linked as Documents.",
       draft: [
         "## Summary",
         "",
@@ -398,17 +396,22 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       question:
         "How long does each agreement last, how can it be ended, and who limits their liability?",
       answer: [
-        "The hosting agreement runs for six months from 1 April 1999 [^1], and either party may end it without cause on thirty days' written notice [^2].",
+        "The hosting agreement runs for six months from 1 April 1999 [^1], then renews a month at a time unless either side gives notice not to renew [^2]. Either party may end it without cause on thirty days' written notice [^3].",
         "",
-        "The Snotarator distributor agreement ends on 31 May 2015 unless ended sooner [^3], while the Erchonia distributor agreement has an initial term of three years [^4].",
+        "The Snotarator distributor agreement ends on 31 May 2015 unless ended sooner [^4], while the Erchonia distributor agreement has an initial term of three years [^5].",
         "",
-        "On liability, the hosting company excludes lost profits and other consequential damages under any circumstances [^5].",
+        "On liability, the hosting company excludes lost profits and other consequential damages under any circumstances [^6].",
       ].join("\n"),
       quotes: [
         {
           document: "Web Site Hosting Agreement (i-on interactive and Centrack)",
           quote:
             "The term of this Agreement for the Hosted Site shall commence upon April 1, 1999 and shall continue for a period of six (6) months",
+        },
+        {
+          document: "Web Site Hosting Agreement (i-on interactive and Centrack)",
+          quote:
+            "This Agreement shall automatically be renewed for one (1) or more one (1) month periods unless either the Customer or i-on gives notice to the other party of its intention not to renew",
         },
         {
           document: "Web Site Hosting Agreement (i-on interactive and Centrack)",
@@ -440,7 +443,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       draft: [
         "## 摘要",
         "",
-        "软件开发服务合同约定，乙方逾期交付超过 15 日时甲方即可书面解除合同。设备租赁合同的期限为十二个月，到期前如连续两个月未付租金也可解除。",
+        "软件开发服务合同约定，乙方逾期交付超过 15 日时甲方即可书面解除合同。设备租赁合同的期限为十二个月；到期前乙方连续两个月未付租金的，甲方也可书面通知解除。",
       ].join("\n"),
       checks: [
         {
@@ -456,9 +459,9 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       ],
       question: "这三份合同的期限、解除和责任限制各是怎么约定的？",
       answer: [
-        "设备租赁合同的期限是十二个月，从 2026 年 4 月 1 日到 2027 年 3 月 31 日 [^1]；乙方连续两个月不付租金，甲方就可以解除合同并收回设备 [^2]。",
+        "设备租赁合同的期限是十二个月，从 2026 年 4 月 1 日到 2027 年 3 月 31 日 [^1]；乙方连续两个月不付租金，甲方有权书面通知乙方解除合同并收回设备 [^2]。",
         "",
-        "软件开发服务合同里，乙方逾期交付超过三十日，甲方有权解除合同 [^3]。",
+        "软件开发服务合同里，乙方逾期交付超过三十日，甲方有权书面通知乙方解除合同 [^3]。",
         "",
         "货物采购合同的期限是两年 [^4]；卖方交付的货物不合格并造成损失时，赔偿责任累计不超过当年已付价款的百分之二十 [^5]。",
       ].join("\n"),
