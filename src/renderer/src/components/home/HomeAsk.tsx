@@ -77,7 +77,11 @@ export function HomeAsk({ starting, empty }: { starting: boolean; empty: boolean
     try {
       mindId = (await core.createMind()).id;
       const went = runsInBackground(agent, runsHere)
-        ? await askInNote(mindId, { words: typed, quote: "", selection: null, caret: "" })
+        ? await askInNote(
+            mindId,
+            { words: typed, quote: "", selection: null, caret: "" },
+            { conversationId: null, pairingId: agent.id },
+          )
         : "link";
       // Started, or stopped with its problem: either way it is the Note's now, which shows it
       // with the question, as its own input does.

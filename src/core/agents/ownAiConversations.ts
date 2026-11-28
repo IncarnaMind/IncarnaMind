@@ -1,13 +1,16 @@
 /**
- * A Note's conversation with the User's own command-line AI (ADR-0034, #3627): the User types a
- * request at the Note's foot, IncarnaMind runs their agent in the background with a grant that
- * stands for the pairing (./askedChecks), and the agent keeps one conversation for the Note,
- * continued by every later request. IncarnaMind keeps the conversation's id and its own record of
- * each request and reply; it never reads the agent's transcript, and deletes both copies when the
- * Note is deleted for good, the connection is removed or the consent is taken back. The agent keeps
- * its own abilities, on the User's own settings for it: what it asks before it uses one waits on
- * the User's answer here, and what it does with them shows as steps (#3653). A request typed while
- * one runs goes into that run at once, a turn of its own once the agent takes it (#3765).
+ * Conversations with the User's own command-line AI (ADR-0034, #3627, #3731): the User types a
+ * request at the Note's foot or in the conversation column, IncarnaMind runs their agent in the
+ * background with a grant that stands for the pairing (./askedChecks), and the conversation
+ * follows the User across Notes until they start a new one or pick an earlier one from History.
+ * IncarnaMind keeps each conversation's id and its own record of each request and reply; it never
+ * reads the agent's transcript, and deletes both copies when the User deletes the conversation
+ * from History, deletes its only Note (or every Note it touched) for good, removes the connection
+ * or takes the consent back. A conversation shared with another Note stays when one of its Notes
+ * is deleted for good. The agent keeps its own abilities, on the User's own settings for it:
+ * what it asks before it uses one waits on the User's answer here, and what it does with them
+ * shows as steps (#3653). A request typed while one runs goes into that run at once, a turn of its
+ * own once the agent takes it (#3765).
  */
 
 import { clockTime } from "../../shared/clock";
@@ -27,11 +30,14 @@ import {
   type AgentLaunch,
   type AgentPairing,
   type AgentToolName,
+  NOTE_MODES,
   type NoteAction,
   type NoteAnswer,
   type NoteAnswered,
   type NoteChangeApplied,
   type NoteCitation,
+  type NoteConversationNote,
+  type NoteConversationSummary,
   type NoteDoing,
   type NoteHeldEdit,
   type NoteQuestion,
@@ -173,9 +179,15 @@ export interface OwnAiConversationsOptions {
   /** Calls `listener` at each change that can end what `heldBack` allows; returns its end. */
   onReachChange(listener: () => void): () => void;
   turned(event: NoteTurnEvent): void;
-  /** The mode the input shows for the Note may have changed: every window reads it again. */
-  moded(mindId: string): void;
+  /** The mode the input shows for a conversation may have changed: every window reads it again. */
+  moded(conversationId: string | null, mindId: string): void;
+  /** The list or titles of own-AI conversations changed: every window refreshes History. */
+  changed?(conversationId?: string): void;
   titleOf(mindId: string): string;
+  /** Builds a per-call lookup of live Note titles so History and turns never scan all Notes per row. */
+  noteStatus(): (mindId: string, fallback: string) => { title: string; deleted: boolean };
+  /** Display name of a connection, for History rows and permanent-delete prompts. */
+  agentName(pairingId: string): string;
   /** The Note's meeting while it records or is paused; null for a Note with none. */
   liveMeeting?(mindId: string): OwnAiLiveMeeting | null;
   /** The interface's language, by its English name, for the lines the User reads. */
@@ -195,20 +207,24 @@ interface ConversationRow {
   mind_id: string;
   pairing_id: string;
   session_id: string;
+  title: string | null;
   renewed: number;
-  /** A new conversation the User started that no request has begun with the AI yet (#3765). */
+  /** Legacy flag from #3765 for conversations started anew before #3731. */
   anew: number;
 }
 
 interface TurnRow {
   id: string;
+  conversation_id: string;
+  mind_id: string;
+  mind_title: string;
   request: string;
   selection: string;
   reply: string;
   outcome: NoteTurn["outcome"];
   problem: string | null;
   mode: string | null;
-  new_after: number;
+  changed_count: number;
   ended_at_ask: number;
   created_at: string;
 }
@@ -341,9 +357,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   // list's first, which is the agent's general default.
   const ranOn = new Map<string, string>();
   /**
-   * The permission mode the User chose by the input, by the Note's conversation, new conversations
-   * after a line included: it holds for that conversation only and is written nowhere, the agent's
-   * settings least (#3765). What the input shows is what the next request starts in.
+   * The permission mode the User chose by the input, by conversation: it holds for that
+   * conversation only and is written nowhere, the agent's settings least (#3765, #3731).
    */
   const chosenModes = new Map<string, string>();
   /**
@@ -351,39 +366,45 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
    * as IncarnaMind has seen since it started. Unknown, the input names no mode.
    */
   const ownModes = new Map<string, string>();
+  /** The User's own setting as last seen for each pairing, for a blank new conversation. */
+  const lastOwnMode = new Map<string, string>();
+  /** A mode chosen on a blank new conversation before its first turn, by pairing. */
+  const pendingModes = new Map<string, string>();
   /** The choice before the one a running request was last told, given back if it refuses that one. */
   const modeBefore = new Map<string, string | undefined>();
-  /** Tells the Note's running request of a mode chosen while it runs. */
+  /** Tells the conversation's running request of a mode chosen while it runs, by conversation. */
   const modeHears = new Map<string, (mode: string) => void>();
   /** Why the AI refused the mode chosen for a conversation, by its own code, until another is chosen. */
   const refusedModes = new Map<string, string>();
-  /** Ends the wait for the running request's answer to a mode chosen now, by the Note. */
+  /** Ends the wait for the running request's answer to a mode chosen now, by conversation. */
   const modeAnswers = new Map<string, () => void>();
   const { db } = options;
+  /** Active runs, keyed by conversationId: at most one run per conversation at a time. */
   const running = new Map<string, Running>();
-  /** By Note, oldest first: the messages sent while one of its requests ran (#3765). */
+  /** By conversation, oldest first: the messages sent while one of its requests ran (#3765). */
   const held = new Map<string, Held[]>();
-  const heldIds = (mindId: string) => (held.get(mindId) ?? []).map((each) => each.turnId);
-  const unhold = (mindId: string, turnId: string): Held | null => {
-    const list = held.get(mindId) ?? [];
+  const heldIds = (conversationId: string) =>
+    (held.get(conversationId) ?? []).map((each) => each.turnId);
+  const unhold = (conversationId: string, turnId: string): Held | null => {
+    const list = held.get(conversationId) ?? [];
     const at = list.findIndex((each) => each.turnId === turnId);
     if (at === -1) return null;
     const [gone] = list.splice(at, 1);
-    if (list.length === 0) held.delete(mindId);
+    if (list.length === 0) held.delete(conversationId);
     return gone ?? null;
   };
   /**
-   * No run can take the Note's held messages now: each is kept as never sent. Whether there was one,
-   * which the windows must then hear of. If that can't be written, they stay held, and none goes
-   * by itself: Send now, Edit and Discard still reach each.
+   * No run can take the conversation's held messages now: each is kept as never sent. Whether there
+   * was one, which the windows must then hear of. If that can't be written, they stay held, and
+   * none goes by itself: Send now, Edit and Discard still reach each.
    */
-  const heldUnsent = (mindId: string): boolean => {
-    const list = held.get(mindId) ?? [];
+  const heldUnsent = (conversationId: string): boolean => {
+    const list = held.get(conversationId) ?? [];
     const ids = list.map((each) => each.turnId);
     if (ids.length === 0) return false;
     // Quitting, the database may be closed; the next start keeps them as never sent.
     if (options.lifetime.aborted) {
-      held.delete(mindId);
+      held.delete(conversationId);
       return true;
     }
     try {
@@ -401,25 +422,25 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       for (const each of list) each.stays = true;
       return false;
     }
-    held.delete(mindId);
+    held.delete(conversationId);
     return true;
   };
-  /** By Note, the end of its last request every window was told, while none runs. */
+  /** By conversation, the end of its last request every window was told, while none runs. */
   const lastEnded = new Map<string, NoteTurnEvent>();
   /**
-   * Every window hears at once of the Note's held messages as they are now: through its running
-   * request, or the end of its last one when none runs.
+   * Every window hears at once of the conversation's held messages as they are now: through its
+   * running request, or the end of its last one when none runs.
    */
-  const toldHeld = (mindId: string) => {
-    const run = running.get(mindId);
+  const toldHeld = (conversationId: string) => {
+    const run = running.get(conversationId);
     if (run) {
       run.live.told();
       return;
     }
-    const last = lastEnded.get(mindId);
+    const last = lastEnded.get(conversationId);
     if (!last || options.lifetime.aborted) return;
-    const again = { ...last, queued: [], held: heldIds(mindId) };
-    lastEnded.set(mindId, again);
+    const again = { ...last, queued: [], held: heldIds(conversationId) };
+    lastEnded.set(conversationId, again);
     try {
       options.turned(again);
     } catch (error) {
@@ -446,12 +467,44 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     );
   });
 
-  const conversationOf = (mindId: string, pairingId: string) =>
+  const conversationById = (conversationId: string) =>
     db.get<ConversationRow>(
-      `SELECT id, mind_id, pairing_id, session_id, renewed, anew FROM own_ai_conversations
-       WHERE mind_id = ? AND pairing_id = ? AND deleted_at IS NULL`,
-      [mindId, pairingId],
+      `SELECT id, mind_id, pairing_id, session_id, title, renewed, anew FROM own_ai_conversations
+       WHERE id = ? AND deleted_at IS NULL`,
+      [conversationId],
     ) ?? null;
+
+  const latestConversationId = (mindId: string, pairingId?: string): string | null =>
+    db.get<{ id: string }>(
+      `SELECT c.id FROM own_ai_conversations c
+       JOIN own_ai_conversation_notes n
+         ON n.conversation_id = c.id AND n.mind_id = ? AND n.deleted_at IS NULL
+       JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
+       WHERE c.deleted_at IS NULL ${pairingId ? "AND c.pairing_id = ?" : ""}
+       GROUP BY c.id
+       ORDER BY MAX(t.created_at) DESC, c.updated_at DESC
+       LIMIT 1`,
+      pairingId ? [mindId, pairingId] : [mindId],
+    )?.id ?? null;
+
+  const touchNote = (conversationId: string, mindId: string, mindTitle: string, at: string) => {
+    if (mindId === "") return;
+    db.run(
+      `INSERT INTO own_ai_conversation_notes
+         (id, conversation_id, mind_id, mind_title, touched_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (conversation_id, mind_id) WHERE deleted_at IS NULL
+       DO UPDATE SET
+         mind_title = excluded.mind_title,
+         touched_at = excluded.touched_at,
+         updated_at = excluded.updated_at`,
+      [options.newId(), conversationId, mindId, mindTitle, at, at, at],
+    );
+    db.run("UPDATE own_ai_conversations SET updated_at = ? WHERE id = ? AND deleted_at IS NULL", [
+      at,
+      conversationId,
+    ]);
+  };
 
   /** Whether the conversation had a request before this one: its agent then holds it to resume. */
   const hasEarlierTurns = (conversationId: string, turnId: string) =>
@@ -461,31 +514,30 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       [conversationId, turnId],
     ) !== undefined;
 
-  // The requests whose checks still run, by Note: the line shows one working, with Stop, as it is
-  // sent, so a Stop then stops its run as it begins (#3677).
+  // Requests whose preflight checks still run, by conversationId (or mindId before a new one has an id).
   const checking = new Map<string, Set<AbortController>>();
-  const stop = (mindId: string) => {
-    const run = running.get(mindId);
+  const stop = (key: string) => {
+    const run = running.get(key);
     if (run) run.stop.abort();
-    else for (const each of checking.get(mindId) ?? []) each.abort();
+    for (const each of checking.get(key) ?? []) each.abort();
   };
 
-  /** The Note's conversation with this agent, started if it has none: its id names its working folder. */
-  const startedConversation = (mindId: string, pairingId: string): ConversationRow => {
-    const kept = conversationOf(mindId, pairingId);
-    if (kept) return kept;
+  const createConversation = (mindId: string, pairingId: string): ConversationRow => {
     const at = options.now();
-    const row = {
+    const row: ConversationRow = {
       id: options.newId(),
       mind_id: mindId,
       pairing_id: pairingId,
       session_id: options.newId(),
+      title: null,
       renewed: 0,
-      anew: 0,
+      // Stays 1 until Claude Code actually begins the session, so a Stop before that lets the next
+      // turn start fresh without triggering a lost-conversation retry (#3765, #3731).
+      anew: 1,
     };
     db.run(
-      `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, anew, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?)`,
       [row.id, mindId, pairingId, row.session_id, at, at],
     );
     return row;
@@ -497,12 +549,15 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     problem: NoteTurnProblem | null,
     reply: string,
     mode: string | null,
+    changedCount: number,
     endedAtAsk = false,
   ) => {
     db.run(
-      `UPDATE own_ai_turns SET outcome = ?, problem = ?, reply = ?, mode = ?, ended_at_ask = ?,
-         updated_at = ? WHERE id = ?`,
-      [outcome, problem, reply, mode, endedAtAsk ? 1 : 0, options.now(), turnId],
+      `UPDATE own_ai_turns
+       SET outcome = ?, problem = ?, reply = ?, mode = ?, changed_count = ?, ended_at_ask = ?,
+           updated_at = ?
+       WHERE id = ?`,
+      [outcome, problem, reply, mode, changedCount, endedAtAsk ? 1 : 0, options.now(), turnId],
     );
   };
 
@@ -511,12 +566,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
    * may be closing: its next start settles the turn.
    */
   const endTurn = (
-    turn: { mindId: string; pairingId: string; turnId: string },
+    turn: { conversationId: string; mindId: string; pairingId: string; turnId: string },
     outcome: Pick<NoteTurnEvent, "state" | "problem">,
     rest: Partial<Omit<NoteTurnEvent, "state" | "problem">> = {},
   ) => {
     if (options.lifetime.aborted) return;
     const reply = rest.reply ?? "";
+    // Only immediate applied changes in this turn's Note count as "Changed N paragraphs": waiting
+    // Proposals elsewhere or here are never called "Changed" (#3731).
+    const appliedCount = (rest.applied ?? [])
+      .filter((each) => each.mindId === turn.mindId)
+      .reduce((sum, each) => sum + each.changed + each.added, 0);
+    const changedCount = Math.max(0, appliedCount);
     try {
       finishTurn(
         turn.turnId,
@@ -524,6 +585,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         outcome.problem,
         reply,
         rest.mode ?? null,
+        changedCount,
         rest.endedAtAsk === true,
       );
       const told: NoteTurnEvent = {
@@ -543,13 +605,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         mode: null,
         modeNew: false,
         queued: [],
-        held: heldIds(turn.mindId),
+        held: heldIds(turn.conversationId),
         ...rest,
         ...outcome,
         reply,
       };
-      lastEnded.set(turn.mindId, told);
+      lastEnded.set(turn.conversationId, told);
       options.turned(told);
+      options.changed?.(turn.conversationId);
     } catch (error) {
       options.log.warn("agents.ownAiConversation.endFailed", {
         error: error instanceof Error ? error.name : "unknown",
@@ -557,52 +620,91 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     }
   };
 
+  /** Conversations currently inside `forget()`: stopped runs never hand on to queued/held turns. */
+  const deleting = new Map<string, number>();
+  const isDeleting = (conversationId: string) => (deleting.get(conversationId) ?? 0) > 0;
+  /** Legacy split conversation ids whose one-time shared-folder purge is currently in flight. */
+  const purgingPending = new Set<string>();
+
   /**
    * Deletes conversations, IncarnaMind's record and the agent's transcript alike: the agent is
    * asked to purge each one's working folder; one it can't be asked about goes in its own sweep.
+   * When `recheck` is given (as for `dropPurged`), eligibility is re-evaluated inside the deletion
+   * transaction after running turns settle so a conversation joined by a live Note meanwhile stays.
    */
-  async function forget(rows: readonly Pick<ConversationRow, "id">[]): Promise<void> {
-    if (rows.length === 0) return;
-    // A run of one of them is stopped first: a process on its way out can still write its transcript.
-    const ids = new Set(rows.map((row) => row.id));
-    const going = [...running.values()].filter((each) => ids.has(each.conversationId));
-    for (const each of going) each.stop.abort();
-    await Promise.all(going.map((each) => each.ended));
-    for (const { id } of rows) {
-      for (const kept of [chosenModes, ownModes, modeBefore, refusedModes]) kept.delete(id);
-    }
-    const at = options.now();
-    db.transaction(() => {
-      for (const { id } of rows) {
-        db.run(
-          `UPDATE own_ai_conversations SET deleted_at = ?, updated_at = ?
-           WHERE id = ? AND deleted_at IS NULL`,
-          [at, at, id],
-        );
-        // What the User typed and selected, each reply, and what the AI asked go; the rows stay
-        // as deletions to sync.
-        db.run(
-          `UPDATE own_ai_questions SET value = '', server = NULL, deleted_at = ?, updated_at = ?
-           WHERE deleted_at IS NULL
-             AND turn_id IN (SELECT id FROM own_ai_turns WHERE conversation_id = ?)`,
-          [at, at, id],
-        );
-        db.run(
-          `UPDATE own_ai_turns SET request = '', selection = '', reply = '', deleted_at = ?, updated_at = ?
-           WHERE conversation_id = ? AND deleted_at IS NULL`,
-          [at, at, id],
-        );
+  async function forget(
+    rows: readonly Pick<ConversationRow, "id">[],
+    recheck?: (ids: readonly string[]) => string[],
+  ): Promise<string[]> {
+    if (rows.length === 0) return [];
+    // Mark as deleting before stopping so a stopped run's cleanup never starts a queued or held turn.
+    const candidateIds = rows.map((row) => row.id);
+    const idSet = new Set(candidateIds);
+    for (const id of idSet) deleting.set(id, (deleting.get(id) ?? 0) + 1);
+    let deletedIds: string[] = [];
+    try {
+      if (!recheck) {
+        for (const id of idSet) held.delete(id);
       }
-    });
-    const { runner } = options;
-    if (!runner) return;
-    for (const { id } of rows) {
-      try {
-        if (!(await runner.purge(id))) options.log.warn("agents.ownAiConversation.notPurged", {});
-      } catch (error) {
-        options.log.warn("agents.ownAiConversation.purgeFailed", {
-          error: error instanceof Error ? error.name : "unknown",
-        });
+      const going = [...running.values()].filter((each) => idSet.has(each.conversationId));
+      for (const each of going) each.stop.abort();
+      await Promise.all(going.map((each) => each.ended));
+      const at = options.now();
+      deletedIds = db.transaction(() => {
+        const targetIds = recheck ? recheck(candidateIds) : candidateIds;
+        for (const id of targetIds) {
+          db.run(
+            `UPDATE own_ai_conversations SET title = NULL, deleted_at = ?, updated_at = ?
+             WHERE id = ? AND deleted_at IS NULL`,
+            [at, at, id],
+          );
+          db.run(
+            `UPDATE own_ai_conversation_notes SET mind_title = '', deleted_at = ?, updated_at = ?
+             WHERE conversation_id = ? AND deleted_at IS NULL`,
+            [at, at, id],
+          );
+          // What the User typed and selected, each reply, and what the AI asked go; the rows stay
+          // as deletions to sync.
+          db.run(
+            `UPDATE own_ai_questions SET value = '', server = NULL, deleted_at = ?, updated_at = ?
+             WHERE deleted_at IS NULL
+               AND turn_id IN (SELECT id FROM own_ai_turns WHERE conversation_id = ?)`,
+            [at, at, id],
+          );
+          db.run(
+            `UPDATE own_ai_turns
+             SET request = '', selection = '', reply = '', mind_title = '', deleted_at = ?, updated_at = ?
+             WHERE conversation_id = ? AND deleted_at IS NULL`,
+            [at, at, id],
+          );
+        }
+        return targetIds;
+      });
+      for (const id of deletedIds) {
+        for (const kept of [chosenModes, ownModes, modeBefore, refusedModes, ranOn])
+          kept.delete(id);
+        held.delete(id);
+        lastEnded.delete(id);
+      }
+      const { runner } = options;
+      if (!runner) return deletedIds;
+      for (const id of deletedIds) {
+        try {
+          if (!(await runner.purge(id))) options.log.warn("agents.ownAiConversation.notPurged", {});
+        } catch (error) {
+          options.log.warn("agents.ownAiConversation.purgeFailed", {
+            error: error instanceof Error ? error.name : "unknown",
+          });
+        }
+      }
+      return deletedIds;
+    } finally {
+      const deletedSet = new Set(deletedIds);
+      for (const id of idSet) {
+        const left = (deleting.get(id) ?? 1) - 1;
+        if (left <= 0) deleting.delete(id);
+        else deleting.set(id, left);
+        if (left <= 0 && !deletedSet.has(id)) nextHeld(id);
       }
     }
   }
@@ -637,54 +739,155 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const selection = selectionOf(input.selection);
     const pairingId = input.pairingId === undefined ? undefined : words(input.pairingId, 200);
     const model = input.model === undefined ? undefined : words(input.model, 100);
+    const requestedConversation =
+      input.conversationId === undefined
+        ? undefined
+        : input.conversationId === null
+          ? null
+          : words(input.conversationId, 200);
+    if (input.intoRunning !== undefined && typeof input.intoRunning !== "boolean") {
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
+    }
+    const intoRunning = input.intoRunning === true;
+    if (input.mode !== undefined && !(NOTE_MODES as readonly string[]).includes(input.mode)) {
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
+    }
+    const requestedMode = input.mode;
     // Only a model the agent itself offered goes to it as `--model`, and never one with a control
     // character, which the agent's own list can't bring either.
-    if (model !== undefined && (CONTROL.test(model) || !offers(null, model))) {
+    if (model !== undefined && CONTROL.test(model)) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
 
-    // A request typed while one runs is held, about the whole Note, until that reply ends (#3765);
-    // so is one typed while others are held, behind them. One about words selected isn't: the
-    // selection may be gone by then, so it waits for Stop.
-    const into = (pairing: AgentPairing, conversationId: string): NoteRequestStart => {
-      if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
+    // A request typed while one runs is held, about the whole Note, until that reply ends (#3765),
+    // staying on the Note the run started on (#3731); so is one typed while others are held, behind
+    // them. One about words selected isn't: the selection may be gone by then, so it waits for Stop.
+    const into = (
+      pairing: AgentPairing,
+      conversationId: string,
+      targetMindId: string,
+    ): NoteRequestStart => {
+      if (options.lifetime.aborted || options.heldBack(pairing, targetMindId))
+        return { kind: "link" };
+      const targetClient = clientOf(pairing);
+      if (model !== undefined && (!targetClient || !offers(targetClient, model))) {
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      }
       if (quote !== "" || selection !== null) return { kind: "busy", pairing };
       const turnId = options.newId();
       const at = options.now();
-      db.run(
-        `INSERT INTO own_ai_turns (id, conversation_id, request, selection, outcome, created_at, updated_at)
-         VALUES (?, ?, ?, '', 'waiting', ?, ?)`,
-        [turnId, conversationId, request, at, at],
-      );
-      held.set(mindId, [
-        ...(held.get(mindId) ?? []),
-        { turnId, words: request, pairing, model, editors: new Set() },
+      const noteTitle = options.titleOf(targetMindId);
+      db.transaction(() => {
+        db.run(
+          `INSERT INTO own_ai_turns
+             (id, conversation_id, mind_id, mind_title, request, selection, outcome, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, '', 'waiting', ?, ?)`,
+          [turnId, conversationId, targetMindId, noteTitle, request, at, at],
+        );
+        touchNote(conversationId, targetMindId, noteTitle, at);
+      });
+      held.set(conversationId, [
+        ...(held.get(conversationId) ?? []),
+        {
+          turnId,
+          conversationId,
+          mindId: targetMindId,
+          words: request,
+          pairing,
+          model,
+          editors: new Set(),
+        },
       ]);
-      toldHeld(mindId);
-      return { kind: "sent", pairing, turnId };
+      toldHeld(conversationId);
+      options.changed?.(conversationId);
+      return { kind: "sent", pairing, conversationId, turnId };
+    };
+    const runOnMind = (id: string): Running | undefined => {
+      for (const each of running.values()) {
+        if (each.mindId === id) return each;
+      }
+      return undefined;
+    };
+    const heldOnMind = (id: string): Held | undefined => {
+      for (const list of held.values()) {
+        const first = list[0];
+        if (first && first.mindId === id) return first;
+      }
+      return undefined;
+    };
+    const joinOrBusy = (
+      pairing: AgentPairing,
+      conversationId: string,
+      targetMindId: string,
+    ): NoteRequestStart => {
+      if (pairingId !== undefined && pairing.id !== pairingId) {
+        return { kind: "busy", pairing };
+      }
+      // Only join a run locked to another Note when the caller explicitly targets it; callers like
+      // Write notes or selection actions never hijack another Note's run (#3731).
+      if (targetMindId !== mindId && !intoRunning) {
+        return { kind: "busy", pairing };
+      }
+      return into(pairing, conversationId, targetMindId);
     };
     /** Held behind the request running, or the messages held before it, if there are. */
     const behind = (): NoteRequestStart | null => {
-      const run = running.get(mindId);
-      if (run) return into(run.pairing, run.conversationId);
-      const [ahead] = held.get(mindId) ?? [];
-      const conversation = ahead && conversationOf(mindId, ahead.pairing.id);
-      return ahead && conversation ? into(ahead.pairing, conversation.id) : null;
+      if (typeof requestedConversation === "string") {
+        const onConv = running.get(requestedConversation);
+        if (onConv) return joinOrBusy(onConv.pairing, onConv.conversationId, onConv.mindId);
+        const aheadConv = held.get(requestedConversation)?.[0];
+        if (aheadConv)
+          return joinOrBusy(aheadConv.pairing, requestedConversation, aheadConv.mindId);
+        const onMind = runOnMind(mindId);
+        if (onMind) return { kind: "busy", pairing: onMind.pairing };
+        const aheadMind = heldOnMind(mindId);
+        if (aheadMind) return { kind: "busy", pairing: aheadMind.pairing };
+        return null;
+      }
+      if (requestedConversation === null) {
+        // Explicit New conversation never silently joins an existing run, and ADR-0034 keeps at
+        // most one run per Note.
+        const onMind = runOnMind(mindId);
+        if (onMind) return { kind: "busy", pairing: onMind.pairing };
+        const aheadMind = heldOnMind(mindId);
+        if (aheadMind) return { kind: "busy", pairing: aheadMind.pairing };
+        return null;
+      }
+      const onMind = runOnMind(mindId);
+      if (onMind) return joinOrBusy(onMind.pairing, onMind.conversationId, onMind.mindId);
+      const aheadMind = heldOnMind(mindId);
+      if (aheadMind)
+        return joinOrBusy(aheadMind.pairing, aheadMind.conversationId, aheadMind.mindId);
+      return null;
     };
     const already = behind();
     if (already) return already;
+
     const { runner } = options;
-    const pairing = options
-      .askable(mindId)
-      .find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
+    const existing =
+      typeof requestedConversation === "string" ? conversationById(requestedConversation) : null;
+    const askable = options.askable(mindId);
+    const pairing = existing
+      ? askable.find(
+          (each) =>
+            each.id === existing.pairing_id &&
+            (pairingId === undefined || each.id === pairingId) &&
+            canRun(each),
+        )
+      : askable.find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
     const client = pairing && clientOf(pairing);
     if (!runner || !pairing || !client) return { kind: "link" };
     if (model !== undefined && !offers(client, model)) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
+
+    const checkKeys =
+      existing?.id && existing.id !== mindId ? [existing.id, mindId] : [existing?.id ?? mindId];
     const stopped = new AbortController();
-    const checks = checking.get(mindId) ?? new Set<AbortController>();
-    checking.set(mindId, checks.add(stopped));
+    for (const key of checkKeys) {
+      const set = checking.get(key) ?? new Set<AbortController>();
+      checking.set(key, set.add(stopped));
+    }
     let status: OwnAiStatus;
     try {
       if (!(await runner.installed(client))) return { kind: "link" };
@@ -692,8 +895,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (!(await options.consented(pairing))) return { kind: "link" };
       status = await runner.status(client);
     } finally {
-      checks.delete(stopped);
-      if (checks.size === 0) checking.delete(mindId);
+      for (const key of checkKeys) {
+        const set = checking.get(key);
+        set?.delete(stopped);
+        if (set?.size === 0) checking.delete(key);
+      }
     }
     if (status.kind === "missing" || status.kind === "unsupported") return { kind: "link" };
     if (status.kind === "signed-out") return { kind: "problem", pairing, problem: "signed-out" };
@@ -711,14 +917,49 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     // The consent can wait as long as the User does: what it found may no longer hold.
     if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
 
-    const conversation = startedConversation(mindId, pairing.id);
+    let conversation: ConversationRow;
+    if (requestedConversation === null) {
+      conversation = createConversation(mindId, pairing.id);
+    } else if (typeof requestedConversation === "string") {
+      conversation =
+        conversationById(requestedConversation) ?? createConversation(mindId, pairing.id);
+    } else {
+      const latestId = latestConversationId(mindId, pairing.id);
+      conversation =
+        (latestId && conversationById(latestId)) || createConversation(mindId, pairing.id);
+    }
+    // ADR-0034: never resume one conversation in two Claude Code processes, and never run two
+    // requests on one Note at once. Re-check after resolving `conversation` (e.g. an unseeded
+    // second window whose Note's latest conversation is already running on another Note).
+    const activeOnConv = running.get(conversation.id);
+    if (activeOnConv) {
+      return joinOrBusy(activeOnConv.pairing, activeOnConv.conversationId, activeOnConv.mindId);
+    }
+    const heldOnConv = held.get(conversation.id)?.[0];
+    if (heldOnConv) return joinOrBusy(heldOnConv.pairing, conversation.id, heldOnConv.mindId);
+    const activeOnMind = runOnMind(mindId);
+    if (activeOnMind) return { kind: "busy", pairing: activeOnMind.pairing };
+    const waitingOnMind = heldOnMind(mindId);
+    if (waitingOnMind) return { kind: "busy", pairing: waitingOnMind.pairing };
+    const pending = requestedMode ?? pendingModes.get(pairing.id);
+    if (requestedConversation === null || !hasEarlierTurns(conversation.id, "")) {
+      if (pending !== undefined && !chosenModes.has(conversation.id)) {
+        chosenModes.set(conversation.id, pending);
+      }
+      pendingModes.delete(pairing.id);
+    }
     const turnId = options.newId();
     const at = options.now();
-    db.run(
-      `INSERT INTO own_ai_turns (id, conversation_id, request, selection, outcome, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'working', ?, ?)`,
-      [turnId, conversation.id, request, quote, at, at],
-    );
+    const noteTitle = options.titleOf(mindId);
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO own_ai_turns
+           (id, conversation_id, mind_id, mind_title, request, selection, outcome, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'working', ?, ?)`,
+        [turnId, conversation.id, mindId, noteTitle, request, quote, at, at],
+      );
+      touchNote(conversation.id, mindId, noteTitle, at);
+    });
     const run = begin({
       mindId,
       pairing,
@@ -731,10 +972,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       model,
     });
     if (stopped.signal.aborted) run.stop.abort();
-    return { kind: "started", pairing, turnId };
+    options.changed?.(conversation.id);
+    return { kind: "started", pairing, conversationId: conversation.id, turnId };
   }
 
-  /** Runs the Note's conversation for a request recorded as working. */
+  /** Runs the conversation for a request recorded as working. */
   function begin(first: {
     mindId: string;
     pairing: AgentPairing;
@@ -763,33 +1005,34 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       options.log.warn("agents.ownAiConversation.broke", {
         error: error instanceof Error ? error.name : "unknown",
       });
-      if (running.get(mindId)?.live === live) running.delete(mindId);
+      if (running.get(conversation.id)?.live === live) running.delete(conversation.id);
       live.unsent();
-      if (!running.has(mindId)) heldUnsent(mindId);
+      if (!running.has(conversation.id)) heldUnsent(conversation.id);
       endTurn(
-        { mindId, pairingId: pairing.id, turnId: live.turnId() },
+        { conversationId: conversation.id, mindId, pairingId: pairing.id, turnId: live.turnId() },
         { state: "failed", problem: "failed" },
       );
     });
-    const run = { pairing, conversationId: conversation.id, stop, ended, live };
-    running.set(mindId, run);
+    const run: Running = { pairing, conversationId: conversation.id, mindId, stop, ended, live };
+    running.set(conversation.id, run);
     return run;
   }
 
   /**
    * Sends a message still held as a request of its own, in a run begun now; when no run can take
-   * it, the Note's held messages are kept as never sent. False if either couldn't be written: the
-   * message stays held, as it was.
+   * it, the conversation's held messages are kept as never sent. False if either couldn't be
+   * written: the message stays held, as it was.
    */
-  function startHeld(mindId: string, message: Held): boolean {
-    const conversation = conversationOf(mindId, message.pairing.id);
+  function startHeld(conversationId: string, message: Held): boolean {
+    if (isDeleting(conversationId)) return true;
+    const conversation = conversationById(conversationId);
     if (
       !conversation ||
       options.lifetime.aborted ||
-      options.heldBack(message.pairing, mindId) !== null
+      options.heldBack(message.pairing, message.mindId) !== null
     ) {
-      if (!heldUnsent(mindId)) return false;
-      toldHeld(mindId);
+      if (!heldUnsent(conversationId)) return false;
+      toldHeld(conversationId);
       return true;
     }
     try {
@@ -805,9 +1048,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       });
       return false;
     }
-    unhold(mindId, message.turnId);
+    unhold(conversationId, message.turnId);
     begin({
-      mindId,
+      mindId: message.mindId,
       pairing: message.pairing,
       turnId: message.turnId,
       conversation,
@@ -821,14 +1064,15 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   }
 
   /**
-   * With none of the Note's requests running, its oldest held message goes; while that one is being
-   * edited none goes, so they still go in the order sent. One whose start couldn't be written stays
-   * held, its Send now there to try again; one that couldn't be kept as never sent waits for the User.
+   * With none of the conversation's requests running, its oldest held message goes; while that one
+   * is being edited none goes, so they still go in the order sent. One whose start couldn't be
+   * written stays held, its Send now there to try again; one that couldn't be kept as never sent
+   * waits for the User.
    */
-  function nextHeld(mindId: string): void {
-    if (running.has(mindId)) return;
-    const [first] = held.get(mindId) ?? [];
-    if (first && first.editors.size === 0 && !first.stays) startHeld(mindId, first);
+  function nextHeld(conversationId: string): void {
+    if (running.has(conversationId) || isDeleting(conversationId)) return;
+    const [first] = held.get(conversationId) ?? [];
+    if (first && first.editors.size === 0 && !first.stays) startHeld(conversationId, first);
   }
 
   async function converse(turn: {
@@ -933,6 +1177,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       of: Taken,
       rest: Partial<NoteTurnEvent> & Pick<NoteTurnEvent, "state">,
     ): NoteTurnEvent => ({
+      conversationId: conversation.id,
       mindId,
       turnId: of.turnId,
       pairingId: pairing.id,
@@ -954,7 +1199,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       mode,
       modeNew,
       queued: sent.map((each) => each.turnId),
-      held: heldIds(mindId),
+      held: heldIds(conversation.id),
       ...rest,
     });
     const tell = (each: NoteTurnEvent) => {
@@ -1056,7 +1301,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         ...(endedAtAsk && outcome.state === "landed" && { endedAtAsk: true }),
       });
       lastEnd = told;
-      endTurn({ mindId, pairingId: pairing.id, turnId: of.turnId }, outcome, told);
+      endTurn(
+        { conversationId: conversation.id, mindId, pairingId: pairing.id, turnId: of.turnId },
+        outcome,
+        told,
+      );
     };
     // Requests whose AI took a later one while a call of theirs still ran, and their ends.
     const closingLater = new Set<Taken>();
@@ -1125,18 +1374,20 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      */
     let heldCleared = false;
     const carried = (goesOn: boolean) => {
+      if (isDeleting(conversation.id)) return [];
       const can = goesOn && !options.lifetime.aborted && options.heldBack(pairing, mindId) === null;
-      if (!can) heldCleared = heldUnsent(mindId);
+      if (!can) heldCleared = heldUnsent(conversation.id);
       return can ? sent.splice(0) : [];
     };
     /** Sends on what the run handed on, in a run begun with the first; with none, the oldest held. */
     const handOn = (next: typeof sent) => {
+      if (isDeleting(conversation.id)) return;
       const [first, ...rest] = next;
       if (!first) {
-        nextHeld(mindId);
+        nextHeld(conversation.id);
         return;
       }
-      const going = running.get(mindId);
+      const going = running.get(conversation.id);
       const carrying =
         going ??
         (() => {
@@ -1148,7 +1399,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             mindId,
             pairing,
             turnId: first.turnId,
-            conversation: conversationOf(mindId, pairing.id) ?? conversation,
+            conversation: conversationById(conversation.id) ?? conversation,
             request: first.words,
             quote: "",
             caret: "",
@@ -1200,22 +1451,24 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           else chosenModes.set(conversation.id, before);
         }
         refusedModes.set(conversation.id, step.reason);
-        modeAnswers.get(mindId)?.();
-        options.moded(mindId);
+        modeAnswers.get(conversation.id)?.();
+        options.moded(conversation.id, mindId);
         tellWorking();
         return;
       }
       if (step.kind === "mode") {
         if (firstMode) {
           firstMode = false;
-          if (startedIn === undefined) ownModes.set(conversation.id, step.mode);
-          else if (step.mode !== startedIn && chosenModes.get(conversation.id) === startedIn) {
+          if (startedIn === undefined) {
+            ownModes.set(conversation.id, step.mode);
+            lastOwnMode.set(pairing.id, step.mode);
+          } else if (step.mode !== startedIn && chosenModes.get(conversation.id) === startedIn) {
             // Started in another mode than the one asked, the choice didn't hold.
             chosenModes.delete(conversation.id);
             refusedModes.set(conversation.id, "other");
           }
         }
-        modeAnswers.get(mindId)?.();
+        modeAnswers.get(conversation.id)?.();
         if (mode !== step.mode) {
           mode = step.mode;
           modeNew =
@@ -1224,7 +1477,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
                WHERE conversation_id = ? AND id != ? AND mode = ? AND deleted_at IS NULL LIMIT 1`,
               [conversation.id, turnId, mode],
             ) === undefined;
-          options.moded(mindId);
+          options.moded(conversation.id, mindId);
           tellWorking();
         }
         return;
@@ -1411,7 +1664,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (over) return;
       if (current) tell(event(current, { state: "working" }));
       else if (lastEnd) {
-        lastEnd = { ...lastEnd, queued: sent.map((each) => each.turnId), held: heldIds(mindId) };
+        lastEnd = {
+          ...lastEnd,
+          queued: sent.map((each) => each.turnId),
+          held: heldIds(conversation.id),
+        };
         tell(lastEnd);
       }
     };
@@ -1432,11 +1689,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     lost ??= options.heldBack(pairing, mindId);
     if (lost || signal.aborted) {
       over = true;
-      running.delete(mindId);
+      running.delete(conversation.id);
       const next = carried(lost === null);
       unsent();
       endTurn(
-        { mindId, pairingId: pairing.id, turnId },
+        { conversationId: conversation.id, mindId, pairingId: pairing.id, turnId },
         lost ? { state: "failed", problem: lost } : { state: "stopped", problem: null },
       );
       handOn(next);
@@ -1452,8 +1709,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         const wrote = call.effects.find(
           (each) => each.action === "write" && each.scope.kind === "mind",
         );
-        const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
-        if (mindId !== "") of.made.push({ mindId, title: call.summary });
+        const createdId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
+        if (createdId !== "") {
+          of.made.push({ mindId: createdId, title: call.summary });
+          touchNote(conversation.id, createdId, call.summary, options.now());
+          options.changed?.(conversation.id);
+        }
       }
       if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
         for (const { scope } of call.effects) {
@@ -1464,6 +1725,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             title: call.summary,
             count: (was?.count ?? 0) + call.count,
           });
+          if (scope.mindId !== mindId) {
+            touchNote(conversation.id, scope.mindId, call.summary, options.now());
+            options.changed?.(conversation.id);
+          }
         }
       }
       doingCall(of, call.tool, call.summary);
@@ -1545,7 +1810,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       return {
         ...(start !== undefined && { start }),
         hear(listener: (mode: string) => void) {
-          modeHears.set(mindId, listener);
+          modeHears.set(conversation.id, listener);
           // One chosen in its first moments, before it could hear it, is told now: the User's own
           // setting too, for a run started in a mode chosen before.
           const chosen = chosenModes.get(conversation.id);
@@ -1556,7 +1821,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             listener(wanted);
           }
           return () => {
-            if (modeHears.get(mindId) === listener) modeHears.delete(mindId);
+            if (modeHears.get(conversation.id) === listener) modeHears.delete(conversation.id);
           };
         },
       };
@@ -1631,7 +1896,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (pending !== null) clearTimeout(pending);
       pending = null;
       await grant.end();
-      running.delete(mindId);
+      if (running.get(conversation.id)?.live === turn.live) running.delete(conversation.id);
       // A call that never ended keeps no request from its end.
       for (const of of closingLater) closeLater(of);
     }
@@ -1658,18 +1923,101 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       lastEnd &&
       !options.lifetime.aborted
     ) {
-      tell({ ...lastEnd, queued: [], held: heldIds(mindId) });
+      tell({ ...lastEnd, queued: [], held: heldIds(conversation.id) });
     }
     handOn(next);
   }
+
+  const hydrateTurns = (
+    rows: readonly TurnRow[],
+    pairingIdByConversation: ReadonlyMap<string, string>,
+  ): NoteTurn[] => {
+    if (rows.length === 0) return [];
+    const statusOf = options.noteStatus();
+    const turnIds = rows.map((row) => row.id);
+    const closed = new Map<string, NoteAction[]>();
+    for (const each of db.all<{
+      turn_id: string;
+      kind: NoteAction["kind"];
+      value: string;
+      server: string | null;
+    }>(
+      `SELECT q.turn_id, q.kind, q.value, q.server FROM own_ai_questions q
+       WHERE q.turn_id IN (${turnIds.map(() => "?").join(", ")})
+         AND q.answer = 'closed' AND q.deleted_at IS NULL
+       ORDER BY q.created_at, q.rowid`,
+      turnIds,
+    )) {
+      const action: NoteAction = {
+        kind: each.kind,
+        value: each.value,
+        ...(each.server !== null && { server: each.server }),
+      };
+      closed.set(each.turn_id, [...(closed.get(each.turn_id) ?? []), action]);
+    }
+    const tokensOf = (reply: string) => [
+      ...new Set(
+        [...reply.matchAll(CITATION_TOKEN)].flatMap(([, token]) => (token ? [token] : [])),
+      ),
+    ];
+    // One look at every token of the conversation, each against its Document as it is now.
+    const foundByPairing = new Map<string, Map<string, NoteCitation>>();
+    for (const pairingId of new Set(pairingIdByConversation.values())) {
+      const tokens = [
+        ...new Set(
+          rows
+            .filter((row) => pairingIdByConversation.get(row.conversation_id) === pairingId)
+            .flatMap((row) => tokensOf(row.reply)),
+        ),
+      ];
+      foundByPairing.set(
+        pairingId,
+        new Map(options.citationsOf(pairingId, tokens).map((cited) => [cited.token, cited])),
+      );
+    }
+    const holding = new Set<string>();
+    for (const row of rows) {
+      if (row.outcome !== "waiting") continue;
+      for (const each of held.get(row.conversation_id) ?? []) holding.add(each.turnId);
+    }
+    return rows.map((row) => {
+      const pairingId = pairingIdByConversation.get(row.conversation_id) ?? "";
+      const found = foundByPairing.get(pairingId);
+      const now = running.get(row.conversation_id);
+      const note = statusOf(row.mind_id, row.mind_title);
+      return {
+        id: row.id,
+        mindId: row.mind_id,
+        mindTitle: note.title,
+        mindDeleted: note.deleted,
+        request: row.request,
+        quote: row.selection,
+        reply: row.reply,
+        outcome: row.outcome === "waiting" && holding.has(row.id) ? "held" : row.outcome,
+        problem: (row.problem as NoteTurnProblem | null) ?? null,
+        at: row.created_at,
+        citations: tokensOf(row.reply).flatMap((token) => {
+          const cited = found?.get(token);
+          return cited ? [cited] : [];
+        }),
+        questions:
+          row.outcome === "working" && now?.live.turnId() === row.id ? now.live.questions() : [],
+        closed: closed.get(row.id) ?? [],
+        mode: row.mode,
+        changedCount: row.changed_count,
+        ...(row.ended_at_ask === 1 && { endedAtAsk: true }),
+      };
+    });
+  };
 
   return {
     ask,
 
     /**
      * The connection a request from this Note would run on in the background, as its input runs
-     * one, starting nothing (#3762): set up for Claude Code, reading the Note, its command on this
-     * computer. Null for none. The consent is asked, where it must be, by the request itself.
+     * one, starting nothing (#3762): set up for Claude Code or Codex, reading the Note, its
+     * command on this computer. Null for none. The consent is asked, where it must be, by the
+     * request itself.
      */
     async runsOn(mindId: string): Promise<AgentPairing | null> {
       const pairing = options.askable(mindId).find(canRun);
@@ -1678,34 +2026,43 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       return (await options.runner.installed(client)) ? pairing : null;
     },
 
-    stop(mindId: string): void {
-      stop(mindId);
+    stop(conversationId: string): void {
+      stop(conversationId);
     },
 
-    /** The Note's running request as it is now, for a window opened while it runs; null for none. */
-    now(mindId: string): NoteTurnEvent | null {
-      return running.get(mindId)?.live.now() ?? null;
+    /** The conversation's running request as it is now, for a window opened while it runs; null for none. */
+    now(conversationId: string): NoteTurnEvent | null {
+      return running.get(conversationId)?.live.now() ?? null;
     },
 
-    /** Answers what the agent asks in the Note's running request; one no longer waiting does nothing. */
-    answer(mindId: string, questionId: string, answer: NoteAnswer): void {
-      running.get(mindId)?.live.answer(questionId, answer);
+    /** Every request currently running in any own-AI conversation, for a window opening mid-run (#3731). */
+    runningTurns(): NoteTurnEvent[] {
+      const active: NoteTurnEvent[] = [];
+      for (const run of running.values()) {
+        const current = run.live.now();
+        if (current) active.push(current);
+      }
+      return active;
+    },
+
+    /** Answers what the agent asks in the conversation's running request; one no longer waiting does nothing. */
+    answer(conversationId: string, questionId: string, answer: NoteAnswer): void {
+      running.get(conversationId)?.live.answer(questionId, answer);
     },
 
     /**
-     * Removes a request of the Note's that was never sent, or a message held for it, which then is
-     * never sent, as a deletion to sync (#3765).
+     * Removes a request of the conversation that was never sent, or a message held for it, which
+     * then is never sent, as a deletion to sync (#3765).
      */
-    discard(mindId: string, turnId: string): void {
-      const wasHeld = (held.get(mindId) ?? []).some((each) => each.turnId === turnId);
+    discard(conversationId: string, turnId: string): void {
+      const wasHeld = (held.get(conversationId) ?? []).some((each) => each.turnId === turnId);
       const at = options.now();
       try {
         db.run(
-          `UPDATE own_ai_turns SET request = '', selection = '', reply = '', deleted_at = ?, updated_at = ?
-           WHERE id = ? AND outcome IN ('unsent', ?) AND deleted_at IS NULL
-             AND conversation_id IN
-               (SELECT id FROM own_ai_conversations WHERE mind_id = ? AND deleted_at IS NULL)`,
-          [at, at, turnId, wasHeld ? "waiting" : "unsent", mindId],
+          `UPDATE own_ai_turns
+           SET request = '', selection = '', reply = '', mind_title = '', deleted_at = ?, updated_at = ?
+           WHERE id = ? AND conversation_id = ? AND outcome IN ('unsent', ?) AND deleted_at IS NULL`,
+          [at, at, turnId, conversationId, wasHeld ? "waiting" : "unsent"],
         );
       } catch (error) {
         options.log.warn("agents.ownAiConversation.notDiscarded", {
@@ -1715,40 +2072,46 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         });
         throw new TranslatableError({ key: "error.noteAsk.notDiscarded" });
       }
+      options.changed?.(conversationId);
       if (!wasHeld) return;
-      unhold(mindId, turnId);
-      toldHeld(mindId);
+      unhold(conversationId, turnId);
+      toldHeld(conversationId);
       // The oldest gone, the next may go now, if no request runs.
-      nextHeld(mindId);
+      nextHeld(conversationId);
     },
 
     /**
-     * Sends a message held for the Note at once (#3765): into the request running, as a message
-     * sent into it is, its AI taking it at its next step; as a request of its own when none runs.
-     * Not while its editor is open in a window: its words may still change there.
+     * Sends a message held for the conversation at once (#3765): into the request running, as a
+     * message sent into it is, its AI taking it at its next step; as a request of its own when
+     * none runs. Not while its editor is open in a window: its words may still change there.
      */
-    sendNow(mindId: string, turnId: string): void {
-      const message = (held.get(mindId) ?? []).find((each) => each.turnId === turnId);
+    sendNow(conversationId: string, turnId: string): void {
+      const message = (held.get(conversationId) ?? []).find((each) => each.turnId === turnId);
       if (!message) return;
       if (message.editors.size > 0)
         throw new TranslatableError({ key: "error.noteAsk.heldEditing" });
-      const run = running.get(mindId);
+      const run = running.get(conversationId);
       if (run) {
-        unhold(mindId, turnId);
+        unhold(conversationId, turnId);
         run.live.send(message.turnId, message.words);
-      } else if (!startHeld(mindId, message))
+      } else if (!startHeld(conversationId, message))
         throw new TranslatableError({ key: "error.noteAsk.heldNotSent" });
     },
 
     /**
      * Opens or closes a held message's editor in the window `clientId` (#3765). Closed with new
      * words, the message is kept with them; once its editor is closed in every window, and none of
-     * the Note's requests runs, the oldest held goes at once. Whether the message was still held:
-     * if not, it has gone, the editor doesn't open and its words aren't kept.
+     * the conversation's requests runs, the oldest held goes at once. Whether the message was
+     * still held: if not, it has gone, the editor doesn't open and its words aren't kept.
      */
-    editHeld(input: { mindId: string; turnId: string; clientId: string; edit: NoteHeldEdit }) {
-      const { mindId, turnId, clientId, edit } = input;
-      const message = (held.get(mindId) ?? []).find((each) => each.turnId === turnId);
+    editHeld(input: {
+      conversationId: string;
+      turnId: string;
+      clientId: string;
+      edit: NoteHeldEdit;
+    }) {
+      const { conversationId, turnId, clientId, edit } = input;
+      const message = (held.get(conversationId) ?? []).find((each) => each.turnId === turnId);
       if (!message) return false;
       if (edit.kind === "open") {
         message.editors.add(clientId);
@@ -1773,221 +2136,330 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         message.words = changed;
       }
       message.editors.delete(clientId);
-      toldHeld(mindId);
-      nextHeld(mindId);
+      toldHeld(conversationId);
+      nextHeld(conversationId);
       return true;
     },
 
     /** A window closed, crashed or began again: each editor it had open is closed, as by Cancel. */
     windowGone(clientId: string): void {
-      for (const [mindId, list] of [...held]) {
+      for (const [conversationId, list] of [...held]) {
         if (list.filter((each) => each.editors.delete(clientId)).length === 0) continue;
-        toldHeld(mindId);
-        nextHeld(mindId);
+        toldHeld(conversationId);
+        nextHeld(conversationId);
       }
     },
 
-    /** The Note's conversation, as IncarnaMind keeps it, with the agent asked last, oldest first. */
-    turns(mindId: string): NoteTurn[] {
-      const latest = db.get<{ id: string; pairing_id: string }>(
-        `SELECT c.id, c.pairing_id FROM own_ai_conversations c
-         JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
-         WHERE c.mind_id = ? AND c.deleted_at IS NULL
-         ORDER BY t.created_at DESC LIMIT 1`,
+    /** The conversation's turns, as IncarnaMind keeps them, oldest first. */
+    turns(conversationId: string): NoteTurn[] {
+      const conversation = conversationById(conversationId);
+      if (!conversation) return [];
+      const rows = db.all<TurnRow>(
+        `SELECT id, conversation_id, mind_id, mind_title, request, selection, reply, outcome,
+                problem, mode, changed_count, ended_at_ask, created_at
+         FROM own_ai_turns WHERE conversation_id = ? AND deleted_at IS NULL
+         ORDER BY created_at, rowid`,
+        [conversation.id],
+      );
+      return hydrateTurns(rows, new Map([[conversation.id, conversation.pairing_id]]));
+    },
+
+    /** All turns asked from `mindId` across live conversations, oldest first (#3731). */
+    turnsForMind(mindId: string): NoteTurn[] {
+      const rows = db.all<TurnRow & { pairing_id: string }>(
+        `SELECT t.id, t.conversation_id, t.mind_id, t.mind_title, t.request, t.selection, t.reply,
+                t.outcome, t.problem, t.mode, t.changed_count, t.ended_at_ask, t.created_at,
+                c.pairing_id
+         FROM own_ai_turns t
+         JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
+         WHERE t.mind_id = ? AND t.deleted_at IS NULL
+         ORDER BY t.created_at, t.rowid`,
         [mindId],
       );
-      if (!latest) return [];
-      const rows = db.all<TurnRow>(
-        `SELECT id, request, selection, reply, outcome, problem, mode, new_after, ended_at_ask, created_at
-         FROM own_ai_turns WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
-        [latest.id],
-      );
-      const closed = new Map<string, NoteAction[]>();
-      for (const each of db.all<{
-        turn_id: string;
-        kind: NoteAction["kind"];
-        value: string;
-        server: string | null;
+      const pairings = new Map(rows.map((row) => [row.conversation_id, row.pairing_id]));
+      return hydrateTurns(rows, pairings);
+    },
+
+    /** Every live conversation that has at least one turn, newest first (#3731). */
+    list(): NoteConversationSummary[] {
+      const rows = db.all<{
+        id: string;
+        pairing_id: string;
+        title: string | null;
+        first_request: string;
+        last_at: string;
       }>(
-        `SELECT q.turn_id, q.kind, q.value, q.server FROM own_ai_questions q
-         JOIN own_ai_turns t ON t.id = q.turn_id
-         WHERE t.conversation_id = ? AND q.answer = 'closed' AND q.deleted_at IS NULL
-         ORDER BY q.created_at, q.rowid`,
-        [latest.id],
-      )) {
-        const action: NoteAction = {
-          kind: each.kind,
-          value: each.value,
-          ...(each.server !== null && { server: each.server }),
-        };
-        closed.set(each.turn_id, [...(closed.get(each.turn_id) ?? []), action]);
-      }
-      const now = running.get(mindId);
-      const tokensOf = (reply: string) => [
-        ...new Set(
-          [...reply.matchAll(CITATION_TOKEN)].flatMap(([, token]) => (token ? [token] : [])),
-        ),
-      ];
-      // One look at every token of the conversation, each against its Document as it is now.
-      const found = new Map(
-        options
-          .citationsOf(latest.pairing_id, [...new Set(rows.flatMap((row) => tokensOf(row.reply)))])
-          .map((cited) => [cited.token, cited]),
+        `SELECT c.id, c.pairing_id, c.title,
+                (SELECT t1.request FROM own_ai_turns t1
+                 WHERE t1.conversation_id = c.id AND t1.deleted_at IS NULL
+                 ORDER BY t1.created_at ASC, t1.rowid ASC LIMIT 1) AS first_request,
+                MAX(t.created_at) AS last_at
+         FROM own_ai_conversations c
+         JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
+         WHERE c.deleted_at IS NULL
+         GROUP BY c.id
+         ORDER BY last_at DESC, c.updated_at DESC`,
       );
-      const holding = new Set(heldIds(mindId));
+      if (rows.length === 0) return [];
+      const statusOf = options.noteStatus();
+      const ids = rows.map((row) => row.id);
+      const notesByConversation = new Map<string, NoteConversationNote[]>();
+      for (const each of db.all<{
+        conversation_id: string;
+        mind_id: string;
+        mind_title: string;
+      }>(
+        `SELECT conversation_id, mind_id, mind_title
+         FROM own_ai_conversation_notes
+         WHERE conversation_id IN (${ids.map(() => "?").join(", ")}) AND deleted_at IS NULL
+         ORDER BY touched_at DESC, rowid DESC`,
+        ids,
+      )) {
+        const note = statusOf(each.mind_id, each.mind_title);
+        const list = notesByConversation.get(each.conversation_id) ?? [];
+        list.push({ mindId: each.mind_id, title: note.title, deleted: note.deleted });
+        notesByConversation.set(each.conversation_id, list);
+      }
       return rows.map((row) => ({
         id: row.id,
-        request: row.request,
-        quote: row.selection,
-        reply: row.reply,
-        outcome: row.outcome === "waiting" && holding.has(row.id) ? "held" : row.outcome,
-        problem: (row.problem as NoteTurnProblem | null) ?? null,
-        at: row.created_at,
-        citations: tokensOf(row.reply).flatMap((token) => {
-          const cited = found.get(token);
-          return cited ? [cited] : [];
-        }),
-        questions:
-          row.outcome === "working" && now?.live.turnId() === row.id ? now.live.questions() : [],
-        closed: closed.get(row.id) ?? [],
-        mode: row.mode,
-        newAfter: row.new_after === 1,
-        ...(row.ended_at_ask === 1 && { endedAtAsk: true }),
+        pairingId: row.pairing_id,
+        agent: options.agentName(row.pairing_id),
+        title: row.title,
+        firstRequest: row.first_request ?? "",
+        notes: notesByConversation.get(row.id) ?? [],
+        updatedAt: row.last_at,
+        running: running.has(row.id),
       }));
     },
 
-    /**
-     * Starts a new conversation after the Note's last request that ran (#3765): every turn stays,
-     * and the next request begins a new one with the AI, which carries none of the turns before it.
-     * Asked again before a request, it is the same new conversation; while a run of the Note goes,
-     * it does nothing.
-     */
-    startNew(mindId: string): void {
-      if (running.has(mindId)) return;
-      // After the last request that ran, not one never sent, whose Discard would take the line too.
-      const last = db.get<{ id: string; conversation_id: string }>(
-        `SELECT t.id, t.conversation_id FROM own_ai_turns t
-         JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
-         WHERE c.mind_id = ? AND t.deleted_at IS NULL AND t.outcome NOT IN ('waiting', 'unsent')
-         ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1`,
-        [mindId],
-      );
-      if (!last) return;
-      const at = options.now();
-      db.transaction(() => {
-        db.run("UPDATE own_ai_turns SET new_after = 1, updated_at = ? WHERE id = ?", [at, last.id]);
-        db.run("UPDATE own_ai_conversations SET anew = 1, updated_at = ? WHERE id = ?", [
-          at,
-          last.conversation_id,
-        ]);
-      });
+    /** The newest live conversation that touched `mindId` (for `pairingId` when given), or null (#3731). */
+    latestFor(mindId: string, pairingId?: string): string | null {
+      return latestConversationId(mindId, pairingId);
     },
 
-    /** Whether the Note has a conversation kept, reading none of its turns. */
-    kept(mindId: string): boolean {
-      return (
-        db.get<{ one: number }>(
-          `SELECT 1 AS one FROM own_ai_conversations c
-           JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
-           WHERE c.mind_id = ? AND c.deleted_at IS NULL LIMIT 1`,
-          [mindId],
-        ) !== undefined
+    /** Sets the conversation's user-chosen name; a blank name changes nothing (#3731). */
+    rename(conversationId: string, title: string): void {
+      const cleaned = words(title, 200);
+      if (cleaned === "") return;
+      db.run(
+        "UPDATE own_ai_conversations SET title = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+        [cleaned, options.now(), conversationId],
       );
+      options.changed?.(conversationId);
+    },
+
+    /** Permanently deletes one conversation from IncarnaMind and purges the agent's transcript (#3731). */
+    async remove(conversationId: string): Promise<void> {
+      const row = conversationById(conversationId);
+      if (!row) return;
+      await forget([row]);
+      options.changed?.(conversationId);
     },
 
     /**
-     * The models the agent offers for a request from this Note, as a run here answered before its
-     * prompt went, and the one this Note's conversation last ran on: asking starts nothing. None
-     * until a run has answered, and while no request from the Note could run (no connection that
-     * runs here, no consent, local mode).
+     * The models the agent offers for a request from this Note, and the model and mode of
+     * `conversationId` (or the agent's default for a blank new conversation): asking starts nothing.
      */
-    models(mindId: string): {
+    models(
+      mindId: string,
+      conversationId?: string | null,
+    ): {
       models: readonly OwnAiModel[];
       ran: string | null;
       mode: string | null;
       chosen: boolean;
       refused: string | null;
     } {
-      const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
+      const existing = typeof conversationId === "string" ? conversationById(conversationId) : null;
+      const run = typeof conversationId === "string" ? running.get(conversationId) : undefined;
+      const askable = options.askable(mindId);
+      const pairing =
+        run?.pairing ??
+        (existing
+          ? askable.find((each) => each.id === existing.pairing_id && canRun(each))
+          : undefined) ??
+        askable.find(canRun);
       const client = pairing && clientOf(pairing);
       const models = client ? listed.get(client) : undefined;
-      if (!models || !pairing || options.heldBack(pairing, mindId))
+      if (!models || !pairing || !client || options.heldBack(pairing, mindId))
         return { models: [], ran: null, mode: null, chosen: false, refused: null };
       // An agent whose modes the input doesn't choose (#3765) has a picker of models alone.
-      const picks = client != null && options.runner?.choosesModes(client) === true;
-      const conversation = conversationOf(mindId, pairing.id);
-      const chosen = conversation ? chosenModes.get(conversation.id) : undefined;
+      const picks = options.runner?.choosesModes(client) === true;
+      if (conversationId === null) {
+        const pending = picks ? pendingModes.get(pairing.id) : undefined;
+        return {
+          models,
+          ran: null,
+          mode: picks ? (pending ?? lastOwnMode.get(pairing.id) ?? null) : null,
+          chosen: picks && pending !== undefined,
+          refused: null,
+        };
+      }
+      const targetId =
+        existing?.id ??
+        (conversationId === undefined ? latestConversationId(mindId, pairing.id) : null);
+      const chosen = picks && targetId ? chosenModes.get(targetId) : undefined;
+      const liveRun = targetId ? running.get(targetId) : undefined;
       // What the next request starts in, and the running one is in: the choice, else the User's
       // own setting as the running request or one before named it, else nothing known.
       const own =
-        running.get(mindId)?.live.now()?.mode ??
-        (conversation ? ownModes.get(conversation.id) : undefined);
+        liveRun?.live.now()?.mode ??
+        (targetId ? ownModes.get(targetId) : undefined) ??
+        lastOwnMode.get(pairing.id);
       return {
         models,
-        ran: (conversation && ranOn.get(conversation.id)) ?? null,
+        ran: (targetId && ranOn.get(targetId)) ?? null,
         mode: picks ? (chosen ?? own ?? null) : null,
         chosen: picks && chosen !== undefined,
-        refused: (conversation && refusedModes.get(conversation.id)) ?? null,
+        refused: picks ? ((targetId && refusedModes.get(targetId)) ?? null) : null,
       };
     },
 
     /**
-     * Chooses the AI's permission mode for the Note's conversation, by the input (#3765): its next
-     * request starts in it, and a request running now is told at once, which the AI takes from its
-     * next step where it can. Null goes back to the User's own settings for the AI, the running
-     * request too where a run has named them. Nothing is written to the AI's own settings; every
-     * window hears of it.
+     * Chooses the AI's permission mode for the conversation, by the input (#3765, #3731): its next
+     * request starts in it, and a request running now is told at once. Null goes back to the User's
+     * own settings for the AI. Writes nothing to the AI's own settings; every window hears of it.
      */
-    async chooseMode(mindId: string, mode: string | null): Promise<void> {
-      // The conversation running, else the one the next request would reach.
-      const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
-      const client = pairing && clientOf(pairing);
-      const conversation =
-        pairing && client && options.runner?.choosesModes(client)
-          ? conversationOf(mindId, pairing.id)
-          : null;
+    async chooseMode(
+      mindId: string,
+      conversationId: string | null,
+      mode: string | null,
+    ): Promise<void> {
+      const askable = options.askable(mindId);
+      if (conversationId === null) {
+        const pairing = askable.find(canRun);
+        const client = pairing && clientOf(pairing);
+        if (!pairing || !client || !options.runner?.choosesModes(client)) return;
+        if (mode === null) pendingModes.delete(pairing.id);
+        else pendingModes.set(pairing.id, mode);
+        options.moded(null, mindId);
+        return;
+      }
+      const conversation = conversationById(conversationId);
       if (!conversation) return;
+      const pairing =
+        running.get(conversation.id)?.pairing ??
+        askable.find((each) => each.id === conversation.pairing_id && canRun(each));
+      const client = pairing && clientOf(pairing);
+      if (!client || !options.runner?.choosesModes(client)) return;
       const before = chosenModes.get(conversation.id);
       refusedModes.delete(conversation.id);
       if (mode === null) chosenModes.delete(conversation.id);
       else chosenModes.set(conversation.id, mode);
-      options.moded(mindId);
-      const told = mode ?? ownModes.get(conversation.id);
-      const hear = modeHears.get(mindId);
+      options.moded(conversation.id, mindId);
+      const told =
+        mode ?? ownModes.get(conversation.id) ?? lastOwnMode.get(conversation.pairing_id);
+      const hear = modeHears.get(conversation.id);
       if (!hear || told === undefined) return;
       modeBefore.set(conversation.id, before);
       // A request running now answers at once, switched or not: what the input shows next is true.
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(timer);
-          if (modeAnswers.get(mindId) === done) modeAnswers.delete(mindId);
+          if (modeAnswers.get(conversation.id) === done) modeAnswers.delete(conversation.id);
           resolve();
         };
         const timer = setTimeout(done, MODE_ANSWER_MS);
-        modeAnswers.set(mindId, done);
+        modeAnswers.set(conversation.id, done);
         hear(told);
       });
     },
 
-    /** Deletes the conversations of Notes deleted for good. */
+    /**
+     * Deletes conversations whose Notes have all been deleted for good: a conversation another
+     * non-purged Note shares stays; one that touched only purged Note(s) goes with them,
+     * transcript included (#3731, ADR-0034).
+     */
     async dropPurged(): Promise<void> {
-      await forget(
-        db.all<{ id: string }>(
-          `SELECT id FROM own_ai_conversations WHERE deleted_at IS NULL
-           AND mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)`,
-        ),
+      const { runner } = options;
+      if (runner) {
+        const pending = db.all<{ id: string }>(
+          "SELECT id FROM own_ai_conversations WHERE purge_pending = 1",
+        );
+        for (const { id } of pending) {
+          if (options.lifetime.aborted) break;
+          if (purgingPending.has(id)) continue;
+          purgingPending.add(id);
+          try {
+            const ok = await runner.purge(id);
+            if (options.lifetime.aborted) break;
+            if (ok) {
+              db.run(
+                "UPDATE own_ai_conversations SET purge_pending = 0, updated_at = ? WHERE id = ?",
+                [options.now(), id],
+              );
+            } else {
+              options.log.warn("agents.ownAiConversation.notPurged", {});
+            }
+          } catch (error) {
+            options.log.warn("agents.ownAiConversation.purgeFailed", {
+              error: error instanceof Error ? error.name : "unknown",
+            });
+          } finally {
+            purgingPending.delete(id);
+          }
+        }
+      }
+      if (options.lifetime.aborted) return;
+      const purgedOnlyClause = `
+        c.deleted_at IS NULL
+        AND (
+          (
+            EXISTS (
+              SELECT 1 FROM own_ai_conversation_notes n
+              JOIN minds m ON m.id = n.mind_id
+              WHERE n.conversation_id = c.id
+                AND n.deleted_at IS NULL
+                AND m.purged_at IS NOT NULL
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM own_ai_conversation_notes n
+              LEFT JOIN minds m ON m.id = n.mind_id
+              WHERE n.conversation_id = c.id
+                AND n.deleted_at IS NULL
+                AND (m.id IS NULL OR m.purged_at IS NULL)
+            )
+          )
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM own_ai_conversation_notes n
+              WHERE n.conversation_id = c.id AND n.deleted_at IS NULL
+            )
+            AND c.mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)
+          )
+        )`;
+      const doomed = db.all<{ id: string }>(
+        `SELECT c.id FROM own_ai_conversations c WHERE ${purgedOnlyClause}`,
       );
+      if (doomed.length === 0) return;
+      const deleted = await forget(doomed, (ids) => {
+        if (ids.length === 0) return [];
+        return db
+          .all<{ id: string }>(
+            `SELECT c.id FROM own_ai_conversations c
+             WHERE c.id IN (${ids.map(() => "?").join(", ")})
+               AND ${purgedOnlyClause}`,
+            [...ids],
+          )
+          .map((row) => row.id);
+      });
+      if (deleted.length > 0) options.changed?.();
     },
 
     /** Deletes a connection's conversations: it was removed, or its consent taken back. */
     async forgetPairing(pairingId: string): Promise<void> {
-      for (const [mindId, run] of running) if (run.pairing.id === pairingId) stop(mindId);
+      for (const [conversationId, run] of running) {
+        if (run.pairing.id === pairingId) stop(conversationId);
+      }
+      lastOwnMode.delete(pairingId);
+      pendingModes.delete(pairingId);
       await forget(
         db.all<{ id: string }>(
           "SELECT id FROM own_ai_conversations WHERE pairing_id = ? AND deleted_at IS NULL",
           [pairingId],
         ),
       );
+      options.changed?.();
     },
 
     /** The connections that have conversations kept, for the consent to be checked against. */
@@ -2003,10 +2475,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
 export type OwnAiConversations = ReturnType<typeof createOwnAiConversations>;
 
-/** A Note's request running. */
+/** A conversation's request running. */
 interface Running {
   pairing: AgentPairing;
   conversationId: string;
+  /** The Note the running turn started on: mid-run follow-ups stay on it (#3731). */
+  mindId: string;
   stop: AbortController;
   ended: Promise<void>;
   live: Live;
@@ -2029,11 +2503,13 @@ interface Live {
 }
 
 /**
- * A message the User sent while a request of the Note ran, held by IncarnaMind rather than handed
- * to its AI until that reply ends (#3765), with the agent and model it was sent on.
+ * A message the User sent while a request of the conversation ran, held by IncarnaMind rather
+ * than handed to its AI until that reply ends (#3765), with the agent, Note and model it was sent on.
  */
 interface Held {
   turnId: string;
+  conversationId: string;
+  mindId: string;
   words: string;
   pairing: AgentPairing;
   model: string | undefined;

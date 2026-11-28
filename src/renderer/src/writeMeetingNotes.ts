@@ -5,7 +5,7 @@ import { translate } from "../../shared/i18n";
 import { askFirstAgent } from "./askYourAi";
 import { core } from "./core";
 import { checkFromAssistant } from "./mindCheck";
-import { askInNote, type NoteAsk, turnApplied, useNoteAsks } from "./ownAiInNote";
+import { askInNote, turnApplied, useNoteAsks } from "./ownAiInNote";
 import { useAppStore } from "./store";
 
 /** The words Write notes asks with, in either language: the Note's conversation keeps them. */
@@ -32,18 +32,28 @@ function setWriting(meeting: CallStop, asked: boolean): void {
   });
 }
 
-/** The Note's request once it has ended: what it changed, or null when it didn't land. */
-function landed(mindId: string, turnId: string): Promise<NoteAsk | null> {
+/**
+ * The Meeting turn once it has ended: what it changed, or null when it didn't land. Keyed by
+ * turnId (through `endedByTurn`) so a follow-up taking the conversation's visible slot never
+ * leaves Write notes hanging (#3731).
+ */
+function landed(conversationId: string, turnId: string): Promise<{ changed: number } | null> {
   return new Promise((resolve) => {
-    const settled = (ask: NoteAsk | undefined) => {
+    const settled = (state: ReturnType<typeof useNoteAsks.getState>) => {
+      const ended = state.endedByTurn?.[turnId];
+      if (ended) {
+        resolve(ended.state === "landed" ? { changed: ended.changed } : null);
+        return true;
+      }
+      const ask = state.byConversation[conversationId];
       if (!ask || ask.turnId !== turnId) return false;
       if (ask.state === "working") return false;
-      resolve(ask.state === "landed" ? ask : null);
+      resolve(ask.state === "landed" ? { changed: ask.changed } : null);
       return true;
     };
-    if (settled(useNoteAsks.getState().byMind[mindId])) return;
+    if (settled(useNoteAsks.getState())) return;
     const stop = useNoteAsks.subscribe((state) => {
-      if (settled(state.byMind[mindId])) stop();
+      if (settled(state)) stop();
     });
   });
 }
@@ -66,11 +76,11 @@ export async function writeMeetingNotes(meeting: CallStop, words: string): Promi
     }
     // A problem is said on the line above the input, with what to do.
     if (went !== "started") return false;
-    const turnId = useNoteAsks.getState().byMind[mindId]?.turnId;
-    if (!turnId) return true;
-    const ask = await landed(mindId, turnId);
+    const started = useNoteAsks.getState().lastByMind[mindId];
+    if (!started) return true;
+    const ask = await landed(started.conversationId, started.turnId);
     if (ask && ask.changed > 0) {
-      await turnApplied(turnId);
+      await turnApplied(started.turnId);
       await checkFromAssistant(mindId).catch(useAppStore.getState().reportError);
     }
     return true;
@@ -86,16 +96,17 @@ const asksForNotes = (words: string, state: NoteTurn["outcome"]) =>
   REQUESTS.has(words) && (state === "working" || state === "landed");
 
 /**
- * Whether Write notes was asked for the call since its last Stop, read from the Note's
- * conversation, so a Note opened again knows: a request of its words working or done, or one
- * asked in this window that hasn't settled or went by the link. Null until the conversation is
- * read; nothing is read while `readable` is false.
+ * Whether Write notes was asked for the call since its last Stop, read from the Note's turns, so
+ * a Note opened again knows: a request of its words working or done, or one asked in this window
+ * that hasn't settled or went by the link. Null until read; nothing is read while `readable` is false.
  */
 export function useNotesAsked(meeting: CallStop, readable: boolean): boolean | null {
   const writing = useWriting(
     (state) => meeting.id in state.asked && state.asked[meeting.id] === meeting.stoppedAt,
   );
-  const ask = useNoteAsks((state) => state.byMind[meeting.mindId]);
+  const ask = useNoteAsks((state) =>
+    Object.values(state.byConversation).find((each) => each.mindId === meeting.mindId),
+  );
   const [read, setRead] = useState<{ mindId: string; turns: readonly NoteTurn[] } | null>(null);
   const changed = `${ask?.turnId ?? ""}:${ask?.state ?? ""}`;
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
@@ -103,7 +114,7 @@ export function useNotesAsked(meeting: CallStop, readable: boolean): boolean | n
     if (!readable) return;
     let current = true;
     core
-      .noteConversation(meeting.mindId)
+      .noteTurnsForMind(meeting.mindId)
       .then((turns) => {
         if (current) setRead({ mindId: meeting.mindId, turns });
       })

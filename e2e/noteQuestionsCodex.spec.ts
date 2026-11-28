@@ -88,7 +88,7 @@ async function harbourNotes(window: Page): Promise<string> {
 const outcomesOf = (window: Page, mindId: string) =>
   window.evaluate(async (id) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    return (await bridge.noteConversation(id)).map((turn) => turn.outcome);
+    return (await bridge.noteTurnsForMind(id)).map((turn) => turn.outcome);
   }, mindId);
 
 async function ended(window: Page, mindId: string, before: number) {
@@ -172,7 +172,7 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     await send(window, "conv-command", "Mark the late crossings");
     const consent = window.getByTestId("consent-dialog");
     await expect(consent).toBeVisible({ timeout: 20_000 });
-    await expect(consent).toContainText("Codex keeps each note’s conversation on this computer");
+    await expect(consent).toContainText("Codex keeps each conversation on this computer");
     await expect(consent).toContainText("your AGENTS.md in its own folder");
     await expect(consent).not.toContainText("Claude Code");
     await pointAndClick(window, consent.getByTestId("consent-allow"));

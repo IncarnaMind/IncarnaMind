@@ -811,6 +811,9 @@ const STOPPED_AT = "2026-11-25T10:00:00.000Z";
 const turnOf = (request: string, at: string, outcome: NoteTurn["outcome"] = "landed"): NoteTurn =>
   ({
     id: `turn-${at}`,
+    mindId: "note",
+    mindTitle: "Meeting",
+    mindDeleted: false,
     request,
     quote: "",
     reply: "",
@@ -821,7 +824,7 @@ const turnOf = (request: string, at: string, outcome: NoteTurn["outcome"] = "lan
     questions: [],
     closed: [],
     mode: null,
-    newAfter: false,
+    changedCount: 0,
   }) as NoteTurn;
 
 /** A stopped call whose notes the User's own AI writes, as Stop leaves it. */
@@ -853,7 +856,7 @@ describe("the meeting's control and sheet after #3762's review", () => {
       actions.language = language;
       const asked = translate(language, "meetings.foot.writeNotesRequest");
       let turns: NoteTurn[] = [];
-      actions.core.noteConversation = async () => turns;
+      actions.core.noteTurnsForMind = async () => turns;
       useMeetings.setState({ meetings: [ownAiCall()] });
       await show();
       const write = find("meeting-write-notes");
@@ -1239,10 +1242,10 @@ describe("the meeting's control and sheet after #3762's review", () => {
     const beside = find("meeting-foot").closest("[data-beside-conversation]");
     expect(beside).not.toBeNull();
     expect(beside?.querySelector(".meeting-foot-over")).not.toBeNull();
-    useNoteColumns.setState((state) => ({ open: { ...state.open, note: true } }));
+    useNoteColumns.setState({ open: true });
     await click("meeting-foot-transcript");
     expect(sheetIn()).not.toBeNull();
-    expect(useNoteColumns.getState().open.note).toBe(false);
+    expect(useNoteColumns.getState().open).toBe(false);
   });
 
   test("the sheet's Transcript leaves out its own header, head line and Review speakers… opener", async () => {

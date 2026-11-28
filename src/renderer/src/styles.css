@@ -3206,27 +3206,72 @@
       white-space: nowrap;
     }
   }
-  /* The selection the request is about, before the words; its × makes it about the whole Note. */
+  /* The Note (and selection, if any) the request is about, before the words (#3731). */
   .note-ask-input-about {
     display: flex;
     flex: 0 1 auto;
     min-width: 0;
-    max-width: 45%;
+    max-width: 55%;
   }
+  /* The target Note chip (and any selection quote), before the words; its × makes it about the whole Note. */
   .note-ask-input-quote {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
     min-width: 0;
     max-width: 100%;
     height: 24px;
     margin: 4px 6px 4px 0;
-    padding: 0 4px 0 10px;
+    padding: 0 4px 0 8px;
     border-radius: 12px;
     background: var(--color-chip);
     font-size: var(--text-ui);
     line-height: 18px;
     color: var(--color-ink-secondary);
+  }
+  .note-ask-input-chip {
+    padding: 0 9px 0 8px;
+    gap: 5px;
+    color: var(--color-ink);
+  }
+  .note-ask-chip-icon {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    color: var(--color-ink-meta);
+  }
+  .note-ask-chip-name {
+    flex: 0 0 auto;
+    max-width: min(11em, 48%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-ink);
+  }
+  .note-ask-chip-quote {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .note-ask-chip-sep {
+    flex: none;
+    color: var(--color-ink-meta);
+  }
+  .note-ask-input-chip--working {
+    padding: 0 10px;
+    gap: 6px;
+    border: 0;
+    color: var(--color-ink);
+    cursor: pointer;
+    &:hover {
+      background: var(--color-hover);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
   }
   .note-ask-model {
     display: inline-flex;
@@ -3265,7 +3310,14 @@
       display: none;
     }
   }
-  /* In the column's width the selection takes a row of its own above the words. */
+  /* A selection quote or working-elsewhere chip takes its own row when inline would squeeze the controls. */
+  @container note-ask-input (width < 700px) {
+    :is(.note-ask-input-about--working, .note-ask-input-about--quote) {
+      flex: 0 0 100%;
+      max-width: 100%;
+    }
+  }
+  /* In the column's width the Note/selection chip takes a row of its own above the words. */
   @container note-ask-input (width < 440px) {
     .note-ask-input-about {
       flex: 0 0 100%;
@@ -3468,6 +3520,9 @@
       outline-offset: 1px;
     }
   }
+  .note-conversation-history-button {
+    margin-left: auto;
+  }
   .note-column-icon {
     display: flex;
     flex: none;
@@ -3491,6 +3546,7 @@
     gap: 20px;
     min-height: 0;
     overflow: auto;
+    @apply thin-scrollbar;
     padding: var(--scroll-head) 16px var(--scroll-foot);
   }
   .note-column-turn {
@@ -3513,6 +3569,20 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 4px;
+  }
+  .note-column-turn-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 85%;
+    font-size: var(--text-small);
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    > svg {
+      width: 12px;
+      height: 12px;
+      flex: none;
+    }
   }
   .note-column-sent-actions {
     display: flex;
@@ -3885,6 +3955,7 @@
     /* About half the Note's visible height at the window sizes the app opens at, under the top row. */
     max-height: 40vh;
     overflow: auto;
+    @apply thin-scrollbar;
     padding: var(--scroll-head) var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
     .note-column-reply-foot {
       min-height: 16px;
@@ -3901,7 +3972,7 @@
    * The newest request sent here starts under the top row, with room under it for its steps and
    * reply, once the turns overflow: the turns above scroll away (NoteConversationBody).
    */
-  :is(.note-ask-panel-body, .note-column-body) > :last-child:is([data-newest], [data-new-line]) {
+  :is(.note-ask-panel-body, .note-column-body) > :last-child[data-newest] {
     /* Its least height, never less than its words: it doesn't shrink to the room and spill. */
     flex: none;
     min-height: var(--newest-room, auto);
@@ -12953,6 +13024,7 @@
     margin: 0;
     padding: 4px;
     overflow-y: auto;
+    @apply thin-scrollbar;
     list-style: none;
   }
   .assistant-history-row {
@@ -12980,6 +13052,10 @@
     &:focus-visible {
       outline-offset: -2px;
     }
+    &:disabled {
+      cursor: default;
+      opacity: 0.5;
+    }
   }
   .assistant-history-empty {
     margin: 0;
@@ -12987,6 +13063,155 @@
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);
     color: var(--color-ink-meta);
+  }
+
+  /* Own-AI conversation History popover (#3731): extends .assistant-history with Note grouping and row menu. */
+  .note-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 4px;
+  }
+  .note-history-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .note-history-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 2px;
+    font-size: var(--text-small);
+    line-height: 16px;
+    color: var(--color-ink-meta);
+  }
+  .note-history-group-head--other {
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .note-history-group-icon {
+    width: 14px;
+    height: 14px;
+    flex: none;
+  }
+  .note-history-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .note-history-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 6px;
+    &:hover,
+    &:focus-within,
+    &[data-menu-open] {
+      background: var(--color-hover);
+      .note-history-row-more {
+        opacity: 1;
+      }
+      .note-history-row-check {
+        display: none;
+      }
+    }
+  }
+  .note-history-row-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 0;
+    background: none;
+    text-align: left;
+    color: var(--color-ink);
+    &:focus-visible {
+      outline-offset: -2px;
+    }
+    &:disabled {
+      cursor: default;
+      opacity: 0.5;
+    }
+  }
+  .note-history-row-title {
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: var(--text-ui);
+    line-height: 20px;
+    color: var(--color-ink);
+  }
+  .note-history-row-meta {
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: var(--text-small);
+    line-height: 16px;
+    color: var(--color-ink-meta);
+  }
+  .note-history-row-end {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-right: 4px;
+  }
+  .note-history-row-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--color-accent);
+  }
+  .note-history-row-more {
+    position: absolute;
+    inset: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--color-ink-meta);
+    opacity: 0;
+    &:hover,
+    &[aria-expanded="true"] {
+      background: var(--color-chip);
+      color: var(--color-ink);
+    }
+  }
+  .note-history-rename-wrap {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: 4px 8px;
+  }
+  .note-history-rename-input {
+    width: 100%;
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    background: var(--color-sheet);
+    font-size: var(--text-ui);
+    line-height: 20px;
+    color: var(--color-ink);
+    outline: none;
   }
 
   /*

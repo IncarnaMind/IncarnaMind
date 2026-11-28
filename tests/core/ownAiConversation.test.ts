@@ -136,6 +136,9 @@ const askedIn = (request: RunRequest | undefined) =>
 const idOf = (start: NoteRequestStart) =>
   start.kind === "started" || start.kind === "sent" ? start.turnId : "";
 
+const convOf = (start: NoteRequestStart) =>
+  start.kind === "started" || start.kind === "sent" ? start.conversationId : "";
+
 /** A turn of the Note's conversation as the record keeps it. */
 const recordOf = (turn: NoteTurn) => [turn.request, turn.quote, turn.outcome, turn.reply];
 
@@ -143,11 +146,11 @@ const recordOf = (turn: NoteTurn) => [turn.request, turn.quote, turn.outcome, tu
 const editIn = (
   core: Pick<Core, "windowCalled" | "editHeldInNote">,
   window: number,
-  mindId: string,
+  conversationId: string,
   turnId: string,
   edit: NoteHeldEdit,
 ) => {
-  const input = { mindId, turnId, clientId: `window-${window}`, edit };
+  const input = { conversationId, turnId, clientId: `window-${window}`, edit };
   core.windowCalled(window, "editHeldInNote", input);
   return core.editHeldInNote(input);
 };
@@ -1857,11 +1860,11 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     const { core, mindId, client, ended } = await written(run.adapter);
     writeMind(client, [note("")]);
     await client.settled();
-    await core.askInNote({ mindId, words: "write the notes" });
+    const convId = convOf(await core.askInNote({ mindId, words: "write the notes" }));
     await wrote.at;
-    await core.stopInNote(mindId);
+    await core.stopInNote(convId);
     await ended();
-    await core.askInNote({ mindId, words: "write the notes again" });
+    await core.askInNote({ mindId, words: "write the notes again", conversationId: convId });
     await ended(2);
     expect(refused).toBe(translate("en", "agents.propose.firstWaiting"));
     await client.settled();
@@ -1895,12 +1898,12 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "Read it." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "shorten the fares" });
+    const convId = convOf(await core.askInNote({ mindId, words: "shorten the fares" }));
     await expect.poll(() => run.runs.length).toBe(1);
     await pause(300);
-    await core.stopInNote(mindId);
+    await core.stopInNote(convId);
     await ended();
-    await core.askInNote({ mindId, words: "what does it say now?" });
+    await core.askInNote({ mindId, words: "what does it say now?", conversationId: convId });
     await ended(2);
     expect(read).toContain(`¶2 ${translate("en", "agents.mind.waiting")} ${FARES}`);
     expect(read).not.toContain(translate("en", "agents.mind.yours"));
@@ -1968,53 +1971,55 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "Done." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "make it shorter" });
+    const convId = convOf(await core.askInNote({ mindId, words: "make it shorter" }));
     await ended(1);
-    await core.askInNote({ mindId, words: "and the next paragraph" });
+    await core.askInNote({ mindId, words: "and the next paragraph", conversationId: convId });
     await ended(2);
     const [first, second] = run.runs;
     expect(first?.conversation).toMatchObject({ resume: false });
     expect(second?.conversation).toEqual({ ...first?.conversation, resume: true });
 
     lose = true;
-    await core.askInNote({ mindId, words: "once more" });
+    await core.askInNote({ mindId, words: "once more", conversationId: convId });
     const third = await ended(3);
     expect(third).toMatchObject({ state: "landed", fresh: true });
     const [, , lost, again] = run.runs;
     expect(lost?.conversation?.resume).toBe(true);
     expect(again?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
     expect(again?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
-    expect((await core.noteConversation(mindId)).map((turn) => turn.request)).toEqual([
+    expect((await core.noteConversation(convId)).map((turn) => turn.request)).toEqual([
       "make it shorter",
       "and the next paragraph",
       "once more",
     ]);
   });
 
-  // protects=New conversation keeps every turn and marks the break once, and the next request begins a new conversation with the agent that resumes nothing before it; later requests continue the new one; nothing starts while a request runs (#3765); fails_when=a turn is deleted, the agent resumes the old conversation, or a second press adds a second break
-  it("starts a new conversation after the last turn, keeping every turn", async () => {
+  // protects=New conversation creates a fresh conversation row while keeping every earlier conversation in History; later requests in the new conversation resume only it (#3731); fails_when=the earlier conversation is deleted or the new conversation resumes the old session
+  it("starts a new conversation while keeping the earlier one in History", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "Done." }));
     const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "what does the plan add" });
+    const firstConv = convOf(await core.askInNote({ mindId, words: "what does the plan add" }));
     await ended(1);
-    await core.startNewNoteConversation(mindId);
-    await core.startNewNoteConversation(mindId);
-    expect((await core.noteConversation(mindId)).map((turn) => turn.newAfter)).toEqual([true]);
-    await core.askInNote({ mindId, words: "and when" });
+    const secondConv = convOf(
+      await core.askInNote({ mindId, words: "and when", conversationId: null }),
+    );
     await ended(2);
-    await core.askInNote({ mindId, words: "and where" });
+    await core.askInNote({ mindId, words: "and where", conversationId: secondConv });
     await ended(3);
+    expect(secondConv).not.toBe(firstConv);
     const [first, anew, next] = run.runs;
-    expect(anew?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
+    expect(anew?.conversation?.key).not.toBe(first?.conversation?.key);
+    expect(anew?.conversation?.resume).toBe(false);
     expect(anew?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
     expect(next?.conversation).toEqual({ ...anew?.conversation, resume: true });
-    expect(
-      (await core.noteConversation(mindId)).map(({ request, newAfter }) => [request, newAfter]),
-    ).toEqual([
-      ["what does the plan add", true],
-      ["and when", false],
-      ["and where", false],
+    expect((await core.noteConversation(firstConv)).map((t) => t.request)).toEqual([
+      "what does the plan add",
     ]);
+    expect((await core.noteConversation(secondConv)).map((t) => t.request)).toEqual([
+      "and when",
+      "and where",
+    ]);
+    expect((await core.noteConversations()).map((c) => c.id)).toEqual([secondConv, firstConv]);
   });
 
   // protects=a request its AI ended at a question told no ends finished, its last words kept, and says so in the window and in the conversation read again; a later one that finished says nothing of it (#3653); fails_when=the conversation shows only the AI's words of what it would do, as if it ran, or the request reads as failed
@@ -2026,13 +2031,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
         : { kind: "finished", reply: "Done." },
     );
     const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "make a file" });
+    const convId = convOf(await core.askInNote({ mindId, words: "make a file" }));
     expect(await ended(1)).toMatchObject({ state: "landed", endedAtAsk: true });
     ask = false;
     await core.askInNote({ mindId, words: "say hello" });
     expect((await ended(2))?.endedAtAsk).toBeUndefined();
     expect(
-      (await core.noteConversation(mindId)).map(({ outcome, reply, endedAtAsk }) => [
+      (await core.noteConversation(convId)).map(({ outcome, reply, endedAtAsk }) => [
         outcome,
         reply,
         endedAtAsk ?? false,
@@ -2046,8 +2051,8 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   // protects=Stop ends the run and leaves the Note as it was; fails_when=a stopped request changes the Note or keeps running
   it("stops on Stop, and leaves the Note as it was", async () => {
     const { core, mindId, client, ended } = await written(runner(untilStopped).adapter);
-    await core.askInNote({ mindId, words: "rewrite everything" });
-    await core.stopInNote(mindId);
+    const convId = convOf(await core.askInNote({ mindId, words: "rewrite everything" }));
+    await core.stopInNote(convId);
     expect(await ended()).toMatchObject({ state: "stopped", applied: [] });
     await client.settled();
     expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
@@ -2163,22 +2168,22 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "Done." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await ended(1);
-    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: false });
-    await core.chooseNoteMode(mindId, "auto");
-    expect(await core.noteModels(mindId)).toMatchObject({ mode: "auto", chosen: true });
-    await core.askInNote({ mindId, words: "second" });
+    expect(await core.noteModels(mindId, convId)).toMatchObject({ mode: "default", chosen: false });
+    await core.chooseNoteMode(mindId, convId, "auto");
+    expect(await core.noteModels(mindId, convId)).toMatchObject({ mode: "auto", chosen: true });
+    await core.askInNote({ mindId, words: "second", conversationId: convId });
     await ended(2);
     expect(run.runs[1]?.modes?.start).toBe("auto");
 
-    await core.askInNote({ mindId, words: "a long one" });
+    await core.askInNote({ mindId, words: "a long one", conversationId: convId });
     await expect.poll(() => heard).toBeDefined();
-    await core.chooseNoteMode(mindId, "default");
-    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: true });
-    await core.chooseNoteMode(mindId, "auto");
+    await core.chooseNoteMode(mindId, convId, "default");
+    expect(await core.noteModels(mindId, convId)).toMatchObject({ mode: "default", chosen: true });
+    await core.chooseNoteMode(mindId, convId, "auto");
     // The choice before it holds again: the one the run is still in.
-    expect(await core.noteModels(mindId)).toMatchObject({
+    expect(await core.noteModels(mindId, convId)).toMatchObject({
       mode: "default",
       chosen: true,
       refused: "auto_mode_settings",
@@ -2186,13 +2191,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     release();
     await ended(3);
 
-    await core.chooseNoteMode(mindId, null);
-    await core.askInNote({ mindId, words: "fourth" });
+    await core.chooseNoteMode(mindId, convId, null);
+    await core.askInNote({ mindId, words: "fourth", conversationId: convId });
     await ended(4);
     expect(run.runs[3]?.modes?.start).toBeUndefined();
   });
 
-  // protects=what the input shows is what the next request starts in, for a User whose own setting acts without asking: a refused switch leaves the choice before it, New conversation keeps the choice, and a restart shows no mode until a run names one (#3765); fails_when=the pill says Asks first and the next request starts with no mode, on the User's own setting
+  // protects=what the input shows is what the next request starts in, for a User whose own setting acts without asking: a refused switch leaves the choice before it, a mode chosen on a blank new conversation holds for its first turn, and a restart shows no mode until a run names one (#3765, #3731); fails_when=the pill says Asks first and the next request starts with no mode, on the User's own setting
   it("starts the next request in the mode the input shows, after a refusal, New conversation and a restart", async () => {
     const heard: string[] = [];
     let hearing = false;
@@ -2215,21 +2220,21 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "Done." };
     });
     const { core, mindId, otherId, ended, dataDir } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "a long one" });
+    const convId = convOf(await core.askInNote({ mindId, words: "a long one" }));
     await expect.poll(() => hearing).toBe(true);
-    await core.chooseNoteMode(mindId, "default");
-    await core.chooseNoteMode(mindId, "auto");
+    await core.chooseNoteMode(mindId, convId, "default");
+    await core.chooseNoteMode(mindId, convId, "auto");
     expect(heard).toEqual(["default", "auto"]);
     release();
     await ended(1);
-    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: true });
-    await core.askInNote({ mindId, words: "after the refusal" });
+    expect(await core.noteModels(mindId, convId)).toMatchObject({ mode: "default", chosen: true });
+    await core.askInNote({ mindId, words: "after the refusal", conversationId: convId });
     await ended(2);
     expect(run.runs[1]?.modes?.start).toBe("default");
 
-    await core.startNewNoteConversation(mindId);
-    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: true });
-    await core.askInNote({ mindId, words: "after New conversation" });
+    await core.chooseNoteMode(mindId, null, "default");
+    expect(await core.noteModels(mindId, null)).toMatchObject({ mode: "default", chosen: true });
+    await core.askInNote({ mindId, words: "after New conversation", conversationId: null });
     await ended(3);
     expect(run.runs[2]?.modes?.start).toBe("default");
     expect(run.runs[2]?.conversation?.resume).toBe(false);
@@ -2239,13 +2244,16 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     try {
       const turns: NoteTurnEvent[] = [];
       again.on("agents.noteTurn", (turn) => turns.push(turn));
-      await again.askInNote({ mindId: otherId, words: "in another Note" });
+      expect(await again.noteModels(mindId, convId)).toMatchObject({ mode: null, chosen: false });
+      await again.askInNote({ mindId: otherId, words: "in another Note", conversationId: null });
       await expect.poll(() => turns.filter((turn) => turn.state !== "working").length).toBe(1);
-      expect(await again.noteModels(mindId)).toMatchObject({ mode: null, chosen: false });
-      await again.askInNote({ mindId, words: "after a restart" });
+      await again.askInNote({ mindId, words: "after a restart", conversationId: convId });
       await expect.poll(() => turns.filter((turn) => turn.state !== "working").length).toBe(2);
       expect(run.runs.at(-1)?.modes?.start).toBeUndefined();
-      expect(await again.noteModels(mindId)).toMatchObject({ mode: "acceptEdits", chosen: false });
+      expect(await again.noteModels(mindId, convId)).toMatchObject({
+        mode: "acceptEdits",
+        chosen: false,
+      });
     } finally {
       await again.close();
     }
@@ -2267,14 +2275,14 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "Done." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await listening.at;
-    await core.chooseNoteMode(mindId, "default");
+    await core.chooseNoteMode(mindId, convId, "default");
     expect(heard).toEqual([]);
     listening.open();
     await ended(1);
     expect(heard).toEqual(["default"]);
-    await core.askInNote({ mindId, words: "second" });
+    await core.askInNote({ mindId, words: "second", conversationId: convId });
     await ended(2);
     expect(run.runs[1]?.modes?.start).toBe("default");
   });
@@ -2300,20 +2308,23 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "Done." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    const told: string[] = [];
-    core.on("agents.noteMode", (changed) => told.push(changed.mindId));
-    await core.askInNote({ mindId, words: "first" });
+    const told: (string | null)[] = [];
+    core.on("agents.noteMode", (changed) => told.push(changed.conversationId));
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await ended(1);
-    await core.chooseNoteMode(mindId, "auto");
-    expect(told).toContain(mindId);
-    await core.askInNote({ mindId, words: "a long one" });
+    await core.chooseNoteMode(mindId, convId, "auto");
+    expect(told).toContain(convId);
+    await core.askInNote({ mindId, words: "a long one", conversationId: convId });
     await expect.poll(() => hearing).toBe(true);
-    await core.chooseNoteMode(mindId, null);
+    await core.chooseNoteMode(mindId, convId, null);
     expect(heard).toEqual(["acceptEdits"]);
-    expect(await core.noteModels(mindId)).toMatchObject({ mode: "acceptEdits", chosen: false });
+    expect(await core.noteModels(mindId, convId)).toMatchObject({
+      mode: "acceptEdits",
+      chosen: false,
+    });
     release();
     await ended(2);
-    await core.askInNote({ mindId, words: "third" });
+    await core.askInNote({ mindId, words: "third", conversationId: convId });
     await ended(3);
     expect(run.runs[2]?.modes?.start).toBeUndefined();
   });
@@ -2339,13 +2350,15 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       };
     });
     const cited = async (each: Awaited<ReturnType<typeof written>>) => {
-      await each.core.askInNote({ mindId: each.mindId, words: "what does the report say?" });
+      const convId = convOf(
+        await each.core.askInNote({ mindId: each.mindId, words: "what does the report say?" }),
+      );
       await each.ended();
-      const [turn] = await each.core.noteConversation(each.mindId);
-      return turn;
+      const [turn] = await each.core.noteConversation(convId);
+      return { turn, convId };
     };
     const here = await written(run.adapter);
-    const turn = await cited(here);
+    const { turn, convId: hereConv } = await cited(here);
     const report = (await here.core.listDocuments()).find((each) => each.id === here.reportId);
     // With the Citation a Note holds, whose card the reply shows, and its Document and place
     // there now, so the window opens it at the quote (#3762, #3765).
@@ -2371,21 +2384,23 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
 
     // Checked again against the Document as it is now: deleted, changed, or out of the
     // connection's reach, it is no Citation any more.
-    const citationsNow = async (each: Awaited<ReturnType<typeof written>>) =>
-      (await each.core.noteConversation(each.mindId))[0]?.citations ?? [];
+    const citationsNow = async (each: Awaited<ReturnType<typeof written>>, convId: string) =>
+      (await each.core.noteConversation(convId))[0]?.citations ?? [];
     await here.core.deleteDocument(here.reportId);
-    expect(await citationsNow(here)).toEqual([]);
+    expect(await citationsNow(here, hereConv)).toEqual([]);
 
     const changed = await written(run.adapter);
-    expect((await cited(changed))?.citations).toHaveLength(1);
+    const changedRes = await cited(changed);
+    expect(changedRes.turn?.citations).toHaveLength(1);
     await writeSourceFile(changed.sources, "Report.md", "# Report\n\nThe ferry ran all year.\n");
     await addAndProcess(changed.core, [join(changed.sources, "Report.md")]);
-    expect(await citationsNow(changed)).toEqual([]);
+    expect(await citationsNow(changed, changedRes.convId)).toEqual([]);
 
     const moved = await written(run.adapter);
-    expect((await cited(moved))?.citations).toHaveLength(1);
+    const movedRes = await cited(moved);
+    expect(movedRes.turn?.citations).toHaveLength(1);
     await moved.core.assignDocumentGroup(moved.reportId, null);
-    expect(await citationsNow(moved)).toEqual([]);
+    expect(await citationsNow(moved, movedRes.convId)).toEqual([]);
   });
 
   // protects=only a model the User's agent itself offered goes to it as its model; anything else is refused before anything starts; fails_when=a value the renderer sends reaches the command line unchecked
@@ -2428,12 +2443,12 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   it("ends with the connection or the consent, and deletes the conversation", async () => {
     const away = runner(untilStopped);
     const gone = await written(away.adapter);
-    await gone.core.askInNote({ mindId: gone.mindId, words: "shorter" });
+    const goneConv = convOf(await gone.core.askInNote({ mindId: gone.mindId, words: "shorter" }));
     await gone.core.disconnectAgent(gone.claude.pairing.id);
     expect(await gone.ended()).toMatchObject({ state: "failed", problem: "access" });
     await expect.poll(() => away.purged.length).toBe(1);
     expect(away.purged[0]).toBe(away.runs[0]?.conversation?.key);
-    expect(await gone.core.noteConversation(gone.mindId)).toEqual([]);
+    expect(await gone.core.noteConversation(goneConv)).toEqual([]);
 
     const back = runner(untilStopped);
     const taken = await written(back.adapter);
@@ -2481,14 +2496,14 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "I can't change it." };
     });
     const { core, mindId, ended } = await written(run.adapter, { readOnly: true });
-    await core.askInNote({ mindId, words: "shorter" });
+    const convId = convOf(await core.askInNote({ mindId, words: "shorter" }));
     expect(await ended(1)).toMatchObject({ state: "failed", problem: "read-only" });
     explain = true;
-    await core.askInNote({ mindId, words: "explain this" });
+    await core.askInNote({ mindId, words: "explain this", conversationId: convId });
     // Kept as the AI wrote it: the conversation shows its Markdown, the line its first words.
     const answer = "It counts **each crossing**:\n- out\n- and back";
     expect(await ended(2)).toMatchObject({ state: "landed", reply: answer });
-    expect((await core.noteConversation(mindId)).at(-1)?.reply).toBe(answer);
+    expect((await core.noteConversation(convId)).at(-1)?.reply).toBe(answer);
   });
 
   // protects=a Folder linking made and the User gave the connection is read in a Note's conversation as by any other call of that connection, and one it wasn't given isn't (#3613); fails_when=the conversation finds the linked folder's file where a call doesn't, or misses it where a call finds it
@@ -2644,22 +2659,59 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(asked).toHaveLength(1);
   });
 
-  // protects=the Note deleted for good deletes its conversation, IncarnaMind's record and the agent's copy; Recently deleted keeps it; fails_when=a conversation outlives its Note
-  it("deletes the conversation with its Note", async () => {
+  // protects=permanently deleting a Note deletes and purges a conversation that touched only that Note, keeps a conversation shared with another Note (with mindDeleted: true), and deletes both copies when deleted from History or when its last remaining Note is purged (#3731); fails_when=a single-Note conversation survives its Note's permanent deletion, a shared conversation is destroyed while another Note still exists, or text stays on disk after deletion
+  it("purges a single-Note conversation when its Note is deleted permanently, while keeping shared ones", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "Done." }));
-    const { core, mindId, dataDir, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "shorter", quote: "212,000 passengers" });
-    await ended();
+    const { core, mindId, otherId, dataDir, ended } = await written(run.adapter);
+    const singleConv = convOf(
+      await core.askInNote({ mindId, words: "shorter", quote: "212,000 passengers" }),
+    );
+    await ended(1);
+    const sharedConv = convOf(
+      await core.askInNote({ mindId, words: "compare notes", conversationId: null }),
+    );
+    await ended(2);
+    await core.askInNote({
+      mindId: otherId,
+      words: "check second note",
+      conversationId: sharedConv,
+    });
+    await ended(3);
+
+    // Moving the Note to Recently deleted keeps both conversations so Restore brings them back.
     await core.deleteMind(mindId);
     expect(run.purged).toEqual([]);
+    expect((await core.noteConversations()).map((c) => c.id).sort()).toEqual(
+      [singleConv, sharedConv].sort(),
+    );
+
+    // Permanently deleting mindId purges singleConv (touched only mindId) and keeps sharedConv.
     await core.deletePermanently([{ kind: "mind", id: mindId }]);
-    expect(run.purged).toEqual([run.runs[0]?.conversation?.key]);
-    expect(await core.noteConversation(mindId)).toEqual([]);
-    // What the User typed and selected, and the reply, are gone from IncarnaMind's record too.
+    expect(run.purged).toEqual([singleConv]);
+    expect((await core.noteConversations()).map((c) => c.id)).toEqual([sharedConv]);
+    expect(await core.noteConversation(singleConv)).toEqual([]);
+    expect((await core.noteConversation(sharedConv))[0]).toMatchObject({
+      request: "compare notes",
+      mindDeleted: true,
+    });
+
+    // Deleting sharedConv from History scrubs and purges it too.
+    await core.deleteNoteConversation(sharedConv);
+    expect(run.purged).toEqual([singleConv, sharedConv]);
+    expect(await core.noteConversation(sharedConv)).toEqual([]);
+    expect(await core.noteConversations()).toEqual([]);
+    // What the User typed and selected, the reply, and touched Note titles are scrubbed from SQLite.
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
-      expect(db.all("SELECT request, selection, reply FROM own_ai_turns")).toEqual([
-        { request: "", selection: "", reply: "" },
+      expect(db.all("SELECT request, selection, reply, mind_title FROM own_ai_turns")).toEqual([
+        { request: "", selection: "", reply: "", mind_title: "" },
+        { request: "", selection: "", reply: "", mind_title: "" },
+        { request: "", selection: "", reply: "", mind_title: "" },
+      ]);
+      expect(db.all("SELECT mind_title FROM own_ai_conversation_notes")).toEqual([
+        { mind_title: "" },
+        { mind_title: "" },
+        { mind_title: "" },
       ]);
     } finally {
       db.close();
@@ -2777,7 +2829,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("waits for the User's answer, and gives it to the AI", async () => {
     const run = asking(asked("toolu_1"));
     const { core, mindId, turns, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     const [question] = await waitingIn(turns);
     expect(question).toMatchObject({
       action: COMMAND,
@@ -2787,9 +2839,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(run.runs[0]?.own).toBeDefined();
     expect(run.runs[0]?.tools).toBe("all");
     // A window opened meanwhile reads it too.
-    expect((await core.noteTurnNow(mindId))?.questions).toEqual([question]);
-    expect((await core.noteConversation(mindId)).at(-1)?.questions).toEqual([question]);
-    await core.answerInNote(mindId, question?.id ?? "", "suggested");
+    expect((await core.noteTurnNow(convId))?.questions).toEqual([question]);
+    expect((await core.noteConversation(convId)).at(-1)?.questions).toEqual([question]);
+    await core.answerInNote(convId, question?.id ?? "", "suggested");
     const end = await ended();
     expect(end).toMatchObject({ state: "landed", reply: "Ran it.", questions: [] });
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "suggested" });
@@ -2800,13 +2852,13 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("denies, and does nothing with an answer not offered", async () => {
     const run = asking({ ...asked("toolu_1"), suggested: [] });
     const { core, mindId, turns, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     const [question] = await waitingIn(turns);
     expect(question?.answers).toEqual(["deny", "once"]);
-    await core.answerInNote(mindId, question?.id ?? "", "suggested");
-    await core.answerInNote(mindId, "another-question", "once");
-    expect((await core.noteTurnNow(mindId))?.questions).toHaveLength(1);
-    await core.answerInNote(mindId, question?.id ?? "", "deny");
+    await core.answerInNote(convId, question?.id ?? "", "suggested");
+    await core.answerInNote(convId, "another-question", "once");
+    expect((await core.noteTurnNow(convId))?.questions).toHaveLength(1);
+    await core.answerInNote(convId, question?.id ?? "", "deny");
     const end = await ended();
     expect(end).toMatchObject({ state: "landed", reply: "Didn't run it." });
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "deny" });
@@ -2822,12 +2874,12 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "Both answered." };
     });
     const { core, mindId, turns, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "count twice" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count twice" }));
     await expect.poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(2);
     const [first, second] = turns.at(-1)?.questions ?? [];
-    await core.answerInNote(mindId, second?.id ?? "", "once");
-    expect((await core.noteTurnNow(mindId))?.questions).toEqual([first]);
-    await core.answerInNote(mindId, first?.id ?? "", "deny");
+    await core.answerInNote(convId, second?.id ?? "", "once");
+    expect((await core.noteTurnNow(convId))?.questions).toEqual([first]);
+    await core.answerInNote(convId, first?.id ?? "", "deny");
     await ended();
     expect(got).toEqual(["deny", "once"]);
   });
@@ -2839,16 +2891,16 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       signal = request.signal;
     });
     const { core, mindId, turns, ended, dataDir } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     const [question] = await waitingIn(turns);
-    await core.stopInNote(mindId);
-    await core.answerInNote(mindId, question?.id ?? "", "once");
+    await core.stopInNote(convId);
+    await core.answerInNote(convId, question?.id ?? "", "once");
     const end = await ended();
     expect(end).toMatchObject({ state: "stopped" });
     expect(signal?.aborted).toBe(true);
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "stopped" });
     expect(run.answered).toEqual([]);
-    expect((await core.noteConversation(mindId)).at(-1)).toMatchObject({
+    expect((await core.noteConversation(convId)).at(-1)).toMatchObject({
       outcome: "stopped",
       questions: [],
       closed: [],
@@ -2873,13 +2925,13 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "" };
     });
     const { core, mindId, turns, dataDir } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     await expect.poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(2);
     await core.close();
     await expect.poll(() => returned).toBe(true);
     const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
     try {
-      expect((await again.noteConversation(mindId)).at(-1)).toMatchObject({
+      expect((await again.noteConversation(convId)).at(-1)).toMatchObject({
         request: "count the late crossings",
         outcome: "stopped",
         questions: [],
@@ -2902,9 +2954,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     });
     const { core, mindId, ended, consents } = await written(run.adapter, { client: "codex" });
     expect(await core.ownAiRunsHere()).toEqual(["claude-code", "codex"]);
-    expect((await core.askInNote({ mindId, words: "count the late crossings" })).kind).toBe(
-      "started",
-    );
+    const firstStart = await core.askInNote({ mindId, words: "count the late crossings" });
+    expect(firstStart.kind).toBe("started");
+    const convId = convOf(firstStart);
     expect(await ended()).toMatchObject({ state: "landed", reply: "Counted.", mode: "on-request" });
     const [request] = run.runs;
     expect(request).toMatchObject({ client: "codex", tools: "all" });
@@ -2914,13 +2966,13 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(consents.map((each) => [each.flow.service.agentClient, each.newKinds])).toEqual([
       ["codex", ["note-requests", "selection", "own-ai-context"]],
     ]);
-    expect(await core.noteModels(mindId)).toMatchObject({
+    expect(await core.noteModels(mindId, convId)).toMatchObject({
       models: [CODEX_MODEL],
       mode: null,
       chosen: false,
     });
-    await core.chooseNoteMode(mindId, "auto");
-    expect((await core.noteModels(mindId)).mode).toBeNull();
+    await core.chooseNoteMode(mindId, convId, "auto");
+    expect((await core.noteModels(mindId, convId)).mode).toBeNull();
     await core.askInNote({ mindId, words: "and the early ones", model: CODEX_MODEL.value });
     await ended(2);
     expect(run.runs[1]).toMatchObject({
@@ -2938,7 +2990,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     ];
     const run = asking({ ...asked("exec-1"), forRequest: FOR_REQUEST });
     const { core, mindId, turns, ended } = await written(run.adapter, { client: "codex" });
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     const [question] = await waitingIn(turns);
     expect(question).toMatchObject({
       action: COMMAND,
@@ -2946,7 +2998,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       suggested: SUGGESTED,
       forRequest: FOR_REQUEST,
     });
-    await core.answerInNote(mindId, question?.id ?? "", "request");
+    await core.answerInNote(convId, question?.id ?? "", "request");
     const end = await ended();
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "request" });
     expect(run.answered).toEqual(["request"]);
@@ -2959,19 +3011,19 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       signal = request.signal;
     });
     const { core, mindId, turns, ended, dataDir } = await written(run.adapter, { client: "codex" });
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     const [question] = await waitingIn(turns);
-    await core.stopInNote(mindId);
+    await core.stopInNote(convId);
     expect(await ended()).toMatchObject({ state: "stopped" });
     expect(signal?.aborted).toBe(true);
-    await core.answerInNote(mindId, question?.id ?? "", "once");
+    await core.answerInNote(convId, question?.id ?? "", "once");
     expect(run.answered).toEqual([]);
-    await core.askInNote({ mindId, words: "count them again" });
+    await core.askInNote({ mindId, words: "count them again", conversationId: convId });
     await expect.poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(1);
     await core.close();
     const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
     try {
-      expect((await again.noteConversation(mindId)).at(-1)).toMatchObject({
+      expect((await again.noteConversation(convId)).at(-1)).toMatchObject({
         request: "count them again",
         outcome: "stopped",
         questions: [],
@@ -3034,11 +3086,11 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "Counted." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     const end = await ended();
     expect(end).toMatchObject({ mode: "auto", modeNew: true });
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND });
-    expect((await core.noteConversation(mindId)).at(-1)?.mode).toBe("auto");
+    expect((await core.noteConversation(convId)).at(-1)?.mode).toBe("auto");
   });
 
   // protects=a deck the AI made in the conversation's own folder reaches the Library by hand_over_file; a file anywhere else, a link out of the folder included, and on macOS and Linux a file beside the folder whose name starts with the folder's and a backslash, is refused, since the AI's own tools would have asked before reading it; fails_when=a file in the User's home, or beside the conversation's folder, reaches the Library, and the model, with no card
@@ -3103,7 +3155,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("begins a conversation from before anew, once", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "Done." }));
     const { core, mindId, ended, dataDir, turns } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "make it shorter" });
+    const convId = convOf(await core.askInNote({ mindId, words: "make it shorter" }));
     await ended(1);
     await core.close();
     const db = openDatabase(join(dataDir, DATABASE_FILE));
@@ -3121,15 +3173,15 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         .toBe(count)
         .then(() => told.filter((turn) => turn.state !== "working").at(-1));
     try {
-      await again.askInNote({ mindId, words: "count the late crossings" });
+      await again.askInNote({ mindId, words: "count the late crossings", conversationId: convId });
       expect(await endOf(1)).toMatchObject({ state: "landed", renewed: true, fresh: false });
-      await again.askInNote({ mindId, words: "and once more" });
+      await again.askInNote({ mindId, words: "and once more", conversationId: convId });
       expect(await endOf(2)).toMatchObject({ state: "landed", renewed: false });
       const [first, renewed, next] = run.runs;
       expect(renewed?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
       expect(renewed?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
       expect(next?.conversation).toEqual({ ...renewed?.conversation, resume: true });
-      expect((await again.noteConversation(mindId)).map((turn) => turn.request)).toEqual([
+      expect((await again.noteConversation(convId)).map((turn) => turn.request)).toEqual([
         "make it shorter",
         "count the late crossings",
         "and once more",
@@ -3157,10 +3209,12 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "Kept it short." };
     });
     const { core, mindId, ended } = await written(run.adapter, { held });
-    const first = idOf(await core.askInNote({ mindId, words: "make a page of the ferry figures" }));
+    const firstStart = await core.askInNote({ mindId, words: "make a page of the ferry figures" });
+    const first = idOf(firstStart);
+    const convId = convOf(firstStart);
     await held.at;
     const later = idOf(await core.askInNote({ mindId, words: "and keep it short" }));
-    await core.sendNowInNote(mindId, later);
+    await core.sendNowInNote(convId, later);
     followed.open();
     const ends = [await ended(1), await ended(2)];
     const of = (turnId: string) => ends.find((end) => end?.turnId === turnId);
@@ -3190,7 +3244,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "Fares rose by ten percent." };
     });
     const { core, mindId, turns, ended, selectionOf } = await written(run.adapter);
-    const first = idOf(await core.askInNote({ mindId, words: "what changed this year?" }));
+    const firstStart = await core.askInNote({ mindId, words: "what changed this year?" });
+    const first = idOf(firstStart);
+    const convId = convOf(firstStart);
     await step.at;
     // About words selected, as from a window that hadn't heard of the run: not sent at all.
     expect(
@@ -3206,18 +3262,18 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(start.kind).toBe("sent");
     const later = idOf(start);
     expect(sent).toEqual([]);
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["what changed this year?", "", "working", ""],
       ["and the fares?", "", "held", ""],
     ]);
     expect(turns.at(-1)).toMatchObject({ turnId: first, queued: [], held: [later] });
 
-    await core.sendNowInNote(mindId, later);
+    await core.sendNowInNote(convId, later);
     expect(run.runs).toHaveLength(1);
     expect(sent.map((each) => each.id)).toEqual([later]);
     expect(sent[0]?.prompt).toContain(`(mindId: ${mindId}), the User's request: and the fares?`);
     expect(sent[0]?.prompt).not.toContain("selected");
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["what changed this year?", "", "working", ""],
       ["and the fares?", "", "waiting", ""],
     ]);
@@ -3243,7 +3299,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       queued: [],
     });
     expect(answered?.steps).toEqual([expect.objectContaining({ kind: "call", tool: "read_mind" })]);
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["what changed this year?", "", "landed", ""],
       ["and the fares?", "", "landed", "Fares rose by ten percent."],
     ]);
@@ -3263,16 +3319,17 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "Made the fares a tenth." };
     });
     const { core, mindId, ended, selectionOf } = await written(run.adapter);
-    await core.askInNote({
+    const firstStart = await core.askInNote({
       mindId,
       words: "say people, not passengers",
       quote: "212,000 passengers",
       selection: selectionOf(0, "212,000 passengers"),
     });
+    const convId = convOf(firstStart);
     await step.at;
     const sent = await core.askInNote({ mindId, words: "and say a tenth for the fares" });
     expect(sent).toMatchObject({ kind: "sent" });
-    await core.sendNowInNote(mindId, idOf(sent));
+    await core.sendNowInNote(convId, idOf(sent));
     step.open();
     const later = await ended(2);
     expect(status).toBe("applied");
@@ -3311,10 +3368,12 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "Made the fares a tenth." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    const asked = idOf(await core.askInNote({ mindId, words: "say people, not passengers" }));
+    const firstStart = await core.askInNote({ mindId, words: "say people, not passengers" });
+    const asked = idOf(firstStart);
+    const convId = convOf(firstStart);
     await step.at;
     const taken = idOf(await core.askInNote({ mindId, words: "and say a tenth for the fares" }));
-    await core.sendNowInNote(mindId, taken);
+    await core.sendNowInNote(convId, taken);
     step.open();
     const ends = [await ended(1), await ended(2)];
     const of = (turnId: string) => ends.find((end) => end?.turnId === turnId);
@@ -3341,10 +3400,12 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: "Building starts in the spring." };
     });
     const { core, mindId, ended } = await written(run.adapter);
-    const first = idOf(await core.askInNote({ mindId, words: "what does the plan add?" }));
+    const firstStart = await core.askInNote({ mindId, words: "what does the plan add?" });
+    const first = idOf(firstStart);
+    const convId = convOf(firstStart);
     await step.at;
     const later = idOf(await core.askInNote({ mindId, words: "and when?" }));
-    await core.sendNowInNote(mindId, later);
+    await core.sendNowInNote(convId, later);
     step.open();
     // Ended with the request after it still to be taken: the run goes on.
     expect(await ended(1)).toMatchObject({
@@ -3360,7 +3421,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       queued: [],
     });
     expect(run.runs).toHaveLength(1);
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["what does the plan add?", "", "landed", "A second ramp, in 2027."],
       ["and when?", "", "landed", "Building starts in the spring."],
     ]);
@@ -3380,11 +3441,11 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
     });
     const { core, mindId, turns } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "what does the plan add" });
+    const convId = convOf(await core.askInNote({ mindId, words: "what does the plan add" }));
     await step.at;
     const second = idOf(await core.askInNote({ mindId, words: "and when" }));
     const third = idOf(await core.askInNote({ mindId, words: "and where" }));
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["what does the plan add", "", "working", ""],
       ["and when", "", "held", ""],
       ["and where", "", "held", ""],
@@ -3392,7 +3453,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(turns.at(-1)).toMatchObject({ queued: [], held: [second, third] });
     step.open();
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([
         ["what does the plan add", "", "landed", "Answered: what does the plan add"],
         ["and when", "", "landed", "Answered: and when"],
@@ -3444,15 +3505,17 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       const askedLater = core.askInNote({ mindId, words: later });
       await pause(50);
       checks.open();
-      expect((await asked).kind).toBe("started");
+      const startedFirst = await asked;
+      expect(startedFirst.kind).toBe("started");
+      const convId = convOf(startedFirst);
       expect((await askedLater).kind).toBe("sent");
-      expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
         [first, "", "working", ""],
         [later, "", "held", ""],
       ]);
       step.open();
       await expect
-        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .poll(async () => (await core.noteConversation(convId)).map(recordOf))
         .toEqual([
           [first, "", "landed", `Answered: ${first}`],
           [later, "", "landed", `Answered: ${later}`],
@@ -3490,9 +3553,11 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       await pause(50);
       checks.open();
       await expect(asked).resolves.toMatchObject({ kind: "problem", problem: "signed-out" });
-      await expect(askedLater).resolves.toMatchObject({ kind: "started" });
+      const startedLater = await askedLater;
+      expect(startedLater).toMatchObject({ kind: "started" });
+      const convId = convOf(startedLater);
       await ended();
-      expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
         [later, "", "landed", `Answered: ${later}`],
       ]);
     },
@@ -3506,21 +3571,21 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         : untilStopped(agent, request),
     );
     const { core, mindId } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "rewrite everything" });
+    const convId = convOf(await core.askInNote({ mindId, words: "rewrite everything" }));
     await expect.poll(() => run.runs.length).toBe(1);
     await core.askInNote({ mindId, words: "and add a title" });
     await core.askInNote({ mindId, words: "and a date" });
-    await core.stopInNote(mindId);
+    await core.stopInNote(convId);
     await expect.poll(() => run.runs.length).toBe(2);
     expect(askedIn(run.runs[1])).toBe("and add a title");
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["rewrite everything", "", "stopped", ""],
       ["and add a title", "", "working", ""],
       ["and a date", "", "held", ""],
     ]);
-    await core.stopInNote(mindId);
+    await core.stopInNote(convId);
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([
         ["rewrite everything", "", "stopped", ""],
         ["and add a title", "", "stopped", ""],
@@ -3529,25 +3594,27 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(run.runs).toHaveLength(3);
   });
 
-  // protects=Discard takes a held message away before the AI has it: it is never sent, and only a held or never-sent request can be discarded (#3765); fails_when=it is sent anyway, Discard removes a request that ran, or one in another Note
+  // protects=Discard takes a held message away before the AI has it: it is never sent, and only a held or never-sent request can be discarded (#3765); fails_when=it is sent anyway, Discard removes a request that ran, or one in another conversation
   it("never sends a held request discarded", async () => {
     const run = runner(untilStopped);
     const { core, mindId, turns } = await written(run.adapter);
-    const first = idOf(await core.askInNote({ mindId, words: "rewrite everything" }));
+    const firstStart = await core.askInNote({ mindId, words: "rewrite everything" });
+    const first = idOf(firstStart);
+    const convId = convOf(firstStart);
     await expect.poll(() => run.runs.length).toBe(1);
     const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
-    await core.discardInNote(mindId, first);
-    await core.discardInNote("another-note", later);
-    expect((await core.noteConversation(mindId)).map(recordOf)).toHaveLength(2);
-    await core.discardInNote(mindId, later);
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    await core.discardInNote(convId, first);
+    await core.discardInNote("another-conversation", later);
+    expect((await core.noteConversation(convId)).map(recordOf)).toHaveLength(2);
+    await core.discardInNote(convId, later);
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["rewrite everything", "", "working", ""],
     ]);
     expect(turns.at(-1)).toMatchObject({ turnId: first, held: [] });
-    await core.sendNowInNote(mindId, later);
-    await core.stopInNote(mindId);
+    await core.sendNowInNote(convId, later);
+    await core.stopInNote(convId);
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([["rewrite everything", "", "stopped", ""]]);
     expect(run.runs).toHaveLength(1);
   });
@@ -3564,14 +3631,14 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
       });
       const { core, mindId } = await written(run.adapter);
-      await core.askInNote({ mindId, words: "what does the plan add" });
+      const convId = convOf(await core.askInNote({ mindId, words: "what does the plan add" }));
       await step.at;
       const later = idOf(await core.askInNote({ mindId, words: "and when" }));
       await core.askInNote({ mindId, words: "and who" });
-      expect(await editIn(core, 1, mindId, later, { kind: "open" })).toBe(true);
+      expect(await editIn(core, 1, convId, later, { kind: "open" })).toBe(true);
       step.open();
       await expect
-        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .poll(async () => (await core.noteConversation(convId)).map(recordOf))
         .toEqual([
           ["what does the plan add", "", "landed", "Answered: what does the plan add"],
           ["and when", "", "held", ""],
@@ -3580,10 +3647,10 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       await pause(100);
       expect(run.runs).toHaveLength(1);
       const closed = close === "save" ? { kind: "save", words: "and where" } : { kind: "cancel" };
-      expect(await editIn(core, 1, mindId, later, closed as NoteHeldEdit)).toBe(true);
+      expect(await editIn(core, 1, convId, later, closed as NoteHeldEdit)).toBe(true);
       const words = close === "save" ? "and where" : "and when";
       await expect
-        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .poll(async () => (await core.noteConversation(convId)).map(recordOf))
         .toEqual([
           ["what does the plan add", "", "landed", "Answered: what does the plan add"],
           [words, "", "landed", `Answered: ${words}`],
@@ -3610,19 +3677,19 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("holds a request typed while the oldest held is in its editor behind every held one", async () => {
     const { step, run } = gatedFirst();
     const { core, mindId, turns } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await step.at;
     const a = idOf(await core.askInNote({ mindId, words: "held a" }));
     const b = idOf(await core.askInNote({ mindId, words: "held b" }));
-    await editIn(core, 1, mindId, a, { kind: "open" });
+    await editIn(core, 1, convId, a, { kind: "open" });
     step.open();
-    await expect.poll(async () => (await core.noteConversation(mindId))[0]?.outcome).toBe("landed");
+    await expect.poll(async () => (await core.noteConversation(convId))[0]?.outcome).toBe("landed");
     const c = await core.askInNote({ mindId, words: "typed c" });
     expect(c.kind).toBe("sent");
     expect(turns.at(-1)?.held).toEqual([a, b, idOf(c)]);
     await pause(100);
     expect(run.runs).toHaveLength(1);
-    await editIn(core, 1, mindId, a, { kind: "cancel" });
+    await editIn(core, 1, convId, a, { kind: "cancel" });
     await expect.poll(() => run.runs.length).toBe(4);
     expect(run.runs.map(askedIn)).toEqual(["first", "held a", "held b", "typed c"]);
   });
@@ -3632,15 +3699,15 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     it(`sends the held messages once the window with an editor open has ${went === "gone" ? "gone" : "loaded again"}`, async () => {
       const { step, run } = gatedFirst();
       const { core, mindId } = await written(run.adapter);
-      await core.askInNote({ mindId, words: "first" });
+      const convId = convOf(await core.askInNote({ mindId, words: "first" }));
       await step.at;
       const a = idOf(await core.askInNote({ mindId, words: "held a" }));
       await core.askInNote({ mindId, words: "held b" });
-      await editIn(core, 1, mindId, a, { kind: "open" });
-      await editIn(core, 2, mindId, a, { kind: "open" });
+      await editIn(core, 1, convId, a, { kind: "open" });
+      await editIn(core, 2, convId, a, { kind: "open" });
       step.open();
       await expect
-        .poll(async () => (await core.noteConversation(mindId))[0]?.outcome)
+        .poll(async () => (await core.noteConversation(convId))[0]?.outcome)
         .toBe("landed");
       if (went === "gone") core.windowGone(1);
       else core.windowReloaded(1);
@@ -3656,20 +3723,20 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("waits for a held message's editor in every window, and refuses Send now while one is open", async () => {
     const { step, run } = gatedFirst();
     const { core, mindId } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await step.at;
     const a = idOf(await core.askInNote({ mindId, words: "held a" }));
-    await editIn(core, 1, mindId, a, { kind: "open" });
-    await editIn(core, 2, mindId, a, { kind: "open" });
-    await expect(core.sendNowInNote(mindId, a)).rejects.toThrow(
+    await editIn(core, 1, convId, a, { kind: "open" });
+    await editIn(core, 2, convId, a, { kind: "open" });
+    await expect(core.sendNowInNote(convId, a)).rejects.toThrow(
       translate("en", "error.noteAsk.heldEditing"),
     );
     step.open();
-    await expect.poll(async () => (await core.noteConversation(mindId))[0]?.outcome).toBe("landed");
-    await editIn(core, 1, mindId, a, { kind: "cancel" });
+    await expect.poll(async () => (await core.noteConversation(convId))[0]?.outcome).toBe("landed");
+    await editIn(core, 1, convId, a, { kind: "cancel" });
     await pause(100);
     expect(run.runs).toHaveLength(1);
-    const saved = await editIn(core, 2, mindId, a, { kind: "save", words: "window two words" });
+    const saved = await editIn(core, 2, convId, a, { kind: "save", words: "window two words" });
     expect(saved).toBe(true);
     await expect.poll(() => run.runs.map(askedIn)).toEqual(["first", "window two words"]);
   });
@@ -3678,14 +3745,14 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("sends the next held message when the oldest is discarded after the reply ended", async () => {
     const { step, run } = gatedFirst();
     const { core, mindId } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await step.at;
     const a = idOf(await core.askInNote({ mindId, words: "held a" }));
     await core.askInNote({ mindId, words: "held b" });
-    await editIn(core, 2, mindId, a, { kind: "open" });
+    await editIn(core, 2, convId, a, { kind: "open" });
     step.open();
-    await expect.poll(async () => (await core.noteConversation(mindId))[0]?.outcome).toBe("landed");
-    await core.discardInNote(mindId, a);
+    await expect.poll(async () => (await core.noteConversation(convId))[0]?.outcome).toBe("landed");
+    await core.discardInNote(convId, a);
     await expect.poll(() => run.runs.map(askedIn)).toEqual(["first", "held b"]);
   });
 
@@ -3693,15 +3760,15 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("says a message that went before Edit opened is no longer held", async () => {
     const { step, run } = gatedFirst();
     const { core, mindId } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await step.at;
     const a = idOf(await core.askInNote({ mindId, words: "held a" }));
     step.open();
     await expect.poll(() => run.runs.length).toBe(2);
-    expect(await editIn(core, 1, mindId, a, { kind: "open" })).toBe(false);
-    expect(await editIn(core, 1, mindId, a, { kind: "save", words: "changed a" })).toBe(false);
+    expect(await editIn(core, 1, convId, a, { kind: "open" })).toBe(false);
+    expect(await editIn(core, 1, convId, a, { kind: "save", words: "changed a" })).toBe(false);
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([
         ["first", "", "landed", "Answered: first"],
         ["held a", "", "landed", "Answered: held a"],
@@ -3712,7 +3779,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("keeps a held message held, and says so, when its start, Save or Discard can't be written", async () => {
     const { step, run } = gatedFirst();
     const { core, mindId, dataDir } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await step.at;
     const a = idOf(await core.askInNote({ mindId, words: "held a" }));
     const db = openDatabase(join(dataDir, DATABASE_FILE));
@@ -3721,23 +3788,23 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`);
       step.open();
       await expect
-        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .poll(async () => (await core.noteConversation(convId)).map(recordOf))
         .toEqual([
           ["first", "", "landed", "Answered: first"],
           ["held a", "", "held", ""],
         ]);
-      await expect(core.sendNowInNote(mindId, a)).rejects.toThrow(
+      await expect(core.sendNowInNote(convId, a)).rejects.toThrow(
         translate("en", "error.noteAsk.heldNotSent"),
       );
-      expect(await editIn(core, 1, mindId, a, { kind: "open" })).toBe(true);
+      expect(await editIn(core, 1, convId, a, { kind: "open" })).toBe(true);
       await expect(
-        editIn(core, 1, mindId, a, { kind: "save", words: "changed a" }),
+        editIn(core, 1, convId, a, { kind: "save", words: "changed a" }),
       ).rejects.toThrow(translate("en", "error.noteAsk.heldNotSaved"));
-      await expect(editIn(core, 1, mindId, a, { kind: "cancel" })).resolves.toBe(true);
-      await expect(core.discardInNote(mindId, a)).rejects.toThrow(
+      await expect(editIn(core, 1, convId, a, { kind: "cancel" })).resolves.toBe(true);
+      await expect(core.discardInNote(convId, a)).rejects.toThrow(
         translate("en", "error.noteAsk.notDiscarded"),
       );
-      expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
         ["first", "", "landed", "Answered: first"],
         ["held a", "", "held", ""],
       ]);
@@ -3746,9 +3813,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     } finally {
       db.close();
     }
-    await core.sendNowInNote(mindId, a);
+    await core.sendNowInNote(convId, a);
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([
         ["first", "", "landed", "Answered: first"],
         ["held a", "", "landed", "Answered: held a"],
@@ -3766,7 +3833,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "failed", reason: "other" };
     });
     const { core, mindId, dataDir } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await failing.at;
     const a = idOf(await core.askInNote({ mindId, words: "held a" }));
     const db = openDatabase(join(dataDir, DATABASE_FILE));
@@ -3776,7 +3843,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`);
       failing.open();
       await expect
-        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .poll(async () => (await core.noteConversation(convId)).map(recordOf))
         .toEqual([
           ["first", "", "failed", ""],
           ["held a", "", "held", ""],
@@ -3787,9 +3854,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     } finally {
       db.close();
     }
-    await core.sendNowInNote(mindId, a);
+    await core.sendNowInNote(convId, a);
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([
         ["first", "", "failed", ""],
         ["held a", "", "landed", "Answered: held a"],
@@ -3806,13 +3873,13 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "failed", reason: "other" };
     });
     const { core, mindId, turns } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "first" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first" }));
     await failing.at;
     const a = idOf(await core.askInNote({ mindId, words: "held a" }));
     expect(turns.at(-1)?.held).toEqual([a]);
     failing.open();
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([
         ["first", "", "landed", "Part."],
         ["held a", "", "unsent", ""],
@@ -3856,54 +3923,34 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       return { kind: "failed", reason: "other" };
     });
     const { core, mindId } = await written(run.adapter);
-    const first = idOf(await core.askInNote({ mindId, words: "rewrite everything" }));
+    const firstStart = await core.askInNote({ mindId, words: "rewrite everything" });
+    const first = idOf(firstStart);
+    const convId = convOf(firstStart);
     await failing.at;
     const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
     failing.open();
     await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+      .poll(async () => (await core.noteConversation(convId)).map(recordOf))
       .toEqual([
         ["rewrite everything", "", "failed", ""],
         ["and add a title", "", "unsent", ""],
       ]);
-    await core.discardInNote(mindId, first);
-    expect((await core.noteConversation(mindId)).map(recordOf)).toHaveLength(2);
-    await core.discardInNote(mindId, later);
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    await core.discardInNote(convId, first);
+    expect((await core.noteConversation(convId)).map(recordOf)).toHaveLength(2);
+    await core.discardInNote(convId, later);
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["rewrite everything", "", "failed", ""],
     ]);
     // Sent again, it is a request of its own.
-    expect((await core.askInNote({ mindId, words: "and add a title" })).kind).toBe("started");
+    expect(
+      (await core.askInNote({ mindId, words: "and add a title", conversationId: convId })).kind,
+    ).toBe("started");
     await expect.poll(() => run.runs.length).toBe(2);
   });
 
-  // protects=New conversation marks the last request that ran, so discarding a request never sent after it keeps the line, and the next request begins anew (#3765); fails_when=the Discard takes the line with it and the next request resumes the conversation before
-  it("keeps New conversation when a request never sent after it is discarded", async () => {
-    const failing = gate();
-    const run = runner(async (_agent, request) => {
-      if (!request.prompt.includes("rewrite")) return { kind: "finished", reply: "Done." };
-      failing.reached();
-      await failing.shut;
-      return { kind: "failed", reason: "other" };
-    });
-    const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "rewrite everything" });
-    await failing.at;
-    const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
-    failing.open();
-    await ended();
-    await core.startNewNoteConversation(mindId);
-    await core.discardInNote(mindId, later);
-    expect((await core.noteConversation(mindId)).map((turn) => turn.newAfter)).toEqual([true]);
-    await core.askInNote({ mindId, words: "what does the plan add" });
-    await ended(2);
-    expect(run.runs[1]?.conversation?.resume).toBe(false);
-    expect(run.runs[1]?.conversation?.sessionId).not.toBe(run.runs[0]?.conversation?.sessionId);
-  });
-
-  // protects=a request stopped after New conversation, before it reached the AI, leaves the new conversation to the next request, which resumes nothing before the line; a later request continues the new one (#3765), with the clock standing still too, as New conversation is no time; fails_when=the next request resumes the conversation from before the line
+  // protects=a fresh conversation whose first request is stopped before reaching the AI stays unbegun so the next request starts fresh with resume: false (#3765, #3731); fails_when=the next request resumes a session Claude Code never kept
   for (const still of [false, true]) {
-    it(`keeps New conversation when the request after it is stopped before it reaches the AI${still ? ", every write at one time" : ""}`, async () => {
+    it(`keeps a fresh conversation unbegun when its first request is stopped before reaching the AI${still ? ", every write at one time" : ""}`, async () => {
       if (still) vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-26T09:00:00.000Z") });
       try {
         const run = runner(async () => ({ kind: "finished", reply: "Done." }));
@@ -3919,21 +3966,23 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         const { core, mindId, ended } = await written(adapter);
         await core.askInNote({ mindId, words: "what does the plan add" });
         await ended(1);
-        await core.startNewNoteConversation(mindId);
         lookup = gate();
-        await core.askInNote({ mindId, words: "and when" });
+        const newConv = convOf(
+          await core.askInNote({ mindId, words: "and when", conversationId: null }),
+        );
         await lookup.at;
-        await core.stopInNote(mindId);
+        await core.stopInNote(newConv);
         lookup.open();
         expect(await ended(2)).toMatchObject({ state: "stopped" });
         expect(run.runs).toHaveLength(1);
         lookup = null;
-        await core.askInNote({ mindId, words: "and where" });
+        await core.askInNote({ mindId, words: "and where", conversationId: newConv });
         await ended(3);
-        await core.askInNote({ mindId, words: "and how" });
+        await core.askInNote({ mindId, words: "and how", conversationId: newConv });
         await ended(4);
         const [first, anew, next] = run.runs;
-        expect(anew?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
+        expect(anew?.conversation?.key).toBe(newConv);
+        expect(anew?.conversation?.resume).toBe(false);
         expect(anew?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
         expect(next?.conversation).toEqual({ ...anew?.conversation, resume: true });
       } finally {
@@ -3942,8 +3991,8 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     });
   }
 
-  // protects=a request stopped after New conversation once its command line runs but before Claude Code began the session leaves the new conversation to the next request, which starts it with one process and no word that the earlier one was cleared; once a session has begun, the next request continues it (#3765); fails_when=the next request resumes a session Claude Code never kept, starts a second process and says the earlier conversation was cleared
-  it("keeps New conversation when the request after it is stopped before Claude Code begins", async () => {
+  // protects=a fresh conversation whose first request is stopped once its command line runs but before Claude Code began the session stays unbegun for the next request, with no lost-conversation retry; once a session has begun, the next request continues it (#3765, #3731); fails_when=the next request resumes a session Claude Code never kept, starts a second process and says the earlier conversation was cleared
+  it("keeps a fresh conversation unbegun when its first request is stopped before Claude Code begins", async () => {
     const kept = new Set<string>();
     const run = runner(async (agent, request) => {
       const session = request.conversation;
@@ -3959,20 +4008,21 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const { core, mindId, ended } = await written(run.adapter);
     await core.askInNote({ mindId, words: "what does the plan add" });
     await ended(1);
-    await core.startNewNoteConversation(mindId);
-    await core.askInNote({ mindId, words: "and when" });
+    const newConv = convOf(
+      await core.askInNote({ mindId, words: "and when", conversationId: null }),
+    );
     await expect.poll(() => run.runs.length).toBe(2);
-    await core.stopInNote(mindId);
+    await core.stopInNote(newConv);
     expect(await ended(2)).toMatchObject({ state: "stopped" });
-    await core.askInNote({ mindId, words: "and where" });
+    await core.askInNote({ mindId, words: "and where", conversationId: newConv });
     await expect.poll(() => run.runs.length).toBe(3);
-    await core.stopInNote(mindId);
+    await core.stopInNote(newConv);
     expect(await ended(3)).toMatchObject({ state: "stopped", fresh: false });
-    await core.askInNote({ mindId, words: "and how" });
+    await core.askInNote({ mindId, words: "and how", conversationId: newConv });
     expect(await ended(4)).toMatchObject({ state: "landed", fresh: false });
     expect(run.runs).toHaveLength(4);
     const [first, , begun, next] = run.runs;
-    expect(begun?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
+    expect(begun?.conversation).toMatchObject({ key: newConv, resume: false });
     expect(begun?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
     expect(next?.conversation).toEqual({ ...begun?.conversation, resume: true });
   });
@@ -3986,11 +4036,11 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     });
     const { core, mindId, ended } = await written(run.adapter);
     asking = () => core.askInNote({ mindId, words: "and the dates?" });
-    await core.askInNote({ mindId, words: "what does the plan add" });
+    const convId = convOf(await core.askInNote({ mindId, words: "what does the plan add" }));
     await ended(2);
     expect(run.runs).toHaveLength(2);
     expect(run.runs[1]?.prompt).toContain("and the dates?");
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+    expect((await core.noteConversation(convId)).map(recordOf)).toEqual([
       ["what does the plan add", "", "landed", "Done."],
       ["and the dates?", "", "landed", "In 2027."],
     ]);
@@ -4000,13 +4050,13 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   it("leaves a request still waiting when IncarnaMind quit as never sent", async () => {
     const run = runner(untilStopped);
     const { core, mindId, dataDir } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "rewrite everything" });
+    const convId = convOf(await core.askInNote({ mindId, words: "rewrite everything" }));
     await expect.poll(() => run.runs.length).toBe(1);
-    await core.askInNote({ mindId, words: "and add a title" });
+    await core.askInNote({ mindId, words: "and add a title", conversationId: convId });
     await core.close();
     const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
     try {
-      expect((await again.noteConversation(mindId)).map((turn) => turn.outcome)).toEqual([
+      expect((await again.noteConversation(convId)).map((turn) => turn.outcome)).toEqual([
         "stopped",
         "unsent",
       ]);
@@ -4015,16 +4065,15 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     }
   });
 
-  // protects=what the AI asked goes with the conversation; fails_when=a deleted conversation keeps the commands it asked to run
+  // protects=what the AI asked goes with the conversation when deleted from History; fails_when=a deleted conversation keeps the commands it asked to run
   it("deletes what was asked with the conversation", async () => {
     const run = asking(asked("toolu_1"));
     const { core, mindId, turns, ended, dataDir } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "count the late crossings" });
+    const convId = convOf(await core.askInNote({ mindId, words: "count the late crossings" }));
     const [question] = await waitingIn(turns);
-    await core.answerInNote(mindId, question?.id ?? "", "once");
+    await core.answerInNote(convId, question?.id ?? "", "once");
     await ended();
-    await core.deleteMind(mindId);
-    await core.deletePermanently([{ kind: "mind", id: mindId }]);
+    await core.deleteNoteConversation(convId);
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       expect(db.all("SELECT value, server, answer FROM own_ai_questions")).toEqual([
@@ -4089,10 +4138,10 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
 
     // Turn on mid-conversation: initial resumed turn (EN), Send-now follow-up, and ZH turn all carry the per-turn directive with the narrow next-field trust boundary.
     await core.updateSettings({ user: { checkAssistantWrites: true } });
-    await core.askInNote({ mindId, words: "first request" });
+    const convId = convOf(await core.askInNote({ mindId, words: "first request" }));
     await waiting.at;
     const queued = idOf(await core.askInNote({ mindId, words: "请把报告总结写进新笔记" }));
-    await core.sendNowInNote(mindId, queued);
+    await core.sendNowInNote(convId, queued);
     waiting.open();
     // The fake runner didn't take the queued turn inline, so the next run carries it automatically.
     await ended(3);
@@ -6159,5 +6208,783 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       if (node.type.name === "citation") citations.push(node.attrs);
     });
     expect(citations).toEqual([expect.objectContaining({ check: "found" })]);
+  });
+});
+
+describe("conversation follows across Notes, History, and pre-upgrade migration (#3731)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=one conversation continues across multiple Notes, resumes the same session, records each turn's Note and touched Notes in History, and supports rename and permanent delete; fails_when=turns lose their Note, History misses touched Notes, or rename/delete fails
+  it("continues one conversation across three Notes, lists touched Notes, renames and deletes", async () => {
+    const run = runner(async (agent, request) => {
+      const target = mindIdOf(request);
+      if (request.prompt.includes("update berth")) {
+        await rewrite(agent, target, [[FERRY, "The ferry carried 215,000 passengers in 2025."]]);
+      }
+      return { kind: "finished", reply: `Replied for ${target}.` };
+    });
+    const { core, mindId, otherId, ended } = await written(run.adapter);
+    const folderId = (await core.listMinds()).find((m) => m.id === mindId)?.folderId ?? undefined;
+    const third = await core.createMind({ title: "Tide table", folderId });
+
+    const s1 = await core.askInNote({ mindId, words: "update berth", conversationId: null });
+    const convId = convOf(s1);
+    await ended(1);
+    await core.askInNote({ mindId: otherId, words: "check pier piles", conversationId: convId });
+    await ended(2);
+    await core.askInNote({ mindId: third.id, words: "check neap tides", conversationId: convId });
+    await ended(3);
+
+    expect(run.runs[0]?.conversation).toMatchObject({ key: convId, resume: false });
+    expect(run.runs[1]?.conversation).toEqual({ ...run.runs[0]?.conversation, resume: true });
+    expect(run.runs[2]?.conversation).toEqual({ ...run.runs[0]?.conversation, resume: true });
+
+    const turns = await core.noteConversation(convId);
+    expect(turns.map((t) => [t.mindId, t.request, t.changedCount])).toEqual([
+      [mindId, "update berth", 1],
+      [otherId, "check pier piles", 0],
+      [third.id, "check neap tides", 0],
+    ]);
+
+    const list = await core.noteConversations();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      id: convId,
+      title: null,
+      firstRequest: "update berth",
+      running: false,
+    });
+    expect(list[0]?.notes.map((n) => n.mindId)).toEqual([third.id, otherId, mindId]);
+    expect(await core.latestNoteConversation(mindId)).toBe(convId);
+    expect(await core.latestNoteConversation(otherId)).toBe(convId);
+    expect(await core.latestNoteConversation(third.id)).toBe(convId);
+
+    // Rename: blank changes nothing; non-blank sets title.
+    await core.renameNoteConversation(convId, "   ");
+    expect((await core.noteConversations())[0]?.title).toBeNull();
+    await core.renameNoteConversation(convId, "Harbour & Pier review");
+    expect((await core.noteConversations())[0]?.title).toBe("Harbour & Pier review");
+
+    // Permanent delete removes it and purges the agent's transcript.
+    await core.deleteNoteConversation(convId);
+    expect(await core.noteConversations()).toEqual([]);
+    expect(await core.latestNoteConversation(mindId)).toBeNull();
+    expect(run.purged).toEqual([convId]);
+  });
+
+  // protects=sending into a conversation that was deleted (e.g. from another window or forgotten with its Notes) starts a new conversation on that Note with the User's words instead of failing (#3731); fails_when=the request returns problem "failed" and the User's words seem lost
+  it("starts a new conversation on the same Note when sent into a deleted conversation", async () => {
+    const run = runner(async () => ({ kind: "finished", reply: "Fresh reply." }));
+    const { core, mindId, ended } = await written(run.adapter);
+
+    const first = await core.askInNote({ mindId, words: "first question", conversationId: null });
+    const deletedId = convOf(first);
+    await ended(1);
+    await core.deleteNoteConversation(deletedId);
+    expect(await core.noteConversations()).toEqual([]);
+
+    const second = await core.askInNote({
+      mindId,
+      words: "carry on with these figures",
+      conversationId: deletedId,
+    });
+    expect(second.kind).toBe("started");
+    const replacementId = convOf(second);
+    expect(replacementId).not.toBe(deletedId);
+    await ended(2);
+
+    expect(run.runs[1]?.conversation?.key).toBe(replacementId);
+    expect(run.runs[1]?.conversation?.resume).toBe(false);
+    expect(run.runs[1]?.conversation?.sessionId).not.toBe(run.runs[0]?.conversation?.sessionId);
+    const turns = await core.noteConversation(replacementId);
+    expect(turns.map((t) => [t.mindId, t.request, t.reply])).toEqual([
+      [mindId, "carry on with these figures", "Fresh reply."],
+    ]);
+    const list = await core.noteConversations();
+    expect(list.map((c) => c.id)).toEqual([replacementId]);
+    expect(list[0]?.notes.map((n) => n.mindId)).toEqual([mindId]);
+  });
+
+  // protects=while a conversation runs on Note A, an explicit mid-run follow-up from Note B (intoRunning: true) records on A and keeps the grant's front on A (edits to A apply at once, edits to B wait), whereas a request for Note B without intoRunning (such as Write notes) returns busy and never touches A (#3731); fails_when=Write notes hijacks A's run, a mid-run follow-up records B, or the grant's front moves to B
+  it("locks a running conversation to its originating Note and refuses non-follow-up calls from another Note", async () => {
+    const release = gate();
+    let otherId = "";
+    const statuses: { onA?: string; onB?: string } = {};
+    const run = runner(async (agent, request) => {
+      const sent = meanwhileOf(request);
+      release.reached();
+      await release.shut;
+      const queued = sent[0];
+      if (!queued) return { kind: "finished", reply: "No follow-up." };
+      request.progress?.({ kind: "taken", id: queued.id });
+      const aId = mindIdOf(request);
+      const onA = (await rewrite(agent, aId, [[FARES, "Fares rose by a tenth."]])) as {
+        status: string;
+      };
+      const onB = (await rewrite(agent, otherId, [[FARES, "B should wait."]])) as {
+        status: string;
+      };
+      statuses.onA = onA.status;
+      statuses.onB = onB.status;
+      return { kind: "finished", reply: "Updated A and proposed for B." };
+    });
+    const paired = await written(run.adapter);
+    const { core, mindId, ended } = paired;
+    otherId = paired.otherId;
+
+    const convId = convOf(await core.askInNote({ mindId, words: "summarise the ferry note" }));
+    await release.at;
+
+    // Write notes (no intoRunning) from another Note must be refused as busy, never joining A's run.
+    const meetingCall = await core.askInNote({
+      mindId: otherId,
+      conversationId: convId,
+      words: "Write the notes of this call.",
+    });
+    expect(meetingCall.kind).toBe("busy");
+
+    // Explicit mid-run follow-up from Note B joins A's run, recording on A and keeping front on A.
+    const followUp = await core.askInNote({
+      mindId: otherId,
+      conversationId: convId,
+      words: "also shorten the fares",
+      intoRunning: true,
+    });
+    expect(followUp).toMatchObject({ kind: "sent", conversationId: convId });
+    await core.sendNowInNote(convId, idOf(followUp));
+
+    release.open();
+    await ended(2);
+
+    expect(statuses).toEqual({ onA: "applied", onB: "waiting" });
+    const turns = await core.noteConversation(convId);
+    expect(turns.map((t) => [t.mindId, t.request, t.changedCount])).toEqual([
+      [mindId, "summarise the ferry note", 0],
+      [mindId, "also shorten the fares", 1],
+    ]);
+  });
+
+  // protects=when dropPurged stops running conversations on purged Notes and a live Note joins one of them before forget finishes waiting on the rest, re-checking eligibility inside the deletion transaction keeps that conversation, its in-memory mode and its agent transcript intact while still purging the truly purged-only one (#3731); fails_when=the joined conversation is tombstoned, purged, or loses its chosen mode
+  it("keeps a conversation joined by a live Note while dropPurged waits for running turns to stop", async () => {
+    const slowAbort = gate();
+    const runningTwo = gate();
+    let started = 0;
+    const run = runner(async (_agent, request) => {
+      if (askedIn(request) === "keep going on live note B") {
+        request.progress?.({ kind: "models", models: MODELS });
+        return { kind: "finished", reply: "Continued on B." };
+      }
+      started += 1;
+      if (started === 2) runningTwo.reached();
+      if (askedIn(request) === "slow on C") {
+        await new Promise<void>((resolve) => {
+          if (request.signal.aborted) resolve();
+          else request.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        await slowAbort.shut;
+        return { kind: "finished", reply: "" };
+      }
+      return untilStopped(_agent, request);
+    });
+    const { core, mindId, otherId, ended } = await written(run.adapter);
+    const folderId = (await core.listMinds()).find((m) => m.id === mindId)?.folderId ?? null;
+    const third = await core.createMind({
+      title: "Temporary C",
+      ...(folderId && { folderId }),
+    });
+    const convA = convOf(
+      await core.askInNote({ mindId, words: "working on A", conversationId: null }),
+    );
+    const convC = convOf(
+      await core.askInNote({ mindId: third.id, words: "slow on C", conversationId: null }),
+    );
+    await runningTwo.at;
+    await core.chooseNoteMode(mindId, convA, "auto");
+
+    // Soft-delete and permanently purge A and C together: dropPurged stops both convA and convC,
+    // convA settles immediately while convC waits on slowAbort.
+    await core.deleteMind(mindId);
+    await core.deleteMind(third.id);
+    const purging = core.deletePermanently([
+      { kind: "mind", id: mindId },
+      { kind: "mind", id: third.id },
+    ]);
+
+    // Wait until convA's aborted turn has finished and freed convA while dropPurged still awaits convC.
+    await ended(1);
+    const joined = await core.askInNote({
+      mindId: otherId,
+      conversationId: convA,
+      words: "keep going on live note B",
+    });
+    expect(joined).toMatchObject({ kind: "started", conversationId: convA });
+    await ended(2);
+
+    slowAbort.open();
+    await purging;
+
+    // convC is purged (tombstoned + transcript purged); convA survives with its turns and chosen mode!
+    await expect.poll(() => run.purged).toEqual([convC]);
+    expect((await core.noteConversations()).map((c) => c.id)).toEqual([convA]);
+    expect((await core.noteConversation(convA)).map((t) => [t.mindId, t.request])).toEqual([
+      [mindId, "working on A"],
+      [otherId, "keep going on live note B"],
+    ]);
+    expect(await core.noteModels(otherId, convA)).toMatchObject({ mode: "auto", chosen: true });
+  });
+
+  // protects=one conversation is never resumed by two Claude Code processes and one Note never runs two requests at once: an unseeded window on B whose latest conversation X is running on A gets busy, and New conversation or another conversation on A while X runs on A gets busy (ADR-0034, #3731); fails_when=a second Claude Code process starts for X or a second run starts on A
+  it("never resumes one conversation twice or starts a second run on a busy Note", async () => {
+    const hold = gate();
+    let holdActive = false;
+    const run = runner(async (agent, request) => {
+      if (!holdActive) return { kind: "finished", reply: "Seeded." };
+      hold.reached();
+      await hold.shut;
+      return untilStopped(agent, request);
+    });
+    const { core, mindId, otherId, ended } = await written(run.adapter);
+    // Conversation X touches A then B so latestNoteConversation(B) === X; second conversation Y on A.
+    const convX = convOf(await core.askInNote({ mindId, words: "first on A" }));
+    await ended(1);
+    await core.askInNote({ mindId: otherId, words: "touch B", conversationId: convX });
+    await ended(2);
+    const convY = convOf(
+      await core.askInNote({ mindId, words: "separate conv", conversationId: null }),
+    );
+    await ended(3);
+    expect(await core.latestNoteConversation(otherId)).toBe(convX);
+
+    // Now run X on A and hold it open.
+    holdActive = true;
+    await core.askInNote({ mindId, words: "working on A", conversationId: convX });
+    await hold.at;
+    expect(run.runs).toHaveLength(4);
+
+    // Unseeded second window omits conversationId on B: resolves to X (running on A) -> busy, no 2nd process!
+    expect((await core.askInNote({ mindId: otherId, words: "from second window" })).kind).toBe(
+      "busy",
+    );
+    // New conversation (null) on A while X runs on A -> busy, never silently joins X or starts a 2nd run.
+    expect(
+      (await core.askInNote({ mindId, words: "fresh while busy", conversationId: null })).kind,
+    ).toBe("busy");
+    // Another conversation Y on A while X runs on A -> busy, never two runs on A.
+    expect(
+      (await core.askInNote({ mindId, words: "switch while busy", conversationId: convY })).kind,
+    ).toBe("busy");
+    expect(run.runs).toHaveLength(4);
+
+    await core.stopInNote(convX);
+    hold.open();
+    await ended(4);
+  });
+
+  // protects=changedCount counts only immediate applied changes in turn.mindId (never waiting Proposals), and latestNoteConversation filters by pairingId (#3731); fails_when=waiting Proposals count as Changed or latestNoteConversation returns another pairing's conversation
+  it("never counts waiting Proposals as changed paragraphs and filters latestNoteConversation by pairing", async () => {
+    let otherId = "";
+    const run = runner(async (agent, request) => {
+      if (request.prompt.includes("propose on other")) {
+        await rewrite(agent, otherId, [[FARES, "Waiting proposal on other."]]);
+      }
+      return { kind: "finished", reply: "Proposed." };
+    });
+    const paired = await written(run.adapter);
+    const { core, mindId, claude, ended } = paired;
+    otherId = paired.otherId;
+    const folderId = (await core.listMinds()).find((m) => m.id === mindId)?.folderId ?? "";
+    const secondPairing = await core.connectAgent({
+      name: "Second Claude",
+      client: "claude-code",
+      folderIds: folderId ? [folderId] : [],
+      propose: true,
+    });
+    await core.allowDataFlow("hosted-agents", `agent:${secondPairing.pairing.id}`);
+
+    const conv1 = convOf(
+      await core.askInNote({ mindId, words: "propose on other", pairingId: claude.pairing.id }),
+    );
+    await ended(1);
+    const conv2 = convOf(
+      await core.askInNote({
+        mindId,
+        words: "on second pairing",
+        pairingId: secondPairing.pairing.id,
+        conversationId: null,
+      }),
+    );
+    await ended(2);
+
+    // Waiting Proposals on otherId never count as "Changed N paragraphs" on turn.mindId.
+    expect((await core.noteConversation(conv1))[0]?.changedCount).toBe(0);
+    // latestNoteConversation scopes to the requested pairingId.
+    expect(await core.latestNoteConversation(mindId, claude.pairing.id)).toBe(conv1);
+    expect(await core.latestNoteConversation(mindId, secondPairing.pairing.id)).toBe(conv2);
+  });
+
+  // protects=a database written by main's pre-#3731 schema (migration 167, one conversation per Note) upgrades cleanly with zero data loss: deleted turns stay scrubbed, untitled Notes use auto_title, #3765 new_after/anew boundaries split into separate conversations, every pre-upgrade conversation appears in History with its Note, latestNoteConversation finds it, and continuing across another Note resumes the session (#3731); fails_when=deleted turns regain Note titles, new_after turns stay merged, untitled Notes get empty titles, or continuing across another Note fails
+  it("upgrades a pre-#3731 per-Note database with zero data loss and splits new_after conversations", async () => {
+    const { migrations, migrate } = await import("../../src/core/storage/migrations");
+    const { ensureWorkspace } = await import("../../src/core/workspace");
+    const { AGENT_FLOW_SENDS, HOSTED_FLOW_SENDS } = await import("../../src/core/agents");
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    const pre3731 = migrations.filter((m) => m.version <= 167);
+    migrate(db, pre3731);
+    const t0 = "2026-11-24T09:00:00.000Z";
+    const t1 = "2026-11-25T09:00:00.000Z";
+    const t2 = "2026-11-26T10:00:00.000Z";
+    const t3 = "2026-11-26T11:00:00.000Z";
+    ensureWorkspace(db, () => t0);
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO library_groups (id, name, description, created_at, updated_at)
+         VALUES ('f-legacy', 'Kestrel Bay', '', ?, ?)`,
+        [t0, t0],
+      );
+      db.run(
+        `INSERT INTO agent_pairings (id, name, folder_ids, client, propose, created_at, updated_at)
+         VALUES ('p-legacy', 'Claude Code', '["f-legacy"]', 'claude-code', 1, ?, ?)`,
+        [t0, t0],
+      );
+      db.run(
+        `INSERT INTO data_flow_consents
+           (id, flow, service_id, service_name, decision, data_kinds, chosen, created_at, updated_at)
+         VALUES
+           ('c-ag', 'agents', 'agent:p-legacy', 'Claude Code', 'accepted', ?, 1, ?, ?),
+           ('c-ho', 'hosted-agents', 'agent:p-legacy', 'Claude Code', 'accepted', ?, 1, ?, ?)`,
+        [JSON.stringify(AGENT_FLOW_SENDS), t0, t0, JSON.stringify(HOSTED_FLOW_SENDS), t0, t0],
+      );
+      db.run(
+        `INSERT INTO device_settings (id, key, value, created_at, updated_at)
+         VALUES ('ds-ag', 'agentsEnabled', 'true', ?, ?)`,
+        [t0, t0],
+      );
+      db.run(
+        `INSERT INTO minds (id, title, auto_title, folder_id, created_at, updated_at)
+         VALUES
+           ('m-pier', 'Pier inspection', '', 'f-legacy', ?, ?),
+           ('m-harbour', 'Harbour notes', '', 'f-legacy', ?, ?),
+           ('m-auto', '', 'Auto ferry notes', 'f-legacy', ?, ?),
+           ('m-anew', 'Anew note', '', 'f-legacy', ?, ?)`,
+        [t0, t2, t0, t2, t0, t2, t0, t2],
+      );
+      db.run(
+        `INSERT INTO own_ai_conversations
+           (id, mind_id, pairing_id, session_id, anew, created_at, updated_at, deleted_at)
+         VALUES
+           ('conv-pier', 'm-pier', 'p-legacy', 'sess-pier', 0, ?, ?, NULL),
+           ('conv-auto', 'm-auto', 'p-legacy', 'sess-auto-new', 0, ?, ?, NULL),
+           ('conv-anew', 'm-anew', 'p-legacy', 'sess-anew', 1, ?, ?, NULL),
+           ('conv-deleted', 'm-harbour', 'p-legacy', 'sess-del', 0, ?, ?, ?)`,
+        [t2, t2, t0, t3, t1, t1, t0, t0, t1],
+      );
+      db.run(
+        `INSERT INTO own_ai_turns
+           (id, conversation_id, request, selection, reply, outcome, new_after, created_at, updated_at, deleted_at)
+         VALUES
+           ('t-pier', 'conv-pier', 'Which piles need replacing?', '', 'Piles P7, P8 and P15.', 'landed', 0, ?, ?, NULL),
+           ('t-auto-old', 'conv-auto', 'Old question', '', 'Old reply', 'landed', 1, ?, ?, NULL),
+           ('t-auto-scrubbed', 'conv-auto', '', '', '', 'unsent', 0, ?, ?, ?),
+           ('t-auto-new', 'conv-auto', 'Fresh question', '', 'Fresh reply', 'landed', 0, ?, ?, NULL),
+           ('t-anew-1', 'conv-anew', 'Before restart', '', 'Earlier reply', 'landed', 1, ?, ?, NULL),
+           ('t-del-conv', 'conv-deleted', '', '', '', 'landed', 0, ?, ?, ?)`,
+        [t2, t2, t0, t0, t1, t1, t1, t3, t3, t1, t1, t0, t0, t1],
+      );
+    });
+    db.close();
+
+    // Open through createCore (runs migration 166 automatically).
+    const run = runner(async () => ({ kind: "finished", reply: "Continued on harbour." }));
+    const core = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    const done = (() => {
+      const ends: NoteTurnEvent[] = [];
+      core.on("agents.noteTurn", (event) => {
+        if (event.state !== "working") ends.push(event);
+      });
+      return () =>
+        vi.waitFor(() => {
+          expect(ends.length).toBeGreaterThanOrEqual(1);
+          return ends[0];
+        });
+    })();
+    try {
+      // Soft-deleted turns must stay scrubbed and never regain Note titles.
+      const checkDb = openDatabase(join(dataDir, DATABASE_FILE));
+      try {
+        expect(
+          checkDb.all(
+            "SELECT id, mind_id, mind_title FROM own_ai_turns WHERE deleted_at IS NOT NULL ORDER BY id",
+          ),
+        ).toEqual([
+          { id: "t-auto-scrubbed", mind_id: "", mind_title: "" },
+          { id: "t-del-conv", mind_id: "", mind_title: "" },
+        ]);
+        // Every split segment gets a fresh id, fresh session_id, and anew=1; the shared legacy row
+        // is tombstoned and queued for one-time purge (`purge_pending = 1`, cleared once purged).
+        const autoConvs = checkDb.all<{
+          id: string;
+          session_id: string;
+          anew: number;
+          created_at: string;
+          updated_at: string;
+        }>(
+          "SELECT id, session_id, anew, created_at, updated_at FROM own_ai_conversations WHERE mind_id = 'm-auto' AND deleted_at IS NULL ORDER BY created_at ASC",
+        );
+        expect(autoConvs).toHaveLength(2);
+        expect(autoConvs[0]?.id).not.toBe("conv-auto");
+        expect(autoConvs[0]?.session_id).not.toBe("sess-auto-new");
+        expect(autoConvs[0]?.anew).toBe(1);
+        expect(autoConvs[0]?.created_at).toBe(t0);
+        expect(autoConvs[1]?.id).not.toBe("conv-auto");
+        expect(autoConvs[1]?.id).not.toBe(autoConvs[0]?.id);
+        expect(autoConvs[1]?.session_id).not.toBe("sess-auto-new");
+        expect(autoConvs[1]?.anew).toBe(1);
+        expect(autoConvs[1]?.created_at).toBe(t3);
+        expect(autoConvs[1]?.updated_at).toBe(t3);
+        const tombstonedAuto = checkDb.get<{ deleted_at: string | null }>(
+          "SELECT deleted_at FROM own_ai_conversations WHERE id = 'conv-auto'",
+        );
+        expect(tombstonedAuto?.deleted_at).not.toBeNull();
+        // conv-anew had only a trailing new_after=1 turn: kept resumable on sess-anew (anew=0).
+        expect(
+          checkDb.get<{ anew: number }>(
+            "SELECT anew FROM own_ai_conversations WHERE id = 'conv-anew'",
+          ),
+        ).toEqual({ anew: 0 });
+      } finally {
+        checkDb.close();
+      }
+      // The shared legacy folder of conv-auto is purged once at start-up; unsplit conv-pier is untouched.
+      await expect.poll(() => run.purged).toEqual(["conv-auto"]);
+
+      // History lists all 4 live conversations (split conv-auto gives 2), untitled uses auto_title,
+      // and soft-deleted conv-deleted is absent.
+      const list = await core.noteConversations();
+      expect(list.map((c) => [c.firstRequest, c.notes.map((n) => [n.mindId, n.title])])).toEqual([
+        ["Fresh question", [["m-auto", "Auto ferry notes"]]],
+        ["Which piles need replacing?", [["m-pier", "Pier inspection"]]],
+        ["Before restart", [["m-anew", "Anew note"]]],
+        ["Old question", [["m-auto", "Auto ferry notes"]]],
+      ]);
+      const newestAuto = list.find((c) => c.firstRequest === "Fresh question");
+      expect(await core.latestNoteConversation("m-pier", "p-legacy")).toBe("conv-pier");
+      expect(await core.latestNoteConversation("m-auto", "p-legacy")).toBe(newestAuto?.id);
+      const pierTurns = await core.noteConversation("conv-pier");
+      expect(pierTurns).toHaveLength(1);
+      expect(pierTurns[0]).toMatchObject({
+        id: "t-pier",
+        mindId: "m-pier",
+        mindTitle: "Pier inspection",
+        mindDeleted: false,
+        request: "Which piles need replacing?",
+        reply: "Piles P7, P8 and P15.",
+      });
+
+      // Continuing the migrated conversation across another Note resumes its original session_id.
+      const continued = await core.askInNote({
+        mindId: "m-harbour",
+        conversationId: "conv-pier",
+        words: "Compare with harbour",
+      });
+      expect(continued).toMatchObject({ kind: "started", conversationId: "conv-pier" });
+      await done();
+      expect(run.runs[0]?.conversation).toEqual({
+        key: "conv-pier",
+        sessionId: "sess-pier",
+        resume: true,
+      });
+      const updated = (await core.noteConversations()).find((c) => c.id === "conv-pier");
+      expect(updated?.notes.map((n) => n.mindId)).toEqual(["m-harbour", "m-pier"]);
+    } finally {
+      await core.close();
+    }
+  });
+
+  // protects=deleting a conversation while a run is live and a held message is waiting stops the live run without handing on to the held message and leaves no run active after runner.purge, while ordinary Stop still advances a held message (#3731); fails_when=a held message starts during deletion or a run remains live after purge
+  it("never starts a held message when a running conversation is deleted, while ordinary Stop still advances held", async () => {
+    const first = gate();
+    const stoppedRun = gate();
+    let activeRuns = 0;
+    let activeAtPurge = -1;
+    const run = runner(async (_agent, request) => {
+      activeRuns += 1;
+      try {
+        const words = askedIn(request);
+        if (words === "running when deleted") {
+          first.reached();
+          return await untilStopped(_agent, request);
+        }
+        if (words === "running when stopped") {
+          stoppedRun.reached();
+          return await untilStopped(_agent, request);
+        }
+        return { kind: "finished", reply: `Done: ${words}` };
+      } finally {
+        activeRuns -= 1;
+      }
+    });
+    const basePurge = run.adapter.purge.bind(run.adapter);
+    run.adapter.purge = async (key) => {
+      activeAtPurge = activeRuns;
+      return basePurge(key);
+    };
+    const { core, mindId, ended } = await written(run.adapter);
+
+    // 1. Deleting a running conversation with a held message waiting never starts the held message.
+    const convDel = convOf(
+      await core.askInNote({ mindId, words: "running when deleted", conversationId: null }),
+    );
+    await first.at;
+    const queued = await core.askInNote({
+      mindId,
+      conversationId: convDel,
+      words: "held while deleting",
+      intoRunning: true,
+    });
+    expect(queued).toMatchObject({ kind: "sent", conversationId: convDel });
+
+    await core.deleteNoteConversation(convDel);
+    await expect.poll(() => run.purged).toEqual([convDel]);
+    expect(activeAtPurge).toBe(0);
+    expect(activeRuns).toBe(0);
+    // Only the initial run ever started; the held message never triggered a replacement run.
+    expect(run.runs.map((each) => askedIn(each))).toEqual(["running when deleted"]);
+    expect(await core.noteConversations()).toEqual([]);
+
+    // 2. Ordinary Stop still advances a held message to its own run.
+    const convStop = convOf(
+      await core.askInNote({ mindId, words: "running when stopped", conversationId: null }),
+    );
+    await stoppedRun.at;
+    const heldAfterStop = await core.askInNote({
+      mindId,
+      conversationId: convStop,
+      words: "held after ordinary stop",
+      intoRunning: true,
+    });
+    expect(heldAfterStop).toMatchObject({ kind: "sent", conversationId: convStop });
+    await core.stopInNote(convStop);
+    await ended(3);
+    expect(run.runs.map((each) => askedIn(each))).toEqual([
+      "running when deleted",
+      "running when stopped",
+      "held after ordinary stop",
+    ]);
+  });
+
+  // protects=migration 170 gives every split legacy segment a new id with anew=1, purges the shared legacy folder once at start-up (retrying on failure and never repeating once done), keeps unsplit legacy conversations on their original id and session, and isolates per-folder deletion on disk in both deletion orders (#3731); fails_when=the shared legacy folder stays on disk, the one-time purge repeats or skips retries, an unsplit conversation loses its id, or deleting one split entry removes the other's folder
+  it("purges the shared legacy folder once on split, retries on failure, and isolates split deletion on disk in both orders", async () => {
+    const { existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
+    const { migrations, migrate } = await import("../../src/core/storage/migrations");
+    const { ensureWorkspace } = await import("../../src/core/workspace");
+    const { AGENT_FLOW_SENDS, HOSTED_FLOW_SENDS } = await import("../../src/core/agents");
+
+    const seedLegacySplit = async () => {
+      const dataDir = await createTempDataFolder();
+      const convDir = join(dataDir, "own-ai-folders");
+      mkdirSync(join(convDir, "conv-legacy"), { recursive: true });
+      mkdirSync(join(convDir, "conv-unsplit"), { recursive: true });
+      writeFileSync(join(convDir, "conv-legacy", "legacy.jsonl"), "shared-legacy-turns");
+      writeFileSync(join(convDir, "conv-unsplit", "keep.jsonl"), "unsplit-turns");
+
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      migrate(
+        db,
+        migrations.filter((m) => m.version <= 169),
+      );
+      const t0 = "2026-11-24T09:00:00.000Z";
+      const t1 = "2026-11-25T09:00:00.000Z";
+      ensureWorkspace(db, () => t0);
+      db.transaction(() => {
+        db.run(
+          `INSERT INTO library_groups (id, name, description, created_at, updated_at)
+           VALUES ('f-split', 'Kestrel Bay', '', ?, ?)`,
+          [t0, t0],
+        );
+        db.run(
+          `INSERT INTO agent_pairings (id, name, folder_ids, client, propose, created_at, updated_at)
+           VALUES ('p-split', 'Claude Code', '["f-split"]', 'claude-code', 1, ?, ?)`,
+          [t0, t0],
+        );
+        db.run(
+          `INSERT INTO data_flow_consents
+             (id, flow, service_id, service_name, decision, data_kinds, chosen, created_at, updated_at)
+           VALUES
+             ('c-ag', 'agents', 'agent:p-split', 'Claude Code', 'accepted', ?, 1, ?, ?),
+             ('c-ho', 'hosted-agents', 'agent:p-split', 'Claude Code', 'accepted', ?, 1, ?, ?)`,
+          [JSON.stringify(AGENT_FLOW_SENDS), t0, t0, JSON.stringify(HOSTED_FLOW_SENDS), t0, t0],
+        );
+        db.run(
+          `INSERT INTO device_settings (id, key, value, created_at, updated_at)
+           VALUES ('ds-ag', 'agentsEnabled', 'true', ?, ?)`,
+          [t0, t0],
+        );
+        db.run(
+          `INSERT INTO minds (id, title, auto_title, folder_id, created_at, updated_at)
+           VALUES
+             ('m-split', 'Split note', '', 'f-split', ?, ?),
+             ('m-unsplit', 'Unsplit note', '', 'f-split', ?, ?)`,
+          [t0, t1, t0, t1],
+        );
+        db.run(
+          `INSERT INTO own_ai_conversations
+             (id, mind_id, pairing_id, session_id, anew, created_at, updated_at, deleted_at)
+           VALUES
+             ('conv-legacy', 'm-split', 'p-split', 'sess-newest', 0, ?, ?, NULL),
+             ('conv-unsplit', 'm-unsplit', 'p-split', 'sess-unsplit', 0, ?, ?, NULL)`,
+          [t0, t1, t0, t1],
+        );
+        db.run(
+          `INSERT INTO own_ai_turns
+             (id, conversation_id, request, selection, reply, outcome, new_after, created_at, updated_at, deleted_at)
+           VALUES
+             ('t-old', 'conv-legacy', 'Older segment turn', '', 'Older reply', 'landed', 1, ?, ?, NULL),
+             ('t-new', 'conv-legacy', 'Newest segment turn', '', 'Newest reply', 'landed', 0, ?, ?, NULL),
+             ('t-keep', 'conv-unsplit', 'Unsplit turn', '', 'Unsplit reply', 'landed', 0, ?, ?, NULL)`,
+          [t0, t0, t1, t1, t0, t0],
+        );
+      });
+      db.close();
+      return { dataDir, convDir };
+    };
+
+    const diskRunner = (convDir: string, opts: { failPurge?: boolean } = {}) => {
+      const run = runner(async (_agent, request) => {
+        const key = request.conversation?.key;
+        if (key) {
+          mkdirSync(join(convDir, key), { recursive: true });
+          writeFileSync(join(convDir, key, "transcript.jsonl"), `${key}:${askedIn(request)}`);
+        }
+        return { kind: "finished", reply: `Reply: ${askedIn(request)}` };
+      });
+      run.adapter.purge = async (key) => {
+        run.purged.push(key);
+        if (opts.failPurge) return false;
+        rmSync(join(convDir, key), { recursive: true, force: true });
+        return true;
+      };
+      return run;
+    };
+
+    // 1. One-time purge retries after failure, removes legacy folder once, never repeats, and unsplit keeps id & resumes.
+    {
+      const { dataDir, convDir } = await seedLegacySplit();
+      // Start 1: purge fails -> purge_pending stays 1, folder remains on disk.
+      const rFail = diskRunner(convDir, { failPurge: true });
+      const core1 = startCore(dataDir, {
+        ownAi: rFail.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      try {
+        await expect.poll(() => rFail.purged).toEqual(["conv-legacy"]);
+        expect(existsSync(join(convDir, "conv-legacy"))).toBe(true);
+      } finally {
+        await core1.close();
+      }
+      // Start 2: purge retries and succeeds -> legacy folder gone, unsplit untouched and resumes.
+      const rOk = diskRunner(convDir);
+      const core2 = startCore(dataDir, {
+        ownAi: rOk.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      const ends: NoteTurnEvent[] = [];
+      core2.on("agents.noteTurn", (e) => {
+        if (e.state !== "working") ends.push(e);
+      });
+      try {
+        await expect.poll(() => rOk.purged).toEqual(["conv-legacy"]);
+        await expect.poll(() => existsSync(join(convDir, "conv-legacy"))).toBe(false);
+        expect(existsSync(join(convDir, "conv-unsplit", "keep.jsonl"))).toBe(true);
+
+        await core2.askInNote({
+          mindId: "m-unsplit",
+          conversationId: "conv-unsplit",
+          words: "Continue unsplit",
+        });
+        await vi.waitFor(() => expect(ends.length).toBe(1));
+        expect(rOk.runs[0]?.conversation).toEqual({
+          key: "conv-unsplit",
+          sessionId: "sess-unsplit",
+          resume: true,
+        });
+      } finally {
+        await core2.close();
+      }
+      // Start 3: purge_pending is now 0 -> startup never purges conv-legacy again.
+      const rAgain = diskRunner(convDir);
+      const core3 = startCore(dataDir, {
+        ownAi: rAgain.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      try {
+        await core3.noteConversations();
+        expect(rAgain.purged).toEqual([]);
+      } finally {
+        await core3.close();
+      }
+    }
+
+    // 2. Both deletion orders on disk: older-then-newer and newer-then-older.
+    for (const order of ["older-first", "newer-first"] as const) {
+      const { dataDir, convDir } = await seedLegacySplit();
+      const run = diskRunner(convDir);
+      const core = startCore(dataDir, {
+        ownAi: run.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      const ends: NoteTurnEvent[] = [];
+      core.on("agents.noteTurn", (e) => {
+        if (e.state !== "working") ends.push(e);
+      });
+      try {
+        await expect.poll(() => run.purged).toEqual(["conv-legacy"]);
+        expect(existsSync(join(convDir, "conv-legacy"))).toBe(false);
+        const list = await core.noteConversations();
+        const olderId = list.find((c) => c.firstRequest === "Older segment turn")?.id ?? "";
+        const newerId = list.find((c) => c.firstRequest === "Newest segment turn")?.id ?? "";
+        expect(olderId).not.toBe("");
+        expect(newerId).not.toBe("");
+        expect(olderId).not.toBe("conv-legacy");
+        expect(newerId).not.toBe("conv-legacy");
+        expect(olderId).not.toBe(newerId);
+
+        // Give each split segment its own fresh transcript folder on disk (both start with resume: false).
+        await core.askInNote({ mindId: "m-split", conversationId: olderId, words: "Ask older" });
+        await vi.waitFor(() => expect(ends.length).toBe(1));
+        await core.askInNote({ mindId: "m-split", conversationId: newerId, words: "Ask newer" });
+        await vi.waitFor(() => expect(ends.length).toBe(2));
+        expect(run.runs[0]?.conversation?.resume).toBe(false);
+        expect(run.runs[1]?.conversation?.resume).toBe(false);
+        expect(existsSync(join(convDir, olderId, "transcript.jsonl"))).toBe(true);
+        expect(existsSync(join(convDir, newerId, "transcript.jsonl"))).toBe(true);
+
+        const [firstDel, secondDel] =
+          order === "older-first" ? [olderId, newerId] : [newerId, olderId];
+        await core.deleteNoteConversation(firstDel);
+        expect(run.purged).toEqual(["conv-legacy", firstDel]);
+        expect(existsSync(join(convDir, firstDel))).toBe(false);
+        expect(existsSync(join(convDir, secondDel, "transcript.jsonl"))).toBe(true);
+
+        // The surviving segment still resumes cleanly in its own folder.
+        await core.askInNote({
+          mindId: "m-split",
+          conversationId: secondDel,
+          words: "Follow up surviving",
+        });
+        await vi.waitFor(() => expect(ends.length).toBe(3));
+        expect(run.runs[2]?.conversation?.key).toBe(secondDel);
+        expect(run.runs[2]?.conversation?.resume).toBe(true);
+
+        await core.deleteNoteConversation(secondDel);
+        expect(run.purged).toEqual(["conv-legacy", firstDel, secondDel]);
+        expect(existsSync(join(convDir, secondDel))).toBe(false);
+        expect(existsSync(join(convDir, "conv-unsplit", "keep.jsonl"))).toBe(true);
+      } finally {
+        await core.close();
+      }
+    }
   });
 });

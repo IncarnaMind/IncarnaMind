@@ -48,6 +48,7 @@ const RED_RULES = [
 const RED_CODE = ["src/components/ui.ts"];
 
 const RED_BUTTON_DIALOGS = [
+  "src/components/DeleteNoteConversationDialog.tsx",
   "src/components/DeletePermanentlyDialog.tsx",
   "src/components/UnlinkFolderDialog.tsx",
 ];

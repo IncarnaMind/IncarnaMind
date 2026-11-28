@@ -3901,9 +3901,9 @@ export const en = {
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
   "consent.data.note-requests":
-    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
+    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Claude Code keeps each conversation on this computer until you delete it from History, delete its only note for good, disconnect it or take this back (a conversation shared with another note stays), and deletes one left unused for 30 days",
   "consent.data.note-requests.codex":
-    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Codex keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back",
+    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Codex keeps each conversation on this computer until you delete it from History, delete its only note for good, disconnect it or take this back (a conversation shared with another note stays)",
   "consent.data.own-ai-context.codex":
     "In a note’s conversation, what Codex adds by its own settings: your AGENTS.md in its own folder, your skills, and what your own servers, apps, commands, files and web pages give it, as its settings allow. Its memories are off here",
   "consent.data.own-ai-context":
@@ -9443,6 +9443,24 @@ export const en = {
   "noteColumn.edit.cancel": "Cancel",
   "noteColumn.edit.save": "Save",
   "noteColumn.citation": "Citation {number}",
+  // Conversation follows the User across Notes (#3731): target chip, History list, delete dialog.
+  "noteAsk.workingIn": "Working in “{title}”",
+  "noteAsk.workingIn.open": "Open “{title}”",
+  "noteColumn.history": "History",
+  "noteColumn.historyClose": "Close history",
+  "noteColumn.historyEmpty": "No conversations yet.",
+  "noteColumn.historyOther": "Other conversations",
+  "noteColumn.historyMore": "More options",
+  "noteColumn.rename": "Rename",
+  "noteColumn.delete": "Delete…",
+  "noteColumn.delete.title": "Delete “{name}” permanently?",
+  "noteColumn.delete.body":
+    "Its requests and replies go from IncarnaMind and from {agent}. This can’t be undone.",
+  "noteColumn.changed.one": "Changed 1 paragraph",
+  "noteColumn.changed.other": "Changed {count} paragraphs",
+  "noteColumn.historyCommand": "Conversation history",
+  "noteColumn.newCommand": "New conversation",
+  "noteColumn.deleteCommand": "Delete conversation",
   // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
   // steps with them (#3653).
   "ownAsk.title.command": "Run a command",
