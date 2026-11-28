@@ -220,8 +220,17 @@ const citationAttrs = (window: Page) =>
     return found;
   });
 
+/** The check's card stays open after a check, over the marks beside it: Esc closes it, as the User does. */
+async function closeCheckCard(window: Page) {
+  const card = window.getByTestId("check-card");
+  if (!(await card.isVisible())) return;
+  await window.keyboard.press("Escape");
+  await expect(card).toBeHidden();
+}
+
 async function openCard(window: Page, mark: Locator) {
   await markShownFor(window, mark);
+  await closeCheckCard(window);
   await motionSettled(window);
   await pointAndClick(window, mark);
   const card = window.getByTestId("claim-card");
