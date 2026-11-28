@@ -1,14 +1,23 @@
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
+import { TranslatableError } from "../../src/core/errors";
 
 /**
  * The window's changes to a Mind are sent as they are made; an ask that must
  * see them, such as a column move that copies each cell, waits for them to
  * reach the core first (flushMindUpdates).
  */
+interface PendingSave {
+  mindId: string;
+  update: Uint8Array;
+  resolve(): void;
+  reject(error: unknown): void;
+}
+
 const bridge = vi.hoisted(() => ({
   applied: [] as Uint8Array[],
   release: [] as (() => void)[],
+  pending: [] as PendingSave[],
   listeners: [] as ((event: { mindId: string; update: Uint8Array }) => void)[],
   watched: [] as string[],
   unwatched: [] as string[],
@@ -24,8 +33,11 @@ vi.mock("../../src/renderer/src/core", () => ({
     },
     // A Yjs update of an empty document: two zero bytes.
     openMind: async () => ({ state: new Uint8Array([0, 0]), access: "edit" }),
-    applyMindUpdate: async (_mindId: string, update: Uint8Array) => {
-      await new Promise<void>((resolve) => bridge.release.push(resolve));
+    applyMindUpdate: async (mindId: string, update: Uint8Array) => {
+      await new Promise<void>((resolve, reject) => {
+        bridge.release.push(resolve);
+        bridge.pending.push({ mindId, update, resolve, reject });
+      });
       bridge.applied.push(update);
     },
     closeMind: async () => undefined,
@@ -82,5 +94,85 @@ describe("A window's changes to a Mind", () => {
     second.close();
     expect(bridge.unwatched).toEqual(["mind-2"]);
     expect(bridge.watched).toEqual(["mind-2"]);
+  });
+
+  // protects=a failed missedChange retry resolves the original entry false so flushMindUpdates never reports true while a second save on the same Note is pending (#3839); fails_when=the retry finalizer drops its entry while the original resolves true
+  test("flushMindUpdates returns false when a missedChange retry fails while another save is pending", async () => {
+    bridge.pending.length = 0;
+    const failures: unknown[] = [];
+    const copy = await new Promise<OpenedCopy>((resolve) => {
+      const close = openMindCopy("mind-retry-fail", resolve, (error) => failures.push(error));
+      onTestFinished(close);
+    });
+    const doc = copy.doc;
+    if (!doc) throw new Error("The Mind didn't open.");
+    const text = new Y.XmlText("Start");
+    doc.transact(() => {
+      const paragraph = new Y.XmlElement("paragraph");
+      paragraph.insert(0, [text]);
+      doc.getXmlFragment("content").push([paragraph]);
+    });
+    doc.transact(() => {
+      text.insert(text.length, " more");
+    });
+
+    const [firstSave, secondSave] = bridge.pending;
+    if (!firstSave || !secondSave) throw new Error("Expected two pending saves.");
+
+    const flushed = flushMindUpdates("mind-retry-fail");
+    firstSave.reject(new TranslatableError({ key: "error.mind.missedChange" }));
+    await vi.waitFor(() => expect(bridge.pending).toHaveLength(3));
+    const retrySave = bridge.pending[2];
+    if (!retrySave) throw new Error("Expected missedChange retry save.");
+
+    const retryError = new Error("Disk full on retry");
+    retrySave.reject(retryError);
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+
+    secondSave.resolve();
+    expect(await flushed).toBe(false);
+    expect(failures).toEqual([retryError]);
+  });
+
+  // protects=a successful missedChange retry keeps flushMindUpdates waiting until the retry completes and resolves true while a second save on the same Note is pending (#3839); fails_when=flushMindUpdates returns early or reports false on recovered retry
+  test("flushMindUpdates waits for a successful missedChange retry alongside another save and returns true", async () => {
+    bridge.pending.length = 0;
+    const failures: unknown[] = [];
+    const copy = await new Promise<OpenedCopy>((resolve) => {
+      const close = openMindCopy("mind-retry-ok", resolve, (error) => failures.push(error));
+      onTestFinished(close);
+    });
+    const doc = copy.doc;
+    if (!doc) throw new Error("The Mind didn't open.");
+    const text = new Y.XmlText("Start");
+    doc.transact(() => {
+      const paragraph = new Y.XmlElement("paragraph");
+      paragraph.insert(0, [text]);
+      doc.getXmlFragment("content").push([paragraph]);
+    });
+    doc.transact(() => {
+      text.insert(text.length, " more");
+    });
+
+    const [firstSave, secondSave] = bridge.pending;
+    if (!firstSave || !secondSave) throw new Error("Expected two pending saves.");
+
+    let settled = false;
+    const flushed = flushMindUpdates("mind-retry-ok").then((ok) => {
+      settled = true;
+      return ok;
+    });
+    firstSave.reject(new TranslatableError({ key: "error.mind.missedChange" }));
+    await vi.waitFor(() => expect(bridge.pending).toHaveLength(3));
+    const retrySave = bridge.pending[2];
+    if (!retrySave) throw new Error("Expected missedChange retry save.");
+
+    secondSave.resolve();
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    expect(settled).toBe(false);
+
+    retrySave.resolve();
+    expect(await flushed).toBe(true);
+    expect(failures).toEqual([]);
   });
 });

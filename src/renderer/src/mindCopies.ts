@@ -142,16 +142,13 @@ export function openMindCopy(
     applyOne(update, cause);
   });
   // A change that built on one the core never got goes again inside the whole copy (#1119).
-  const store = (update: Uint8Array, again: boolean) => {
+  const store = (update: Uint8Array, again: boolean): Promise<boolean> => {
     const entry: SentUpdate = {
       promise: core.applyMindUpdate(mindId, update).then(
         () => true,
         (error: unknown) => {
           const missed = describeError(error).wording?.key === "error.mind.missedChange";
-          if (missed && again && active) {
-            store(Y.encodeStateAsUpdate(local), false);
-            return true;
-          }
+          if (missed && again && active) return store(Y.encodeStateAsUpdate(local), false);
           failed(error);
           return false;
         },
@@ -164,9 +161,10 @@ export function openMindCopy(
       waiting.delete(entry);
       if (waiting.size === 0 && sent.get(mindId) === waiting) sent.delete(mindId);
     });
+    return entry.promise;
   };
   const send = (update: Uint8Array, origin: unknown) => {
-    if (origin !== FROM_CORE && origin !== EDIT_FROM_CORE && editable) store(update, true);
+    if (origin !== FROM_CORE && origin !== EDIT_FROM_CORE && editable) void store(update, true);
   };
   local.on("update", send);
   core.openMind(mindId).then(

@@ -334,6 +334,7 @@ export function writeAccepted(
   aside: unknown,
   tracked: unknown,
   schema: Schema,
+  recorded: unknown = aside,
 ): ResolvedProposal[] {
   const picked = (ref: ProposalRef) => requests.has(ref.request);
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -381,7 +382,7 @@ export function writeAccepted(
             accepted: (typeof before === "number" ? before : 0) + count,
           });
         }
-      }, aside);
+      }, recorded);
     }
     return resolved;
   } finally {

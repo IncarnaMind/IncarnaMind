@@ -21,7 +21,9 @@ import {
   type EditWithAiResult,
   type LeftOutPart,
   MIND_CONTENT_FIELD,
+  MIND_PROPOSAL_REQUESTS_FIELD,
   MIND_REVISIONS_FIELD,
+  MIND_SETTINGS_FIELD,
   MIND_TEXT_ORIGINS_FIELD,
   type ProposalRef,
 } from "../../core/api";
@@ -63,6 +65,7 @@ import {
 } from "./editor/arrivedChanges";
 import {
   asOneStep,
+  type EditorUndoOffer,
   type FollowedSteps,
   followSteps,
   followStepsInHistory,
@@ -568,6 +571,15 @@ function apply(edit: KeptApplying, editor: Editor, request: string, parts?: numb
 // Setting the assistant's changes aside before writing them as the editor's own: no Undo tracks it.
 class SettingAside {}
 
+// Metadata recorded beside an accepted edit: not tracked by the editor's Undo, but undone on save failure.
+class RecordingAccept {}
+
+/** Handle for reverting an immediately applied edit if persisting it to the core fails. */
+export interface AppliedRollback {
+  undo(): void;
+  finish(): void;
+}
+
 /** The assistant's changes, applied: their steps of Undo, and the changes that were taken. */
 export interface AppliedAsked {
   followed: FollowedSteps;
@@ -871,12 +883,14 @@ export function applyArrived(
     application,
     retainHeadless = false,
     turn,
+    onRollback,
   }: {
     holds?: boolean;
     checkpoint?: boolean;
     application?: AskedChangeApplication;
     retainHeadless?: boolean;
     turn?: string;
+    onRollback?: (rollback: AppliedRollback) => void;
   } = {},
 ): "applied" | "held" | null {
   const first = proposalsIn(editor.state.doc).find((each) => requests.has(each.request));
@@ -913,77 +927,146 @@ export function applyArrived(
   const edit = beginEdit(editor, mindId, `assistant:${request}`);
   if (!edit) return null;
   let planned: ReturnType<typeof planChanges>;
-  if (application) {
-    planned = [];
-    const status = coreApplicationStatus(editor, application);
-    if (status === "behind") {
-      edit.forget();
-      return null;
-    }
-    const current = status === "current";
-    if (current) {
-      const reviewDoc = new Y.Doc();
-      Y.applyUpdate(reviewDoc, application.reviewBefore);
-      try {
-        const reviewState = yXmlFragmentToProseMirrorRootNode(
-          reviewDoc.getXmlFragment(MIND_CONTENT_FIELD),
-          editor.schema,
+  let rollbackTracker: Y.UndoManager | null = null;
+  let handedOff = false;
+  try {
+    if (application) {
+      planned = [];
+      const status = coreApplicationStatus(editor, application);
+      if (status === "behind") {
+        edit.forget();
+        return null;
+      }
+      const current = status === "current";
+      if (current) {
+        const reviewDoc = new Y.Doc();
+        Y.applyUpdate(reviewDoc, application.reviewBefore);
+        try {
+          const reviewState = yXmlFragmentToProseMirrorRootNode(
+            reviewDoc.getXmlFragment(MIND_CONTENT_FIELD),
+            editor.schema,
+          );
+          planned = planChanges(reviewState, requests, new Set(application.accepted));
+        } finally {
+          reviewDoc.destroy();
+        }
+      }
+      edit.followed = followCoreUndo(edit, application, current);
+    } else {
+      // Checkpoint before the change is sent: FIFO IPC runs it before applyMindUpdate (#3839).
+      if (checkpoint && checkpointBeforeAccept(edit.doc, requests)) {
+        core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+      }
+      planned = planChanges(editor.state, requests);
+      let resolved: ReturnType<typeof writeAccepted> = [];
+      const tracked = new AcceptingEdit();
+      const recorded = new RecordingAccept();
+      if (onRollback) {
+        rollbackTracker = new Y.UndoManager(
+          [
+            edit.doc.getXmlFragment(MIND_CONTENT_FIELD),
+            ...originMaps(edit.doc),
+            edit.doc.getMap(MIND_TEXT_ORIGINS_FIELD),
+            edit.doc.getMap(MIND_REVISIONS_FIELD),
+            edit.doc.getMap(MIND_SETTINGS_FIELD),
+            edit.doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD),
+          ],
+          {
+            captureTimeout: Number.MAX_SAFE_INTEGER,
+            trackedOrigins: new Set([tracked, recorded]),
+          },
         );
-        planned = planChanges(reviewState, requests, new Set(application.accepted));
-      } finally {
-        reviewDoc.destroy();
+      }
+      asEditStep(edit, editor, () => {
+        resolved = writeAccepted(
+          edit.doc,
+          requests,
+          new SettingAside(),
+          tracked,
+          editor.schema,
+          recorded,
+        );
+      });
+      const entries = aiUseOfAccepted(edit.doc, mindId, resolved, new Date().toISOString());
+      if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
+    }
+    const noteSteps = application ? null : followSteps(editor, edit.steps);
+    edit.followed ??= noteSteps;
+    const changes = editor.isDestroyed
+      ? []
+      : appliedChanges(editor.state, anchorChanges(editor.state, planned));
+    const owner = historyOwnerOf(editor);
+    lastApplied.set(owner, edit);
+    const { followed } = edit;
+    if (followed) {
+      for (const listener of applied) listener(mindId, requests, { followed, accepted });
+    }
+    let offer: EditorUndoOffer | null = null;
+    let shownLine: Extract<AppliedLine, { kind: "applied" }> | null = null;
+    if (!editor.isDestroyed) {
+      const said = namedIn(editor.state, changes, facts, turn);
+      shownLine = {
+        kind: "applied",
+        blockId: firstBlockOf(editor.state, changes),
+        blocks: { paragraphs: facts.changed + facts.wrote, tables: facts.tables },
+        facts: said,
+        reason: null,
+        kept: null,
+        ...(turn && { turn }),
+      };
+      setAppliedLine(editor, shownLine);
+      if (application) {
+        if (followed?.onTop()) {
+          if (!retainHeadless) offerCoreUndo(edit, followed, said);
+        } else {
+          void followed?.release?.();
+        }
+      } else {
+        offer = offerEditorUndo(editor, (t) => changeFact(t, said, null), pageUndoPlace);
       }
     }
-    edit.followed = followCoreUndo(edit, application, current);
-  } else {
-    // Checkpoint before the change is sent: FIFO IPC runs it before applyMindUpdate (#3839).
-    if (checkpoint && checkpointBeforeAccept(edit.doc, requests)) {
-      core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
+    if (onRollback && rollbackTracker) {
+      const tracker = rollbackTracker;
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        tracker.destroy();
+      };
+      const isOwnLine = (line: AppliedLine | null | undefined): boolean =>
+        shownLine !== null && line?.kind === "applied" && line.blocks === shownLine.blocks;
+      onRollback({
+        undo: () => {
+          if (finished) return;
+          offer?.();
+          edit.forget();
+          noteSteps?.drop();
+          if (lastApplied.get(owner) === edit) lastApplied.delete(owner);
+          if (isOwnLine(lineWhenHidden.get(owner))) lineWhenHidden.delete(owner);
+          const pending = pendingHidden.get(owner);
+          if (pending && pending.kind !== "held" && pending.edit === edit) {
+            pendingHidden.delete(owner);
+          }
+          const target = edit.editor;
+          if (!target.isDestroyed && isOwnLine(appliedLineIn(target.state))) {
+            setAppliedLine(target, null);
+          }
+          try {
+            if (!edit.doc.isDestroyed) {
+              while (tracker.undoStack.length > 0) tracker.undo();
+            }
+          } finally {
+            finish();
+          }
+        },
+        finish,
+      });
+      handedOff = true;
     }
-    planned = planChanges(editor.state, requests);
-    let resolved: ReturnType<typeof writeAccepted> = [];
-    asEditStep(edit, editor, () => {
-      resolved = writeAccepted(
-        edit.doc,
-        requests,
-        new SettingAside(),
-        new AcceptingEdit(),
-        editor.schema,
-      );
-    });
-    const entries = aiUseOfAccepted(edit.doc, mindId, resolved, new Date().toISOString());
-    if (entries.length > 0) core.recordAiUse(entries).catch(useAppStore.getState().reportError);
+    return "applied";
+  } finally {
+    if (!handedOff) rollbackTracker?.destroy();
   }
-  edit.followed ??= followSteps(editor, edit.steps);
-  const changes = editor.isDestroyed
-    ? []
-    : appliedChanges(editor.state, anchorChanges(editor.state, planned));
-  lastApplied.set(historyOwnerOf(editor), edit);
-  const { followed } = edit;
-  if (followed) {
-    for (const listener of applied) listener(mindId, requests, { followed, accepted });
-  }
-  if (editor.isDestroyed) return "applied";
-  const said = namedIn(editor.state, changes, facts, turn);
-  setAppliedLine(editor, {
-    kind: "applied",
-    blockId: firstBlockOf(editor.state, changes),
-    blocks: { paragraphs: facts.changed + facts.wrote, tables: facts.tables },
-    facts: said,
-    reason: null,
-    kept: null,
-    ...(turn && { turn }),
-  });
-  if (application) {
-    if (followed?.onTop()) {
-      if (!retainHeadless) offerCoreUndo(edit, followed, said);
-    } else {
-      void followed?.release?.();
-    }
-  } else {
-    offerEditorUndo(editor, (t) => changeFact(t, said, null), pageUndoPlace);
-  }
-  return "applied";
 }
 
 /**

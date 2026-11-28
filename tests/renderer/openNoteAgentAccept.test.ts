@@ -35,11 +35,13 @@ import { BRIDGE_KEY, FILES_BRIDGE_KEY } from "../../src/shared/bridge";
 import { translate } from "../../src/shared/i18n";
 import { readMindCheck, writeMindCheck } from "../../src/shared/mindCheck";
 import {
+  decisionsOn,
   pendingProposals,
   recordProposalRequest,
   resolveProposals,
   targetHash,
 } from "../../src/shared/proposals";
+import { textOriginOf } from "../../src/shared/textOrigins";
 import { editorExtensions } from "../helpers/editor";
 
 function domDocument() {
@@ -64,7 +66,9 @@ const recordAiUse = vi.fn(async () => []);
 const undoAgentChange = vi.fn(async () => "done" as const);
 const redoAgentChange = vi.fn(async () => "done" as const);
 const claimAgentChange = vi.fn(async () => true);
-const applyMindUpdate = vi.fn(async () => undefined);
+const applyMindUpdate = vi.fn(
+  async (_mindId: string, _update: Uint8Array): Promise<void> => undefined,
+);
 
 const bridge = new Proxy(
   {
@@ -142,7 +146,9 @@ let takeClosedAgentChange: typeof import("../../src/renderer/src/agentNotes").ta
 let useAppStore: typeof import("../../src/renderer/src/store").useAppStore;
 let useUndo: typeof import("../../src/renderer/src/undo").useUndo;
 let openMindCopy: typeof import("../../src/renderer/src/mindCopies").openMindCopy;
+let flushMindUpdates: typeof import("../../src/renderer/src/mindCopies").flushMindUpdates;
 let FROM_CORE: typeof import("../../src/renderer/src/mindCopies").FROM_CORE;
+let undoStackOf: typeof import("../../src/renderer/src/editor/editorUndo").undoStackOf;
 let takeAgentOwnChanges: typeof import("../../src/renderer/src/editor/agentOwnUndo").takeAgentOwnChanges;
 let drawHistory: typeof import("../../src/renderer/src/editor/keptHistories").drawHistory;
 let keepHistory: typeof import("../../src/renderer/src/editor/keptHistories").keepHistory;
@@ -169,6 +175,7 @@ beforeAll(async () => {
     healthMod,
     tabsMod,
     editWithAiMod,
+    editorUndoMod,
   ] = await Promise.all([
     import("../../src/renderer/src/editor/noteSchema"),
     import("../../src/renderer/src/editor/appliedEditLine"),
@@ -186,6 +193,7 @@ beforeAll(async () => {
     import("../../src/renderer/src/editor/healthCounts"),
     import("../../src/renderer/src/editor/noteTabs"),
     import("../../src/renderer/src/editWithAi"),
+    import("../../src/renderer/src/editor/editorUndo"),
   ]);
   ({ noteExtensions } = schemaMod);
   ({ NoteTabs, noteTabsOf } = tabsMod);
@@ -203,7 +211,8 @@ beforeAll(async () => {
   ({ useAgentNotes, takeClosedAgentChange } = notesMod);
   ({ useAppStore } = storeMod);
   ({ useUndo } = undoMod);
-  ({ openMindCopy, FROM_CORE } = copiesMod);
+  ({ openMindCopy, flushMindUpdates, FROM_CORE } = copiesMod);
+  ({ undoStackOf } = editorUndoMod);
   ({ takeAgentOwnChanges } = ownUndoMod);
   ({ drawHistory, keepHistory } = keptMod);
   ({ agentOwnChangeRequestId } = ownSharedMod);
@@ -1379,6 +1388,7 @@ describe("mounted editor lossless writes, IME protection, held reopen, and notic
     expect(reported).toEqual([saveError]);
     expect(outcome).toBe("failed");
     expect(appliedLineIn(editor.state)).toBeNull();
+    expect(editor.getText()).toBe("Tides rise twice a day.");
 
     // Case 2: missedChange fails once then succeeds on retry -> returns "applied" with no error report.
     const retryReported: unknown[] = [];
@@ -1403,6 +1413,273 @@ describe("mounted editor lossless writes, IME protection, held reopen, and notic
     });
     expect(retryReported).toEqual([]);
     expect(retryOutcome).toBe("applied");
+  });
+
+  // protects=when acceptOpenNoteWrite fails to save, it undoes the applied transaction so the editor shows the User's text exactly as before and a following save sends nothing of the refused change (#3839); fails_when=refused text stays in the editor or leaks into core on a later save
+  it("restores the editor document before returning failed so a following save sends nothing of the refused change", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+
+    const mindId = "mind-save-fail-restore";
+    const original = "Tides rise twice a day.";
+    const coreDoc = new Y.Doc();
+    cleanups.push(() => coreDoc.destroy());
+    const schema = new Editor({ element: null, extensions: noteExtensions() });
+    prosemirrorToYXmlFragment(
+      schema.schema.nodeFromJSON({
+        type: "doc",
+        content: [
+          { type: "paragraph", attrs: { id: "b1" }, content: [{ type: "text", text: original }] },
+        ],
+      }),
+      coreDoc.getXmlFragment(MIND_CONTENT_FIELD),
+    );
+    schema.destroy();
+    coreDoc.transact(() => {
+      writeMindCheck(coreDoc.getMap(MIND_SETTINGS_FIELD), {
+        at: "2026-11-28T09:00:00.000Z",
+        sentences: 1,
+        stop: null,
+        skipped: [],
+        unexamined: [],
+      });
+    });
+
+    let rejectSaves = false;
+    const saveError = new Error("Disk full");
+    applyMindUpdate.mockImplementation(async (_id: string, update: Uint8Array) => {
+      if (rejectSaves) throw saveError;
+      const { from } = Y.parseUpdateMeta(update);
+      const have = Y.decodeStateVector(Y.encodeStateVector(coreDoc));
+      const missed = [...from].some(([client, clock]) => clock > (have.get(client) ?? 0));
+      const hadPending = coreDoc.store.pendingStructs !== null || coreDoc.store.pendingDs !== null;
+      Y.applyUpdate(coreDoc, update);
+      const nowPending = coreDoc.store.pendingStructs !== null || coreDoc.store.pendingDs !== null;
+      if (missed || (!hadPending && nowPending)) {
+        throw new TranslatableError({ key: "error.mind.missedChange" });
+      }
+    });
+    cleanups.push(() => {
+      applyMindUpdate.mockImplementation(async () => undefined);
+    });
+
+    bridge.openMind.mockResolvedValueOnce({
+      state: Y.encodeStateAsUpdate(coreDoc),
+      access: "edit" as const,
+    });
+    const reported: unknown[] = [];
+    const doc = await new Promise<Y.Doc>((resolve, reject) => {
+      const stopCopy = openMindCopy(
+        mindId,
+        (copy) => (copy.doc ? resolve(copy.doc) : reject(new Error("Missing doc"))),
+        (error) => reported.push(error),
+      );
+      cleanups.push(stopCopy);
+    });
+    const { editor } = mountEditor(mindId, [], doc);
+
+    // Record a prior User Undo step so rollback proves it drops only the failed agent accept.
+    editor.commands.insertContentAt(editor.state.doc.content.size - 1, " Here.");
+    expect(await flushMindUpdates(mindId)).toBe(true);
+    const beforeAccept = `${original} Here.`;
+    expect(editor.getText()).toBe(beforeAccept);
+    expect(undoStackOf(editor)?.undoStack).toHaveLength(1);
+
+    const prep = await prepareOpenNoteWrite(mindId);
+    if (!prep.open || prep.busy) throw new Error("Expected ready token.");
+
+    // Core stages the Proposal and broadcasts mind.update to the open editor copy.
+    const beforeStage = Y.encodeStateVector(coreDoc);
+    const sv = stageInlineProposal(coreDoc, 0, "twice", "daily", "req-restore", "prop-restore");
+    emitCore("mind.update", { mindId, update: Y.encodeStateAsUpdate(coreDoc, beforeStage) });
+
+    // Storage fails while acceptOpenNoteWrite saves the accepted edit.
+    rejectSaves = true;
+    const outcome = await acceptOpenNoteWrite({
+      mindId,
+      request: "req-restore",
+      token: prep.token,
+      stateVector: sv,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+
+    expect(outcome).toBe("failed");
+    expect(reported.length).toBeGreaterThan(0);
+    expect(appliedLineIn(editor.state)).toBeNull();
+    expect(editor.getText()).toBe(beforeAccept);
+    expect(pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD))).toEqual([]);
+    expect(textOriginOf(doc, "b1")).toBeNull();
+    expect(readMindCheck(doc.getMap(MIND_SETTINGS_FIELD))?.uncheckedBlocks).toBeUndefined();
+    expect(decisionsOn(doc, "req-restore").accepted).toBe(0);
+    expect(undoStackOf(editor)?.undoStack).toHaveLength(1);
+    expect(undoStackOf(editor)?.redoStack).toHaveLength(0);
+    expect(useUndo.getState().done).toHaveLength(0);
+    expect(useUndo.getState().undone).toHaveLength(0);
+
+    // Core rejects its staged Proposal and broadcasts the cleanup to the editor.
+    const beforeReject = Y.encodeStateVector(coreDoc);
+    coreDoc.transact(() => {
+      resolveProposals(
+        coreDoc.getXmlFragment(MIND_CONTENT_FIELD),
+        (ref) => ref.request === "req-restore",
+        "reject",
+      );
+    });
+    emitCore("mind.update", { mindId, update: Y.encodeStateAsUpdate(coreDoc, beforeReject) });
+    expect(editor.getText()).toBe(beforeAccept);
+
+    // Storage recovers and the User makes a following edit -> core receives only the User's text.
+    rejectSaves = false;
+    editor.commands.insertContentAt(editor.state.doc.content.size - 1, " Still here.");
+    expect(await flushMindUpdates(mindId)).toBe(true);
+
+    const coreBlocks = coreDoc.getXmlFragment(MIND_CONTENT_FIELD);
+    const coreParagraph = coreBlocks.get(0);
+    if (!(coreParagraph instanceof Y.XmlElement)) throw new Error("Missing core paragraph.");
+    expect(coreParagraph.toString()).toBe(
+      `<paragraph id="b1">${beforeAccept} Still here.</paragraph>`,
+    );
+    expect(coreParagraph.toString()).not.toContain("daily");
+    expect(pendingProposals(coreBlocks)).toEqual([]);
+    expect(textOriginOf(coreDoc, "b1")).toBeNull();
+    expect(readMindCheck(coreDoc.getMap(MIND_SETTINGS_FIELD))?.uncheckedBlocks).toBeUndefined();
+    expect(decisionsOn(coreDoc, "req-restore").accepted).toBe(0);
+  });
+
+  // protects=failed accept rollback preserves a newer applied/held line and still clears its own line on a remounted kept-history editor (#3839); fails_when=rollback wipes a newer line or leaves a phantom applied line after tab remount
+  it("keeps a newer line intact and clears its own line on a remounted editor when rolling back a failed save", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+
+    const openDocWith = async (mindId: string, text: string) => {
+      const seed = new Y.Doc();
+      const schema = new Editor({ element: null, extensions: noteExtensions() });
+      prosemirrorToYXmlFragment(
+        schema.schema.nodeFromJSON({
+          type: "doc",
+          content: [{ type: "paragraph", attrs: { id: "b1" }, content: [{ type: "text", text }] }],
+        }),
+        seed.getXmlFragment(MIND_CONTENT_FIELD),
+      );
+      schema.destroy();
+      bridge.openMind.mockResolvedValueOnce({
+        state: Y.encodeStateAsUpdate(seed),
+        access: "edit" as const,
+      });
+      seed.destroy();
+      return new Promise<Y.Doc>((resolve, reject) => {
+        const stopCopy = openMindCopy(
+          mindId,
+          (copy) => (copy.doc ? resolve(copy.doc) : reject(new Error("Missing doc"))),
+          () => undefined,
+        );
+        cleanups.push(stopCopy);
+      });
+    };
+
+    // Part 1: a newer line set while the save is in flight survives rollback.
+    const mindId1 = "mind-fail-newer-line";
+    const doc1 = await openDocWith(mindId1, "Tides rise twice a day.");
+    const { editor: editor1 } = mountEditor(mindId1, [], doc1);
+    const prep1 = await prepareOpenNoteWrite(mindId1);
+    if (!prep1.open || prep1.busy) throw new Error("Expected ready token.");
+    const sv1 = stageInlineProposal(doc1, 0, "twice", "daily", "req-nl", "prop-nl");
+
+    const deferred1: { reject(error: unknown): void }[] = [];
+    let hold1 = true;
+    applyMindUpdate.mockImplementation(async () => {
+      if (!hold1) return;
+      await new Promise<void>((_resolve, reject) => {
+        deferred1.push({ reject });
+      });
+    });
+    cleanups.push(() => {
+      applyMindUpdate.mockImplementation(async () => undefined);
+    });
+
+    const pending1 = acceptOpenNoteWrite({
+      mindId: mindId1,
+      request: "req-nl",
+      token: prep1.token,
+      stateVector: sv1,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    await vi.waitFor(() => expect(appliedLineIn(editor1.state)?.kind).toBe("applied"));
+    const newerLine = {
+      kind: "applied" as const,
+      blockId: "b1",
+      blocks: { paragraphs: 2, tables: 0 },
+      reason: "Newer edit",
+      kept: null,
+    };
+    setAppliedLine(editor1, newerLine);
+    expect(appliedLineIn(editor1.state)).toBe(newerLine);
+
+    hold1 = false;
+    for (const item of deferred1) item.reject(new Error("Disk full"));
+    expect(await pending1).toBe("failed");
+    expect(editor1.getText()).toBe("Tides rise twice a day.");
+    expect(appliedLineIn(editor1.state)).toBe(newerLine);
+
+    // Part 2: a kept-history tab that remounts during the pending save still gets its own line cleared.
+    const mindId2 = "mind-fail-remount";
+    const doc2 = await openDocWith(mindId2, "Tides rise twice a day.");
+    const history2 = new Y.UndoManager(doc2.getXmlFragment(MIND_CONTENT_FIELD), {
+      captureTimeout: 0,
+    });
+    const release2 = keepHistory(history2, "tab-remount", mindId2);
+    cleanups.push(() => {
+      release2();
+      history2.destroy();
+    });
+    const { editor: firstEditor } = mountEditor(mindId2, [], doc2, history2);
+    const stopDraw1 = drawHistory(history2, firstEditor);
+    cleanups.push(stopDraw1);
+    await Promise.resolve();
+
+    const prep2 = await prepareOpenNoteWrite(mindId2);
+    if (!prep2.open || prep2.busy) throw new Error("Expected second token.");
+    const sv2 = stageInlineProposal(doc2, 0, "twice", "daily", "req-rm", "prop-rm");
+
+    const deferred2: { reject(error: unknown): void }[] = [];
+    let hold2 = true;
+    applyMindUpdate.mockImplementation(async () => {
+      if (!hold2) return;
+      await new Promise<void>((_resolve, reject) => {
+        deferred2.push({ reject });
+      });
+    });
+
+    const pending2 = acceptOpenNoteWrite({
+      mindId: mindId2,
+      request: "req-rm",
+      token: prep2.token,
+      stateVector: sv2,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    await vi.waitFor(() => expect(appliedLineIn(firstEditor.state)?.kind).toBe("applied"));
+
+    // Remount the kept-history tab onto a fresh editor before the save fails.
+    stopDraw1();
+    await Promise.resolve();
+    firstEditor.destroy();
+    const { editor: secondEditor } = mountEditor(mindId2, [], doc2, history2);
+    const stopDraw2 = drawHistory(history2, secondEditor);
+    cleanups.push(stopDraw2);
+    await Promise.resolve();
+    expect(appliedLineIn(secondEditor.state)?.kind).toBe("applied");
+
+    hold2 = false;
+    for (const item of deferred2) item.reject(new Error("Disk full"));
+    expect(await pending2).toBe("failed");
+    expect(secondEditor.getText()).toBe("Tides rise twice a day.");
+    expect(appliedLineIn(secondEditor.state)).toBeNull();
   });
 
   // protects=resolveProposalsIn("all") leaves every held request untouched, including held requests beyond the first and persisted held outside-agent requests (#3839); fails_when=Accept all or Reject all resolves a second held request or a persisted held request

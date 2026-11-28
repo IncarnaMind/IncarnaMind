@@ -30,11 +30,10 @@ import {
   readProposalAttribute,
   readProposalRef,
 } from "../../../shared/proposals";
-import { applyArrived } from "../appliedEdits";
+import { type AppliedRollback, applyArrived } from "../appliedEdits";
 import type { ChangeCounts } from "../changeFacts";
 import { files } from "../core";
 import { EDIT_FROM_CORE, FROM_CORE, flushMindUpdates, setComposingGate } from "../mindCopies";
-import { setAppliedLine } from "./appliedEditLine";
 import { mindEditors, onMindEditorOpen } from "./openEditors";
 import { editorDoc } from "./proposalReview";
 
@@ -645,27 +644,41 @@ export async function acceptOpenNoteWrite(
     ...(input.removed && { removed: input.removed }),
     ...(input.named && { named: input.named }),
   };
+  const rollback: { current: AppliedRollback | null } = { current: null };
   let outcome: "applied" | "held" | null = null;
   acceptingLocally += 1;
   try {
     outcome = applyArrived(editor, mindId, new Set([input.request]), facts, {
       holds: true,
       checkpoint: true,
+      onRollback: (handle) => {
+        rollback.current = handle;
+      },
     });
   } finally {
     acceptingLocally -= 1;
   }
-  if (outcome === "held") {
-    await flushMindUpdates(mindId);
-    return "held";
+  try {
+    if (outcome === "held") {
+      await flushMindUpdates(mindId);
+      return "held";
+    }
+    if (outcome !== "applied") return "changed";
+    const saved = await flushMindUpdates(mindId);
+    if (!saved) {
+      acceptingLocally += 1;
+      try {
+        rollback.current?.undo();
+      } finally {
+        acceptingLocally -= 1;
+      }
+      await flushMindUpdates(mindId);
+      return "failed";
+    }
+    return "applied";
+  } finally {
+    rollback.current?.finish();
   }
-  if (outcome !== "applied") return "changed";
-  const saved = await flushMindUpdates(mindId);
-  if (!saved) {
-    setAppliedLine(editor, null);
-    return "failed";
-  }
-  return "applied";
 }
 
 /** Installs the window's composing gate and IPC handler for lossless mounted-editor writes (#3839). */
