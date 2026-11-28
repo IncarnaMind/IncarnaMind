@@ -100,23 +100,17 @@ export function createAgentSorting(
       description: KIND_MEANINGS[kind],
     }));
     if (!scope.shareTagNames) return kinds;
-    const tags = db
-      .all<{ id: string; name: string; description: string }>(
-        `SELECT DISTINCT t.id, t.name, t.description FROM tags t JOIN document_tags dt ON dt.tag_id = t.id
-         WHERE dt.document_id IN (SELECT value FROM json_each(?)) AND dt.deleted_at IS NULL
-           AND t.deleted_at IS NULL AND t.kind IS NULL ORDER BY t.name, t.id`,
-        [JSON.stringify(scope.documents)],
-      )
-      .map(({ id, name, description }) => ({
-        id,
-        name,
-        ...(description.trim() !== "" && { description: description.trim() }),
-      }));
+    const tags = db.all<Choice>(
+      `SELECT DISTINCT t.id, t.name FROM tags t JOIN document_tags dt ON dt.tag_id = t.id
+       WHERE dt.document_id IN (SELECT value FROM json_each(?)) AND dt.deleted_at IS NULL
+         AND t.deleted_at IS NULL AND t.kind IS NULL ORDER BY t.name, t.id`,
+      [JSON.stringify(scope.documents)],
+    );
     return [...kinds, ...tags];
   }
 
   function outlineOf(id: string, kind: DocumentKind, contentHash: string | null): string | null {
-    if (kind !== "pptx" && kind !== "xlsx" && kind !== "csv") return null;
+    if (kind !== "pptx" && kind !== "xlsx") return null;
     const units = db
       .all<{ page: number; kind: OrganizeUnit["kind"]; label: string | null; text: string }>(
         "SELECT page, kind, label, CASE WHEN page <= ? THEN substr(text, 1, ?) ELSE '' END AS text FROM document_pages WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL ORDER BY page LIMIT 400",

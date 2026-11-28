@@ -735,8 +735,8 @@ describe("outside agents", () => {
     expect((await useTag(hidden.id)).isError).toBe(true);
   });
 
-  // protects=list_sorting sends each kind Tag's meaning, any Folder or user Tag description, and a deck's or workbook's outline (slide titles / sheet names), omitting empty descriptions and non-deck/workbook outlines (#1569); fails_when=kind Tags lack descriptions, Folder/Tag descriptions are dropped, or decks/workbooks lose their outlines
-  it("gives list_sorting kind meanings, non-empty Folder and Tag descriptions, and deck or workbook outlines", async () => {
+  // protects=list_sorting sends each kind Tag's meaning, any non-empty Folder description, and a deck's or workbook's outline (slide titles / sheet names), omitting custom Tag descriptions not covered by tag-name consent and non-deck/workbook outlines (#1569); fails_when=kind Tags lack descriptions, Folder descriptions are dropped, custom Tag descriptions leak, or decks/workbooks lose their outlines
+  it("gives list_sorting kind meanings, non-empty Folder descriptions, and deck or workbook outlines", async () => {
     const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
     const sources = await createSourceFolder();
     const noteFile = await writeSourceFile(sources, "Harbour memo.md", "# Memo\n\nBerth 2 update.");
@@ -759,9 +759,7 @@ describe("outside agents", () => {
       name: "Dredging",
       description: "Berth depth and silt clearance",
     });
-    const plainTag = await core.createTag({ name: "Internal" });
     await core.addDocumentTag(noteDoc.id, describedTag.id);
-    await core.addDocumentTag(noteDoc.id, plainTag.id);
     await core.setAgentsEnabled(true);
     const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
     const agent = await connectLegacyAgent(launch);
@@ -780,12 +778,7 @@ describe("outside agents", () => {
       name: translate("en", "tags.kind.report"),
       description: KIND_MEANINGS.report,
     });
-    expect(batch.tags).toContainEqual({
-      id: describedTag.id,
-      name: "Dredging",
-      description: "Berth depth and silt clearance",
-    });
-    expect(batch.tags).toContainEqual({ id: plainTag.id, name: "Internal" });
+    expect(batch.tags).toContainEqual({ id: describedTag.id, name: "Dredging" });
 
     const byId = new Map(batch.documents.map((d) => [d.id, d]));
     expect(byId.get(noteDoc.id)?.outline).toBeUndefined();
