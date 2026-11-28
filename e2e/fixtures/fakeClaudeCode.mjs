@@ -299,12 +299,13 @@ async function run(message) {
     return;
   }
   if (mode === "wait") {
-    // Says what it is about to do, as the instructions ask, then works on until it is stopped,
-    // taking nothing sent meanwhile.
+    // Says what it is about to do, as the instructions ask, then gets nowhere until it is stopped,
+    // taking nothing sent meanwhile: only that it is alive, as Claude Code 2.1.332 says it.
     say({
       type: "assistant",
       message: { content: [{ type: "text", text: "Looking at your note" }] },
     });
+    setInterval(() => say({ type: "keep_alive" }), 500);
     await new Promise(() => {});
   }
   if (mode === "limit" || mode === "limit-gated") {
