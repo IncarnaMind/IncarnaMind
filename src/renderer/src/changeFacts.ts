@@ -5,18 +5,13 @@
  * counts always agree (#880). What was done counts by paragraph (#1028); what still waits counts
  * changes, as the Mind's bar and its change card do (#1358).
  */
-import type { FiguresLeftOut, RemovedParagraphs } from "../../core/api";
+import type { FiguresLeftOut, NamedChange, RemovedParagraphs } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { ChangedMind } from "./changedMinds";
 
-type Translate = (key: MessageKey, params?: MessageParams) => string;
+export type { NamedChange };
 
-/** The one paragraph a change came to, named by its label or opening words (`paragraphStart`). */
-export interface NamedChange {
-  start: string;
-  /** Written whole, the User's kept, not changed where it stands. */
-  added: boolean;
-}
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /** What was done in one Mind: paragraphs changed, paragraphs written in whole Blocks, tables and charts added. */
 export interface ChangeCounts {
@@ -26,6 +21,8 @@ export interface ChangeCounts {
   changed: number;
   wrote: number;
   tables: number;
+  /** Whole tables were removed (not only added), so the line says "Changed …" rather than "Added …". */
+  tablesRemoved?: true;
   /** Absent: none. */
   charts?: number;
   /** The whole paragraphs removals took out (#2356). Absent: none. */
@@ -216,6 +213,17 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
   const tables = tablesText(t, row);
   const count = row.wrote + row.changed;
   if (name === null) {
+    if (row.tablesRemoved) {
+      const tableCount =
+        row.tables === 1
+          ? t("edit.count.tables.one")
+          : t("edit.count.tables", { count: row.tables });
+      if (count === 0) return t("edit.applied.changes", { changes: tableCount });
+      const paragraphs = counted(t, count, "paragraphs");
+      return t("edit.applied.changes", {
+        changes: t("edit.changes", { paragraphs, tables: tableCount }),
+      });
+    }
     if (count === 0) return t("edit.tables", { tables });
     const paragraphs = counted(t, count, "paragraphs");
     if (row.changed > 0) return t("edit.applied.tables", { paragraphs, tables });

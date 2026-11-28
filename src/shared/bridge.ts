@@ -4,6 +4,11 @@ import type { CanvasFrameNews } from "./canvases";
 import type { MenuCommandId } from "./commands";
 import type { GeneralHelpKind } from "./meetingHelp";
 import type { ConversationAt, PanelCommand, PanelState } from "./meetingPanel";
+import type {
+  OpenNoteAcceptInput,
+  OpenNoteAcceptResult,
+  OpenNotePrepareResult,
+} from "./openNoteEditor";
 import type { PanelName } from "./panels";
 import type { GuidePlacement, PermissionGuideState } from "./permissionGuide";
 import type { TitleBar } from "./titleBar";
@@ -41,9 +46,24 @@ export type UnexpectedEnd =
 
 export type SummarySaveState = "clear" | "saving" | "problem";
 
+/** Request from main to a renderer window to coordinate an immediate agent write on a mounted editor (#3839). */
+export type OpenNoteWriteRequest =
+  | { kind: "prepare"; callId: string; mindId: string }
+  | { kind: "verify"; callId: string; mindId: string; token: string }
+  | { kind: "cancel"; callId: string; mindId: string; request: string; token: string }
+  | ({ kind: "accept"; callId: string } & OpenNoteAcceptInput);
+
+/** Renderer's answer to `OpenNoteWriteRequest` (#3839). */
+export type OpenNoteWriteReply =
+  | ({ kind: "prepare"; callId: string } & OpenNotePrepareResult)
+  | { kind: "verify"; callId: string; ok: boolean }
+  | { kind: "accept"; callId: string; result: OpenNoteAcceptResult };
+
 export interface FilesBridge {
   reportSummarySaveState(state: SummarySaveState): void;
   onDiscardSummaryDrafts(listener: () => void): () => void;
+  onOpenNoteWriteRequest(listener: (request: OpenNoteWriteRequest) => void): () => void;
+  replyOpenNoteWriteRequest(reply: OpenNoteWriteReply): void;
   /** The absolute path of a dropped or picked file, or "" for a file that isn't on disk. */
   pathForFile(file: File): string;
   /**
@@ -329,4 +349,8 @@ export const FILES_CHANNELS = {
   permissionGuideWanted: "app:permissionGuideWanted",
   /** From the main process: the guide's state (`PermissionGuideState`), or null. */
   permissionGuide: "app:permissionGuide",
+  /** From the main process: prepare or accept an immediate agent write in a mounted Note editor (#3839). */
+  openNoteWriteRequest: "app:openNoteWriteRequest",
+  /** From the page: answer to `openNoteWriteRequest` (#3839). */
+  openNoteWriteReply: "app:openNoteWriteReply",
 } as const;

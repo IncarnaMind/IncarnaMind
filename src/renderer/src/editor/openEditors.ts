@@ -35,6 +35,10 @@ export function mindIdOf(editor: Editor): string | null {
 export const mindEditor = (mindId: string): Editor | null =>
   open.get(mindId)?.find((each) => !each.isDestroyed) ?? null;
 
+/** Every live mounted editor showing `mindId` in this window (including split panes). */
+export const mindEditors = (mindId: string): Editor[] =>
+  (open.get(mindId) ?? []).filter((each) => !each.isDestroyed);
+
 /** Every editor open in this window, each Mind's. */
 export const openMindEditors = (): Editor[] =>
   [...open.values()].flat().filter((each) => !each.isDestroyed);

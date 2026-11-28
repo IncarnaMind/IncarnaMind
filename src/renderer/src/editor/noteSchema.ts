@@ -91,14 +91,14 @@ const BLOCK_TYPES: readonly string[] = [
 ];
 
 /**
- * Inline code takes no other look, AI text or sentence check, or a comment, as before, but does
- * take a Proposal's marks, which say what a change does to its words: Tiptap's excludes every
- * mark, so a rewrite that took out or added code left a Note the editor can't read (#2362).
+ * Inline code takes no other look, sentence check, or comment, as before, but does take AI text
+ * (`GENERATED_MARK`, #3839) and a Proposal's marks, which say whose words they are and what a
+ * change does to them: Tiptap's excludes every mark, so a rewrite that took out or added code
+ * left a Note the editor can't read (#2362).
  */
 const InlineCode = Code.extend({
   excludes: [
     INLINE_CODE_MARK,
-    GENERATED_MARK,
     CLAIM_CHECK_MARK,
     COMMENT_MARK,
     "link",

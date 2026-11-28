@@ -2,11 +2,18 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   type AnswerToolCall,
+  GENERATED_MARK,
   MIND_CONTENT_FIELD,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
 } from "../../src/core/api";
-import { appliedAsAsked, askedFor, ownTextRemoved } from "../../src/shared/askedChanges";
+import { INLINE_CODE_MARK } from "../../src/shared/aiText";
+import {
+  appliedAsAsked,
+  askedFor,
+  ownTextRemoved,
+  waitsForUser,
+} from "../../src/shared/askedChanges";
 import { recordProposalRequest } from "../../src/shared/proposals";
 
 const MIND = "mind-1";
@@ -126,5 +133,61 @@ describe("How much of the User's text a change takes out (#880, #2356), held out
 
     expect(ownTextRemoved(whole, new Set([REQUEST]))).toBeCloseTo(each.share, 5);
     expect(ownTextRemoved(words, new Set([REQUEST]))).toBeCloseTo(each.share, 5);
+  });
+
+  // protects=inline code uses its own GENERATED_MARK provenance rather than neighboring prose, so User-typed inline code inside an AI paragraph counts toward the >50% hold while AI-generated inline code does not (#3839); fails_when=User-typed inline code beside generated text is excluded from User text counts or AI-generated inline code triggers a hold
+  test("counts User-typed inline code beside generated prose while excluding AI-generated inline code", () => {
+    const userCodeDoc = new Y.Doc();
+    try {
+      const blocks = userCodeDoc.getXmlFragment(MIND_CONTENT_FIELD);
+      const p1 = new Y.XmlElement("paragraph");
+      const t1 = new Y.XmlText();
+      // Generated prose beside 8 letters of User-typed inline code (no GENERATED_MARK).
+      t1.insert(0, "Run ", {
+        [GENERATED_MARK]: {},
+        [PROPOSAL_DELETE_MARK]: { id: "prop-1", request: REQUEST },
+      });
+      t1.insert(4, "mySecret", {
+        [INLINE_CODE_MARK]: {},
+        [PROPOSAL_DELETE_MARK]: { id: "prop-1", request: REQUEST },
+      });
+      p1.insert(0, [t1]);
+      const p2 = new Y.XmlElement("paragraph");
+      const t2 = new Y.XmlText();
+      // 2 User letters elsewhere -> deleting p1 removes 8 of 10 User letters (80% > 50%).
+      t2.insert(0, "ok");
+      p2.insert(0, [t2]);
+      blocks.insert(0, [p1, p2]);
+
+      expect(ownTextRemoved(blocks, new Set([REQUEST]))).toBeCloseTo(0.8, 5);
+      expect(waitsForUser(userCodeDoc, new Set([REQUEST]))).toBe(true);
+    } finally {
+      userCodeDoc.destroy();
+    }
+
+    const aiCodeDoc = new Y.Doc();
+    try {
+      const blocks = aiCodeDoc.getXmlFragment(MIND_CONTENT_FIELD);
+      const p1 = new Y.XmlElement("paragraph");
+      const t1 = new Y.XmlText();
+      t1.insert(0, "Run ", { [GENERATED_MARK]: {} });
+      t1.insert(4, "npm test", {
+        [INLINE_CODE_MARK]: {},
+        [GENERATED_MARK]: {},
+        [PROPOSAL_DELETE_MARK]: { id: "prop-2", request: REQUEST },
+      });
+      t1.insert(12, "npm check", {
+        [INLINE_CODE_MARK]: {},
+        [GENERATED_MARK]: {},
+        [PROPOSAL_INSERT_MARK]: { id: "prop-2", request: REQUEST },
+      });
+      p1.insert(0, [t1]);
+      blocks.insert(0, [p1]);
+
+      expect(ownTextRemoved(blocks, new Set([REQUEST]))).toBe(0);
+      expect(waitsForUser(aiCodeDoc, new Set([REQUEST]))).toBe(false);
+    } finally {
+      aiCodeDoc.destroy();
+    }
   });
 });

@@ -86,7 +86,7 @@ async function withCoast(window: Page): Promise<string> {
   return coast;
 }
 
-test("an agent the User lets propose changes: its change waits in the Note with its name, Accept applies it and ⌘Z takes it back", async () => {
+test("an agent's small change lands at once with Undo, and a rewrite of most of the User's text waits with Apply · Discard and its change bar", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   try {
     await dismissChatSetup(window);
@@ -128,13 +128,13 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await dialog.getByTestId("agent-folder").check();
     const propose = dialog.getByTestId("agent-propose");
     await expect(propose).toBeChecked();
-    await expect(dialog).toContainText("Let it write notes and propose changes in these Folders");
+    await expect(dialog).toContainText("Let it write and edit notes in these Folders");
     await propose.check();
     await shot(window, "agent-proposals-connect");
     await dialog.getByTestId("connect-agent-allow").click();
     const row = page.locator('[data-testid="agent-pairing"][data-name="Research assistant agent"]');
     await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
-      "Writes notes, Canvases and files there; proposes changes to yours",
+      "Writes notes, Canvases and files; edits notes; proposes deck changes",
     );
     await shot(window, "agent-proposals-row");
     const settings = JSON.parse(await copied(window)) as {
@@ -159,18 +159,59 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       });
       const named = read.structuredContent as { markdown: string; version: string };
       expect(named.markdown).toContain("¶1 Tides rise twice a day.");
-      const proposed = await agent.callTool({
+      // A small change lands at once (#3839), recorded in AI use and undone by ⌘Z.
+      const quick = await agent.callTool({
         name: "propose_changes",
         arguments: {
           mindId,
           version: named.version,
+          changes: [{ paragraph: "¶1", text: "Tides rise and fall two times a day." }],
+        },
+      });
+      expect(quick.isError ?? false).toBe(false);
+      expect(quick.structuredContent).toMatchObject({ status: "applied" });
+      await expect(editor.locator(":scope > p").first()).toHaveText(
+        "Tides rise and fall two times a day.",
+      );
+      await expect(editor.getByTestId("applied-line")).toBeVisible();
+      await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+      await expect
+        .poll(() =>
+          window.evaluate(async () =>
+            (
+              await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listAiUse()
+            ).map((entry) => [entry.kind, entry.agent]),
+          ),
+        )
+        .toEqual([["outside-agent-change-accepted", "Research assistant agent"]]);
+      await editor.focus();
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(editor.locator(":scope > p").first()).toHaveText("Tides rise twice a day.");
+
+      // Rewriting most of the User's own text waits for confirmation (#3839).
+      const afterUndo = (
+        await agent.callTool({
+          name: "read_mind",
+          arguments: { mindId, named: true },
+        })
+      ).structuredContent as { version: string };
+      const proposed = await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: afterUndo.version,
           changes: [
             { paragraph: "¶1", text: "Tides rise and fall two times a day." },
             { paragraph: "¶1+", text: `${NEAP} ${RANGE}` },
+            {
+              paragraph: "¶2",
+              text: "Each Monday morning, port staff publish the weekly tide schedule.",
+            },
           ],
         },
       });
       expect(proposed.isError ?? false).toBe(false);
+      expect(proposed.structuredContent).toMatchObject({ status: "waiting" });
       // With the same leave it writes a Note of its own (#3306), there at once.
       const created = await agent.callTool({
         name: "create_mind",
@@ -196,12 +237,15 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       await agent.close();
     }
 
-    // They wait: the Note's bar and each change's own bar name the agent, and the change's bar
-    // counts the sentences it would leave with no Citation.
-    await expect(window.getByTestId("proposals-count")).toHaveText("2 changes waiting");
-    await expect(window.getByTestId("proposals-agents")).toHaveText(
-      "Proposed by Research assistant agent",
+    // Rewriting most of the User's text holds with Apply · Discard (no Accept all bar), while each
+    // waiting change's own bar names the agent and counts uncited sentences.
+    const heldLine = editor.getByTestId("applied-line");
+    await expect(heldLine.getByTestId("applied-count")).toHaveText(
+      "Waiting for you: this rewrites most of your text",
     );
+    await expect(heldLine.getByTestId("applied-apply")).toBeVisible();
+    await expect(heldLine.getByTestId("applied-discard")).toBeVisible();
+    await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
     await pointAndClick(window, editor.locator("ins.proposal-insert").first());
     const bar = window.getByTestId("change-bar");
     await expect(bar.getByTestId("change-bar-author")).toHaveText(
@@ -214,21 +258,10 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await expect(editor.locator(":scope > p").first()).toHaveText(
       "Tides rise and fall two times a day.",
     );
-    await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
-    await expect
-      .poll(() =>
-        window.evaluate(async () =>
-          (
-            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listAiUse()
-          ).map((entry) => [entry.kind, entry.agent]),
-        ),
-      )
-      .toEqual([["outside-agent-change-accepted", "Research assistant agent"]]);
 
     await editor.focus();
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(window.getByTestId("proposals-count")).toHaveText("2 changes waiting");
-    await expect(editor.locator("del.proposal-delete")).toHaveText("twice");
+    await expect(editor.locator("del.proposal-delete").first()).toHaveText("twice");
 
     // Each click on the count selects the next sentence with no Citation, then the first again.
     const added = editor.locator("p.proposal-node--insert");
@@ -246,8 +279,8 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await shot(window, "agent-proposals-uncited-en");
 
     await setLanguage(window, "zh-CN");
-    await expect(window.getByTestId("proposals-agents")).toHaveText(
-      "Research assistant agent 建议",
+    await expect(heldLine.getByTestId("applied-count")).toHaveText(
+      "等你确认：这会改写你自己写的大部分内容",
     );
     await cycles("2 句没有引用");
     await expect(bar.getByTestId("change-bar-author")).toHaveText("Research assistant agent 建议");
@@ -255,14 +288,20 @@ test("an agent the User lets propose changes: its change waits in the Note with 
 
     // The User edits the word the rewrite replaces: out of date, it can only be rejected, since
     // IncarnaMind can't ask the agent to make it again.
-    await pointAndClick(window, editor.locator("del.proposal-delete"));
+    await pointAndClick(window, editor.locator("del.proposal-delete").first());
     await window.keyboard.type("x");
     const stale = window.getByTestId("change-out-of-date");
     await expect(stale.getByTestId("change-reject")).toBeVisible();
     await expect(stale.getByTestId("change-regenerate")).toHaveCount(0);
     await shot(window, "agent-proposals-out-of-date-zh");
     await pointAndClick(window, stale.getByTestId("change-reject"));
-    await expect(window.getByTestId("proposals-count")).toHaveText("1 处修订待处理");
+    // Reject the second paragraph's rewrite too so the added paragraph stands as 1 of 1.
+    await pointAndClick(
+      window,
+      editor.locator(":scope > p").filter({ hasText: "port staff publish" }),
+    );
+    await expect(bar).toHaveAccessibleName("第 2 处修订，共 2 处");
+    await pointAndClick(window, bar.getByTestId("change-reject"));
 
     // A bar never cuts its place or its author short (#2409): a name of 24 characters shows whole
     // beside a count of the uncited sentences and Accept · Reject, and the bar takes a second

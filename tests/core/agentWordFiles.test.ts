@@ -15,7 +15,7 @@ import { inspectPackage } from "../../eval/word/corpus";
 import type { Core } from "../../src/core";
 import type { Pictures } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
-import { MIND_COMMENTS_FIELD, MIND_WORD_FIELD } from "../../src/core/api";
+import { GENERATED_MARK, MIND_COMMENTS_FIELD, MIND_WORD_FIELD } from "../../src/core/api";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { NotFoundError } from "../../src/core/errors";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -614,7 +614,11 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
           text("."),
         ],
       },
-      { type: "paragraph", attrs: { id: "p2" }, content: [text(SOUTH)] },
+      {
+        type: "paragraph",
+        attrs: { id: "p2" },
+        content: [{ type: "text", text: SOUTH, marks: [{ type: GENERATED_MARK }] }],
+      },
     ]);
     client.doc.getMap(MIND_COMMENTS_FIELD).set("remark", {
       id: "remark",
@@ -641,16 +645,18 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const { version } = structured<{ version: string }>(
       await pilot.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
     );
-    structured(
+    // Over 50% rewrite waits as a proposal: Export › Word with trackChanges includes it, save_as_word skips it.
+    const rival = structured<{ status: string }>(
       await pilot.callTool({
         name: "propose_changes",
         arguments: {
           mindId: mind.id,
           version,
-          changes: [{ paragraph: "¶2+", text: "Rival words from another agent." }],
+          changes: [{ paragraph: "¶1", text: "Rival words from another agent." }],
         },
       }),
     );
+    expect(rival.status).toBe("waiting");
     // Export › Word by hand, with each of them asked for, writes every one of them.
     const byHand = partsOf(
       (
@@ -878,7 +884,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const filedRequest = await askToFix(core, writer.pairing.id, agent, filed);
     expect(filedRequest).toMatch(
       new RegExp(
-        `save it again with save_as_word and that mindId, with folderId ${archive.id}\\.$`,
+        `save it again with save_as_word and that mindId, with folderId ${archive.id}\\. If propose_changes says it waits for me to apply, tell me so instead of saving yet\\.$`,
       ),
     );
     const { version } = structured<{ version: string }>(
@@ -921,7 +927,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     expect(noteRequest).toContain(`“${SOUTH}”`);
     expect(noteRequest).toMatch(
       new RegExp(
-        `Fix it in the note \\(mindId: ${mindId}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\.$`,
+        `Fix it in the note \\(mindId: ${mindId}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\. If propose_changes says it waits for me to apply, tell me so instead of saving yet\\.$`,
       ),
     );
     const textRequest = await ask(fromText);
@@ -1138,8 +1144,8 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     },
   );
 
-  // protects=Ask in your agent on a User's Note's Word file says the fix waits for the User, to tell them so and to save again once they accept it, in English and Chinese; saved before the accept, the file is the same version with the same flagged claim, and after it the next version with the claim fixed (#3751); fails_when=the request says the change lands at once, a waiting change reaches the file, or the accepted fix makes no new version
-  it("asks for a fix to a User's Note to wait for their accept, then saves it as the next version", async () => {
+  // protects=Ask in your agent on a User's Note's Word file asks the agent to fix the Note directly and save it again as the next version, in English and Chinese (#3751, #3839); fails_when=the request says the change must wait for accept, or the immediate fix makes no new version
+  it("asks for a fix to a User's Note directly and saves it as the next version", async () => {
     const { core, coast, writer } = await started();
     const output = await createSourceFolder();
     await core.setOutputLocation(output);
@@ -1154,34 +1160,30 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const request = await askToFix(core, writer.pairing.id, agent, first);
     expect(request).toMatch(
       new RegExp(
-        `Propose the fix in the note \\(mindId: ${mind.id}\\) from my Documents with propose_changes, and change nothing else\\. The note is mine, so your change waits for me to accept it, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId once I have accepted it\\.$`,
+        `Fix it in the note \\(mindId: ${mind.id}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\. If propose_changes says it waits for me to apply, tell me so instead of saving yet\\.$`,
       ),
     );
     await core.updateSettings({ user: { language: "zh-CN" } });
     expect(await askToFix(core, writer.pairing.id, agent, first)).toContain(
-      "这篇笔记是我的，你的修改要等我接受，而 Word 文件不会写入待处理的修改：请告诉我这一点，等我接受后，再用 save_as_word 和这个 mindId 重新生成 Word 文件。",
+      `用 propose_changes 在这篇笔记（mindId：${mind.id}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件。如果 propose_changes 说需要等我应用，请先告诉我，暂不重新生成。`,
     );
     await core.updateSettings({ user: { language: "en" } });
 
     const { version } = structured<{ version: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
     );
-    structured(
+    const fixed = structured<{ status: string }>(
       await agent.callTool({
         name: "propose_changes",
         arguments: { mindId: mind.id, version, changes: [{ paragraph: "¶1", text: SOUTH_TRUE }] },
       }),
     );
-    const waiting = structured<Saved>(await save(agent, { mindId: mind.id }));
-    expect(waiting).toMatchObject({ fileId: first.fileId, version: 1, mindId: first.mindId });
-    expect(waiting.claims).toEqual(first.claims);
+    expect(fixed.status).toBe("applied");
 
-    await client.settled();
-    await resolveChanges(client, "accept");
-    const accepted = structured<Saved>(await save(agent, { mindId: mind.id }));
-    expect(accepted).toMatchObject({ fileId: first.fileId, version: 2 });
-    expect(partsOf(await savedFile(accepted)).body.map((each) => each.text)).toEqual([SOUTH_TRUE]);
-    expect(accepted.claims.map((each) => each.text)).not.toContain(SOUTH);
+    const updated = structured<Saved>(await save(agent, { mindId: mind.id }));
+    expect(updated).toMatchObject({ fileId: first.fileId, version: 2 });
+    expect(partsOf(await savedFile(updated)).body.map((each) => each.text)).toEqual([SOUTH_TRUE]);
+    expect(updated.claims.map((each) => each.text)).not.toContain(SOUTH);
   });
 
   // protects=a file IncarnaMind saved earlier is found again only where a save would put it: a folder or a link under its name is passed over, and a link put in the Output location's place leads nowhere a save may write, so no file there is taken as saved nor offered to Open and Show (#3751); fails_when=a link or folder under the name is taken for the file, or a file in a link's target is registered as saved

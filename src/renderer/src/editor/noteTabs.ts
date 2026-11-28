@@ -272,6 +272,8 @@ function emptyTabs(doc: ProseMirrorNode): number[] {
   const ends: number[] = [];
   doc.forEach((node, pos, index) => {
     if (node.type.name !== NOTE_TAB_NODE) return;
+    // A pending insert tab hasn't landed yet; inserting a line now would leave a blank paragraph on reject (#3839).
+    if (readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE])?.kind === "insert") return;
     const next = index + 1 < doc.childCount ? doc.child(index + 1) : null;
     if (!next || next.type.name === NOTE_TAB_NODE) ends.push(pos + node.nodeSize);
   });

@@ -23,10 +23,15 @@ import {
 } from "../../core/api";
 import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
-import { type Applying, appliedMessage, finishApplying, startApplying } from "./appliedEdits";
+import {
+  type Applying,
+  appliedMessage,
+  finishApplying,
+  heldProposalRequests,
+  startApplying,
+} from "./appliedEdits";
 import { core } from "./core";
 
-import { appliedLineIn } from "./editor/appliedEditLine";
 import { offerEditorUndo } from "./editor/editorUndo";
 import { type EditSelection, quoteOf, selectionForEdit } from "./editor/editSelection";
 import {
@@ -616,20 +621,19 @@ export function resolveProposalsIn(
   outcome: "accept" | "reject",
 ): void {
   if (editor.isDestroyed || ids.length === 0) return;
+  // An edit held back waits for its own Apply or Discard.
+  const held = heldProposalRequests(editor);
+  const targeted = (proposal: PendingProposal) =>
+    ids === "all" ? !held.has(proposal.request) : ids.includes(proposal.id);
   // A Checkpoint of the Mind before an AI change goes in (#113). Not awaited: the core takes it
   // before the change this sends next.
   const accepting =
     outcome === "accept" &&
-    pendingIn(editor.state).some(
-      (proposal) => !proposal.outOfDate && (ids === "all" || ids.includes(proposal.id)),
-    );
+    pendingIn(editor.state).some((proposal) => !proposal.outOfDate && targeted(proposal));
   if (accepting) {
     core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
   }
-  const picked = pendingIn(editor.state).filter((each) => ids === "all" || ids.includes(each.id));
-  const line = appliedLineIn(editor.state);
-  // An edit held back waits for its own Apply or Discard.
-  const held = new Set(line?.kind === "held" ? [line.request] : []);
+  const picked = pendingIn(editor.state).filter(targeted);
   // Read before the decision: once it is made the change's words have gone from the text.
   const before = editor.state.doc;
   const resolved = resolveInEditor(

@@ -101,7 +101,7 @@ test("an agent's picture swap and corrected chart wait in the User's Note, old s
       const made = await callTool<{ mindId: string }>(agent, "create_mind", {
         title: "Fuel report",
         markdown: [
-          `Fuel cost more in 2026 ${now}.`,
+          `Harbour ferries burned noticeably more marine diesel across every coastal route during 2026 ${now}.`,
           "",
           `![Pier](${join(sources, "pier-2025.svg")})`,
           "",
@@ -115,7 +115,7 @@ test("an agent's picture swap and corrected chart wait in the User's Note, old s
           "```",
         ].join("\n"),
       });
-      // A copy the User makes is theirs: the agent's changes there wait for them.
+      // A copy the User makes and types into holds their own text: rewriting it holds all changes with Apply · Discard (#3839).
       copyId = await window.evaluate(
         async (mindId) =>
           (
@@ -124,6 +124,17 @@ test("an agent's picture swap and corrected chart wait in the User's Note, old s
             )
           ).id,
         made.mindId,
+      );
+      await pointAndClick(
+        window,
+        window.getByTestId("mind-list-item").filter({ hasText: "Fuel report (copy)" }),
+      );
+      const copyEditor = window.getByTestId("mind-editor");
+      await pointAndClick(window, copyEditor.locator(":scope > p").first());
+      await window.keyboard.press("End");
+      await window.keyboard.type(" Harbour ferries burned noticeably more diesel across routes.");
+      await expect(copyEditor.locator(":scope > p").first()).toContainText(
+        "Harbour ferries burned noticeably more diesel across routes.",
       );
       const read = await callTool<{ version: string; markdown: string }>(agent, "read_mind", {
         mindId: copyId,
@@ -140,24 +151,24 @@ test("an agent's picture swap and corrected chart wait in the User's Note, old s
           mindId: copyId,
           version: read.version,
           changes: [
+            { paragraph: "¶1", text: `Diesel outlays hit 3.1 million in 2026 ${now}.` },
             { paragraph: picture, text: `![Pier](${join(sources, "pier-2026.svg")})` },
             { paragraph: cell?.[1], text: `3.1 ${cell?.[2]}` },
             { paragraph: chart, text: '```chart\n{"kind": "bar", "title": "Fuel cost"}\n```' },
           ],
         },
       );
-      expect(proposed).toMatchObject({ status: "waiting", waiting: 3 });
+      expect(proposed).toMatchObject({ status: "waiting", waiting: 4 });
     } finally {
       await agent.close();
     }
 
     expect(copyId).not.toBe("");
-    await pointAndClick(
-      window,
-      window.getByTestId("mind-list-item").filter({ hasText: "Fuel report (copy)" }),
-    );
     const editor = window.getByTestId("mind-editor");
-    await expect(window.getByTestId("proposals-count")).toHaveText("3 changes waiting");
+    await expect(editor.getByTestId("applied-line").getByTestId("applied-count")).toHaveText(
+      "Waiting for you: this rewrites most of your text",
+    );
+    await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
     const pictures = editor.locator(".mind-picture-block");
     // A change's class lands on the element around a picture's or a chart's own.
     const around = (block: Locator) => block.locator("xpath=..");
@@ -208,8 +219,8 @@ test("an agent's picture swap and corrected chart wait in the User's Note, old s
     await window.emulateMedia({ colorScheme: "light" });
     await setLanguage(window, "en");
 
-    await pointAndClick(window, window.getByTestId("proposals-accept-all"));
-    await expect(window.getByTestId("proposals-count")).toHaveCount(0);
+    await pointAndClick(window, editor.getByTestId("applied-apply"));
+    await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
     await expect(pictures).toHaveCount(1);
     await expect(charts).toHaveCount(1);
     await expect(value(charts.first(), "3.1")).toBeVisible();

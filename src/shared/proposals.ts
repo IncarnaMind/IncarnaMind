@@ -814,6 +814,8 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
           ...(record.requested === "edit" && { requested: "edit" as const }),
           ...(record.requested === "edit" &&
             isText(record.instruction) && { instruction: record.instruction }),
+          ...(record.held === true && { held: true as const }),
+          ...(record.staging === true && { staging: true as const }),
         }
       : null;
   }
@@ -913,4 +915,16 @@ export function aiUseOfAccepted(
         },
       ];
     });
+}
+
+/** Rolls back temporary staged outside-agent Proposals left behind by a crash before accept (#3839). */
+export function cleanStagedProposals(blocks: Y.XmlFragment): boolean {
+  const { doc } = blocks;
+  if (!doc) return false;
+  const staged = (ref: ProposalRef) => {
+    const made = proposalRequestOf(doc, ref.request);
+    return made?.source === "outside-agent" && made.staging === true;
+  };
+  if (!pendingProposals(blocks).some(staged)) return false;
+  return resolveProposals(blocks, staged, "reject").length > 0;
 }

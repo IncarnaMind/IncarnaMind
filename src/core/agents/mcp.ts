@@ -51,7 +51,7 @@ export const SERVER_INSTRUCTIONS = [
   "For an ordinary Library question, `search` first, never your memory. Use `read_passages` for neighbours if needed and `check_citations` on the draft before replying.",
   "`ask` gives IncarnaMind's whole Answer with checked Citations in one call (it can take a minute).",
   "Handoff (“About my note …”, “Check my note …”, open Document, meeting, flagged sentence or search scope): `read_request` first (pass title). Skip in a Note's conversation, whose first line gives the Note's mindId.",
-  "Write/change Note: `read_mind` (`named`), `propose_changes` (`¶0+` if empty). Applies at once only in `yours` or the Note the conversation is in; else waits.",
+  "Write/change Note: `read_mind` (`named`), `propose_changes` (`¶0+` if empty). Applies at once unless `status` is `waiting`.",
   "In a Note you wrote, leave the paragraphs `read_mind` marks as the User's as they are, unless they ask.",
   "Write/summarize (report, meeting summary, draft): `propose_changes` in the Note the conversation is in (or target), or `create_mind` for a new Note/none, not chat; questions in chat. Page: `publish_canvas`; Word: `save_as_word`; file on disk: `hand_over_file`, unasked.",
   "When the User asks for a check of a Note, or whether one you wrote is right, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
@@ -490,7 +490,7 @@ export function createAgentServer(
     {
       title: "Change a Note",
       description:
-        "Write/change Note after read_mind (named). ¶3 rewrites/removes, ¶3+ after, ¶+ continues, ¶0+ top/empty. Markdown + [cite:…] as in create_mind. Applies at once only in yours or the Note the conversation is in; else waits.",
+        "Write/change Note after read_mind (named). ¶3 rewrites/removes, ¶3+ after, ¶+ continues, ¶0+ top/empty. Markdown + [cite:…] as in create_mind. Applies at once unless status is waiting.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
@@ -519,8 +519,8 @@ export function createAgentServer(
         next: z.string().nullable(),
         why: z.string().optional().describe("Why it waits for the User."),
       }),
-      // In a Note the agent wrote it changes the Note, one step the User's Undo takes back; in any
-      // other it writes only Proposals, which change the Note once the User accepts them.
+      // Changes apply at once (with Undo and a Checkpoint), or wait for the User when held (>50% of
+      // their text) or targeting another User Note from a Note's conversation.
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

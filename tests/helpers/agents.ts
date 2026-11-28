@@ -100,8 +100,8 @@ export async function startAgentsCore(
   const core = startCore(dataDir, {
     createChatModel: models.createChatModel,
     log,
-    agents: await agentsAdapter(dataDir),
     ...overrides,
+    agents: { ...(await agentsAdapter(dataDir)), ...overrides.agents },
   });
   if (modelSetUp) await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   return { core, dataDir, log, models };

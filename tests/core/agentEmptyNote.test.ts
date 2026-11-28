@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import type { OwnAiRunner } from "../../src/core/adapters";
 import type { NoteChangeApplied, NoteRequestInput, NoteSelectionBlock } from "../../src/core/api";
-import { decideProposals, waitingChanges } from "../../src/shared/proposals";
+import { waitingChanges } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { exactly, heading, note, readMind, writeMind } from "../helpers/minds";
@@ -192,8 +192,8 @@ describe("writing into a Note of empty lines (#3759)", () => {
     }
   }, 180_000);
 
-  // protects=from an outside agent the empty lines' removal is part of the first Block's change, so the Note counts only what is written as waiting and Reject leaves it exactly as it was; fails_when=the empty lines count as changes, or Reject leaves the Note without its first line
-  it("from an outside agent, waits as the Blocks written and Reject leaves the empty lines", async () => {
+  // protects=from an outside agent writing into a Note of empty lines applies at once replacing the empty lines, and Undo restores the empty lines (#3759, #3839); fails_when=the empty lines remain or Undo fails to restore the blank Note
+  it("from an outside agent, applies at once as the Blocks written and Undo restores the empty lines", async () => {
     const { core } = await startAgentsCore(replyingModel());
     await core.setAgentsEnabled(true);
     const { launch } = await core.connectAgent({
@@ -202,22 +202,25 @@ describe("writing into a Note of empty lines (#3759)", () => {
       propose: true,
     });
     const agent = await connectLegacyAgent(launch);
-    for (const outcome of ["accept", "reject"] as const) {
-      const mind = await core.createMind({});
-      const client = await connectToMind(core, mind.id);
-      writeMind(client, [heading(1, ""), note("")]);
-      await client.settled();
-      const before = exactly(client);
-      const result = await propose(agent, mind.id, [{ paragraph: "¶0+", text: SUMMARY }]);
-      expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
-      expect(result.structuredContent?.status).toBe("waiting");
-      await client.settled();
-      expect(waitingChanges(client.blocks)).toBe(3);
-      client.doc.transact(() => decideProposals(client.blocks, () => true, outcome), "user");
-      await client.settled();
-      if (outcome === "accept") expect(shape(readMind(client).toJSON())).toEqual(SUMMARISED);
-      else expect(exactly(client)).toEqual(before);
-    }
+    const steps: string[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.kind === "changed" && change.step) steps.push(change.step);
+    });
+    const mind = await core.createMind({});
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [heading(1, ""), note("")]);
+    await client.settled();
+    const before = exactly(client);
+    const result = await propose(agent, mind.id, [{ paragraph: "¶0+", text: SUMMARY }]);
+    expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
+    expect(result.structuredContent?.status).toBe("applied");
+    await client.settled();
+    expect(waitingChanges(client.blocks)).toBe(0);
+    expect(shape(readMind(client).toJSON())).toEqual(SUMMARISED);
+    expect(steps).toHaveLength(1);
+    expect(await core.undoAgentChange(steps[0] ?? "")).toBe("done");
+    await client.settled();
+    expect(exactly(client)).toEqual(before);
   }, 120_000);
 
   // protects=an agent writing into a Note with no paragraphs, as Write notes does after Stop, is told the one name that writes there, ¶0+, by the paragraph field it fills in and by each refusal of another name, in English and Chinese, and ¶0+ then writes; fails_when=the field or a refusal names only ¶3, ¶3+ and ¶+, which an empty Note can't take, so the agent guesses
@@ -268,7 +271,7 @@ describe("writing into a Note of empty lines (#3759)", () => {
         expect(result.content?.[0]?.text, `${language} ${name}`).toBe(refusal);
       }
       const written = await propose(agent, mind.id, [{ paragraph: "¶0+", text: SUMMARY }]);
-      expect(written.structuredContent?.status, language).toBe("waiting");
+      expect(written.structuredContent?.status, language).toBe("applied");
     }
   }, 120_000);
 });

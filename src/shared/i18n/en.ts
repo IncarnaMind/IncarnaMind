@@ -8893,6 +8893,8 @@ export const en = {
   "agents.propose.version": "Give the version read_mind returned with named.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
+  "agents.propose.heldMostText":
+    "It waits for the User in the note: it rewrites most of their own text, so they can choose Apply or Discard.",
   "agents.propose.ownOutsideSelection":
     "{paragraph} has your change from this request to the words the User selected, in the note once the request ends. A change beyond those words waits for the User, so it can’t replace yours there: change only the selected words, in a call of its own.",
   "agents.propose.firstAdd":
@@ -8986,7 +8988,7 @@ export const en = {
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
   "agents.pairing.readsAll": "Reads all your Documents and notes, and what you add later",
-  "agents.pairing.proposes": "Writes notes, Canvases and files there; proposes changes to yours",
+  "agents.pairing.proposes": "Writes notes, Canvases and files; edits notes; proposes deck changes",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
@@ -9163,10 +9165,10 @@ export const en = {
     "Your Documents aren’t in Folders yet, so these are all of them. To share some, put them in a Folder first.",
   "agents.connect.noneYet": "No Documents yet: it reads those added outside a Folder.",
   "agents.connect.pickOne": "Choose at least one Folder.",
-  "agents.propose.label": "Let it write notes and propose changes in these Folders",
-  "agents.propose.label.all": "Let it write notes and propose changes",
+  "agents.propose.label": "Let it write and edit notes in these Folders",
+  "agents.propose.label.all": "Let it write and edit notes",
   "agents.propose.hint":
-    "Its notes appear at once. A change it proposes to a deck waits until you confirm it. IncarnaMind reads only the files it names or hands over.",
+    "Its notes and note changes appear at once. Changes to a deck wait until you confirm them. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
     "It can read all your Documents and notes. What it reads goes to its AI model.",
@@ -9208,8 +9210,8 @@ export const en = {
   "agents.connectAll.reads.walled":
     "What each reads goes to its AI model. A Folder that keeps its work inside it is shared only on its own.",
   "agents.connectAll.folders": "What they may read",
-  "agents.connectAll.propose": "Let them write notes and propose changes",
-  "agents.connectAll.proposeFolders": "Let them write notes and propose changes in these Folders",
+  "agents.connectAll.propose": "Let them write and edit notes",
+  "agents.connectAll.proposeFolders": "Let them write and edit notes in these Folders",
   "agents.connectAll.apps": "Apps to connect",
   "agents.connectAll.pickApp": "Choose at least one app.",
   "agents.connectAll.eachOwn": "Each gets its own connection to pause or disconnect anytime.",
@@ -9806,13 +9808,9 @@ export const en = {
   "agents.ask.request.noteFile":
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
   "agents.ask.request.fixWordNote":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}. If propose_changes says it waits for me to apply, tell me so instead of saving yet.",
   "agents.ask.request.fixWordNoteAll":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
-  "agents.ask.request.fixWordNoteWaits":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nPropose the fix in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your change waits for me to accept it, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted it.",
-  "agents.ask.request.fixWordNoteAllWaits":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nPropose a fix for each of them in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your changes wait for me to accept them, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted them.",
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}. If propose_changes says it waits for me to apply, tell me so instead of saving yet.",
   "agents.ask.request.wordFolder": ", with folderId {folderId}",
   "agents.ask.request.wordNote":
     "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}, mindId: {mindId}).",
@@ -9843,13 +9841,13 @@ export const en = {
   // A change says where it goes, for an agent that skips read_request.
   "agents.ask.line.selection.explain": "About my note {title} in IncarnaMind: explain {quote}.",
   "agents.ask.line.selection.improve":
-    "About my note {title} in IncarnaMind: improve the writing of {quote}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: improve the writing of {quote}, as a change in the note.",
   "agents.ask.line.selection.shorten":
-    "About my note {title} in IncarnaMind: shorten {quote}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: shorten {quote}, as a change in the note.",
   "agents.ask.line.selection.translate":
-    "About my note {title} in IncarnaMind: translate {quote} into {language}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: translate {quote} into {language}, as a change in the note.",
   "agents.ask.line.selection.translateAny":
-    "About my note {title} in IncarnaMind: translate {quote}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: translate {quote}, as a change in the note.",
   "agents.ask.line.selection.edit":
     "About my note {title} in IncarnaMind, the words {quote}:\n\n{instruction}",
   "agents.ask.line.selection.ask":

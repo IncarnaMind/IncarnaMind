@@ -862,9 +862,7 @@ for (const language of ["en", "zh-CN"] as const) {
         citations: {
           find: (pairingId, token) =>
             pairingId === kept.pairingId && token === kept.token ? kept : null,
-          mint: () => {
-            throw new Error("Not called.");
-          },
+          mint: () => kept,
           documentsOf: () => new Set(),
         },
         recheck: (input) => recheckCitation(documents, input),
@@ -881,6 +879,10 @@ for (const language of ["en", "zh-CN"] as const) {
         ],
         mindBlocks: (_mindId, look) => look(blocks),
         editMind: (_mindId, change) => doc.transact(() => change(blocks)),
+        editOwnMind: (_mindId, change) => ({
+          value: doc.transact(() => change(blocks)),
+          step: `step-${++id}`,
+        }),
         show,
         say: (key, params) => translate(language, key, params),
         newId: () => `id-${++id}`,
@@ -970,7 +972,8 @@ for (const language of ["en", "zh-CN"] as const) {
         version: note.version,
         changes: [{ paragraph: "¶1+", text: `${quote} ${cite}` }],
       });
-      expect(proposed.waiting).toBe(1);
+      expect(proposed.status).toBe("applied");
+      expect(proposed.waiting).toBe(0);
       expect(proposed.citations).toEqual([
         { cite, check, document: "Review", location: label, quote, changed: true },
       ]);

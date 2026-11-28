@@ -14,7 +14,7 @@ import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { readNoteState } from "../../src/renderer/src/noteState";
 import { chartPoints, readChart } from "../../src/shared/charts";
 import { checkRows } from "../../src/shared/noteHealth";
-import { decideProposals, waitingChanges } from "../../src/shared/proposals";
+import { waitingChanges } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -724,8 +724,12 @@ describe("an agent replaces or removes a picture or chart by its name (#3429)", 
     );
   });
 
-  it("in the User's Note, a picture swapped for another file waits as one change, and so does one taken out", async () => {
+  it("in the User's Note, a picture swapped for another file and one taken out apply at once and Undo restores both", async () => {
     const { core, agent, files, orchard } = await paired();
+    const steps: string[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.kind === "changed" && change.step) steps.push(change.step);
+    });
     const mind = await core.createMind({ title: "Field notes", folderId: orchard.id });
     const client = await connectToMind(core, mind.id);
     const inline = `data:image/svg+xml;base64,${base64(SVG)}`;
@@ -763,10 +767,9 @@ describe("an agent replaces or removes a picture or chart by its name (#3429)", 
         },
       }),
     );
-    expect(proposed).toMatchObject({ status: "waiting", waiting: 2 });
-    // Waiting, the Note reads as it is, each picture marked as waiting.
-    expect(proposed.markdown).toContain("¶2");
-    expect(proposed.markdown).not.toContain("New map");
+    expect(proposed).toMatchObject({ status: "applied", waiting: 0 });
+    expect(proposed.markdown).toContain("New map");
+    expect(proposed.markdown).not.toContain("Packhouse");
 
     const pictures = () =>
       client.blocks
@@ -785,25 +788,14 @@ describe("an agent replaces or removes a picture or chart by its name (#3429)", 
           };
         });
     await client.settled();
-    const [old, fresh, packhouse] = pictures();
-    expect([old?.alt, fresh?.alt, packhouse?.alt]).toEqual(["Old map", "New map", "Packhouse"]);
-    expect([old?.proposal?.kind, fresh?.proposal?.kind]).toEqual(["delete", "insert"]);
-    expect(old?.proposal?.id).toBe(fresh?.proposal?.id);
-    expect(packhouse?.proposal?.kind).toBe("delete");
-
-    const swap = old?.proposal?.id;
-    client.doc.transact(() => {
-      decideProposals(client.blocks, (each) => each.id === swap, "accept");
-    }, "user");
-    await client.settled();
-    expect(pictures().map((each) => each.alt)).toEqual(["New map", "Packhouse"]);
-    client.doc.transact(() => {
-      decideProposals(client.blocks, () => true, "reject");
-    }, "user");
-    await client.settled();
     expect(waitingChanges(client.blocks)).toBe(0);
+    expect(pictures()).toEqual([{ alt: "New map", proposal: null }]);
+
+    expect(steps).toHaveLength(1);
+    expect(await core.undoAgentChange(steps[0] ?? "")).toBe("done");
+    await client.settled();
     expect(pictures().map((each) => [each.alt, each.proposal])).toEqual([
-      ["New map", null],
+      ["Old map", null],
       ["Packhouse", null],
     ]);
   });

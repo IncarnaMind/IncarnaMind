@@ -471,8 +471,12 @@ export interface CreateMindInput {
  *   too, and its card then offers no change and groups no quote, so it opens these Notes
  *   read-only. Older content is version 62 content as it is: a check without them gives no
  *   change and names no roles.
+ * - 64: inline code (`code`) may carry `GENERATED_MARK` beside it so AI-written inline code keeps
+ *   its own provenance rather than inheriting from neighboring prose (#3839). An older editor's
+ *   `code` mark excluded `GENERATED_MARK`, so it opens these Notes read-only. Older content is
+ *   version 63 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 63;
+export const CONTENT_SCHEMA_VERSION = 64;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -736,12 +740,12 @@ export const PROPOSAL_ATTRIBUTE = "proposal";
 /**
  * AI text (CONTEXT.md): the words the AI wrote into a Mind that the User
  * hasn't made their own, under this mark, with no attributes. Answers,
- * Answers added to a note, the words a Proposal adds (kept once it is
- * accepted) and accepted suggestions carry it; Citations, formulas, charts
- * and inline code can't. It isn't inclusive, and what the User types is never
- * under it, even inside AI text; "Mark as mine" takes it off. An Answer
- * carries it only when `AnswerAttributes.generatedMarks` says so: an older
- * Answer is AI text as a whole. Readers and exports treat it as no mark.
+ * Answers added to a note, inline code the AI wrote (#3839), the words a
+ * Proposal adds (kept once it is accepted) and accepted suggestions carry it;
+ * Citations, formulas and charts can't. It isn't inclusive, and what the User
+ * types is never under it, even inside AI text; "Mark as mine" takes it off. An
+ * Answer carries it only when `AnswerAttributes.generatedMarks` says so: an
+ * older Answer is AI text as a whole. Readers and exports treat it as no mark.
  */
 export const GENERATED_MARK = "generated";
 
@@ -872,6 +876,10 @@ export interface OutsideAgentRequest {
   requested?: "edit";
   /** What the User typed there, which says whether they asked for a translation. */
   instruction?: string;
+  /** Held for the User because the change would rewrite most of their own text (#3839). */
+  held?: true;
+  /** Temporary staging for an immediate open-editor accept; rolled back on reload if left behind by a crash (#3839). */
+  staging?: true;
 }
 
 /**
@@ -1669,6 +1677,13 @@ export interface SentenceChanges {
   written: number;
   /** The first few of the User's sentences taken out whole and rewritten, as they read. */
   named: { takenOut: string[]; rewritten: string[] };
+}
+
+/** The one paragraph a change came to, named by its label or opening words (`paragraphStart`). */
+export interface NamedChange {
+  start: string;
+  /** Written whole, the User's kept, not changed where it stands. */
+  added: boolean;
 }
 
 /** Whole paragraphs a change removes and nothing else (`paragraphsRemoved`): how many, their sentences, and how the first is named. */
@@ -14064,7 +14079,17 @@ export interface AgentNoteChange {
   changed: number;
   added: number;
   tables: number;
-  /** The step of Undo that takes a change back (`undoAgentChange`); null for a Note it wrote. */
+  /** Whole tables were removed (not only added), so the line says "Changed …". */
+  tablesRemoved?: true;
+  /** Whole paragraphs a removal took out and nothing else; absent otherwise. */
+  removed?: RemovedParagraphs;
+  /** The single paragraph changed or added, named by its label or opening words. */
+  named?: NamedChange;
+  /** Top-level Block where the first change landed, for placing the inline line; null at end. */
+  firstBlockId?: string | null;
+  /** True when a mounted editor already applied this change onto its own Undo stack (#3839). */
+  appliedInEditor?: boolean;
+  /** The step of Undo that takes a change back (`undoAgentChange`); null for a Note it wrote or editor-applied change. */
   step: string | null;
 }
 

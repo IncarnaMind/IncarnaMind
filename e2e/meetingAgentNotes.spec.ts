@@ -197,7 +197,7 @@ for (const language of ["en", "zh-CN"] as const) {
         version,
         changes: [{ paragraph: "¶0+", text: `${quote} ${cite}` }],
       });
-      await pointAndClick(window, window.getByTestId("proposals-accept-all"));
+      await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
       await expect(window.getByTestId("mind-editor").getByTestId("citation")).toBeVisible();
       await expect(action).toHaveCount(0);
       if (process.env.INCARNAMIND_SCREENSHOTS)

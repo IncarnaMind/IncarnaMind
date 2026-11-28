@@ -23,7 +23,13 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type * as Y from "yjs";
-import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD, NOTE_TAB_NODE } from "../../../core/api";
+import {
+  ANSWER_BLOCK,
+  type EditPart,
+  MIND_CONTENT_FIELD,
+  MIND_PROPOSAL_REQUESTS_FIELD,
+  NOTE_TAB_NODE,
+} from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
 import type { CitationLive } from "../../../shared/citations";
@@ -34,6 +40,8 @@ import { type MessageKey, translate } from "../../../shared/i18n";
 import { versionsWithLibrary } from "../../../shared/libraryFacts";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
+import { takeClosedAgentChange } from "../agentNotes";
+import { showClosedAgentLine, syncHeldOutsideProposals } from "../appliedEdits";
 import { askedInThisWindow } from "../askedChanges";
 import { checkSentences, useChecks } from "../checks";
 import {
@@ -55,7 +63,7 @@ import { core } from "../core";
 import { AnalysisTableView } from "../editor/AnalysisTableView";
 import { AnswerView } from "../editor/AnswerView";
 import { holdsAiText } from "../editor/aiText";
-import { AppliedEditLine } from "../editor/appliedEditLine";
+import { AppliedEditLine, appliedLineIn } from "../editor/appliedEditLine";
 import { BlockHandle } from "../editor/BlockHandle";
 import { BlockCommands } from "../editor/blockCommands";
 import { BlockOrigins } from "../editor/blockOrigins";
@@ -931,10 +939,46 @@ function MindEditorView({
     if (!editor.isDestroyed) redrawFootnotes(editor.view);
   }, [editor, documents, keptCitationTexts]);
 
-  useEffect(
-    () => (readOnly ? undefined : registerMindEditor(mindId, editor)),
-    [editor, mindId, readOnly],
-  );
+  useEffect(() => {
+    if (readOnly) return;
+    const unregister = registerMindEditor(mindId, editor);
+    if (appliedLineIn(editor.state) === null) {
+      const closed = takeClosedAgentChange(mindId);
+      if (closed) showClosedAgentLine(editor, closed.change, closed.undoable);
+    }
+    syncHeldOutsideProposals(mindId, editor);
+    const requestsMap = doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD);
+    let proposalsChanged = false;
+    const onRequestsChange = () => {
+      proposalsChanged = true;
+    };
+    const onAfterTransaction = () => {
+      if (!proposalsChanged) return;
+      proposalsChanged = false;
+      syncHeldOutsideProposals(mindId, editor);
+    };
+    let hadAppliedLine = appliedLineIn(editor.state) !== null;
+    const onTransaction = () => {
+      const hasAppliedLine = appliedLineIn(editor.state) !== null;
+      if (hadAppliedLine && !hasAppliedLine) {
+        queueMicrotask(() => {
+          if (!editor.isDestroyed && appliedLineIn(editor.state) === null) {
+            syncHeldOutsideProposals(mindId, editor);
+          }
+        });
+      }
+      hadAppliedLine = hasAppliedLine;
+    };
+    requestsMap.observe(onRequestsChange);
+    doc.on("afterTransaction", onAfterTransaction);
+    editor.on("transaction", onTransaction);
+    return () => {
+      requestsMap.unobserve(onRequestsChange);
+      doc.off("afterTransaction", onAfterTransaction);
+      editor.off("transaction", onTransaction);
+      unregister();
+    };
+  }, [editor, doc, mindId, readOnly]);
   useEffect(() => {
     if (!editor.isDestroyed) resumeTabCloseFocus();
   }, [editor]);

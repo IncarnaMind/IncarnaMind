@@ -31,19 +31,44 @@ const takers = new Map<string, Set<Taker>>();
 /** How many copies of each Mind this window has open: the note's worth one watch, not each. */
 const copiesOpen = new Map<string, number>();
 
+interface SentUpdate {
+  promise: Promise<boolean>;
+}
+
 /** The changes this window sent for each Mind that the core does not have yet. */
-const sent = new Map<string, Set<Promise<void>>>();
+const sent = new Map<string, Set<SentUpdate>>();
+
+/**
+ * Prevents incoming core updates from mutating a Mind's Yjs document while an open editor for it
+ * is mid-IME composition (`view.composing`), draining queued updates once composition ends (#3839).
+ */
+export interface ComposingGate {
+  isComposing(mindId: string): boolean;
+  onceNotComposing(mindId: string, run: () => void): () => void;
+}
+
+let composingGate: ComposingGate | null = null;
+
+export function setComposingGate(gate: ComposingGate | null): void {
+  composingGate = gate;
+}
 
 /**
  * Waits until every change this window sent for the Mind has reached the
  * core, for an ask that must see them: a column move, which copies each cell
- * as it is then, the words just typed into one included.
+ * as it is then, the words just typed into one included. Returns false if any
+ * flushed save failed without recovering.
  */
-export async function flushMindUpdates(mindId: string): Promise<void> {
+export async function flushMindUpdates(mindId: string): Promise<boolean> {
+  let ok = true;
+  const seen = new Set<SentUpdate>();
   for (;;) {
     const waiting = sent.get(mindId);
-    if (!waiting || waiting.size === 0) return;
-    await Promise.all([...waiting]);
+    const pending = waiting ? [...waiting].filter((each) => !seen.has(each)) : [];
+    if (pending.length === 0) return ok;
+    for (const each of pending) seen.add(each);
+    const results = await Promise.all(pending.map((each) => each.promise));
+    if (results.some((each) => !each)) ok = false;
   }
 }
 
@@ -86,31 +111,60 @@ export function openMindCopy(
   let closed = false;
   let watching = false;
   let editable = false;
-  // Listen before opening, so nothing pushed in between is missed. Yjs merges in any order.
-  const stopListening = core.on("mind.update", ({ mindId: changed, update, cause }) => {
-    if (changed !== mindId) return;
+  const deferred: { update: Uint8Array; cause?: EditCause }[] = [];
+  let stopWaitingComposition: (() => void) | null = null;
+  const applyOne = (update: Uint8Array, cause?: EditCause) => {
     const taker =
       cause && [...(takers.get(cause.requestId) ?? [])].find((each) => each.doc === local);
     if (cause && taker) taker.take(update, cause);
     else Y.applyUpdate(local, update, FROM_CORE);
+  };
+  const drainDeferred = () => {
+    stopWaitingComposition = null;
+    if (!active || deferred.length === 0) return;
+    if (composingGate?.isComposing(mindId)) {
+      stopWaitingComposition = composingGate.onceNotComposing(mindId, drainDeferred);
+      return;
+    }
+    const queued = deferred.splice(0);
+    for (const item of queued) applyOne(item.update, item.cause);
+  };
+  // Listen before opening, so nothing pushed in between is missed. Yjs merges in any order.
+  const stopListening = core.on("mind.update", ({ mindId: changed, update, cause }) => {
+    if (changed !== mindId) return;
+    if (deferred.length > 0 || composingGate?.isComposing(mindId)) {
+      deferred.push({ update, cause });
+      if (!stopWaitingComposition && composingGate) {
+        stopWaitingComposition = composingGate.onceNotComposing(mindId, drainDeferred);
+      }
+      return;
+    }
+    applyOne(update, cause);
   });
   // A change that built on one the core never got goes again inside the whole copy (#1119).
-  const store = (update: Uint8Array, again: boolean) => {
-    const tracked = core.applyMindUpdate(mindId, update).catch((error: unknown) => {
-      const missed = describeError(error).wording?.key === "error.mind.missedChange";
-      if (missed && again && active) store(Y.encodeStateAsUpdate(local), false);
-      else failed(error);
-    });
-    const waiting = sent.get(mindId) ?? new Set<Promise<void>>();
-    waiting.add(tracked);
+  const store = (update: Uint8Array, again: boolean): Promise<boolean> => {
+    const entry: SentUpdate = {
+      promise: core.applyMindUpdate(mindId, update).then(
+        () => true,
+        (error: unknown) => {
+          const missed = describeError(error).wording?.key === "error.mind.missedChange";
+          if (missed && again && active) return store(Y.encodeStateAsUpdate(local), false);
+          failed(error);
+          return false;
+        },
+      ),
+    };
+    const waiting = sent.get(mindId) ?? new Set<SentUpdate>();
+    waiting.add(entry);
     sent.set(mindId, waiting);
-    void tracked.finally(() => {
-      waiting.delete(tracked);
+    void entry.promise.finally(() => {
+      waiting.delete(entry);
       if (waiting.size === 0 && sent.get(mindId) === waiting) sent.delete(mindId);
     });
+    return entry.promise;
   };
   const send = (update: Uint8Array, origin: unknown) => {
-    if (origin !== FROM_CORE && origin !== EDIT_FROM_CORE && editable) store(update, true);
+    if (origin !== FROM_CORE && origin !== EDIT_FROM_CORE && editable) void store(update, true);
   };
   local.on("update", send);
   core.openMind(mindId).then(
@@ -140,6 +194,9 @@ export function openMindCopy(
     if (closed) return;
     closed = true;
     active = false;
+    stopWaitingComposition?.();
+    stopWaitingComposition = null;
+    deferred.length = 0;
     stopListening();
     local.off("update", send);
     if (watching) {
