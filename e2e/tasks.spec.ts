@@ -18,6 +18,7 @@ import {
   pointAndClick,
   recordNotifications,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
   startScriptedTask,
   useLocalChatModel,
@@ -286,6 +287,8 @@ test("a Task waiting for approval comes back paused after a quit: â€œNeeds youâ€
   try {
     const { app, window } = await launchApp(dataDir, { scriptedTasks: true });
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1440, 860);
     await recordNotifications(app);
     await newMind(window);
@@ -437,6 +440,7 @@ test("Stop in a Task's progress, reached by keyboard, leaves the focus in the co
     for (const language of ["en", "zh-CN"] as const) {
       const { app, window } = await launchApp(dataDir, { scriptedTasks: true });
       await dismissChatSetup(window);
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
       await setWindowSize(app, window, 1440, 860);
       await newMind(window);
       await window.keyboard.type("Credit memo");
@@ -464,6 +468,7 @@ test("Stop in a Task's progress ends it and withdraws its ask; the progress fits
   try {
     const { app, window } = await launchApp(dataDir, { scriptedTasks: true });
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1440, 860);
     await newMind(window);
     await window.keyboard.type("Credit memo");

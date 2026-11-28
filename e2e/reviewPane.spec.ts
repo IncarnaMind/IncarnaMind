@@ -19,6 +19,7 @@ import {
   removeDataFolder,
   renameInTab,
   savedLine,
+  saveProvider,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -99,6 +100,8 @@ test("the reviewing pane lists their changes in order, follows the text both way
   // The sidebar and the assistant both shown.
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
+  // The narrow page this tests is the one an assistant beside it leaves; with no model and no AI there is none (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await importFile(window, app, "Supply agreement v5.docx", supplyRedline());
   await motionSettled(window);
 
@@ -617,6 +620,7 @@ test("⌘Z in a pane takes back that half's own decision: the same Mind in both 
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1600, 900);
   await dismissChatSetup(window);
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await importFile(window, app, "Supply A.docx", supplyRedline());
   await window.keyboard.press("ControlOrMeta+Backslash");
   await expect(window.getByTestId("sidebar-panel")).toHaveAttribute("data-hidden", "true");

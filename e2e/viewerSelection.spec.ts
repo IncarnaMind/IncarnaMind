@@ -14,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   stubClipboard,
@@ -163,10 +164,12 @@ test("selected text goes into the note at its cursor as a quote whose Citation i
 test("across a page break, the quote leaves out the footer and header, and copies with its citation", async () => {
   const { window, viewer, layer } = await paperBesideMind();
   const copied = await stubClipboard(window);
-  // The foot of page 3 and the top of page 4 in view together.
+  // The foot of page 3 and the top of page 4 in view together, however tall the pages are drawn.
   await viewer
     .locator('[data-page-number="4"]')
-    .evaluate((page) => page.scrollIntoView({ block: "center" }));
+    .evaluate((page) => page.scrollIntoView({ block: "start" }));
+  await viewer.hover();
+  await window.mouse.wheel(0, -240);
   await expect(layer(3)).toContainText("floating");
   await dragOver(window, layer(3), "at floating rates", {
     layer: layer(4),
@@ -190,6 +193,8 @@ test("across a page break, the quote leaves out the footer and header, and copie
 
 test("the keys reach the menu: ⌘/ moves into it, the arrows go through it, and ⌘K has its actions", async () => {
   const { window, layer } = await paperBesideMind();
+  // Ask is in the menu only where an AI can take the words: a model in IncarnaMind here (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   const copied = await stubClipboard(window);
   await dragOver(window, layer(1), "Grocers studied across the eleven chains.");
   await expect(menuOf(window)).toBeVisible();

@@ -12,6 +12,7 @@ import {
   pointAt,
   removeDataFolder,
   savedLine,
+  saveProvider,
   setWindowSize,
   useOutputLocation,
   WINDOW_SIZE,
@@ -52,6 +53,9 @@ const rowsEntered = (window: Page) =>
 test("Export › More formats stays open while the pointer slides across the rows under it to its last format; resting on a row it crossed lets that row take over", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
+  // With no model and no AI the card reaches the window's edge and More formats opens leftwards,
+  // not over the assistant's column (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await setWindowSize(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height);
   await newMind(window);
   await nameMind(window, "Tides");

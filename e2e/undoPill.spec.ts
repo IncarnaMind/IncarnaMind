@@ -24,6 +24,7 @@ import {
   pointAt,
   removeDataFolder,
   renameInTab,
+  saveProvider,
   setLanguage,
   setSidebarShown,
   setWindowSize,
@@ -270,6 +271,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launchApp(dataDir);
     try {
       await dismissChatSetup(window);
+      // The narrow page this tests is the one an assistant beside it leaves; with no model and no AI there is none (#3767).
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
       await setLanguage(window, language);
       const words = WORDS[language];
       await setWindowSize(app, window, 1600, 900);
@@ -416,6 +419,7 @@ test("with groups merged, the band follows the page the focus moves to, not the 
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1600, 900);
     await newMind(window);
     await nameMind(window, "Tides");
@@ -574,6 +578,7 @@ test("the pill stays clear of the assistant's composer docked on the left", asyn
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1600, 900);
     await newMind(window);
     await nameMind(window, "Tides");

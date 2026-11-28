@@ -13,6 +13,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -222,6 +223,8 @@ test('Link a Document in the "/" menu, and "@", put in a chip that opens its Doc
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    // With no model and no AI there is no composer to offer all (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1600, 760);
     // A Folder and a Tag: a Note's "@" still offers Documents alone, as the composer's offers all.
     await window.evaluate(async () => {
@@ -286,6 +289,8 @@ test('Link a Document in the "/" menu, and "@", put in a chip that opens its Doc
 test('"/" finds the existing items by the words Cite… and Link a Document leave them', async () => {
   const { app, window } = await started();
   try {
+    // Compare Documents… is offered only where a model in IncarnaMind can fill it (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     // "citation", "source" and "reference" stay the Quote block's and the Bibliography's.
     await window.keyboard.type("/citation");
     await expect(window.getByTestId("slash-item-quote")).toHaveAttribute("aria-selected", "true");

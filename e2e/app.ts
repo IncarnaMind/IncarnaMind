@@ -3070,9 +3070,20 @@ export async function pointAndClick(
   }).toPass();
   if (!box) throw new Error("The element isn't visible.");
   const { x: left, y: top, width, height } = box;
-  const x = left + width / 2;
-  const y = top + height / 2;
+  let x = left + width / 2;
+  let y = top + height / 2;
   await window.mouse.move(x, y, { steps: 8 });
+  // A line that arrives at a Note's foot while the pointer travels moves what is above it: the
+  // person looks again, and aims where the element now is.
+  const now = await target.boundingBox();
+  if (
+    now &&
+    (Math.abs(now.x + now.width / 2 - x) > 1 || Math.abs(now.y + now.height / 2 - y) > 1)
+  ) {
+    x = now.x + now.width / 2;
+    y = now.y + now.height / 2;
+    await window.mouse.move(x, y, { steps: 4 });
+  }
   for (const key of modifiers) await window.keyboard.down(key);
   try {
     await window.mouse.click(x, y, { button });

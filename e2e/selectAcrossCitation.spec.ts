@@ -17,6 +17,7 @@ import {
   paintOf,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   showEveryCheckResult,
@@ -707,6 +708,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const { app, window } = await launchApp(dataDir);
       try {
         await dismissChatSetup(window);
+        // With no model and no AI there is no assistant (#3767).
+        await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
         const paths: string[] = [];
         for (const [name, text] of Object.entries(SOURCES)) {
           const path = join(sources, `${name}.md`);
