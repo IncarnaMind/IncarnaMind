@@ -110,6 +110,7 @@ describe("Write notes, then its Check, on the User's own AI (#3762)", { timeout:
       installed: async () => true,
       status: async () => ({ kind: "ready" }),
       purge: async () => true,
+      choosesModes: (client: string) => client === "claude-code",
       async run(request: RunRequest) {
         prompts.push(request.prompt);
         request.started?.();
@@ -202,6 +203,7 @@ describe("Write notes, then its Check, on the User's own AI (#3762)", { timeout:
       installed: async () => true,
       status: async () => ({ kind: "ready" }),
       purge: async () => true,
+      choosesModes: (client: string) => client === "claude-code",
       async run(request: RunRequest) {
         request.started?.();
         const agent = await connectLegacyAgent(request.server);
