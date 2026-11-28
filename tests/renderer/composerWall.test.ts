@@ -84,7 +84,12 @@ beforeEach(async () => {
       unobserve() {}
       disconnect() {}
     },
-    getComputedStyle: () => ({ columnGap: "0", paddingLeft: "0", paddingRight: "0" }),
+    getComputedStyle: () => ({
+      columnGap: "0",
+      paddingLeft: "0",
+      paddingRight: "0",
+      getPropertyValue: () => "",
+    }),
     requestAnimationFrame: (run: () => void) => {
       run();
       return 0;
