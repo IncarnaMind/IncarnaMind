@@ -54,7 +54,7 @@ test("a sidebar row steps its surface on hover and once more on press", async ()
     await pointAt(window, row);
     await expect
       .poll(async () => (await paintOf(row)).background)
-      .toBe(await tokenColor(window, "--color-hover"));
+      .toBe(await tokenColor(window, "--color-row-hover"));
     const hovered = (await paintOf(row)).background;
     expect(hovered).not.toBe(resting);
 

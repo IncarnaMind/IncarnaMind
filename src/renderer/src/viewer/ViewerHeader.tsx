@@ -232,7 +232,7 @@ function Toolbar({
         )}
         <div className="viewer-name-area">
           {document && rename.renaming ? (
-            <span className="ml-1 min-w-16 max-w-md flex-1">
+            <span className="ml-1 min-w-15 max-w-md flex-1">
               <InlineName
                 value={document.name}
                 label={t("documents.renameLabel", { name: document.name })}
