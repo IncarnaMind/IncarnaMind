@@ -9453,7 +9453,7 @@ export const en = {
   "noteAsk.doing.save_as_word": "Making the Word file “{summary}”",
   "noteAsk.stopped": "Stopped.",
   "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
-  "noteAsk.renewed": "Started a new conversation: this one can use {agent}’s own tools.",
+  "noteAsk.renewed": "Started a new conversation: {agent} starts fresh after an update.",
   "noteAsk.done.changed.one": "Changed 1 paragraph in this note.",
   "noteAsk.done.changed.other": "Changed {count} paragraphs in this note.",
   "noteAsk.done.waiting.one": "1 change waits for you in “{title}”.",

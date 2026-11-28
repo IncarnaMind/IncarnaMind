@@ -247,6 +247,9 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
     const turns = await separator.separate({
       parts: parts.map((part) => ({ path: part.path, offsetMs: part.offsetMs })),
       model: await model.files(),
+      spans: cues
+        .filter((cue) => separated(cue, call))
+        .map(({ startMs, endMs }) => ({ startMs, endMs })),
     });
     const result = speakerLabels(cues, turns, call);
     log.info("speakers.separated", {

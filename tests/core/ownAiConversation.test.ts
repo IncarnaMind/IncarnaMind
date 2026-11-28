@@ -2981,7 +2981,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const later = idOf(start);
     expect(run.runs).toHaveLength(1);
     expect(sent.map((each) => each.id)).toEqual([later]);
-    expect(sent[0]?.prompt).toContain(`(mindId: ${mindId}), the User asks: and the fares?`);
+    expect(sent[0]?.prompt).toContain(`(mindId: ${mindId}), the User's request: and the fares?`);
     expect(sent[0]?.prompt).not.toContain("selected");
     expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
       ["what changed this year?", "", "working", ""],
@@ -3306,5 +3306,77 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     } finally {
       db.close();
     }
+  });
+
+  // protects=a Note conversation's instructions tell the AI to write summaries and drafts into that Note with read_mind, cite and propose_changes (¶0+ when empty), never read_request, while answering plain questions in the conversation, and the prompt frames the message as a request rather than a question (#3847); fails_when=the instructions contradict create_mind/read_request or promptOf labels writing requests as questions
+  it("instructs writing requests into the Note without read_request, and keeps plain questions in the conversation (#3847)", async () => {
+    const run = runner(async (agent, request) => {
+      const targetId = mindIdOf(request);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: targetId, named: true } }),
+      );
+      const found = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+      ).passages[0];
+      const cited = structured<{ citations: { cite?: string }[] }>(
+        await agent.callTool({
+          name: "cite",
+          arguments: { citations: [{ passageId: found?.passageId ?? "", quote: FERRY }] },
+        }),
+      );
+      const token = cited.citations[0]?.cite ?? "";
+      expect(token).toMatch(/^\[cite:[a-z0-9]+\]$/);
+      const done = structured<{ status: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: targetId,
+            version: read.version,
+            changes: [{ paragraph: "¶0+", text: `Summary: ${FERRY} ${token}` }],
+          },
+        }),
+      );
+      expect(done.status).toBe("applied");
+      return { kind: "finished", reply: "I wrote the summary into your note." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    const folderId = (await core.listMinds()).find((mind) => mind.id === mindId)?.folderId ?? null;
+    const empty = await core.createMind({ title: "Untitled", folderId });
+    const emptyClient = await connectToMind(core, empty.id);
+    writeMind(emptyClient, [note("")]);
+    await emptyClient.settled();
+
+    await core.askInNote({
+      mindId: empty.id,
+      words: "Summarise what these interviews say about onboarding, with sources.",
+    });
+    const end = await ended();
+    expect(end).toMatchObject({ state: "landed", made: [] });
+    expect(end?.applied).toHaveLength(1);
+    const [request] = run.runs;
+    expect(request?.instructions).toMatch(/never call read_request/i);
+    expect(request?.instructions).toContain("whose first line gives the Note's mindId");
+    expect(request?.instructions).toContain("asks to write into another Note by name");
+    expect(request?.instructions).not.toContain("if the request names a different existing Note");
+    expect(request?.instructions).toMatch(/summary[\s\S]*propose_changes/i);
+    expect(request?.instructions).toContain("the note whose mindId the first line gives");
+    expect(request?.instructions).toContain("the Note the conversation is in");
+    expect(request?.instructions).not.toContain("the note this message names");
+    expect(request?.instructions).toContain("¶0+");
+    expect(request?.instructions).toMatch(/plain question[\s\S]*without changing any Note/i);
+    expect(request?.prompt).toContain(`(mindId: ${empty.id}), the User's request: Summarise`);
+    expect(request?.prompt).not.toContain("the User asks:");
+
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId: empty.id,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await emptyClient.settled();
+    const citations: Record<string, unknown>[] = [];
+    readMind(emptyClient).descendants((node) => {
+      if (node.type.name === "citation") citations.push(node.attrs);
+    });
+    expect(citations).toEqual([expect.objectContaining({ check: "found" })]);
   });
 });

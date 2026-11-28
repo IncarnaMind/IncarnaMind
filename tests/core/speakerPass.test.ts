@@ -333,10 +333,15 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     const file = readFileSync(saved.savedPath as string, "utf8");
     const before = readVtt(file).cues;
     expect(new Set(before.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
-    // The pass starts once the finished text is indexed.
+    // The pass starts once the finished text is indexed, passing only the separated side's cue spans.
     await vi.waitFor(() => expect(requests[0]?.parts.length).toBeGreaterThan(0), {
       timeout: 10_000,
     });
+    expect(requests[0]?.spans).toEqual(
+      before
+        .filter((cue) => cue.speaker !== null && cue.speaker !== "Me")
+        .map(({ startMs, endMs }) => ({ startMs, endMs })),
+    );
     const version = (await core.listDocuments()).find(
       (each) => each.id === saved.documentId,
     )?.contentHash;
@@ -489,6 +494,7 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
     const cues = await toldCues(told.core, told.meeting.id);
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Speaker 1", "Speaker 2"]));
     expect(room.requests[0]?.parts.every((part) => part.path.includes("microphone"))).toBe(true);
+    expect(room.requests[0]?.spans).toEqual(cues.map(({ startMs, endMs }) => ({ startMs, endMs })));
     told.core.close();
 
     const failing = fakeSeparator({ fails: "The model couldn't load." });
