@@ -7148,7 +7148,6 @@ export function createCore(adapters: CoreAdapters): Core {
         library.folders().map((folder) => ({
           id: folder.id,
           name: folder.name,
-          description: folder.description,
           parentId: folder.parentId,
           keepInside: folder.keepInside,
         })),

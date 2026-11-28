@@ -4,13 +4,7 @@ import { estimateTokens } from "../answers/context";
 import type { DocumentKind } from "../api";
 import { InvalidInputError } from "../errors";
 import type { Language } from "../language";
-import {
-  documentOutline,
-  ORGANIZE_PASSAGES,
-  type OrganizeUnit,
-  ROUTING_PAGE_CHARACTERS,
-  ROUTING_PAGES,
-} from "../library/excerpt";
+import { documentOutline, ORGANIZE_PASSAGES, storedOrganizeUnits } from "../library/excerpt";
 import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
 import type { Database } from "../storage";
 import { offeredKinds } from "../tags/about";
@@ -26,7 +20,8 @@ import { AgentRefusedError } from "./refusals";
  */
 export const SORTING_MOST = 40;
 
-type Choice = { id: string; name: string; description?: string };
+type Choice = { id: string; name: string };
+type TagChoice = Choice & { description?: string };
 type Waiting = {
   id: string;
   name: string;
@@ -47,7 +42,7 @@ export interface SortingBatch {
   /** How many wait in all, on every page (#3610). */
   total: number;
   folders: Choice[];
-  tags: Choice[];
+  tags: TagChoice[];
   next: string | null;
 }
 
@@ -93,8 +88,8 @@ export function createAgentSorting(
     }));
   }
 
-  function choices(scope: Scope): Choice[] {
-    const kinds = offeredKinds(db).map((kind) => ({
+  function choices(scope: Scope): TagChoice[] {
+    const kinds: TagChoice[] = offeredKinds(db).map((kind) => ({
       id: kindId(kind),
       name: kindName(kind, language()),
       description: KIND_MEANINGS[kind],
@@ -111,13 +106,7 @@ export function createAgentSorting(
 
   function outlineOf(id: string, kind: DocumentKind, contentHash: string | null): string | null {
     if (kind !== "pptx" && kind !== "xlsx") return null;
-    const units = db
-      .all<{ page: number; kind: OrganizeUnit["kind"]; label: string | null; text: string }>(
-        "SELECT page, kind, label, CASE WHEN page <= ? THEN substr(text, 1, ?) ELSE '' END AS text FROM document_pages WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL ORDER BY page LIMIT 400",
-        [BigInt(ROUTING_PAGES), BigInt(ROUTING_PAGE_CHARACTERS), id, contentHash],
-      )
-      .map((row) => ({ ...row, label: row.label ? JSON.parse(row.label) : null }));
-    return documentOutline({ kind, units });
+    return documentOutline({ kind, units: storedOrganizeUnits(db, id, contentHash) });
   }
 
   return {

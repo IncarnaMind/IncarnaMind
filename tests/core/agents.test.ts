@@ -34,6 +34,7 @@ import {
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
+import { xlsxPackage } from "../helpers/office";
 import { paragraph, run, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
@@ -735,26 +736,46 @@ describe("outside agents", () => {
     expect((await useTag(hidden.id)).isError).toBe(true);
   });
 
-  // protects=list_sorting sends each kind Tag's meaning, any non-empty Folder description, and a deck's or workbook's outline (slide titles / sheet names), omitting custom Tag descriptions not covered by tag-name consent and non-deck/workbook outlines (#1569); fails_when=kind Tags lack descriptions, Folder descriptions are dropped, custom Tag descriptions leak, or decks/workbooks lose their outlines
-  it("gives list_sorting kind meanings, non-empty Folder descriptions, and deck or workbook outlines", async () => {
+  // protects=list_sorting sends each kind Tag's meaning and a deck's or workbook's outline (slide titles / sheet names), omitting user Folder and Tag descriptions not covered by consent and omitting non-deck/workbook outlines (#1569); fails_when=kind Tags lack descriptions, user Folder or Tag descriptions leak, or decks/workbooks lose their outline contents
+  it("gives list_sorting kind meanings and deck or workbook outlines without leaking user descriptions", async () => {
     const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
     const sources = await createSourceFolder();
     const noteFile = await writeSourceFile(sources, "Harbour memo.md", "# Memo\n\nBerth 2 update.");
+    const zhSheetPath = join(sources, "季度预算.xlsx");
+    await writeFile(
+      zhSheetPath,
+      xlsxPackage({
+        sheets: [
+          {
+            name: "预算汇总",
+            xml: `<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>科目</t></is></c><c r="B1"><v>1200</v></c></row></sheetData>`,
+          },
+          {
+            name: "费用明细",
+            xml: `<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>差旅</t></is></c><c r="B1"><v>300</v></c></row></sheetData>`,
+          },
+        ],
+      }),
+    );
     const fixturesDir = join(process.cwd(), "tests", "fixtures", "formats");
     const docs = await addAndProcess(core, [
       noteFile,
+      zhSheetPath,
       join(fixturesDir, "Quarterly Research Update.pptx"),
       join(fixturesDir, "Regional Revenue.xlsx"),
+      join(fixturesDir, "Orders.csv"),
     ]);
     const noteDoc = docs.find((d) => d.name === "Harbour memo");
+    const zhSheetDoc = docs.find((d) => d.name === "季度预算");
     const deckDoc = docs.find((d) => d.name === "Quarterly Research Update");
     const sheetDoc = docs.find((d) => d.name === "Regional Revenue");
-    if (!noteDoc || !deckDoc || !sheetDoc) throw new Error("Expected all three Documents.");
+    const csvDoc = docs.find((d) => d.name === "Orders");
+    if (!noteDoc || !zhSheetDoc || !deckDoc || !sheetDoc || !csvDoc)
+      throw new Error("Expected all five Documents.");
     const described = await core.createLibraryGroup({
       name: "Harbour",
       description: "Port operations and soundings",
     });
-    const plainFolder = await core.createLibraryGroup({ name: "Archive", description: "" });
     const describedTag = await core.createTag({
       name: "Dredging",
       description: "Berth depth and silt clearance",
@@ -767,12 +788,7 @@ describe("outside agents", () => {
     const batch = structured<SortingBatch>(
       await agent.callTool({ name: "list_sorting", arguments: {} }),
     );
-    expect(batch.folders).toContainEqual({
-      id: described.id,
-      name: "Harbour",
-      description: "Port operations and soundings",
-    });
-    expect(batch.folders).toContainEqual({ id: plainFolder.id, name: "Archive" });
+    expect(batch.folders).toEqual([{ id: described.id, name: "Harbour" }]);
     expect(batch.tags).toContainEqual({
       id: "kind:report",
       name: translate("en", "tags.kind.report"),
@@ -782,8 +798,25 @@ describe("outside agents", () => {
 
     const byId = new Map(batch.documents.map((d) => [d.id, d]));
     expect(byId.get(noteDoc.id)?.outline).toBeUndefined();
-    expect(byId.get(deckDoc.id)?.outline).toMatch(/slides?:/);
-    expect(byId.get(sheetDoc.id)?.outline).toMatch(/sheets?:/);
+    expect(byId.get(csvDoc.id)?.outline).toBeUndefined();
+    expect(byId.get(deckDoc.id)?.outline).toBe(
+      "5 slides: 1. Quarterly Research Update; 2. Key findings; 3. Regional growth; 4. Pipeline by stage; 5. Revenue by quarter",
+    );
+    expect(byId.get(sheetDoc.id)?.outline).toBe("2 sheets: Revenue; Notes");
+    expect(byId.get(zhSheetDoc.id)?.outline).toBe("2 sheets: 预算汇总; 费用明细");
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const zhBatch = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(zhBatch.tags).toContainEqual({
+      id: "kind:report",
+      name: translate("zh-CN", "tags.kind.report"),
+      description: KIND_MEANINGS.report,
+    });
+    expect(zhBatch.documents.find((d) => d.id === zhSheetDoc.id)?.outline).toBe(
+      "2 sheets: 预算汇总; 费用明细",
+    );
   });
 
   // protects=with no Folder yet and no model set up, an agent suggests a Folder and a Tag by name; nothing is made, filed or tagged before Confirm; one name given in two calls is one Folder; a Document nothing fits gets nothing; a name the Library can't take is refused in its own form's words with nothing of the call kept; Confirm makes them and files and tags the Documents (#3610); fails_when=a new name is refused, something is made or filed before Confirm, one name gives two Folders, or a bad name fails as IncarnaMind's own error

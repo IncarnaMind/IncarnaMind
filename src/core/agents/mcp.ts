@@ -342,7 +342,8 @@ export function createAgentServer(
     (input) => answer(() => access.showCitation(input)),
   );
 
-  const choice = z.object({ id: z.string(), name: z.string(), description: z.string().optional() });
+  const choice = z.object({ id: z.string(), name: z.string() });
+  const tagChoice = choice.extend({ description: z.string().optional() });
   server.registerTool(
     tool("list_sorting"),
     {
@@ -352,9 +353,7 @@ export function createAgentServer(
       inputSchema: z.object({ after: z.string().optional() }),
       outputSchema: z.object({
         documents: z.array(
-          z.object({
-            id: z.string(),
-            name: z.string(),
+          choice.extend({
             kind: z.string(),
             version: z.string(),
             folderId: z.string().nullable(),
@@ -364,7 +363,7 @@ export function createAgentServer(
         ),
         total: z.number(),
         folders: z.array(choice),
-        tags: z.array(choice),
+        tags: z.array(tagChoice),
         next: z.string().nullable(),
       }),
       annotations: READ_ONLY,
