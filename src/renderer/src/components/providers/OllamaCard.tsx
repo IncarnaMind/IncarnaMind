@@ -9,7 +9,7 @@ import { localModeChosen } from "../../localMode";
 import { ollamaRead } from "../../ollamaRead";
 import { useAppStore } from "../../store";
 import { ProblemMark } from "../ProblemLine";
-import { buttonStyle, errorTextClass } from "../ui";
+import { type ButtonSize, buttonStyle, errorTextClass } from "../ui";
 import { useKeepLocal } from "./KeepLocalChoice";
 
 /** `open` resolves null when Ollama's app couldn't be opened; that failure is already reported. */
@@ -187,10 +187,9 @@ export function OllamaProgress({ ollama }: { ollama: Ollama }) {
 }
 
 /** Ollama's button: use it (pulling the recommended model), or get it and look for it again. */
-export function OllamaAction({ ollama, large = false }: { ollama: Ollama; large?: boolean }) {
+export function OllamaAction({ ollama, size = "md" }: { ollama: Ollama; size?: ButtonSize }) {
   const t = useT();
   const { status, pulling } = ollama;
-  const size = large ? "lg" : "md";
   const model = status ? modelName(status.recommendedModel, { kind: "ollama" }) : "";
   if (status?.running) {
     return (
