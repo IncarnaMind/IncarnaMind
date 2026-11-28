@@ -2750,6 +2750,10 @@ test("a cell opens its Citation, checks hand edits, protects reviewed cells in b
     await expect(window.getByTestId("undo-message")).toContainText("Fill 1 cell again");
   });
   await expect(first.locator(".comparison-cell-flags")).toContainText("✓");
+  // The pointer rests where Fill row again was, which can be over a Citation of the row: its card
+  // peeks over the table's header. A person reads the undo line, and the card goes.
+  await window.getByTestId("undo-message").hover();
+  await expect(window.getByTestId("citation-card")).toHaveCount(0);
 
   await pointAndClick(window, table.getByTestId("comparison-table-menu"));
   const estimates = window.getByTestId("comparison-refill-estimate");

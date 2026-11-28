@@ -68,11 +68,11 @@ test("a new Document's Tag waits in the Review until confirmed, and a Tag the Us
   await openDocumentTags(item);
   await item.getByTestId("open-tags-dialog").click();
   const dialog = window.getByTestId("tags-dialog");
-  await expect(dialog.getByTestId("tag-row")).toHaveCount(9);
+  await expect(dialog.getByTestId("tag-row")).toHaveCount(10);
   await dialog.getByTestId("tag-name-input").fill("Quarterly");
   await dialog.getByTestId("tag-description-input").fill("Covers one quarter of a year.");
   await dialog.getByTestId("save-tag").click();
-  await expect(dialog.getByTestId("tag-row")).toHaveCount(10);
+  await expect(dialog.getByTestId("tag-row")).toHaveCount(11);
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(dialog).toBeHidden();
 
