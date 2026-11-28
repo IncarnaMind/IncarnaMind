@@ -9,7 +9,7 @@ import { listsFor } from "../../src/core/answers/checks/checkSetup";
 import type { ClaimCheckAttributes, LibrarySource } from "../../src/core/api";
 import { libraryLists, libraryVersion } from "../../src/core/library/lists";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
-import { claimCheckShown } from "../../src/shared/claimChecks";
+import { addedCouldChange, claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingPart } from "../../src/shared/claimParts";
 import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { isCheckRun } from "../helpers/checks";
@@ -521,4 +521,244 @@ test("User checkMind in changed mode re-checks a Library claim once a Document i
   const third = await core.checkMind({ requestId: "lib-r3", mindId: mind.id, mode: "changed" });
   expect(third.kind).toBe("checked");
   expect(runtime.jobs).toHaveLength(2);
+});
+
+// protects=a sentence the check model marks Library: unsettled reads Not checked (library-unsettled) across all non-quoted-contradicted verdicts, withholds a wrong Supported tick, and skips search-again / cite-first retries; fails_when=an unsettled Library sentence is marked Not found with Cut, Supported, or triggers extra requests.
+test("Library: unsettled returns Not checked (library-unsettled) across verdicts and skips extra retries", async () => {
+  for (const verdict of [
+    "not found",
+    "partly supported",
+    "overstated",
+    "own view",
+    "supported",
+    "contradicted",
+  ]) {
+    const { core, outside, calls, repliesWith } = await setUp(counted(2));
+    repliesWith(
+      `Verdict: ${verdict}\nUnits: none\nLibrary: unsettled\nExplanation: The lists do not hold what the files cover.\nEvidence: []\nWorking: none`,
+    );
+
+    const result = await core.checkClaim({
+      claim: "Your Library holds two Documents, mostly about the harbour.",
+      mindId: outside.id,
+    });
+
+    expect(result, verdict).toMatchObject({ verdict: "not-checked", reason: "library-unsettled" });
+    // One turn to call run_analysis and one turn to reply: never a search-again or cite-first retry.
+    expect(calls, verdict).toHaveLength(2);
+  }
+});
+
+// protects=a sentence that says Library: unsettled after a failed missing-column run still reads library-unsettled, while a settleable count whose run failed keeps rows-run-failed; fails_when=a missing-column Library failure hides library-unsettled or masks a real count error.
+test("Library: unsettled after a failed Library run returns library-unsettled, while settled keeps rows-run-failed", async () => {
+  const unsettled = await setUp({
+    end: { kind: "error", message: "KeyError: 'added_at'", line: 1 },
+  });
+  unsettled.repliesWith(
+    "Verdict: not found\nUnits: none\nLibrary: unsettled\nExplanation: The lists do not hold dates added.\nEvidence: []",
+  );
+  expect(
+    await unsettled.core.checkClaim({
+      claim: "Two Documents were added in October.",
+      mindId: unsettled.outside.id,
+    }),
+  ).toMatchObject({ verdict: "not-checked", reason: "library-unsettled" });
+
+  const settled = await setUp({
+    end: { kind: "error", message: "KeyError: 'bad'", line: 1 },
+  });
+  settled.repliesWith(
+    "Verdict: supported\nUnits: none\nLibrary: settled\nExplanation: Counted.\nEvidence: []",
+  );
+  expect(await settled.core.checkClaim({ claim: CLAIM, mindId: settled.outside.id })).toMatchObject(
+    { verdict: "not-checked", reason: "rows-run-failed" },
+  );
+});
+
+// protects=a Contradicted verdict backed by a verified Document quote is never softened by Library: unsettled, while cite carrying library: unsettled on non-contradicted verdicts returns library-unsettled; fails_when=a real Document contradiction is hidden or cite's library field is dropped.
+test("verified Document quote keeps Contradicted even with Library: unsettled, while cite library: unsettled withholds Supported", async () => {
+  const runWithCite = async (verdict: "supported" | "contradicted") => {
+    const model = scriptedModel(
+      (call) => {
+        if (!isCheckRun(call)) return { text: "" };
+        const search = call.results.find((result) => result.tool === "search_documents");
+        if (!search)
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: "P1",
+                    location: "§ Tides",
+                    quote: "Spring tides come at new moon.",
+                  },
+                ],
+                verdict,
+                units: "none",
+                library: "unsettled",
+                explanation: "Checked against the Document.",
+              },
+            },
+          ],
+        };
+      },
+      { generate: () => ({ text: "{}" }) },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+      analysisRuntime: createFakeAnalysisRuntime({ answer: () => counted(2) }),
+    });
+    onTestFinished(() => core.close());
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides come at new moon.\n"),
+    ]);
+    const mind = await core.createMind({ title: "Note", folderId: null });
+    return core.checkClaim({
+      claim: "Your Library holds two Documents and spring tides come at quarter moon.",
+      mindId: mind.id,
+    });
+  };
+
+  expect(await runWithCite("contradicted")).toMatchObject({ verdict: "contradicted" });
+  expect(await runWithCite("supported")).toMatchObject({
+    verdict: "not-checked",
+    reason: "library-unsettled",
+  });
+});
+
+// protects=when Python is unavailable and Library lists are not offered, Library: unsettled is ignored so non-Library checks stay unchanged; fails_when=Library: unsettled fires without countsLibrary.
+test("with no Python on this computer, Library: unsettled is ignored", async () => {
+  const { core, outside, repliesWith } = await setUp("none");
+  repliesWith(
+    "Verdict: not found\nUnits: none\nLibrary: unsettled\nExplanation: No Passage states this.\nEvidence: []",
+  );
+
+  const result = await core.checkClaim({
+    claim: "Your Library holds two Documents, mostly about tides.",
+    mindId: outside.id,
+  });
+
+  expect(result).toMatchObject({ verdict: "unsupported", unsupported: { word: "not-found" } });
+});
+
+// protects=an unchanged library-unsettled sentence is treated as settled by checkMind in changed mode and addedCouldChange, and re-checked once the sentence is edited or the Library changes (#2525); fails_when=changed mode loops on library-unsettled or misses edits and Library updates.
+test("checkMind in changed mode holds library-unsettled until edited or the Library changes", async () => {
+  const sentence = "Your Library holds two Documents, mostly about the harbour.";
+  let checkCalls = 0;
+  const runtime = createFakeAnalysisRuntime({ answer: () => counted(2) });
+  const model = scriptedModel(
+    (call) => {
+      if (!isCheckRun(call)) return { text: "" };
+      const ran = call.results.some((result) => result.tool === ANALYSIS_TOOLS.run);
+      if (!ran && call.tools.includes(ANALYSIS_TOOLS.run)) {
+        checkCalls++;
+        return {
+          calls: [
+            {
+              tool: ANALYSIS_TOOLS.run,
+              input: {
+                title: "Documents",
+                inputs: [{ name: "files", library: "documents" }],
+                code: CODE,
+              },
+            },
+          ],
+        };
+      }
+      return {
+        text: "Verdict: not found\nUnits: none\nLibrary: unsettled\nExplanation: Lists do not hold what files cover.\nEvidence: []",
+      };
+    },
+    { generate: (call) => ({ text: sortReply(call.prompt) }) },
+  );
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    analysisRuntime: runtime,
+  });
+  onTestFinished(() => core.close());
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: "claude-haiku-5-5",
+  });
+  if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [
+    await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides.\n"),
+    await writeSourceFile(sources, "Office.md", "# Office\n\nOpens at nine.\n"),
+  ]);
+  const mind = await core.createMind({ title: "Unsettled", folderId: null });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [note(sentence)]);
+  await client.settled();
+
+  const first = await core.checkMind({ requestId: "u-r1", mindId: mind.id, mode: "changed" });
+  expect(first.kind).toBe("checked");
+  expect(checkCalls).toBe(1);
+
+  // Unchanged Note and Library: changed mode holds library-unsettled and sends nothing.
+  expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({ kind: "unchanged" });
+  expect(await core.checkMind({ requestId: "u-r2", mindId: mind.id, mode: "changed" })).toEqual({
+    kind: "nothing",
+  });
+  expect(checkCalls).toBe(1);
+
+  expect(
+    addedCouldChange(
+      {
+        id: "m1",
+        request: "u-r1",
+        action: "find-support",
+        state: "not-checked",
+        reason: "library-unsettled",
+        detail: null,
+        providerId: null,
+        modelId: null,
+        text: sentence,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        scope: { folderId: null, widened: false },
+        versions: [],
+        excluded: [],
+        checkedAt: "2026-11-28T00:00:00.000Z",
+      },
+      { state: "not-checked", reason: "library-unsettled" },
+    ),
+  ).toBe(false);
+
+  // Adding a Document changes LIBRARY_FACTS version, so changed mode re-checks it.
+  await addAndProcess(core, [
+    await writeSourceFile(sources, "Quays.md", "# Quays\n\nTwo stone quays.\n"),
+  ]);
+  expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({
+    kind: "ready",
+    sentences: 1,
+  });
+  await core.checkMind({ requestId: "u-r3", mindId: mind.id, mode: "changed" });
+  expect(checkCalls).toBe(2);
+
+  // Editing the sentence also makes changed mode re-check it.
+  writeMind(client, [note("Your Library holds three Documents, mostly about the harbour.")]);
+  await client.settled();
+  expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({
+    kind: "ready",
+    sentences: 1,
+  });
+  await core.checkMind({ requestId: "u-r4", mindId: mind.id, mode: "changed" });
+  expect(checkCalls).toBe(3);
 });

@@ -1176,7 +1176,8 @@ export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckS
   (shown.state === "unsupported" ||
     (shown.state === "not-checked" &&
       shown.reason !== "found-elsewhere" &&
-      shown.reason !== "assistant-conclusion") ||
+      shown.reason !== "assistant-conclusion" &&
+      shown.reason !== "library-unsettled") ||
     ((shown.state === "supported" ||
       (shown.state === "not-checked" && shown.reason === "assistant-conclusion")) &&
       (check.readDocuments?.length ?? 0) > 0));

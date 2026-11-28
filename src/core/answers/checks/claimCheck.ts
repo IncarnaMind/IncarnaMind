@@ -5,8 +5,9 @@
  * The sentence goes to its model whole, in its paragraph, with the Passages its own Citations
  * quote. The model may search the Documents for more, records each quote that decides the
  * sentence with `cite`, and gives one verdict (./prompt). IncarnaMind confirms that a Supported or
- * Contradicted verdict rests on a quote its Document holds (the Citation check), and lowers
- * Supported to Unsupported when the model's own Units word says "unstated" or "another" (#3806).
+ * Contradicted verdict rests on a quote its Document holds (the Citation check), lowers Supported
+ * to Unsupported when the model's own Units word says "unstated" or "another" (#3806), and leaves
+ * a sentence Not checked when the model's own Library word says "unsettled" (#2525).
  * Code never raises a verdict. A refusal, a reply with no verdict, an empty one or a provider's
  * failure leaves the sentence not checked, with the reason; never Supported.
  *
@@ -342,6 +343,9 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       ? null
       : readVerdict(turns.slice(from).join("\n"));
   };
+  const language = deps.language();
+  const countsLibrary = runtime !== undefined && libraryLists !== undefined;
+  const isLibraryUnsettled = (read: ReadVerdict) => countsLibrary && read.library === "unsettled";
   // The verdict the search-again ask is for (#3381): one resting on a quote it recorded is not.
   const saysNotStated = (read: ReadVerdict) =>
     read.verdict === "unsupported" && (read.word ?? "not-found") === "not-found" && !recorded(read);
@@ -360,7 +364,11 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       name: "search-again",
       check(text, earlier) {
         const read = readReply(text, earlier);
-        return read && looked() && searches() <= 1 && saysNotStated(read)
+        return read &&
+          looked() &&
+          searches() <= 1 &&
+          saysNotStated(read) &&
+          !isLibraryUnsettled(read)
           ? { claims: [], note: SEARCH_AGAIN }
           : null;
       },
@@ -374,14 +382,13 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
           read.verdict !== "unsupported" &&
           !recorded(read) &&
           !restsOnOwnFigure(read) &&
-          !workedOut()
+          !workedOut() &&
+          !isLibraryUnsettled(read)
           ? { claims: [], note: CITE_FIRST, requires: "cite" }
           : null;
       },
     },
   ];
-  const language = deps.language();
-  const countsLibrary = runtime !== undefined && libraryLists !== undefined;
   let reply = "";
   let setAside: readonly string[] = [];
   let failed: ProviderError | null = null;
@@ -454,6 +461,9 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const quotes =
     named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
   const [quoted, ...more] = quotes;
+  if (isLibraryUnsettled(read) && !(read.verdict === "contradicted" && quoted !== undefined)) {
+    return notChecked("library-unsettled");
+  }
   const recordedQuotes = () =>
     found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1)).map((each) => each.quote);
   // A verdict with no quote of its own rests on the working, where the model worked the figure
