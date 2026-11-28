@@ -421,7 +421,7 @@ for (const [language, width] of [
       const contract = tagRow(window, kind);
       await expect(row).toBeVisible();
       await expect(contract).toBeVisible();
-      const hover = await tokenColor(window, "--color-hover");
+      const hover = await tokenColor(window, "--color-row-hover");
 
       // A drop a Tag takes: while the drag is under way the row is quieter and not washed, and
       // once the drop lands both are back.
