@@ -21,6 +21,8 @@ export interface ChangeCounts {
   changed: number;
   wrote: number;
   tables: number;
+  /** Whole tables were removed (not only added), so the line says "Changed …" rather than "Added …". */
+  tablesRemoved?: true;
   /** Absent: none. */
   charts?: number;
   /** The whole paragraphs removals took out (#2356). Absent: none. */
@@ -211,6 +213,17 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
   const tables = tablesText(t, row);
   const count = row.wrote + row.changed;
   if (name === null) {
+    if (row.tablesRemoved) {
+      const tableCount =
+        row.tables === 1
+          ? t("edit.count.tables.one")
+          : t("edit.count.tables", { count: row.tables });
+      if (count === 0) return t("edit.applied.changes", { changes: tableCount });
+      const paragraphs = counted(t, count, "paragraphs");
+      return t("edit.applied.changes", {
+        changes: t("edit.changes", { paragraphs, tables: tableCount }),
+      });
+    }
     if (count === 0) return t("edit.tables", { tables });
     const paragraphs = counted(t, count, "paragraphs");
     if (row.changed > 0) return t("edit.applied.tables", { paragraphs, tables });

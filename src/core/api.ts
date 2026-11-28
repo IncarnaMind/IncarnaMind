@@ -14000,6 +14000,8 @@ export interface AgentNoteChange {
   changed: number;
   added: number;
   tables: number;
+  /** Whole tables were removed (not only added), so the line says "Changed …". */
+  tablesRemoved?: true;
   /** Whole paragraphs a removal took out and nothing else; absent otherwise. */
   removed?: RemovedParagraphs;
   /** The single paragraph changed or added, named by its label or opening words. */

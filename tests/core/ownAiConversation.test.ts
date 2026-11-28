@@ -5749,4 +5749,70 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     });
     expect(citations).toEqual([expect.objectContaining({ check: "found" })]);
   });
+
+  // protects=SHOULD-FIX 6: a Note-input translation request on an AI-written (own) Note where the User added >50% User text still sets requested:"edit" and instruction so translationRequested exempts it from holding, while a non-translation >50% rewrite holds (#3839); fails_when=translation on an own Note with User text holds with waiting
+  it("exempts a Note-input whole-Note translation on an AI-written Note with >50% User text while holding non-translations", async () => {
+    const userLine1 =
+      "The harbour office publishes tidal heights for every coastal pier on Monday morning.";
+    const userLine2 =
+      "Vessels crossing the narrows follow the revised winter timetable throughout January.";
+    let turn = 0;
+    const statuses: string[] = [];
+    const run = runner(async (agent, request) => {
+      turn += 1;
+      const done = (await rewrite(
+        agent,
+        mindIdOf(request),
+        turn === 1
+          ? [
+              [userLine1, "Le bureau du port publie les hauteurs des marées chaque lundi matin."],
+              [userLine2, "Les navires suivent le nouvel horaire d'hiver tout au long de janvier."],
+            ]
+          : [
+              [userLine1, "Salt wind across quiet stone."],
+              [userLine2, "Cold harbour water waits."],
+            ],
+      )) as { status: string };
+      statuses.push(done.status);
+      return { kind: "finished", reply: turn === 1 ? "Translated." : "Rewritten." };
+    });
+
+    const { core, claude, ended } = await written(run.adapter);
+    const outside = await connectLegacyAgent(claude.launch);
+    const created = structured<{ mindId: string }>(
+      await outside.callTool({
+        name: "create_mind",
+        arguments: { title: "Agent draft", markdown: "Brief heading note." },
+      }),
+    );
+    const ownClient = await connectToMind(core, created.mindId);
+    await ownClient.settled();
+    // Append User-written paragraphs (without GENERATED_MARK) so >50% of the Note is User text.
+    const appendUserLines = async () => {
+      editMind(ownClient, (blocks) => [...blocks, note(userLine1), note(userLine2)]);
+      await ownClient.settled();
+    };
+    await appendUserLines();
+
+    // 1. Translation asked from the Note's input on an own Note -> applies immediately (exempted).
+    const trStart = await core.askInNote({
+      mindId: created.mindId,
+      words: "Translate the whole note to French",
+    });
+    expect(trStart).toMatchObject({ kind: "started" });
+    const trEnd = await ended(1);
+    expect(trEnd).toMatchObject({ state: "landed" });
+    expect(statuses[0]).toBe("applied");
+
+    // 2. Non-translation >50% rewrite of newly added User text on the same own Note -> holds.
+    await appendUserLines();
+    const rwStart = await core.askInNote({
+      mindId: created.mindId,
+      words: "Rewrite everything as a haiku",
+    });
+    expect(rwStart).toMatchObject({ kind: "started" });
+    const rwEnd = await ended(2);
+    expect(rwEnd).toMatchObject({ state: "landed" });
+    expect(statuses[1]).toBe("waiting");
+  });
 });

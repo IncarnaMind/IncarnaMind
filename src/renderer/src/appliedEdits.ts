@@ -1251,6 +1251,7 @@ function agentChangeFacts(change: AgentNoteChange): ChangeCounts {
     changed: change.changed,
     wrote: change.added,
     tables: change.tables,
+    ...(change.tablesRemoved && { tablesRemoved: true }),
     ...(change.removed && { removed: change.removed }),
     ...(change.named && { named: change.named }),
   };
@@ -1445,6 +1446,7 @@ export function syncHeldOutsideProposals(mindId: string, editor: Editor): void {
     changed: summary.changed,
     wrote: summary.added,
     tables: summary.tables,
+    ...(summary.tablesRemoved && { tablesRemoved: true }),
     ...(summary.removed && { removed: summary.removed }),
     ...(summary.named && { named: summary.named }),
   };

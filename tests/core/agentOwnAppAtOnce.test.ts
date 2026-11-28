@@ -5,15 +5,25 @@
  */
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import type { OpenNoteEditor } from "../../src/core/adapters";
-import { type AgentNoteChange, BLOCK_ID_ATTRIBUTE, MIND_SETTINGS_FIELD } from "../../src/core/api";
+import { createElement } from "../../src/core/answers/blocks";
+import {
+  type AgentNoteChange,
+  BLOCK_ID_ATTRIBUTE,
+  MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
+  PROPOSAL_ATTRIBUTE,
+} from "../../src/core/api";
+import { changeFact } from "../../src/renderer/src/changeFacts";
+import { summarizeProposalChanges } from "../../src/shared/changeSummary";
 import { translate } from "../../src/shared/i18n";
 import { readMindCheck, writeMindCheck } from "../../src/shared/mindCheck";
 import {
   pendingProposals,
   proposalRequestOf,
   resolveProposals,
+  targetHash,
   waitingChanges,
 } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
@@ -476,4 +486,100 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
         .toContain(aiBlockId);
     },
   );
+
+  // protects=MUST-FIX 2: when openNoteEditor.acceptInEditor throws/rejects, staged Proposals are cleanly rolled back in core so zero orphaned Proposals leak (#3839); fails_when=staged Proposals remain pending after acceptInEditor throws
+  it("rolls back staged Proposals in core when acceptInEditor throws", async () => {
+    const throwingEditor: OpenNoteEditor = {
+      async prepareWrite() {
+        return { open: true, busy: false, token: "tok-throw" };
+      },
+      async acceptInEditor() {
+        throw new Error("IPC channel broke");
+      },
+    };
+    const { core, agent, coast } = await paired("en", throwingEditor);
+    const mind = await core.createMind({ title: "Rollback test", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    editMind(client, () => [note(EN_P1), note(EN_P2)]);
+    await client.settled();
+
+    const read = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    const failed = await agent.callTool({
+      name: "propose_changes",
+      arguments: {
+        mindId: mind.id,
+        version: read.version,
+        changes: [{ paragraph: "¶1", text: "Tides rise twice daily." }],
+      },
+    });
+    expect(refusal(failed)).toBe(translate("en", "agents.problem.failed"));
+
+    await client.settled();
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(waitingChanges(client.blocks)).toBe(0);
+    expect(linesOf(client)).toEqual([EN_P1, EN_P2]);
+  });
+
+  // protects=SHOULD-FIX 4: removing a whole table counts as 1 table (tablesRemoved: true) so the inline summary says "Changed 1 table" / "修改了 1 个表格" rather than "Changed 0 paragraphs" or "Added a table" (#3839); fails_when=tables is 0 or summary says 0 paragraphs / Added
+  it.each([
+    ["en", "Changed 1 table"],
+    ["zh-CN", "修改了 1 个表格"],
+  ] as const)("summarizes whole-table removal accurately (%s)", (language, expectedLine) => {
+    const doc = new Y.Doc();
+    try {
+      const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+      const keep = new Y.XmlElement("paragraph");
+      keep.setAttribute(BLOCK_ID_ATTRIBUTE, "keep-1");
+      keep.insert(0, [new Y.XmlText(EN_P1)]);
+
+      const table = createElement({
+        type: "table",
+        attrs: {
+          [BLOCK_ID_ATTRIBUTE]: "tbl-1",
+          [PROPOSAL_ATTRIBUTE]: {
+            id: "prop-tbl-del",
+            request: "req-tbl-del",
+            kind: "delete",
+            target: targetHash("Port"),
+          },
+        },
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              {
+                type: "tableCell",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "Port" }] }],
+              },
+            ],
+          },
+        ],
+      });
+      blocks.insert(0, [keep, table]);
+
+      const summary = summarizeProposalChanges(blocks, (ref) => ref.request === "req-tbl-del");
+      expect(summary).toMatchObject({
+        changed: 0,
+        added: 0,
+        tables: 1,
+        tablesRemoved: true,
+      });
+      const rendered = changeFact(
+        (key, params) => translate(language, key, params),
+        {
+          created: false,
+          changed: summary.changed,
+          wrote: summary.added,
+          tables: summary.tables,
+          ...(summary.tablesRemoved && { tablesRemoved: true }),
+        },
+        null,
+      );
+      expect(rendered).toBe(expectedLine);
+    } finally {
+      doc.destroy();
+    }
+  });
 });

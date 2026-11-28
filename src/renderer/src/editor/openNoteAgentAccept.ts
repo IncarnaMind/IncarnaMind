@@ -23,6 +23,7 @@ import { editorDoc } from "./proposalReview";
 
 const ARRIVAL_WAIT_MS = 5_000;
 const TOKEN_TTL_MS = 60_000;
+const COMPOSITION_POLL_MS = 25;
 
 interface Prepared {
   mindId: string;
@@ -36,6 +37,7 @@ const localGenerations = new WeakMap<Y.Doc, number>();
 const observedDocs = new WeakSet<Y.Doc>();
 const observedEditors = new WeakSet<Editor>();
 const compositionEndWaiters = new Map<string, Set<() => void>>();
+const compositionPolls = new Map<string, ReturnType<typeof setInterval>>();
 const preparedTokens = new Map<string, Prepared>();
 let acceptingLocally = 0;
 
@@ -47,10 +49,37 @@ function generationOf(doc: Y.Doc): number {
   return localGenerations.get(doc) ?? 0;
 }
 
+function stopCompositionPoll(mindId: string): void {
+  const timer = compositionPolls.get(mindId);
+  if (timer === undefined) return;
+  clearInterval(timer);
+  compositionPolls.delete(mindId);
+}
+
+function ensureCompositionPoll(mindId: string): void {
+  if (compositionPolls.has(mindId)) return;
+  const timer = setInterval(() => {
+    const waiters = compositionEndWaiters.get(mindId);
+    if (!waiters || waiters.size === 0) {
+      stopCompositionPoll(mindId);
+      return;
+    }
+    if (!anyComposing(mindId)) notifyCompositionEnd(mindId);
+  }, COMPOSITION_POLL_MS);
+  compositionPolls.set(mindId, timer);
+}
+
 function notifyCompositionEnd(mindId: string): void {
   const waiters = compositionEndWaiters.get(mindId);
-  if (!waiters || waiters.size === 0) return;
-  if (mindEditors(mindId).some((editor) => editor.view.composing)) return;
+  if (!waiters || waiters.size === 0) {
+    stopCompositionPoll(mindId);
+    return;
+  }
+  if (anyComposing(mindId)) return;
+  // Flush committed IME DOM text into ProseMirror before draining deferred remote updates.
+  for (const editor of mindEditors(mindId)) flushDomObserver(editor.view);
+  if (anyComposing(mindId)) return;
+  stopCompositionPoll(mindId);
   compositionEndWaiters.delete(mindId);
   for (const run of waiters) run();
 }
@@ -75,12 +104,19 @@ function watchEditor(mindId: string, editor: Editor): void {
     if (current) bumpLocal(current);
     queueMicrotask(() => notifyCompositionEnd(mindId));
   };
+  const onTransaction = () => {
+    if (compositionEndWaiters.has(mindId) && !anyComposing(mindId)) {
+      queueMicrotask(() => notifyCompositionEnd(mindId));
+    }
+  };
   const dom = editor.view.dom;
   dom.addEventListener("compositionstart", onStart);
   dom.addEventListener("compositionend", onEnd);
+  editor.on("transaction", onTransaction);
   editor.once("destroy", () => {
     dom.removeEventListener("compositionstart", onStart);
     dom.removeEventListener("compositionend", onEnd);
+    editor.off("transaction", onTransaction);
     queueMicrotask(() => notifyCompositionEnd(mindId));
   });
 }
@@ -89,6 +125,10 @@ function editableEditors(mindId: string): Editor[] {
   const list = mindEditors(mindId).filter((editor) => editor.isEditable);
   for (const editor of list) watchEditor(mindId, editor);
   return list;
+}
+
+function flushEditableEditors(mindId: string): void {
+  for (const editor of editableEditors(mindId)) flushDomObserver(editor.view);
 }
 
 function primaryEditor(editors: readonly Editor[]): Editor | null {
@@ -108,9 +148,13 @@ function snapshotGens(editors: readonly Editor[]): Map<Y.Doc, number> {
   return map;
 }
 
-function anyLocalEditSince(gens: ReadonlyMap<Y.Doc, number>): boolean {
+function anyLocalEditSince(mindId: string, gens: ReadonlyMap<Y.Doc, number>): boolean {
   for (const [doc, before] of gens) {
     if (generationOf(doc) !== before) return true;
+  }
+  for (const editor of editableEditors(mindId)) {
+    const doc = editorDoc(editor);
+    if (!doc || !gens.has(doc)) return true;
   }
   return false;
 }
@@ -176,12 +220,15 @@ function waitForVector(
 function flushDomObserver(view: Editor["view"]): void {
   if (!("domObserver" in view)) return;
   const observer = (view as { domObserver?: unknown }).domObserver;
+  if (typeof observer !== "object" || observer === null) return;
+  // ProseMirror's flush() is a no-op during its 20ms flushingSoon window; forceFlush() drains it.
   if (
-    typeof observer === "object" &&
-    observer !== null &&
-    "flush" in observer &&
-    typeof (observer as { flush?: unknown }).flush === "function"
+    "forceFlush" in observer &&
+    typeof (observer as { forceFlush?: unknown }).forceFlush === "function"
   ) {
+    (observer as { forceFlush(): void }).forceFlush();
+  }
+  if ("flush" in observer && typeof (observer as { flush?: unknown }).flush === "function") {
     (observer as { flush(): void }).flush();
   }
 }
@@ -203,11 +250,19 @@ export async function prepareOpenNoteWrite(mindId: string): Promise<OpenNotePrep
   const gens = snapshotGens(live);
   await flushMindUpdates(mindId);
   if (primary.isDestroyed || !primary.isEditable) return { open: false };
-  if (anyComposing(mindId) || anyLocalEditSince(gens)) return { open: true, busy: true };
+  if (anyComposing(mindId) || anyLocalEditSince(mindId, gens)) return { open: true, busy: true };
   const token = crypto.randomUUID();
   const timer = setTimeout(() => preparedTokens.delete(token), TOKEN_TTL_MS);
   preparedTokens.set(token, { mindId, editor: primary, doc, gens, timer });
   return { open: true, busy: false, token };
+}
+
+export function verifyOpenNoteWrite(mindId: string, token: string): boolean {
+  const prepared = releasePrepared(token);
+  if (!prepared || prepared.mindId !== mindId) return false;
+  flushEditableEditors(mindId);
+  if (anyComposing(mindId) || anyLocalEditSince(mindId, prepared.gens)) return false;
+  return true;
 }
 
 export async function acceptOpenNoteWrite(
@@ -217,13 +272,14 @@ export async function acceptOpenNoteWrite(
   if (!prepared || prepared.mindId !== input.mindId) return "not-open";
   const { mindId, editor, doc, gens } = prepared;
   if (editor.isDestroyed || !editor.isEditable) return "not-open";
-  const isBusy = () => anyComposing(mindId) || anyLocalEditSince(gens);
+  const isBusy = () => anyComposing(mindId) || anyLocalEditSince(mindId, gens);
   if (isBusy()) return "changed";
   const arrival = await waitForVector(doc, input.stateVector, editor, isBusy);
   if (arrival !== "arrived") return arrival;
   if (editor.isDestroyed || !editor.isEditable) return "not-open";
   if (isBusy()) return "changed";
-  flushDomObserver(editor.view);
+  flushEditableEditors(mindId);
+  if (editor.isDestroyed || !editor.isEditable) return "not-open";
   if (isBusy()) return "changed";
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
   const stale = outOfDateProposals(blocks);
@@ -234,6 +290,7 @@ export async function acceptOpenNoteWrite(
     changed: input.changed,
     wrote: input.added,
     tables: input.tables,
+    ...(input.tablesRemoved && { tablesRemoved: true }),
     ...(input.removed && { removed: input.removed }),
     ...(input.named && { named: input.named }),
   };
@@ -261,17 +318,22 @@ export function installOpenNoteAgentAccept(): () => void {
     isComposing: anyComposing,
     onceNotComposing: (mindId, run) => {
       if (!anyComposing(mindId)) {
-        queueMicrotask(run);
+        queueMicrotask(() => {
+          for (const editor of mindEditors(mindId)) flushDomObserver(editor.view);
+          run();
+        });
         return () => undefined;
       }
       const set = compositionEndWaiters.get(mindId) ?? new Set<() => void>();
       set.add(run);
       compositionEndWaiters.set(mindId, set);
       for (const editor of mindEditors(mindId)) watchEditor(mindId, editor);
+      ensureCompositionPoll(mindId);
       return () => {
         set.delete(run);
         if (set.size === 0 && compositionEndWaiters.get(mindId) === set) {
           compositionEndWaiters.delete(mindId);
+          stopCompositionPoll(mindId);
         }
       };
     },
@@ -284,6 +346,16 @@ export function installOpenNoteAgentAccept(): () => void {
         () =>
           files.replyOpenNoteWriteRequest({ kind: "prepare", callId: request.callId, open: false }),
       );
+      return;
+    }
+    if (request.kind === "verify") {
+      let ok = false;
+      try {
+        ok = verifyOpenNoteWrite(request.mindId, request.token);
+      } catch {
+        ok = false;
+      }
+      files.replyOpenNoteWriteRequest({ kind: "verify", callId: request.callId, ok });
       return;
     }
     void acceptOpenNoteWrite(request).then(
@@ -307,6 +379,8 @@ export function installOpenNoteAgentAccept(): () => void {
     setComposingGate(null);
     for (const entry of preparedTokens.values()) clearTimeout(entry.timer);
     preparedTokens.clear();
+    for (const timer of compositionPolls.values()) clearInterval(timer);
+    compositionPolls.clear();
     compositionEndWaiters.clear();
   };
 }

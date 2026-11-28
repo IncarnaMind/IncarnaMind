@@ -119,6 +119,7 @@ let appliedLineIn: typeof import("../../src/renderer/src/editor/appliedEditLine"
 let ProposalReview: typeof import("../../src/renderer/src/editor/proposalReview").ProposalReview;
 let registerMindEditor: typeof import("../../src/renderer/src/editor/openEditors").registerMindEditor;
 let prepareOpenNoteWrite: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").prepareOpenNoteWrite;
+let verifyOpenNoteWrite: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").verifyOpenNoteWrite;
 let acceptOpenNoteWrite: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").acceptOpenNoteWrite;
 let installOpenNoteAgentAccept: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").installOpenNoteAgentAccept;
 let actOnAppliedEdit: typeof import("../../src/renderer/src/appliedEdits").actOnAppliedEdit;
@@ -173,7 +174,8 @@ beforeAll(async () => {
   ({ AppliedEditLine, appliedLineIn } = lineMod);
   ({ ProposalReview } = reviewMod);
   ({ registerMindEditor } = openMod);
-  ({ prepareOpenNoteWrite, acceptOpenNoteWrite, installOpenNoteAgentAccept } = acceptMod);
+  ({ prepareOpenNoteWrite, verifyOpenNoteWrite, acceptOpenNoteWrite, installOpenNoteAgentAccept } =
+    acceptMod);
   ({ actOnAppliedEdit, syncHeldOutsideProposals, showClosedAgentLine } = appliedMod);
   ({ useAgentNotes, takeClosedAgentChange } = notesMod);
   ({ useAppStore } = storeMod);
@@ -756,5 +758,216 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
     await Promise.resolve();
     expect(undoAgentChange).toHaveBeenCalledWith("step-closed-1");
     expect(appliedLineIn(closedEditor.state)).toBeNull();
+  });
+
+  // protects=MUST-FIX 1a: flushDomObserver calls forceFlush() before flush() so ProseMirror's 20ms flushingSoon window cannot hide in-flight typing (#3839); fails_when=forceFlush is skipped or called after flush
+  it("D1 (1a): calls domObserver.forceFlush() before flush() during prepare and accept", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+    const mindId = "mind-force-flush";
+    const { doc, editor } = mountEditor(mindId, [
+      {
+        type: "paragraph",
+        attrs: { id: "b1" },
+        content: [{ type: "text", text: "Tides rise twice a day." }],
+      },
+    ]);
+    const calls: string[] = [];
+    const observer = (
+      editor.view as unknown as { domObserver: { forceFlush(): void; flush(): void } }
+    ).domObserver;
+    vi.spyOn(observer, "forceFlush").mockImplementation(() => {
+      calls.push("forceFlush");
+    });
+    vi.spyOn(observer, "flush").mockImplementation(() => {
+      calls.push("flush");
+    });
+    const prep = await prepareOpenNoteWrite(mindId);
+    expect(prep.open).toBe(true);
+    if (!prep.open || prep.busy) throw new Error("Expected ready token.");
+    expect(calls[0]).toBe("forceFlush");
+    expect(calls).toContain("flush");
+
+    calls.length = 0;
+    const sv = stageInlineProposal(doc, 0, "twice", "three times", "req-ff", "prop-ff");
+    const result = await acceptOpenNoteWrite({
+      mindId,
+      request: "req-ff",
+      token: prep.token,
+      stateVector: sv,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    expect(result).toBe("applied");
+    expect(calls[0]).toBe("forceFlush");
+    expect(calls).toContain("flush");
+  });
+
+  // protects=MUST-FIX 1b: notifyCompositionEnd flushes DOM via forceFlush() BEFORE draining deferred mind.update, and fallback timer drains deferred updates if view.composing clears without a DOM compositionend (#3839); fails_when=deferred updates run before forceFlush or stay wedged forever
+  it("D1 (1b): flushes committed IME DOM before draining deferred updates and unblocks without compositionend", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+    const mindId = "mind-ime-drain";
+    const seed = new Y.Doc();
+    const schema = new Editor({ element: null, extensions: noteExtensions() });
+    prosemirrorToYXmlFragment(
+      schema.schema.nodeFromJSON({
+        type: "doc",
+        content: [
+          { type: "paragraph", attrs: { id: "p1" }, content: [{ type: "text", text: "潮水。" }] },
+        ],
+      }),
+      seed.getXmlFragment(MIND_CONTENT_FIELD),
+    );
+    schema.destroy();
+    bridge.openMind.mockResolvedValueOnce({
+      state: Y.encodeStateAsUpdate(seed),
+      access: "edit" as const,
+    });
+    const doc = await new Promise<Y.Doc>((resolve, reject) => {
+      const stopCopy = openMindCopy(
+        mindId,
+        (copy) => (copy.doc ? resolve(copy.doc) : reject(new Error("Missing doc"))),
+        reject,
+      );
+      cleanups.push(stopCopy);
+    });
+    const { editor } = mountEditor(mindId, [], doc);
+
+    // Part 1: forceFlush runs BEFORE deferred mind.update applies on compositionend.
+    const order: string[] = [];
+    const observer = (
+      editor.view as unknown as { domObserver: { forceFlush(): void; flush(): void } }
+    ).domObserver;
+    vi.spyOn(observer, "forceFlush").mockImplementation(() => {
+      order.push("forceFlush");
+    });
+    vi.spyOn(observer, "flush").mockImplementation(() => {
+      order.push("flush");
+    });
+    doc.on("update", () => order.push("doc-update"));
+
+    Object.defineProperty(editor.view, "composing", { value: true, configurable: true });
+    const remote1 = new Y.Doc();
+    Y.applyUpdate(remote1, Y.encodeStateAsUpdate(doc));
+    (
+      (remote1.getXmlFragment(MIND_CONTENT_FIELD).get(0) as Y.XmlElement).get(0) as Y.XmlText
+    ).insert(0, "远方");
+    const upd1 = Y.encodeStateAsUpdate(remote1, Y.encodeStateVector(doc));
+    remote1.destroy();
+
+    emitCore("mind.update", { mindId, update: upd1 });
+    expect(order).toEqual([]);
+
+    Object.defineProperty(editor.view, "composing", { value: false, configurable: true });
+    editor.view.dom.dispatchEvent(new page.defaultView.Event("compositionend"));
+    await Promise.resolve();
+    expect(order.indexOf("forceFlush")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("doc-update")).toBeGreaterThan(order.indexOf("forceFlush"));
+
+    // Part 2: view.composing clears via blur/timeout WITHOUT DOM compositionend -> fallback poll drains!
+    order.length = 0;
+    Object.defineProperty(editor.view, "composing", { value: true, configurable: true });
+    const remote2 = new Y.Doc();
+    Y.applyUpdate(remote2, Y.encodeStateAsUpdate(doc));
+    (
+      (remote2.getXmlFragment(MIND_CONTENT_FIELD).get(0) as Y.XmlElement).get(0) as Y.XmlText
+    ).insert(0, "后续");
+    const upd2 = Y.encodeStateAsUpdate(remote2, Y.encodeStateVector(doc));
+    remote2.destroy();
+
+    emitCore("mind.update", { mindId, update: upd2 });
+    expect(order).toEqual([]);
+
+    // Flip view.composing false WITHOUT dispatching compositionend.
+    Object.defineProperty(editor.view, "composing", { value: false, configurable: true });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(order).toContain("forceFlush");
+    expect(order).toContain("doc-update");
+    expect(editor.getText()).toContain("后续");
+    seed.destroy();
+  });
+
+  // protects=MUST-FIX 1c: split panes all flush on accept, an edit flushed from a second pane refuses with changed, and a second pane opened between prepare and accept refuses with changed (#3839); fails_when=only primary flushes or a newly opened pane slips past gens
+  it("D1 (1c): flushes all split-pane editors and refuses if a second pane edits or opens after prepare", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+    const mindId = "mind-split";
+
+    // Case A: second pane already open at prepare; its forceFlush reveals an unflushed local edit during accept.
+    const pane1 = mountEditor(mindId, [
+      {
+        type: "paragraph",
+        attrs: { id: "b1" },
+        content: [{ type: "text", text: "Tides rise twice." }],
+      },
+    ]);
+    const pane2 = mountEditor(mindId, [
+      {
+        type: "paragraph",
+        attrs: { id: "b1" },
+        content: [{ type: "text", text: "Tides rise twice." }],
+      },
+    ]);
+    const prep1 = await prepareOpenNoteWrite(mindId);
+    if (!prep1.open || prep1.busy) throw new Error("Expected ready token.");
+
+    let pane2Flushed = false;
+    const pane2Observer = (
+      pane2.editor.view as unknown as { domObserver: { forceFlush(): void; flush(): void } }
+    ).domObserver;
+    vi.spyOn(pane2Observer, "forceFlush").mockImplementation(() => {
+      pane2Flushed = true;
+      pane2.editor.commands.insertContentAt(pane2.editor.state.doc.content.size - 1, " typed");
+    });
+    const sv1 = stageInlineProposal(pane1.doc, 0, "twice", "daily", "req-sp1", "prop-sp1");
+    const res1 = await acceptOpenNoteWrite({
+      mindId,
+      request: "req-sp1",
+      token: prep1.token,
+      stateVector: sv1,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    expect(pane2Flushed).toBe(true);
+    expect(res1).toBe("changed");
+
+    // Case B: a brand-new split pane opens for mindId between prepare and accept -> refused with "changed"!
+    const mindId2 = "mind-split-new";
+    const first = mountEditor(mindId2, [
+      {
+        type: "paragraph",
+        attrs: { id: "b1" },
+        content: [{ type: "text", text: "Tides rise twice." }],
+      },
+    ]);
+    const prep2 = await prepareOpenNoteWrite(mindId2);
+    if (!prep2.open || prep2.busy) throw new Error("Expected ready token.");
+    // Verify works cleanly when unchanged, before second pane opens.
+    const prepVerify = await prepareOpenNoteWrite(mindId2);
+    if (!prepVerify.open || prepVerify.busy) throw new Error("Expected verify token.");
+    expect(verifyOpenNoteWrite(mindId2, prepVerify.token)).toBe(true);
+
+    // Now open a brand-new split pane with its own Y.Doc not present in prep2's gens.
+    mountEditor(mindId2, [
+      {
+        type: "paragraph",
+        attrs: { id: "b1" },
+        content: [{ type: "text", text: "Tides rise twice." }],
+      },
+    ]);
+    const sv2 = stageInlineProposal(first.doc, 0, "twice", "daily", "req-sp2", "prop-sp2");
+    const res2 = await acceptOpenNoteWrite({
+      mindId: mindId2,
+      request: "req-sp2",
+      token: prep2.token,
+      stateVector: sv2,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    expect(res2).toBe("changed");
   });
 });

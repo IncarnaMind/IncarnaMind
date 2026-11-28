@@ -3774,6 +3774,11 @@ export function createAgentAccess(
                     agent: pairing.name,
                     pairingId: pairing.id,
                     createdAt: deps.now(),
+                    ...(own &&
+                      madeFor !== null && {
+                        requested: "edit" as const,
+                        instruction: madeFor.words,
+                      }),
                   },
                   cited: (token) => tokens.get(token)?.cited ?? null,
                   notFound: t("agents.answer.notFound"),
@@ -3826,7 +3831,10 @@ export function createAgentAccess(
               agent: pairing.name,
               pairingId: pairing.id,
               createdAt: deps.now(),
-              ...(askedHere && front && { requested: "edit" as const, instruction: front.words }),
+              ...(((askedHere && front) || (own && madeFor !== null)) && {
+                requested: "edit" as const,
+                instruction: (front ?? madeFor)?.words,
+              }),
               ...(mode === "held" && { held: true as const }),
             },
             cited: (token) => tokens.get(token)?.cited ?? null,
@@ -3891,17 +3899,26 @@ export function createAgentAccess(
                 ...countsOf(staged.kinds),
                 firstBlockId: null,
               };
-              const editorOutcome = await deps.openNoteEditor.acceptInEditor({
-                mindId: mind.id,
-                request,
-                token: prepared.token,
-                stateVector: staged.stateVector,
-                changed: summary.changed,
-                added: summary.added,
-                tables: summary.tables,
-                ...(summary.removed && { removed: summary.removed }),
-                ...(summary.named && { named: summary.named }),
-              });
+              let editorOutcome: Awaited<ReturnType<OpenNoteEditor["acceptInEditor"]>>;
+              try {
+                editorOutcome = await deps.openNoteEditor.acceptInEditor({
+                  mindId: mind.id,
+                  request,
+                  token: prepared.token,
+                  stateVector: staged.stateVector,
+                  changed: summary.changed,
+                  added: summary.added,
+                  tables: summary.tables,
+                  ...(summary.tablesRemoved && { tablesRemoved: true }),
+                  ...(summary.removed && { removed: summary.removed }),
+                  ...(summary.named && { named: summary.named }),
+                });
+              } catch (error) {
+                deps.editMind(mind.id, (blocks) => {
+                  resolveProposals(blocks, mine, "reject");
+                });
+                throw error;
+              }
               if (editorOutcome === "applied") {
                 const refreshed = deps.mindBlocks(mind.id, (blocks) => ({
                   now: namedNote(blocks, namedWords(pairing, inScope, []), naming),
@@ -3967,6 +3984,7 @@ export function createAgentAccess(
             changed: summary.changed,
             added: summary.added,
             tables: summary.tables,
+            ...(summary.tablesRemoved && { tablesRemoved: true }),
             ...(summary.removed && { removed: summary.removed }),
             ...(summary.named && { named: summary.named }),
             firstBlockId: summary.firstBlockId,

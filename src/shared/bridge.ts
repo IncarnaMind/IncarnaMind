@@ -49,11 +49,13 @@ export type SummarySaveState = "clear" | "saving" | "problem";
 /** Request from main to a renderer window to coordinate an immediate agent write on a mounted editor (#3839). */
 export type OpenNoteWriteRequest =
   | { kind: "prepare"; callId: string; mindId: string }
+  | { kind: "verify"; callId: string; mindId: string; token: string }
   | ({ kind: "accept"; callId: string } & OpenNoteAcceptInput);
 
 /** Renderer's answer to `OpenNoteWriteRequest` (#3839). */
 export type OpenNoteWriteReply =
   | ({ kind: "prepare"; callId: string } & OpenNotePrepareResult)
+  | { kind: "verify"; callId: string; ok: boolean }
   | { kind: "accept"; callId: string; result: OpenNoteAcceptResult };
 
 export interface FilesBridge {

@@ -29,6 +29,7 @@ export interface ProposalSummary {
   changed: number;
   added: number;
   tables: number;
+  tablesRemoved?: true;
   removed?: RemovedParagraphs;
   named?: NamedChange;
   firstBlockId: string | null;
@@ -53,7 +54,8 @@ export function summarizeProposalChanges(
   belongs: (ref: ProposalRef) => boolean,
 ): ProposalSummary {
   const kinds = changeKinds(blocks, belongs);
-  const tables = kinds.filter((kind) => kind === "table-added").length;
+  const removedTables = kinds.filter((kind) => kind === "table-removed").length;
+  const tables = kinds.filter((kind) => kind === "table-added").length + removedTables;
   const total = countChanged(kinds);
   const added = addsOnly(kinds) ? total : 0;
   const changed = added > 0 ? 0 : total;
@@ -157,6 +159,7 @@ export function summarizeProposalChanges(
     changed,
     added,
     tables,
+    ...(removedTables > 0 && { tablesRemoved: true as const }),
     ...(removed && { removed }),
     ...(named && { named }),
     firstBlockId,

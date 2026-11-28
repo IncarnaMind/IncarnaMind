@@ -19,6 +19,7 @@ export interface OpenNoteAcceptInput {
   changed: number;
   added: number;
   tables: number;
+  tablesRemoved?: true;
   removed?: RemovedParagraphs;
   named?: NamedChange;
 }

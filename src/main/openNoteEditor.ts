@@ -29,7 +29,9 @@ interface PendingCall {
 }
 
 interface TokenOwner {
+  mindId: string;
   window: BrowserWindow;
+  others: { window: BrowserWindow; token: string }[];
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -47,6 +49,9 @@ function isReply(value: unknown): value is OpenNoteWriteReply {
     if (record.open === false) return true;
     if (record.open === true && record.busy === true) return true;
     return record.open === true && record.busy === false && typeof record.token === "string";
+  }
+  if (record.kind === "verify") {
+    return typeof record.ok === "boolean";
   }
   if (record.kind === "accept") {
     return (
@@ -71,11 +76,16 @@ export function createOpenNoteEditor({
     tokenOwners.delete(token);
   };
 
-  const rememberToken = (token: string, window: BrowserWindow) => {
+  const rememberToken = (
+    token: string,
+    mindId: string,
+    window: BrowserWindow,
+    others: { window: BrowserWindow; token: string }[],
+  ) => {
     releaseToken(token);
     const timer = setTimeout(() => tokenOwners.delete(token), TOKEN_TTL_MS);
     timer.unref?.();
-    tokenOwners.set(token, { window, timer });
+    tokenOwners.set(token, { mindId, window, others, timer });
   };
 
   ipcMain.on(FILES_CHANNELS.openNoteWriteReply, (event, payload: unknown) => {
@@ -135,6 +145,20 @@ export function createOpenNoteEditor({
     return [...live.filter((each) => each === focused), ...live.filter((each) => each !== focused)];
   };
 
+  const releaseRemote = (window: BrowserWindow, mindId: string, token: string) => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    try {
+      window.webContents.send(FILES_CHANNELS.openNoteWriteRequest, {
+        kind: "verify",
+        callId: randomUUID(),
+        mindId,
+        token,
+      } satisfies OpenNoteWriteRequest);
+    } catch {
+      // Window closed between check and send; its tokens are already gone.
+    }
+  };
+
   return {
     async prepareWrite(mindId: string): Promise<OpenNotePrepareResult> {
       const live = orderedWindows();
@@ -151,23 +175,67 @@ export function createOpenNoteEditor({
           return { window, reply };
         }),
       );
-      if (answers.some(({ reply }) => reply.kind === "prepare" && reply.open && reply.busy)) {
+      const ready: { window: BrowserWindow; token: string }[] = [];
+      let busy = false;
+      for (const { window, reply } of answers) {
+        if (reply.kind !== "prepare" || !reply.open) continue;
+        if (reply.busy) busy = true;
+        else ready.push({ window, token: reply.token });
+      }
+      if (busy) {
+        for (const item of ready) releaseRemote(item.window, mindId, item.token);
         return { open: true, busy: true };
       }
-      for (const { window, reply } of answers) {
-        if (reply.kind === "prepare" && reply.open && !reply.busy) {
-          rememberToken(reply.token, window);
-          return { open: true, busy: false, token: reply.token };
-        }
-      }
-      return { open: false };
+      const [primary, ...others] = ready;
+      if (!primary) return { open: false };
+      rememberToken(primary.token, mindId, primary.window, others);
+      return { open: true, busy: false, token: primary.token };
     },
 
     async acceptInEditor(input: OpenNoteAcceptInput): Promise<OpenNoteAcceptResult> {
       const owner = tokenOwners.get(input.token);
       releaseToken(input.token);
-      if (!owner || owner.window.isDestroyed() || owner.window.webContents.isDestroyed()) {
+      if (!owner || owner.mindId !== input.mindId) return "not-open";
+      const releaseAllOthers = () => {
+        for (const other of owner.others) releaseRemote(other.window, input.mindId, other.token);
+      };
+      if (owner.window.isDestroyed() || owner.window.webContents.isDestroyed()) {
+        releaseAllOthers();
         return "not-open";
+      }
+      const otherTokens = new Map(owner.others.map((each) => [each.window, each.token]));
+      const otherLive = orderedWindows().filter((window) => window !== owner.window);
+      const checks = await Promise.all(
+        otherLive.map(async (window) => {
+          const otherToken = otherTokens.get(window);
+          if (otherToken !== undefined) {
+            const callId = randomUUID();
+            const reply = await askWindow(
+              window,
+              { kind: "verify", callId, mindId: input.mindId, token: otherToken },
+              PREPARE_TIMEOUT_MS,
+              { kind: "verify", callId, ok: false },
+            );
+            return reply.kind === "verify" && reply.ok;
+          }
+          // Window didn't hold `mindId` at prepareWrite (or opened since): refuse if it now holds it.
+          const callId = randomUUID();
+          const reply = await askWindow(
+            window,
+            { kind: "prepare", callId, mindId: input.mindId },
+            PREPARE_TIMEOUT_MS,
+            { kind: "prepare", callId, open: true, busy: true },
+          );
+          if (reply.kind === "prepare" && reply.open) {
+            if (!reply.busy) releaseRemote(window, input.mindId, reply.token);
+            return false;
+          }
+          return true;
+        }),
+      );
+      if (checks.some((ok) => !ok)) {
+        releaseRemote(owner.window, input.mindId, input.token);
+        return "changed";
       }
       const callId = randomUUID();
       const reply = await askWindow(
