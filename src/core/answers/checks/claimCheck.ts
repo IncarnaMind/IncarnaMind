@@ -6,8 +6,10 @@
  * quote. The model may search the Documents for more, records each quote that decides the
  * sentence with `cite`, and gives one verdict (./prompt). IncarnaMind confirms that a Supported or
  * Contradicted verdict rests on a quote its Document holds (the Citation check), lowers Supported
- * to Unsupported when the model's own Units word says "unstated" or "another" (#3806), and leaves
- * a sentence Not checked when the model's own Library word says "unsettled" (#2525).
+ * to Unsupported when the model's own Units word says "unstated" or "another" (#3806) or its own
+ * Sign word says "differs" (#2578), lowers Supported or Contradicted to Not checked when Sign says
+ * "unclear" (#2578), and leaves a sentence Not checked when the model's own Library word says
+ * "unsettled" (#2525).
  * Code never raises a verdict. A refusal, a reply with no verdict, an empty one or a provider's
  * failure leaves the sentence not checked, with the reason; never Supported.
  *
@@ -510,31 +512,50 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
     if (!evidence && !restsOnOwnFigure(read)) return notChecked("no-evidence");
+    const lowered = (
+      detail:
+        | { kind: "units"; units: "another" | "unstated"; reason: string }
+        | { kind: "sign"; reason: string },
+    ): ClaimCheckResult => ({
+      verdict: "unsupported",
+      evidence: null,
+      says: null,
+      unsupported: {
+        ...detail,
+        covered: null,
+        uncovered: null,
+        found: true as const,
+        ...(evidence && { quoted: evidence }),
+      },
+      calculation: null,
+      ...(working && { working }),
+      ...court.citedCase(null),
+      ...facts(),
+      excluded: [...facts().excluded, ...results.ownWorkings()],
+    });
     if (read.verdict === "supported" && (read.units === "unstated" || read.units === "another")) {
-      return {
-        verdict: "unsupported",
-        evidence: null,
-        says: null,
-        unsupported: {
-          kind: "units",
-          units: read.units,
-          reason: translate(
-            language,
-            read.units === "another"
-              ? "claim.unsupported.unitsDiffer"
-              : "claim.unsupported.unitsNotGiven",
-          ),
-          covered: null,
-          uncovered: null,
-          found: true as const,
-          ...(evidence && { quoted: evidence }),
-        },
-        calculation: null,
-        ...(working && { working }),
-        ...court.citedCase(null),
-        ...facts(),
-        excluded: [...facts().excluded, ...results.ownWorkings()],
-      };
+      return lowered({
+        kind: "units",
+        units: read.units,
+        reason: translate(
+          language,
+          read.units === "another"
+            ? "claim.unsupported.unitsDiffer"
+            : "claim.unsupported.unitsNotGiven",
+        ),
+      });
+    }
+    if (read.verdict === "supported" && read.sign === "differs") {
+      return lowered({
+        kind: "sign",
+        reason: translate(language, "claim.unsupported.signDiffers"),
+      });
+    }
+    if (
+      (read.verdict === "supported" || read.verdict === "contradicted") &&
+      read.sign === "unclear"
+    ) {
+      return notChecked("sign-unclear");
     }
     const correction =
       read.correction &&

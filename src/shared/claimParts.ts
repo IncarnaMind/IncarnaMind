@@ -89,6 +89,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "sentence-figures-not-read": true,
   "two-readings": true,
   "sign-word": true,
+  "sign-unclear": true,
   "readings-unsettled": true,
   "library-unsettled": true,
   "analysis-unnamed": true,
@@ -108,6 +109,7 @@ const SAYS_WHAT_TO_DO: ReadonlySet<ClaimCheckFailure> = new Set([
   "found-elsewhere",
   "two-readings",
   "sign-word",
+  "sign-unclear",
   "readings-unsettled",
 ]);
 const ANSWERED: ReadonlySet<ClaimCheckFailure> = new Set([
@@ -283,7 +285,8 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
     ...((value.kind === "forecast-certainty" ||
       value.kind === "unbacked-cause" ||
       value.kind === "analysis-name" ||
-      value.kind === "units") && {
+      value.kind === "units" ||
+      value.kind === "sign") && {
       kind: value.kind,
     }),
     ...((value.units === "another" || value.units === "unstated") && { units: value.units }),
