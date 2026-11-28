@@ -842,6 +842,9 @@ test("while a run goes the input's round button is Stop with nothing typed and S
     await pointAndClick(window, input);
     await window.keyboard.type(first);
     await window.keyboard.press("Enter");
+    // Its run under way, as its line says: the request sent next is held behind a run, not
+    // behind the first one's checks (#3875).
+    await expect(group.getByTestId("note-ask-pill-text")).toContainText("Looking at your note");
 
     // The input works while it runs: Stop while it is empty, Send once words are typed.
     await expect(stop).toBeVisible();
@@ -942,6 +945,10 @@ test("Send now gives a held message to the AI at once, taken at its next step wi
     await window.keyboard.type("总结这份笔记");
     await window.keyboard.press("Enter");
     await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    // Its first words are too few for the line to show, so its start says the run is under way.
+    await expect
+      .poll(async () => (await starts()).filter((each) => each.startsWith("run")))
+      .toHaveLength(1);
 
     // Typed words with ⌘↵ go into the request running at once: Waiting, with Copy only.
     await window.keyboard.type("列出日期");
@@ -1089,7 +1096,7 @@ test("Edit opens a held message in place with Cancel and Save, Save greyed until
     await stepTo(0);
     await nextRun("queue-turn");
     await send("What does the plan add?");
-    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await expect(group.getByTestId("note-ask-pill-text")).toContainText("Writing the answer");
     await send("And when");
     const editor = panel.getByTestId("note-column-editor");
     await pointAndClick(
