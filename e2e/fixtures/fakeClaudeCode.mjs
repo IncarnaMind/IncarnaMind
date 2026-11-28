@@ -162,7 +162,7 @@ const take = (message) => {
   if (replay) say({ type: "user", message: message.message, isReplay: true });
 };
 /** What the User typed, from a request's prompt. */
-const askedIn = (prompt) => prompt.match(/the User asks: (.*)/)?.[1] ?? "";
+const askedIn = (prompt) => prompt.match(/the User's request: (.*)/)?.[1] ?? "";
 const answerTo = (words) =>
   /\p{Script=Han}/u.test(words) ? `已回答：${words}` : `Answered: ${words}`;
 
@@ -314,7 +314,7 @@ async function run(message) {
   const prompt = String(message.message.content);
   const mindId = prompt.match(/mindId: ([^)]+)\)/)?.[1];
   // As the instructions ask, it answers in the language the User wrote in.
-  chinese = /[㐀-鿿]/.test(prompt.match(/the User asks: (.*)/)?.[1] ?? "");
+  chinese = /[㐀-鿿]/.test(askedIn(prompt));
   const use = async (name, input) => {
     say({
       type: "assistant",

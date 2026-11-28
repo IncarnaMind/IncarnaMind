@@ -521,7 +521,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       tools: "all",
       own: { ask: async () => "deny" },
       instructions: INSTRUCTIONS,
-      prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+      prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
       conversation: { key: KEY, sessionId: SESSION, resume },
       signal: new AbortController().signal,
     });
@@ -610,7 +610,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     const lines = require("node:readline").createInterface({ input: process.stdin });
     const say = (value) => console.log(JSON.stringify(value));
     const end = (result) => say({ type: "result", subtype: "success", is_error: false, result });
-    const asked = (v) => String(v.message.content).replace(/^.*asks: /, "");
+    const asked = (v) => String(v.message.content).replace(/^.*request: /, "");
     let first = null;
     lines.on("line", (line) => {
       const v = JSON.parse(line);
@@ -633,7 +633,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       end(step ? "Answered " + asked(first) + " and " + asked(v) : "Answered " + asked(v));
     });
   `;
-  const LATER = "In their note “Tides” (mindId: m1), the User asks: longer";
+  const LATER = "In their note “Tides” (mindId: m1), the User's request: longer";
   /** A request whose second message goes once `when` hears the step it waits for, then once only. */
   const meanwhile = async (timing: "step" | "turn", when: OwnAiProgress["kind"]) => {
     const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
@@ -659,7 +659,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
           },
         },
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
         conversation: { key: KEY, sessionId: SESSION, resume: false },
         progress: (step) => {
           steps.push(step);
@@ -759,7 +759,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
         tools: "all",
         own: { ask: async () => "deny" },
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
         conversation: { key: KEY, sessionId: SESSION, resume: false },
         model: "haiku",
         listModels: true,
@@ -925,7 +925,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         tools: "all",
         own: { ask: answer },
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: count the late crossings",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: count the late crossings",
         conversation: {
           key: KEY,
           sessionId: "8d2c4b6a-1e3f-4a5b-9c7d-0e2f4a6b8c1d",
@@ -2295,7 +2295,7 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
           tools: "all",
           own: { ask: async () => "deny" },
           instructions: INSTRUCTIONS,
-          prompt: "In their note “Tides” (mindId: m1), the User asks: run the tests",
+          prompt: "In their note “Tides” (mindId: m1), the User's request: run the tests",
           conversation: {
             key: "7b2d4f6a-8c1e-4a3b-9d5f-2e4a6c8b0d1f",
             sessionId: "1e3a5c7b-9d2f-4b6a-8c0e-3f5a7b9d1c2e",
@@ -2354,7 +2354,7 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
         server: SERVER,
         tools: TOOLS,
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
         progress: (step) => steps.push(step),
         signal,
       });

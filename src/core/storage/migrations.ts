@@ -3524,6 +3524,15 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 166,
+    description: "Renew existing Note conversations so they pick up updated instructions (#3847)",
+    sql: `
+      -- Claude Code keeps the system prompt a conversation began with: conversations begun before
+      -- these instructions changed keep the old prompt, so each live one begins anew once.
+      UPDATE own_ai_conversations SET renewed = 1 WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 167,
     description: "A request in a Note's conversation its AI ended at a question told no (#3653)",
     sql: `
       -- Its AI ended the request at a question the User denied, or IncarnaMind refused, so what

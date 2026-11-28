@@ -99,7 +99,7 @@ export interface NoteTrail {
   startedAt: string;
   endedAt: string | null;
   fresh: boolean;
-  /** This request began a new conversation that can use the AI's own tools (#3653). */
+  /** This request began a new conversation after an update changed its instructions (#3653, #3847). */
   renewed: boolean;
   documentsFound: number;
   /** The AI's own mode, as it named it (#3653). */
