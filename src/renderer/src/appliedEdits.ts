@@ -83,6 +83,7 @@ import {
   applyingIn,
   editorDoc,
   type PendingProposal,
+  pendingIn,
   proposalsIn,
   resolveInEditor,
   rewrittenParagraphOf,
@@ -1456,4 +1457,20 @@ export function syncHeldOutsideProposals(mindId: string, editor: Editor): void {
     request: first.request,
     asked: { mindId, requests: held, facts },
   });
+}
+
+/** Requests held for their own Apply / Discard review rather than bulk Accept all / Reject all. */
+export function heldProposalRequests(editor: Editor): Set<string> {
+  const line = appliedLineIn(editor.state);
+  const held = new Set<string>(
+    line?.kind === "held" ? (line.asked?.requests ?? [line.request]) : [],
+  );
+  const doc = editorDoc(editor);
+  if (doc) {
+    for (const each of pendingIn(editor.state)) {
+      const made = proposalRequestOf(doc, each.request);
+      if (made?.source === "outside-agent" && made.held === true) held.add(each.request);
+    }
+  }
+  return held;
 }

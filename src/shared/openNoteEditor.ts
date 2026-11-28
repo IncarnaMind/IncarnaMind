@@ -24,7 +24,13 @@ export interface OpenNoteAcceptInput {
   named?: NamedChange;
 }
 
-export type OpenNoteAcceptResult = "applied" | "changed" | "not-open" | "timeout";
+export type OpenNoteAcceptResult =
+  | "applied"
+  | "changed"
+  | "held"
+  | "failed"
+  | "not-open"
+  | "timeout";
 
 /**
  * Reaches a mounted editable Note editor in the host window, when the Note is currently shown in
@@ -40,8 +46,10 @@ export interface OpenNoteEditor {
    * Accepts `request`'s Proposals on the mounted editor's UI thread in one Undo step, saving a
    * Checkpoint first and drawing the inline applied-edit line. Returns `"changed"` with zero DOM
    * mutation if the User edited a targeted paragraph, remained busy past the settle window, or any
-   * target is stale; returns `"timeout"` when the window did not answer in time so the core can
-   * confirm the document state directly.
+   * target is stale; returns `"held"` if concurrent User edits pushed removal over half of User
+   * text so the rewrite stays pending for Apply / Discard; returns `"failed"` if persisting the
+   * accepted update to the core was rejected; returns `"timeout"` when the window did not answer
+   * in time so the core can confirm the document state directly.
    */
   acceptInEditor(input: OpenNoteAcceptInput): Promise<OpenNoteAcceptResult>;
 }

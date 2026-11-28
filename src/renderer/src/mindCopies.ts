@@ -31,8 +31,12 @@ const takers = new Map<string, Set<Taker>>();
 /** How many copies of each Mind this window has open: the note's worth one watch, not each. */
 const copiesOpen = new Map<string, number>();
 
+interface SentUpdate {
+  promise: Promise<boolean>;
+}
+
 /** The changes this window sent for each Mind that the core does not have yet. */
-const sent = new Map<string, Set<Promise<void>>>();
+const sent = new Map<string, Set<SentUpdate>>();
 
 /**
  * Prevents incoming core updates from mutating a Mind's Yjs document while an open editor for it
@@ -52,13 +56,19 @@ export function setComposingGate(gate: ComposingGate | null): void {
 /**
  * Waits until every change this window sent for the Mind has reached the
  * core, for an ask that must see them: a column move, which copies each cell
- * as it is then, the words just typed into one included.
+ * as it is then, the words just typed into one included. Returns false if any
+ * flushed save failed without recovering.
  */
-export async function flushMindUpdates(mindId: string): Promise<void> {
+export async function flushMindUpdates(mindId: string): Promise<boolean> {
+  let ok = true;
+  const seen = new Set<SentUpdate>();
   for (;;) {
     const waiting = sent.get(mindId);
-    if (!waiting || waiting.size === 0) return;
-    await Promise.all([...waiting]);
+    const pending = waiting ? [...waiting].filter((each) => !seen.has(each)) : [];
+    if (pending.length === 0) return ok;
+    for (const each of pending) seen.add(each);
+    const results = await Promise.all(pending.map((each) => each.promise));
+    if (results.some((each) => !each)) ok = false;
   }
 }
 
@@ -133,16 +143,25 @@ export function openMindCopy(
   });
   // A change that built on one the core never got goes again inside the whole copy (#1119).
   const store = (update: Uint8Array, again: boolean) => {
-    const tracked = core.applyMindUpdate(mindId, update).catch((error: unknown) => {
-      const missed = describeError(error).wording?.key === "error.mind.missedChange";
-      if (missed && again && active) store(Y.encodeStateAsUpdate(local), false);
-      else failed(error);
-    });
-    const waiting = sent.get(mindId) ?? new Set<Promise<void>>();
-    waiting.add(tracked);
+    const entry: SentUpdate = {
+      promise: core.applyMindUpdate(mindId, update).then(
+        () => true,
+        (error: unknown) => {
+          const missed = describeError(error).wording?.key === "error.mind.missedChange";
+          if (missed && again && active) {
+            store(Y.encodeStateAsUpdate(local), false);
+            return true;
+          }
+          failed(error);
+          return false;
+        },
+      ),
+    };
+    const waiting = sent.get(mindId) ?? new Set<SentUpdate>();
+    waiting.add(entry);
     sent.set(mindId, waiting);
-    void tracked.finally(() => {
-      waiting.delete(tracked);
+    void entry.promise.finally(() => {
+      waiting.delete(entry);
       if (waiting.size === 0 && sent.get(mindId) === waiting) sent.delete(mindId);
     });
   };

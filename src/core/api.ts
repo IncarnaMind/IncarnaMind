@@ -471,8 +471,12 @@ export interface CreateMindInput {
  *   too, and its card then offers no change and groups no quote, so it opens these Notes
  *   read-only. Older content is version 62 content as it is: a check without them gives no
  *   change and names no roles.
+ * - 64: inline code (`code`) may carry `GENERATED_MARK` beside it so AI-written inline code keeps
+ *   its own provenance rather than inheriting from neighboring prose (#3839). An older editor's
+ *   `code` mark excluded `GENERATED_MARK`, so it opens these Notes read-only. Older content is
+ *   version 63 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 63;
+export const CONTENT_SCHEMA_VERSION = 64;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -736,12 +740,12 @@ export const PROPOSAL_ATTRIBUTE = "proposal";
 /**
  * AI text (CONTEXT.md): the words the AI wrote into a Mind that the User
  * hasn't made their own, under this mark, with no attributes. Answers,
- * Answers added to a note, the words a Proposal adds (kept once it is
- * accepted) and accepted suggestions carry it; Citations, formulas, charts
- * and inline code can't. It isn't inclusive, and what the User types is never
- * under it, even inside AI text; "Mark as mine" takes it off. An Answer
- * carries it only when `AnswerAttributes.generatedMarks` says so: an older
- * Answer is AI text as a whole. Readers and exports treat it as no mark.
+ * Answers added to a note, inline code the AI wrote (#3839), the words a
+ * Proposal adds (kept once it is accepted) and accepted suggestions carry it;
+ * Citations, formulas and charts can't. It isn't inclusive, and what the User
+ * types is never under it, even inside AI text; "Mark as mine" takes it off. An
+ * Answer carries it only when `AnswerAttributes.generatedMarks` says so: an
+ * older Answer is AI text as a whole. Readers and exports treat it as no mark.
  */
 export const GENERATED_MARK = "generated";
 

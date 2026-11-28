@@ -29,6 +29,7 @@ import {
   PROPOSAL_INSERT_MARK,
   type ProposalRequest,
 } from "../../src/core/api";
+import { TranslatableError } from "../../src/core/errors";
 import { blockProposal, setProposal } from "../../src/core/proposals/write";
 import { BRIDGE_KEY, FILES_BRIDGE_KEY } from "../../src/shared/bridge";
 import { translate } from "../../src/shared/i18n";
@@ -147,6 +148,7 @@ let drawHistory: typeof import("../../src/renderer/src/editor/keptHistories").dr
 let keepHistory: typeof import("../../src/renderer/src/editor/keptHistories").keepHistory;
 let agentOwnChangeRequestId: typeof import("../../src/shared/agentOwnChanges").agentOwnChangeRequestId;
 let noteHealth: typeof import("../../src/renderer/src/editor/healthCounts").noteHealth;
+let resolveProposalsIn: typeof import("../../src/renderer/src/editWithAi").resolveProposalsIn;
 let currentLanguage: "en" | "zh-CN" = "en";
 
 beforeAll(async () => {
@@ -166,6 +168,7 @@ beforeAll(async () => {
     ownSharedMod,
     healthMod,
     tabsMod,
+    editWithAiMod,
   ] = await Promise.all([
     import("../../src/renderer/src/editor/noteSchema"),
     import("../../src/renderer/src/editor/appliedEditLine"),
@@ -182,6 +185,7 @@ beforeAll(async () => {
     import("../../src/shared/agentOwnChanges"),
     import("../../src/renderer/src/editor/healthCounts"),
     import("../../src/renderer/src/editor/noteTabs"),
+    import("../../src/renderer/src/editWithAi"),
   ]);
   ({ noteExtensions } = schemaMod);
   ({ NoteTabs, noteTabsOf } = tabsMod);
@@ -204,6 +208,7 @@ beforeAll(async () => {
   ({ drawHistory, keepHistory } = keptMod);
   ({ agentOwnChangeRequestId } = ownSharedMod);
   ({ noteHealth } = healthMod);
+  ({ resolveProposalsIn } = editWithAiMod);
 });
 
 const cleanups: (() => void)[] = [];
@@ -1009,7 +1014,7 @@ describe("mounted editor lossless writes, IME protection, held reopen, and notic
           {
             type: "paragraph",
             attrs: { id: "p-1" },
-            content: [{ type: "text", text: "Harbour report." }],
+            content: [{ type: "text", text: "Harbour report for the coast." }],
           },
         ],
       }),
@@ -1094,7 +1099,7 @@ describe("mounted editor lossless writes, IME protection, held reopen, and notic
       tables: 0,
     });
     expect(outcome2).toBe("applied");
-    expect(editor.getText()).toContain("Coastal report.");
+    expect(editor.getText()).toContain("Coastal report for the coast.");
   });
 
   // protects=when Chinese IME or unrelated typing settles within the bounded wait in another paragraph, the write lands cleanly without losing User text, whereas committing in the targeted paragraph still refuses cleanly (#3839); fails_when=any unrelated typing or brief IME commit always refuses
@@ -1313,5 +1318,207 @@ describe("mounted editor lossless writes, IME protection, held reopen, and notic
     });
     syncHeldOutsideProposals(mindId, editor);
     expect(appliedLineIn(editor.state)?.kind).toBe("applied");
+  });
+
+  // protects=when core.applyMindUpdate rejects for a non-missedChange error, acceptOpenNoteWrite does not return applied and preserves the editor error report, while a recovered missedChange retry still returns applied (#3839); fails_when=rejected save returns applied or drops the error report
+  it("returns failed instead of applied when core.applyMindUpdate rejects while keeping the error report", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+
+    const openCopyFor = async (
+      mindId: string,
+      text: string,
+      onFailed: (error: unknown) => void,
+    ) => {
+      const seed = new Y.Doc();
+      const schema = new Editor({ element: null, extensions: noteExtensions() });
+      prosemirrorToYXmlFragment(
+        schema.schema.nodeFromJSON({
+          type: "doc",
+          content: [{ type: "paragraph", attrs: { id: "b1" }, content: [{ type: "text", text }] }],
+        }),
+        seed.getXmlFragment(MIND_CONTENT_FIELD),
+      );
+      schema.destroy();
+      bridge.openMind.mockResolvedValueOnce({
+        state: Y.encodeStateAsUpdate(seed),
+        access: "edit" as const,
+      });
+      seed.destroy();
+      const doc = await new Promise<Y.Doc>((resolve, reject) => {
+        const stopCopy = openMindCopy(
+          mindId,
+          (copy) => (copy.doc ? resolve(copy.doc) : reject(new Error("Missing doc"))),
+          onFailed,
+        );
+        cleanups.push(stopCopy);
+      });
+      return mountEditor(mindId, [], doc);
+    };
+
+    // Case 1: non-missedChange rejection -> reports error AND returns "failed", never "applied".
+    const saveError = new Error("Disk full");
+    const reported: unknown[] = [];
+    const { doc, editor } = await openCopyFor("mind-save-fail", "Tides rise twice a day.", (err) =>
+      reported.push(err),
+    );
+    const prep = await prepareOpenNoteWrite("mind-save-fail");
+    if (!prep.open || prep.busy) throw new Error("Expected ready token.");
+    const sv = stageInlineProposal(doc, 0, "twice", "daily", "req-fail", "prop-fail");
+    applyMindUpdate.mockRejectedValueOnce(saveError);
+
+    const outcome = await acceptOpenNoteWrite({
+      mindId: "mind-save-fail",
+      request: "req-fail",
+      token: prep.token,
+      stateVector: sv,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    expect(reported).toEqual([saveError]);
+    expect(outcome).toBe("failed");
+    expect(appliedLineIn(editor.state)).toBeNull();
+
+    // Case 2: missedChange fails once then succeeds on retry -> returns "applied" with no error report.
+    const retryReported: unknown[] = [];
+    const { doc: doc2 } = await openCopyFor("mind-save-retry", "Tides rise twice a day.", (err) =>
+      retryReported.push(err),
+    );
+    const prep2 = await prepareOpenNoteWrite("mind-save-retry");
+    if (!prep2.open || prep2.busy) throw new Error("Expected ready token.");
+    const sv2 = stageInlineProposal(doc2, 0, "twice", "daily", "req-retry", "prop-retry");
+    const missed = new TranslatableError({ key: "error.mind.missedChange" });
+    applyMindUpdate.mockRejectedValueOnce(missed);
+    applyMindUpdate.mockResolvedValueOnce(undefined);
+
+    const retryOutcome = await acceptOpenNoteWrite({
+      mindId: "mind-save-retry",
+      request: "req-retry",
+      token: prep2.token,
+      stateVector: sv2,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    expect(retryReported).toEqual([]);
+    expect(retryOutcome).toBe("applied");
+  });
+
+  // protects=resolveProposalsIn("all") leaves every held request untouched, including held requests beyond the first and persisted held outside-agent requests (#3839); fails_when=Accept all or Reject all resolves a second held request or a persisted held request
+  it("resolveProposalsIn all leaves every held request untouched, including held requests beyond the first", () => {
+    const mindId = "mind-multi-held";
+    const { doc, editor } = mountEditor(mindId, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [{ type: "text", text: "First held paragraph." }],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p2" },
+        content: [{ type: "text", text: "Second held paragraph." }],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "p3" },
+        content: [{ type: "text", text: "Ordinary proposal paragraph." }],
+      },
+    ]);
+    stageInlineProposal(doc, 0, "First held", "Rewritten one", "req-held-1", "prop-h1", true);
+    stageInlineProposal(doc, 1, "Second held", "Rewritten two", "req-held-2", "prop-h2", true);
+    stageInlineProposal(doc, 2, "Ordinary", "Updated", "req-normal-1", "prop-n1");
+
+    syncHeldOutsideProposals(mindId, editor);
+    expect(appliedLineIn(editor.state)).toMatchObject({
+      kind: "held",
+      request: "req-held-1",
+      asked: { mindId, requests: ["req-held-1", "req-held-2"] },
+    });
+
+    // Accept all must accept only req-normal-1 and leave BOTH held requests pending.
+    resolveProposalsIn(editor, mindId, "all", "accept");
+    const afterAccept = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).map(
+      (each) => each.request,
+    );
+    expect(afterAccept).toEqual(["req-held-1", "req-held-2"]);
+    expect(editor.getText()).toContain("Updated proposal paragraph.");
+    expect(editor.getText()).not.toContain("Ordinary");
+    expect(editor.getText()).toContain("First held");
+    expect(editor.getText()).toContain("Second held");
+
+    // Reject all must reject only a new normal proposal and still leave BOTH held requests pending.
+    stageInlineProposal(doc, 2, "Updated", "Third try", "req-normal-2", "prop-n2");
+    resolveProposalsIn(editor, mindId, "all", "reject");
+    const afterReject = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).map(
+      (each) => each.request,
+    );
+    expect(afterReject).toEqual(["req-held-1", "req-held-2"]);
+
+    // Even while an applied Undo line is shown instead of the held line, persisted held: true requests stay protected.
+    setAppliedLine(editor, {
+      kind: "applied",
+      blockId: "p3",
+      blocks: { paragraphs: 1, tables: 0 },
+      reason: null,
+      kept: null,
+    });
+    resolveProposalsIn(editor, mindId, "all", "accept");
+    const afterAppliedLine = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).map(
+      (each) => each.request,
+    );
+    expect(afterAppliedLine).toEqual(["req-held-1", "req-held-2"]);
+  });
+
+  // protects=acceptOpenNoteWrite rechecks the >50% User-text hold on the live mounted document before accepting a staged rewrite, holding it for Apply / Discard if concurrent User edits elsewhere pushed removal over half (#3839); fails_when=staged rewrite applies immediately past the >50% hold
+  it("holds a staged rewrite for Apply / Discard when User edits elsewhere make it remove more than half of User text", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+
+    const mindId = "mind-recheck-hold";
+    // 40 letters in paragraph 1, 60 letters in paragraph 2 (40 / 100 = 40% at staging time).
+    const p1 = "abcdefghij".repeat(4);
+    const p2 = "klmnopqrst".repeat(6);
+    const replacement = "zzzzzzzzzz".repeat(4);
+    const { doc, editor } = mountEditor(mindId, [
+      { type: "paragraph", attrs: { id: "r1" }, content: [{ type: "text", text: p1 }] },
+      { type: "paragraph", attrs: { id: "r2" }, content: [{ type: "text", text: p2 }] },
+    ]);
+
+    const prep = await prepareOpenNoteWrite(mindId);
+    if (!prep.open || prep.busy) throw new Error("Expected ready token.");
+
+    // Core stages rewrite of p1 (was 40/100 = 40% when staged).
+    const sv = stageInlineProposal(doc, 0, p1, replacement, "req-recheck", "prop-recheck");
+
+    // User shortens unrelated paragraph 2 from 60 letters to 10 letters before acceptance -> now 40/50 = 80% > 50%!
+    const p2Start = editor.state.doc.child(0).nodeSize + 1;
+    const p2End = p2Start + p2.length;
+    editor.commands.insertContentAt({ from: p2Start, to: p2End }, "shortnotes");
+
+    const outcome = await acceptOpenNoteWrite(
+      {
+        mindId,
+        request: "req-recheck",
+        token: prep.token,
+        stateVector: sv,
+        changed: 1,
+        added: 0,
+        tables: 0,
+      },
+      { settleWaitMs: 300, typingQuietMs: 10 },
+    );
+
+    expect(outcome).toBe("held");
+    expect(saveCheckpoint).not.toHaveBeenCalled();
+    expect(
+      pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).map((each) => each.request),
+    ).toEqual(["req-recheck"]);
+    expect(appliedLineIn(editor.state)).toMatchObject({
+      kind: "held",
+      request: "req-recheck",
+      asked: { mindId, requests: ["req-recheck"] },
+    });
+    expect(editor.getText()).toContain("shortnotes");
   });
 });

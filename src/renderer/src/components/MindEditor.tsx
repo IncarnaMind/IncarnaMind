@@ -957,11 +957,25 @@ function MindEditorView({
       proposalsChanged = false;
       syncHeldOutsideProposals(mindId, editor);
     };
+    let hadAppliedLine = appliedLineIn(editor.state) !== null;
+    const onTransaction = () => {
+      const hasAppliedLine = appliedLineIn(editor.state) !== null;
+      if (hadAppliedLine && !hasAppliedLine) {
+        queueMicrotask(() => {
+          if (!editor.isDestroyed && appliedLineIn(editor.state) === null) {
+            syncHeldOutsideProposals(mindId, editor);
+          }
+        });
+      }
+      hadAppliedLine = hasAppliedLine;
+    };
     requestsMap.observe(onRequestsChange);
     doc.on("afterTransaction", onAfterTransaction);
+    editor.on("transaction", onTransaction);
     return () => {
       requestsMap.unobserve(onRequestsChange);
       doc.off("afterTransaction", onAfterTransaction);
+      editor.off("transaction", onTransaction);
       unregister();
     };
   }, [editor, doc, mindId, readOnly]);

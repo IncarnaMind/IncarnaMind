@@ -34,6 +34,7 @@ import { applyArrived } from "../appliedEdits";
 import type { ChangeCounts } from "../changeFacts";
 import { files } from "../core";
 import { EDIT_FROM_CORE, FROM_CORE, flushMindUpdates, setComposingGate } from "../mindCopies";
+import { setAppliedLine } from "./appliedEditLine";
 import { mindEditors, onMindEditorOpen } from "./openEditors";
 import { editorDoc } from "./proposalReview";
 
@@ -546,9 +547,9 @@ export async function prepareOpenNoteWrite(
   const doc = primary ? editorDoc(primary) : null;
   if (!primary || !doc) return { open: false };
   const gens = snapshotGens(live);
-  await flushMindUpdates(mindId);
+  const flushed = await flushMindUpdates(mindId);
   if (primary.isDestroyed || !primary.isEditable) return { open: false };
-  if (anyComposing(mindId) || localEditStatusSince(mindId, gens).changed) {
+  if (!flushed || anyComposing(mindId) || localEditStatusSince(mindId, gens).changed) {
     return { open: true, busy: true };
   }
   const token = crypto.randomUUID();
@@ -648,14 +649,22 @@ export async function acceptOpenNoteWrite(
   acceptingLocally += 1;
   try {
     outcome = applyArrived(editor, mindId, new Set([input.request]), facts, {
-      holds: false,
+      holds: true,
       checkpoint: true,
     });
   } finally {
     acceptingLocally -= 1;
   }
+  if (outcome === "held") {
+    await flushMindUpdates(mindId);
+    return "held";
+  }
   if (outcome !== "applied") return "changed";
-  await flushMindUpdates(mindId);
+  const saved = await flushMindUpdates(mindId);
+  if (!saved) {
+    setAppliedLine(editor, null);
+    return "failed";
+  }
   return "applied";
 }
 
@@ -684,7 +693,12 @@ export function installOpenNoteAgentAccept(): () => void {
           files.replyOpenNoteWriteRequest({ kind: "prepare", callId: request.callId, ...result }),
         (error: unknown) => {
           console.error(`Failed to prepare open Note write for Mind ${request.mindId}.`, error);
-          files.replyOpenNoteWriteRequest({ kind: "prepare", callId: request.callId, open: false });
+          files.replyOpenNoteWriteRequest({
+            kind: "prepare",
+            callId: request.callId,
+            open: true,
+            busy: true,
+          });
         },
       );
       return;

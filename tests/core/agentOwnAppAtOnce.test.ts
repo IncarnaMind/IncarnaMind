@@ -850,7 +850,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
     );
     expect(heldUserTitle.status).toBe("waiting");
 
-    // Inline code inside an AI-written paragraph is not miscounted as User text.
+    // AI-written inline code carries GENERATED_MARK and is not miscounted as User text.
     const codeDoc = new Y.Doc();
     try {
       const blocks = codeDoc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -859,10 +859,12 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
       text.insert(0, "Run ", { [GENERATED_MARK]: {} });
       text.insert(4, "npm test", {
         [INLINE_CODE_MARK]: {},
+        [GENERATED_MARK]: {},
         [PROPOSAL_DELETE_MARK]: { id: "p-code", request: "req-code" },
       });
       text.insert(12, "npm check", {
         [INLINE_CODE_MARK]: {},
+        [GENERATED_MARK]: {},
         [PROPOSAL_INSERT_MARK]: { id: "p-code", request: "req-code" },
       });
       para.insert(0, [text]);
@@ -915,5 +917,144 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
     } finally {
       doc.destroy();
     }
+  });
+
+  // protects=when acceptInEditor holds a staged rewrite after concurrent User edits pushed removal over 50%, core promotes staging: true to persisted held: true and returns waiting with zero Checkpoints or AI use recorded; when acceptInEditor returns failed, core rolls back staged Proposals and refuses (#3839); fails_when=held rewrite stays staging: true or applies, or failed save reports applied
+  it("promotes a staged rewrite to persisted held: true when the editor holds it, and rolls back when save fails", async () => {
+    let outcomeMode: "held" | "failed" = "held";
+    const adapter: OpenNoteEditor = {
+      async prepareWrite() {
+        return { open: true, busy: false, token: `tok-${randomUUID()}` };
+      },
+      async acceptInEditor() {
+        return outcomeMode;
+      },
+    };
+    const { core, agent, coast, told } = await paired("en", adapter);
+    const mind = await core.createMind({ title: "Editor outcome", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    editMind(client, () => [note(EN_P1), note(EN_P2)]);
+    await client.settled();
+
+    // 1. Mounted editor returns "held" -> core promotes staging -> held: true and returns status: "waiting".
+    const read1 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    const heldResult = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: read1.version,
+          changes: [{ paragraph: "¶1", text: "Tides rise twice daily." }],
+        },
+      }),
+    );
+    expect(heldResult).toMatchObject({
+      status: "waiting",
+      why: translate("en", "agents.propose.heldMostText"),
+    });
+    expect(heldResult.waiting).toBeGreaterThan(0);
+    expect(told).toEqual([]);
+    expect((await core.listCheckpoints(mind.id)).checkpoints).toHaveLength(0);
+    expect(await core.listAiUse(mind.id)).toEqual([]);
+
+    await client.settled();
+    const pending = pendingProposals(client.blocks);
+    expect(pending.length).toBeGreaterThan(0);
+    const reqId = pending[0]?.request ?? "";
+    const made = proposalRequestOf(client.doc, reqId);
+    expect(made).toMatchObject({ source: "outside-agent", held: true });
+    expect(made && "staging" in made ? made.staging : undefined).toBeUndefined();
+    // Persisted held proposal survives reload cleanup (never rolled back as a crashed staging leftover).
+    expect(cleanStagedProposals(client.blocks)).toBe(false);
+
+    // Clear the held proposal before testing "failed".
+    client.doc.transact(() => {
+      resolveProposals(client.blocks, () => true, "reject");
+    });
+    await client.settled();
+
+    // 2. Mounted editor returns "failed" (save rejected) -> core rolls back staged Proposals and refuses.
+    outcomeMode = "failed";
+    const read2 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    const failedResult = await agent.callTool({
+      name: "propose_changes",
+      arguments: {
+        mindId: mind.id,
+        version: read2.version,
+        changes: [{ paragraph: "¶1", text: "Tides rise twice daily." }],
+      },
+    });
+    expect(refusal(failedResult)).toBe(translate("en", "agents.problem.failed"));
+    await client.settled();
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(linesOf(client)).toEqual([EN_P1, EN_P2]);
+    expect(told).toEqual([]);
+  });
+
+  // protects=AI-created inline code carries GENERATED_MARK so rewriting it applies at once, whereas User-typed inline code beside generated prose counts as User text and holds when removing it exceeds 50% (#3839); fails_when=AI inline code holds or User inline code deletes past the hold
+  it("applies rewrites of AI-generated inline code while holding deletions of User-typed inline code beside generated prose", async () => {
+    const { core, agent, coast } = await paired("en");
+
+    // 1. AI-created Note containing inline code -> inline code carries GENERATED_MARK -> rewrite applies at once!
+    const created = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "CLI notes", markdown: "Run `npm test`." },
+      }),
+    );
+    const rAi = structured<{ version: string }>(
+      await agent.callTool({
+        name: "read_mind",
+        arguments: { mindId: created.mindId, named: true },
+      }),
+    );
+    const aiRewrite = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: created.mindId,
+          version: rAi.version,
+          changes: [{ paragraph: "¶1", text: "Run `npm check`." }],
+        },
+      }),
+    );
+    expect(aiRewrite.status).toBe("applied");
+
+    // 2. Paragraph with generated prose + 8 letters of User-typed inline code, and 2 User letters elsewhere -> deleting it removes 80% -> MUST HOLD!
+    const mixedMind = await core.createMind({ title: "Mixed code", folderId: coast.id });
+    const mixedClient = await connectToMind(core, mixedMind.id);
+    editMind(mixedClient, () => [
+      {
+        type: "paragraph",
+        attrs: { id: randomUUID() },
+        content: [
+          { type: "text", text: "Run ", marks: [{ type: GENERATED_MARK }] },
+          { type: "text", text: "mySecret", marks: [{ type: INLINE_CODE_MARK }] },
+        ],
+      },
+      note("ok"),
+    ]);
+    await mixedClient.settled();
+    const rMixed = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mixedMind.id, named: true } }),
+    );
+    const heldDelete = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mixedMind.id,
+          version: rMixed.version,
+          changes: [{ paragraph: "¶1", remove: true }],
+        },
+      }),
+    );
+    expect(heldDelete).toMatchObject({
+      status: "waiting",
+      why: translate("en", "agents.propose.heldMostText"),
+    });
   });
 });

@@ -61,7 +61,11 @@ function isReply(value: unknown): value is OpenNoteWriteReply {
   }
   if (record.kind === "accept") {
     return (
-      record.result === "applied" || record.result === "changed" || record.result === "not-open"
+      record.result === "applied" ||
+      record.result === "changed" ||
+      record.result === "held" ||
+      record.result === "failed" ||
+      record.result === "not-open"
     );
   }
   return false;
@@ -129,6 +133,7 @@ export function createOpenNoteEditor({
     request: OpenNoteWriteRequest,
     timeoutMs: number,
     fallback: OpenNoteWriteReply,
+    goneFallback: OpenNoteWriteReply = fallback,
   ): Promise<OpenNoteWriteReply> => {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
       log.warn("openNoteEditor.windowDestroyed", {
@@ -136,7 +141,7 @@ export function createOpenNoteEditor({
         mindId: request.mindId,
         callId: request.callId,
       });
-      return Promise.resolve(fallback);
+      return Promise.resolve(goneFallback);
     }
     return new Promise((resolve) => {
       const { callId } = request;
@@ -150,7 +155,7 @@ export function createOpenNoteEditor({
           mindId: request.mindId,
           callId,
         });
-        finish(fallback);
+        finish(goneFallback);
       };
       const timer = setTimeout(() => {
         log.warn("openNoteEditor.timeout", {
@@ -182,7 +187,7 @@ export function createOpenNoteEditor({
           callId,
           error: errorMessage(error),
         });
-        finish(fallback);
+        finish(window.isDestroyed() || window.webContents.isDestroyed() ? goneFallback : fallback);
       }
     });
   };
@@ -242,6 +247,7 @@ export function createOpenNoteEditor({
             window,
             { kind: "prepare", callId, mindId },
             prepareTimeoutMs,
+            { kind: "prepare", callId, open: true, busy: true },
             { kind: "prepare", callId, open: false },
           );
           return { window, reply };

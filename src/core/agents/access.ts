@@ -62,6 +62,8 @@ import {
   NODE_CHARACTER,
   outOfDateProposals,
   pendingProposals,
+  proposalRequestOf,
+  recordProposalRequest,
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
@@ -3948,6 +3950,27 @@ export function createAgentAccess(
                 written = { ...staged, ...refreshed };
                 appliedInEditor = true;
                 appliedNow = true;
+              } else if (editorOutcome === "held") {
+                held = true;
+                const refreshed = deps.editMind(mind.id, (blocks) => {
+                  if (blocks.doc) {
+                    const made = proposalRequestOf(blocks.doc, request);
+                    if (made?.source === "outside-agent") {
+                      const { staging: _staging, ...rest } = made;
+                      recordProposalRequest(blocks.doc, request, { ...rest, held: true });
+                    }
+                  }
+                  return {
+                    now: namedNote(blocks, namedWords(pairing, inScope, []), naming),
+                    waitingInNote: waitingChanges(blocks, forUser),
+                  };
+                });
+                written = { ...staged, ...refreshed };
+              } else if (editorOutcome === "failed") {
+                deps.editMind(mind.id, (blocks) => {
+                  if (pendingProposals(blocks).some(mine)) resolveProposals(blocks, mine, "reject");
+                });
+                throw new AgentRefusedError("failed", t("agents.problem.failed"));
               } else if (editorOutcome === "timeout") {
                 const confirmed = deps.editMind(mind.id, (blocks) => {
                   if (pendingProposals(blocks).some(mine)) {

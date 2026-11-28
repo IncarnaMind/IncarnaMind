@@ -8,7 +8,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import { actOnAppliedEdit } from "../appliedEdits";
+import { actOnAppliedEdit, heldProposalRequests } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/icons";
 import { drawnNoteAskBox, watchDrawnNoteAskBox } from "../components/noteAsk/noteAskBox";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
@@ -16,7 +16,7 @@ import { useLanguage, useT } from "../i18n";
 import { useActiveConversation, useNoteAskShown } from "../ownAiInNote";
 import { useReviewPanes } from "../reviewPane";
 import { useAppStore } from "../store";
-import { appliedLineIn, isAppliedAction, redrawAppliedLine } from "./appliedEditLine";
+import { isAppliedAction, redrawAppliedLine } from "./appliedEditLine";
 import { type ChangeBarBox, changeBarPlace, GAP_PX } from "./changeBarPlace";
 import {
   changeReason,
@@ -165,12 +165,10 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       const theirs: Theirs = { count: 0, authors: [] };
       const assistant: Group = { ids: [], stale: false };
       const agents: Agents = { names: [], only: true };
-      const line = appliedLineIn(current.state);
       // An edit held back has its own line.
-      const ownLine =
-        line?.kind === "held" ? new Set(line.asked?.requests ?? [line.request]) : null;
+      const ownLine = heldProposalRequests(current);
       for (const each of pendingIn(current.state)) {
-        if (ownLine?.has(each.request)) continue;
+        if (ownLine.has(each.request)) continue;
         if (each.theirs) {
           const author = theirChange(current, each)?.author ?? null;
           theirs.count++;

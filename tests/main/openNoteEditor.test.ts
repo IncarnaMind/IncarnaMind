@@ -38,10 +38,12 @@ interface FakeWindow {
 
 function fakeWindow(
   handler: (request: OpenNoteWriteRequest) => OpenNoteWriteReply | null,
-): FakeWindow {
+): FakeWindow & { close(): void } {
   const requests: OpenNoteWriteRequest[] = [];
+  let destroyed = false;
+  const closedListeners = new Set<() => void>();
   const webContents = {
-    isDestroyed: () => false,
+    isDestroyed: () => destroyed,
     once: () => undefined,
     off: () => undefined,
     send(_channel: string, request: OpenNoteWriteRequest) {
@@ -57,12 +59,26 @@ function fakeWindow(
     },
   };
   const window = {
-    isDestroyed: () => false,
-    once: () => undefined,
-    off: () => undefined,
+    isDestroyed: () => destroyed,
+    once(event: string, listener: () => void) {
+      if (event === "closed") closedListeners.add(listener);
+    },
+    off(event: string, listener: () => void) {
+      if (event === "closed") closedListeners.delete(listener);
+    },
     webContents,
   } as unknown as BrowserWindow;
-  return { window, requests };
+  return {
+    window,
+    requests,
+    close() {
+      destroyed = true;
+      for (const listener of [...closedListeners]) {
+        closedListeners.delete(listener);
+        listener();
+      }
+    },
+  };
 }
 
 const log = {
@@ -251,5 +267,67 @@ describe("createOpenNoteEditor multi-window guard and timeout handling (#3839)",
           req.token === "tok-to",
       ),
     ).toBe(true);
+  });
+
+  // protects=when a live window times out on prepareWrite, main returns busy instead of open: false so a slow or composing renderer cannot look like a closed Note, while confirmed closed or not-open windows still return open: false (#3839); fails_when=prepare timeout returns open: false
+  it("returns busy instead of open: false when a live window times out on prepareWrite, while keeping open: false for confirmed absence", async () => {
+    const { createOpenNoteEditor } = await import("../../src/main/openNoteEditor");
+
+    // 1. Live window never answers prepare -> must fail closed as busy, never open: false.
+    const hung = fakeWindow(() => null);
+    focusedWindow = hung.window;
+    const editorHung = createOpenNoteEditor({
+      windows: () => [hung.window],
+      trusted: () => true,
+      log,
+      prepareTimeoutMs: 40,
+    });
+    expect(await editorHung.prepareWrite("mind-hung")).toEqual({ open: true, busy: true });
+    expect(log.warn).toHaveBeenCalledWith(
+      "openNoteEditor.timeout",
+      expect.objectContaining({ kind: "prepare", mindId: "mind-hung", timeoutMs: 40 }),
+    );
+
+    // 2. One ready window + one hung window -> must return busy and release the ready window's token.
+    const readyWin = fakeWindow((req) =>
+      req.kind === "prepare"
+        ? { kind: "prepare", callId: req.callId, open: true, busy: false, token: "tok-rel" }
+        : null,
+    );
+    const slowWin = fakeWindow(() => null);
+    const editorMixed = createOpenNoteEditor({
+      windows: () => [readyWin.window, slowWin.window],
+      trusted: () => true,
+      log,
+      prepareTimeoutMs: 40,
+    });
+    expect(await editorMixed.prepareWrite("mind-mixed")).toEqual({ open: true, busy: true });
+    expect(readyWin.requests.some((req) => req.kind === "cancel" && req.token === "tok-rel")).toBe(
+      true,
+    );
+
+    // 3. Window closes during prepare -> confirmed absence -> open: false.
+    const closing = fakeWindow(() => null);
+    const editorClosing = createOpenNoteEditor({
+      windows: () => [closing.window],
+      trusted: () => true,
+      log,
+      prepareTimeoutMs: 200,
+    });
+    const pendingClose = editorClosing.prepareWrite("mind-closed");
+    queueMicrotask(() => closing.close());
+    expect(await pendingClose).toEqual({ open: false });
+
+    // 4. Live window explicitly confirms not open -> open: false.
+    const confirmedClosed = fakeWindow((req) =>
+      req.kind === "prepare" ? { kind: "prepare", callId: req.callId, open: false } : null,
+    );
+    const editorConfirmed = createOpenNoteEditor({
+      windows: () => [confirmedClosed.window],
+      trusted: () => true,
+      log,
+      prepareTimeoutMs: 40,
+    });
+    expect(await editorConfirmed.prepareWrite("mind-absent")).toEqual({ open: false });
   });
 });

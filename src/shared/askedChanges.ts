@@ -19,7 +19,6 @@ import {
   type SentenceChanges,
 } from "../core/api";
 import { diffSteps, splitWords } from "../core/proposals/diff";
-import { INLINE_CODE_MARK } from "./aiText";
 import { hasMarkIn, markValueOf } from "./markKeys";
 import { noteWriterOf } from "./noteWriter";
 import {
@@ -139,16 +138,10 @@ function measureOwnText(
   const visit = (parent: Y.XmlFragment | Y.XmlElement, goes: boolean) => {
     for (const child of parent.toArray()) {
       if (child instanceof Y.XmlText) {
-        const runs = runsOf(child);
-        const hasGenerated = runs.some((run) => marked(run, GENERATED_MARK));
-        for (const run of runs) {
+        for (const run of runsOf(child)) {
           const added = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
           if (added) changeOf(added.id).back += run.insert;
-          if (
-            marked(run, GENERATED_MARK) ||
-            hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes) ||
-            (hasGenerated && marked(run, INLINE_CODE_MARK))
-          ) {
+          if (marked(run, GENERATED_MARK) || hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes)) {
             continue;
           }
           own += run.insert.length;
