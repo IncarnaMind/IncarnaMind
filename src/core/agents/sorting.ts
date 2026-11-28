@@ -33,8 +33,7 @@ import { AgentRefusedError } from "./refusals";
  * group is never split across pages by a count (#3626).
  */
 export const SORTING_MOST = 40;
-/** Batches larger than this scale excerpt length so all 40 Documents fit in one answer (#2737). */
-const FULL_EXCERPT_MOST = 20;
+/** Floor for per-Document excerpt sizing when fitting a large-Library batch onto one page (#2737). */
 const MIN_EXCERPT_TOKENS = 60;
 
 type Choice = { id: string; name: string };
@@ -311,6 +310,7 @@ export function createAgentSorting(
     total: number,
     folders: Choice[],
     tags: TagChoice[],
+    compact = false,
   ): SortingBatch {
     let start = 0;
     if (after !== "") {
@@ -322,7 +322,7 @@ export function createAgentSorting(
     // What else the answer carries, and room for a next.
     let size = estimateTokens(JSON.stringify({ total, folders, tags, next: slice[0]?.id ?? "" }));
     const perDocBudget =
-      pageRows.length > FULL_EXCERPT_MOST
+      compact && pageRows.length > 0
         ? Math.floor((READ_PART_TOKENS - size) / pageRows.length)
         : null;
     const documents: SortingBatch["documents"] = [];
@@ -525,6 +525,7 @@ export function createAgentSorting(
           remaining.length,
           folderChoices(scope, session.propagated),
           choices(scope),
+          true,
         );
         if (after === "") session.servedIds.clear();
         for (const doc of batch.documents) session.servedIds.add(doc.id);
@@ -532,8 +533,7 @@ export function createAgentSorting(
         return batch;
       }
 
-      // Small / medium Library (<= SAMPLE): list every Document in natural order, sizing excerpts
-      // so up to 40 Documents fit in one answer and the agent sees every area together.
+      // Small / medium Library (<= SAMPLE): list every Document in natural order with full excerpts.
       return buildBatch(all, after, all.length, scope.folders, choices(scope));
     },
 

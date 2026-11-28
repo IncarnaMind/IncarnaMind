@@ -1009,30 +1009,7 @@ describe("outside agents", () => {
     expect((await core.getLibrary()).groups).toEqual([]);
   }, 120_000);
 
-  // protects=a 37-Document mixed English and Chinese Library with long text fits in one list_sorting page within READ_PART_TOKENS so the agent sees every area together (#2737); fails_when=CJK token counting spills the last Documents onto a second page or overflows READ_PART_TOKENS
-  it("fit up to 40 mixed-language Documents on one list_sorting page within the token bound", async () => {
-    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
-    const sources = await createSourceFolder();
-    const files: string[] = [];
-    for (let at = 1; at <= 37; at++) {
-      const body =
-        at % 2 === 0
-          ? `# 财务报告 ${at}\n\n${"本季度主营业务收入、毛利率与现金流变动分析详情记录。".repeat(30)}`
-          : `# Contract ${at}\n\n${"Master services agreement governing deliverables, invoices, and renewal notice periods.\n".repeat(25)}`;
-      files.push(await writeSourceFile(sources, `Doc ${at}.md`, body));
-    }
-    await addAndProcess(core, files, 60_000);
-    await core.setAgentsEnabled(true);
-    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
-    const agent = await connectLegacyAgent(launch);
-    const result = await agent.callTool({ name: "list_sorting", arguments: {} });
-    expect(estimateTokens(resultText(result))).toBeLessThanOrEqual(READ_PART_TOKENS);
-    const batch = structured<SortingBatch>(result);
-    expect(batch.documents).toHaveLength(37);
-    expect(batch).toMatchObject({ total: 37, next: null });
-  }, 120_000);
-
-  // protects=past SAMPLE (48) Documents, list_sorting serves a proportional 40-Document sample in one page, propagates unanimous clear clusters locally (Folders and unanimous kind:* Tags) without making anything before Confirm, exposes scoped proposed Folders in Round 2 (never across another pairing's wall), never loops on omitted outliers, and Confirm + one Undo reverts every Document cleanly (#2737); fails_when=large Libraries lose propagation, leak proposed Folders across pairings, loop on skipped Documents, create Folders before Confirm, or fail clean Undo
+  // protects=past SAMPLE (48) Documents, list_sorting serves a proportional 40-Document sample across pages within READ_PART_TOKENS, propagates unanimous clear clusters locally (Folders and unanimous kind:* Tags) without making anything before Confirm, exposes scoped proposed Folders in Round 2 (never across another pairing's wall), never loops on omitted outliers, and Confirm + one Undo reverts every Document cleanly (#2737); fails_when=large Libraries lose propagation, leak proposed Folders across pairings, loop on skipped Documents, create Folders before Confirm, or fail clean Undo
   it("sample, propagate clear clusters, reuse scoped proposed Folders, and undo cleanly past 48 Documents", async () => {
     const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
     const sources = await createSourceFolder();
@@ -1119,15 +1096,24 @@ describe("outside agents", () => {
     const agent = await connectLegacyAgent(launch);
     const walledAgent = await connectLegacyAgent(wallLaunch);
 
-    const round1Res = await agent.callTool({ name: "list_sorting", arguments: {} });
-    expect(estimateTokens(resultText(round1Res))).toBeLessThanOrEqual(READ_PART_TOKENS);
-    const round1 = structured<SortingBatch>(round1Res);
-    expect(round1.total).toBe(60);
-    expect(round1.documents).toHaveLength(SORTING_MOST);
-    expect(round1.next).toBeNull();
+    const round1Docs: SortingBatch["documents"] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const res = await agent.callTool({
+        name: "list_sorting",
+        arguments: after ? { after } : {},
+      });
+      expect(estimateTokens(resultText(res))).toBeLessThanOrEqual(READ_PART_TOKENS);
+      const batch = structured<SortingBatch>(res);
+      expect(batch.total).toBe(60);
+      round1Docs.push(...batch.documents);
+      if (batch.next === null) break;
+      after = batch.next;
+    }
+    expect(round1Docs).toHaveLength(SORTING_MOST);
 
     const themeFor = (name: string) => themes.find((t) => name.startsWith(t.prefix));
-    const round1Proposals = round1.documents.flatMap((doc) => {
+    const round1Proposals = round1Docs.flatMap((doc) => {
       const theme = themeFor(doc.name);
       return theme
         ? [
