@@ -2353,58 +2353,142 @@ export function createAgentAccess(
     return tokens;
   };
 
-  /**
-   * Confirms sentence handles (`[cite:<handle>.<n>]`) and inline quote tags
-   * (`[cite:passageId: exact quote]` or `[cite:path: exact quote]`) in `propose_changes` /
-   * `create_mind` (#3753), minting a persistent token for each confirmed quote and stripping
-   * unconfirmed tags cleanly so no stray text lands in the Note.
-   */
-  const resolveInlineCitations = async (
-    initialPairing: AdmittedPairing,
-    initialInScope: Set<string>,
-    texts: readonly string[],
-  ): Promise<{
-    texts: string[];
-    pairing: AdmittedPairing;
-    inScope: Set<string>;
-    extraReports: AgentCheckedCitation[];
+  const inlineTagKey = (tag: ParsedInlineTag) =>
+    tag.kind === "sentence"
+      ? `sentence\u0000${tag.handle}\u0000${tag.index}`
+      : `${tag.kind}\u0000${tag.ref}\u0000${tag.quote}`;
+
+  interface ResolvedInlineFiles {
+    foundTags: ParsedInlineTag[];
+    byKey: Map<string, string | null>;
+    failedReports: AgentCheckedCitation[];
+    mintedFiles: { key: string; token: string; raw: string; document: string; quote: string }[];
     read: string[];
-    recheckedAfterWait: boolean;
-  }> => {
+  }
+
+  /**
+   * Resolves any async file-path inline citations (`[cite:path: exact quote]`) before the final
+   * synchronous admission check, so nothing awaits between re-admission and writing the Note (#3753).
+   */
+  const resolveInlineFileCitations = async (
+    texts: readonly string[],
+  ): Promise<ResolvedInlineFiles> => {
     const foundTags = findInlineQuoteTags(texts);
-    if (foundTags.length === 0) {
-      return {
-        texts: [...texts],
-        pairing: initialPairing,
-        inScope: initialInScope,
-        extraReports: [],
-        read: [],
-        recheckedAfterWait: false,
-      };
+    const byKey = new Map<string, string | null>();
+    const failedReports: AgentCheckedCitation[] = [];
+    const mintedFiles: ResolvedInlineFiles["mintedFiles"] = [];
+    const read: string[] = [];
+    if (!foundTags.some((each) => each.kind === "file")) {
+      return { foundTags, byKey, failedReports, mintedFiles, read };
     }
-    if (grant && foundTags.some((each) => each.kind === "file")) {
+    if (grant) {
       throw new AgentRefusedError(
         "invalid",
         t(grant.kind === "check" ? "agents.problem.checkRunPath" : "agents.problem.runNoPath"),
       );
     }
-    let pairing = initialPairing;
-    let inScope = initialInScope;
     const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
+    for (const tag of foundTags) {
+      if (tag.kind !== "file") continue;
+      const key = inlineTagKey(tag);
+      if (byKey.has(key)) continue;
+      if (tag.ref === "" || tag.quote === "" || tag.quote.length > MAX_QUOTE_CHARS) {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: tag.quote || null,
+          changed: false,
+          text: t("agents.propose.citationNotFoundShort"),
+        });
+        continue;
+      }
+      const before = deps.admit(pairingId);
+      if (!before.propose) {
+        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+      }
+      const filed = await deps.citeFile(
+        text(tag.ref, "path", MAX_PATH_CHARS),
+        tag.quote,
+        before.name,
+        (documentId) => reachNow().has(documentId),
+      );
+      const after = deps.admit(pairingId);
+      read.push(filed.documentId);
+      const found = filed.citation;
+      if (found && deps.notCited(found.passageId)) {
+        throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
+      }
+      if (found) {
+        const minted = mint(after, found);
+        byKey.set(key, citeTag(minted.token));
+        mintedFiles.push({
+          key,
+          token: minted.token,
+          raw: tag.raw,
+          document: filed.name,
+          quote: tag.quote,
+        });
+      } else {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: filed.name,
+          location: null,
+          quote: tag.quote,
+          changed: false,
+          text: t("agents.propose.citationNotFoundFile"),
+        });
+      }
+    }
+    return { foundTags, byKey, failedReports, mintedFiles, read };
+  };
+
+  /**
+   * Synchronously confirms sentence handles (`[cite:<handle>.<n>]`), inline Passage quotes
+   * (`[cite:passageId: exact quote]`), and any previously awaited file-path tokens against live
+   * post-admission state in `propose_changes` / `create_mind` (#3753).
+   */
+  const resolveInlineCitations = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    texts: readonly string[],
+    files: ResolvedInlineFiles,
+  ): {
+    texts: string[];
+    extraReports: AgentCheckedCitation[];
+    read: string[];
+  } => {
+    const { foundTags, byKey, failedReports, mintedFiles, read } = files;
+    if (foundTags.length === 0) {
+      return { texts: [...texts], extraReports: [], read: [] };
+    }
     let cachedNotShared: string | null | undefined;
     const extraNotShared = () => {
       if (cachedNotShared === undefined) cachedNotShared = notShared();
       return cachedNotShared;
     };
-    const read: string[] = [];
-    const byKey = new Map<string, string | null>();
-    const failedReports: AgentCheckedCitation[] = [];
     let excerptTokens = 0;
-    let fileAwaits = 0;
-    const keyOf = (tag: ParsedInlineTag) =>
-      tag.kind === "sentence"
-        ? `sentence\u0000${tag.handle}\u0000${tag.index}`
-        : `${tag.kind}\u0000${tag.ref}\u0000${tag.quote}`;
+
+    // Re-verify any file tokens minted before the final await so no stale `found` attributes persist.
+    for (const item of mintedFiles) {
+      const kept = deps.citations.find(pairing.id, item.token);
+      if (!kept || !usable(inScope, kept.documentId) || recheckKept(kept).check !== "found") {
+        byKey.set(item.key, null);
+        failedReports.push({
+          cite: clip(item.raw, 120),
+          check: "not-found",
+          document: item.document,
+          location: null,
+          quote: item.quote,
+          changed: false,
+          text: t("agents.propose.citationNotFoundFile"),
+        });
+      }
+    }
 
     const recordPassageCitation = (
       key: string,
@@ -2452,101 +2536,9 @@ export function createAgentAccess(
       });
     };
 
-    // Phase 1: resolve async file-path tags first so every synchronous Passage/sentence check runs
-    // after all awaits with zero window for Document changes before the Note is written.
-    const mintedFiles: {
-      key: string;
-      token: string;
-      raw: string;
-      document: string;
-      quote: string;
-    }[] = [];
-    for (const tag of foundTags) {
-      if (tag.kind !== "file") continue;
-      const key = keyOf(tag);
-      if (byKey.has(key)) continue;
-      if (tag.ref === "" || tag.quote === "" || tag.quote.length > MAX_QUOTE_CHARS) {
-        byKey.set(key, null);
-        failedReports.push({
-          cite: clip(tag.raw, 120),
-          check: "not-found",
-          document: null,
-          location: null,
-          quote: tag.quote || null,
-          changed: false,
-          text: t("agents.propose.citationNotFoundShort"),
-        });
-        continue;
-      }
-      fileAwaits += 1;
-      const filed = await deps.citeFile(
-        text(tag.ref, "path", MAX_PATH_CHARS),
-        tag.quote,
-        pairing.name,
-        (documentId) => reachNow().has(documentId),
-      );
-      pairing = deps.admit(pairingId);
-      inScope = new Set(scopeOf(pairing, undefined));
-      cachedNotShared = undefined;
-      read.push(filed.documentId);
-      const found = filed.citation;
-      if (found && deps.notCited(found.passageId)) {
-        throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
-      }
-      if (found) {
-        const minted = mint(pairing, found);
-        byKey.set(key, citeTag(minted.token));
-        mintedFiles.push({
-          key,
-          token: minted.token,
-          raw: tag.raw,
-          document: filed.name,
-          quote: tag.quote,
-        });
-      } else {
-        byKey.set(key, null);
-        failedReports.push({
-          cite: clip(tag.raw, 120),
-          check: "not-found",
-          document: filed.name,
-          location: null,
-          quote: tag.quote,
-          changed: false,
-          text: t("agents.propose.citationNotFoundFile"),
-        });
-      }
-    }
-    if (fileAwaits > 0) {
-      pairing = stillReaching(read.filter((documentId) => !deps.citedOutside(documentId)));
-      if (!pairing.propose) {
-        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
-      }
-      inScope = new Set(scopeOf(pairing, undefined));
-      // If a file cited earlier in this call changed while a later file was awaited, drop its
-      // newly minted token rather than persisting historical `found` attributes.
-      if (fileAwaits > 1) {
-        for (const item of mintedFiles) {
-          const kept = deps.citations.find(pairing.id, item.token);
-          if (!kept || !usable(inScope, kept.documentId) || recheckKept(kept).check !== "found") {
-            byKey.set(item.key, null);
-            failedReports.push({
-              cite: clip(item.raw, 120),
-              check: "not-found",
-              document: item.document,
-              location: null,
-              quote: item.quote,
-              changed: false,
-              text: t("agents.propose.citationNotFoundFile"),
-            });
-          }
-        }
-      }
-    }
-
-    // Phase 2: resolve synchronous sentence handles and inline Passage quotes against live state.
     for (const tag of foundTags) {
       if (tag.kind === "file") continue;
-      const key = keyOf(tag);
+      const key = inlineTagKey(tag);
       if (byKey.has(key)) continue;
       if (tag.kind === "sentence") {
         const looked = passageCites.lookup(pairing.id, tag.handle, tag.index);
@@ -2623,12 +2615,9 @@ export function createAgentAccess(
       recordPassageCitation(key, tag.raw, passage, citation);
     }
     return {
-      texts: rewriteInlineQuoteTags(texts, (tag) => byKey.get(keyOf(tag)) ?? null),
-      pairing,
-      inScope,
+      texts: rewriteInlineQuoteTags(texts, (tag) => byKey.get(inlineTagKey(tag)) ?? null),
       extraReports: failedReports,
       read,
-      recheckedAfterWait: fileAwaits > 0,
     };
   };
 
@@ -4064,17 +4053,18 @@ export function createAgentAccess(
             : null;
         const rawTexts = asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text]));
         const visuals = await visualsFor(rawTexts);
-        // What the User grants may have changed while the pictures were read.
-        let pairing = deps.admit(pairingId);
+        const inlineFiles = await resolveInlineFileCitations(rawTexts);
+        // What the User grants may have changed while the pictures and cited files were read.
+        const pairing =
+          inlineFiles.read.length > 0
+            ? stillReaching(inlineFiles.read.filter((documentId) => !deps.citedOutside(documentId)))
+            : deps.admit(pairingId);
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         mindInScope(pairing, mind.id);
-        let inScope = new Set(scopeOf(pairing, undefined));
-        const inline = await resolveInlineCitations(pairing, inScope, rawTexts);
-        pairing = inline.pairing;
-        inScope = inline.inScope;
-        if (inline.recheckedAfterWait) mindInScope(pairing, mind.id);
+        const inScope = new Set(scopeOf(pairing, undefined));
+        const inline = resolveInlineCitations(pairing, inScope, rawTexts, inlineFiles);
         let textAt = 0;
         const resolvedAsked: AskedChange[] = asked.map((change) => {
           if (change.kind === "remove") return change;
@@ -4258,18 +4248,17 @@ export function createAgentAccess(
         const writtenInput = draftText(input?.markdown);
         placeToWriteIn(admitted, input?.folderId);
         const visuals = await visualsFor([writtenInput]);
-        // What the User grants may have changed while the pictures were read.
-        let pairing = deps.admit(pairingId);
+        const inlineFiles = await resolveInlineFileCitations([writtenInput]);
+        // What the User grants may have changed while the pictures and cited files were read.
+        const pairing =
+          inlineFiles.read.length > 0
+            ? stillReaching(inlineFiles.read.filter((documentId) => !deps.citedOutside(documentId)))
+            : deps.admit(pairingId);
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
-        let folder = placeToWriteIn(pairing, input?.folderId);
-        let inScope = new Set(scopeOf(pairing, undefined));
-        const inline = await resolveInlineCitations(pairing, inScope, [writtenInput]);
-        pairing = inline.pairing;
-        inScope = inline.inScope;
-        if (inline.recheckedAfterWait) folder = placeToWriteIn(pairing, input?.folderId);
-        // Counted once the pictures and file citations are read: from here the Note is written without a wait.
+        const folder = placeToWriteIn(pairing, input?.folderId);
+        // Counted once the pictures and cited files are read: from here the Note is written without a wait.
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
           throw new AgentRefusedError(
@@ -4277,6 +4266,8 @@ export function createAgentAccess(
             t("agents.problem.too-many", { max: MAX_NOTES_AN_HOUR }),
           );
         }
+        const inScope = new Set(scopeOf(pairing, undefined));
+        const inline = resolveInlineCitations(pairing, inScope, [writtenInput], inlineFiles);
         const written = (inline.texts[0] ?? "").trim();
         if (written === "") {
           throw new AgentRefusedError("invalid", t("agents.create.emptyText"));
