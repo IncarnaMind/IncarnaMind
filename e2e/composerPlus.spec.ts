@@ -312,7 +312,7 @@ test("Add files… from the + and from ⌘K makes the picked files Documents and
   await useLocalChatModel(window);
   await setWindowSize(app, window, 1600, 900);
   // Room for a chip for each file; the narrow panel folds them into a count (below).
-  await sizeAssistant(window, 560);
+  await sizeAssistant(window, 600);
   const { composer, plus, menu } = parts(window);
   expect(await documentsOf(window)).toEqual([]);
   // One of the two is a Document already, though in no Search scope.

@@ -10,7 +10,7 @@
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 /** 28px in a row, 32px in a dialog, 36px at the foot of first run. */
-type ButtonSize = "sm" | "md" | "lg";
+export type ButtonSize = "sm" | "md" | "lg";
 
 const buttonBase =
   "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md whitespace-nowrap transition-colors duration-80 disabled:cursor-default disabled:opacity-50";
