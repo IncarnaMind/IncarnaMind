@@ -1753,7 +1753,10 @@ export type OwnAiFailure =
   | "isolation"
   /** A kept conversation Claude Code no longer has: its own sweep or the User removed it. */
   | "lost-conversation"
-  /** Claude Code sent nothing for as long as a run that still works never stays quiet. */
+  /**
+   * Claude Code got nowhere for as long as a run that still works never does: it sent nothing, or
+   * only that it was alive or retrying.
+   */
   | "stalled"
   /** Claude Code began compacting its conversation and didn't finish in time. */
   | "compaction"

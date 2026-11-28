@@ -193,7 +193,7 @@ const testOllamaApp =
 const testOwnAi = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_OWN_AI : undefined;
 /**
  * Test-only launch flag: how long, in ms, the stand-in may send nothing before its run stops as
- * stalled, so a spec sees the stopped line without waiting six minutes.
+ * stalled, so a spec sees the stopped line without waiting three minutes.
  */
 const testOwnAiStallMs =
   import.meta.env.MODE === "test" ? Number(process.env.INCARNAMIND_TEST_OWN_AI_STALL_MS ?? 0) : 0;
@@ -1195,7 +1195,10 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
               command: testOwnAi ?? null,
               codexCommand: testOwnCodex ?? null,
               conversations: join(dataDir, "Own AI conversations"),
-              ...(testOwnAiStallMs > 0 && { stallMs: testOwnAiStallMs }),
+              ...(testOwnAiStallMs > 0 && {
+                stallMs: testOwnAiStallMs,
+                codexStallMs: testOwnAiStallMs,
+              }),
             }),
           }),
           claudeCodeInstaller: testClaudeCodeInstaller(

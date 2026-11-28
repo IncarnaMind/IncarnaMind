@@ -1,23 +1,10 @@
 import type { Editor } from "@tiptap/core";
 import type { EditAction } from "../../../core/api";
 import { translate } from "../../../shared/i18n";
-import {
-  actOnAppliedEdit,
-  offersReview,
-  restorableAt,
-  restoreChange,
-  reviewApplied,
-  reviewedChangeAt,
-} from "../appliedEdits";
+import { actOnAppliedEdit } from "../appliedEdits";
 import { useComposer } from "../composer";
 import { holdsAiText } from "../editor/aiText";
-import {
-  type AppliedAction,
-  type AppliedLine,
-  appliedLineIn,
-  appliedOriginalAt,
-  toggleAppliedOriginal,
-} from "../editor/appliedEditLine";
+import { type AppliedAction, type AppliedLine, appliedLineIn } from "../editor/appliedEditLine";
 import { selectionForEdit } from "../editor/editSelection";
 import { explainSelection } from "../editor/explainSelection";
 import { noteHolding } from "../editor/noteKeymap";
@@ -40,9 +27,8 @@ import type { Command, CommandContext } from "./registry";
 /*
  * Proposals (#93), Edit with AI and Mark as mine (#95), from the keyboard
  * and ⌘K. ⌘↵ and ⌘⌫ act in the note, on the change the cursor is in or the
- * proposals a selection touches (a section, as in Word), and under Review
- * changes on the group at the selection's start; anywhere else they do what
- * they always do.
+ * proposals a selection touches (a section, as in Word); anywhere else they
+ * do what they always do.
  */
 
 /** The note the cursor's Block is in, while the cursor or the selection is on a Proposal. */
@@ -53,22 +39,9 @@ function noteOnProposal(ctx: CommandContext): Editor | null {
     : null;
 }
 
-/** The note the cursor's Block is in, while the cursor is in an applied edit's change shown again. */
-function noteOnReviewedChange(ctx: CommandContext): Editor | null {
-  const editor = ctx.focus?.kind === "block" ? noteHolding(ctx.focus.id) : null;
-  return editor && !editor.isDestroyed && reviewedChangeAt(editor.state) !== null ? editor : null;
-}
-
-function restorableHere(ctx: CommandContext): boolean {
-  const editor = noteOnReviewedChange(ctx);
-  return editor !== null && restorableAt(editor.state);
-}
-
 function originalAt() {
   const editor = noteHandle.current?.editor;
   if (!editor || editor.isDestroyed) return null;
-  const applied = appliedOriginalAt(editor.state);
-  if (applied) return { editor, ...applied, toggle: toggleAppliedOriginal };
   const waiting = proposalOriginalAt(editor.state);
   return waiting && { editor, ...waiting, toggle: toggleProposalOriginal };
 }
@@ -142,12 +115,6 @@ function withAppliedLine(kinds: readonly AppliedLine["kind"][], also = (_: Appli
   return note && line && kinds.includes(line.kind) && also(line) ? note : null;
 }
 
-/** The Mind last written in, while it offers Review changes for the last edit it applied. */
-function withReview() {
-  const note = noteHandle.current;
-  return note && offersReview(note.editor) ? note : null;
-}
-
 /** What the line over an applied edit offers, from ⌘K while it shows. */
 const appliedCommand = (
   id: `edit.${string}`,
@@ -169,27 +136,7 @@ const appliedCommand = (
 });
 
 export const proposalCommands: readonly Command[] = [
-  appliedCommand(
-    "edit.undoApplied",
-    "command.edit.undoApplied",
-    "undo",
-    ["applied", "review"],
-    // Changed since, it can't take the edit back: its line says so on Undo all.
-    (line) => line.kind !== "review" || !line.undo || line.undo.available(),
-  ),
-  {
-    // After the line has gone too, while some of the edit's words are as it wrote them (#1795).
-    id: "edit.reviewApplied",
-    label: "edit.applied.review",
-    group: "main",
-    // It shows what was applied; nothing in the Mind changes.
-    reversible: true,
-    when: () => withReview() !== null,
-    run() {
-      const note = withReview();
-      if (note) reviewApplied(note.editor, { focus: true });
-    },
-  },
+  appliedCommand("edit.undoApplied", "command.edit.undoApplied", "undo", ["applied"]),
   appliedCommand(
     "edit.removeKept",
     "command.edit.removeKept",
@@ -197,7 +144,6 @@ export const proposalCommands: readonly Command[] = [
     ["applied"],
     (line) => line.kind === "applied" && line.kept !== null,
   ),
-  appliedCommand("edit.reviewDone", "command.edit.reviewDone", "done", ["review"]),
   appliedCommand("edit.applyHeld", "command.edit.applyHeld", "apply", ["held"]),
   appliedCommand("edit.discardHeld", "command.edit.discardHeld", "discard", ["held"]),
   {
@@ -213,30 +159,16 @@ export const proposalCommands: readonly Command[] = [
   },
   {
     id: "proposal.reject",
-    label: (ctx, t) =>
-      noteOnProposal(ctx) === null && noteOnReviewedChange(ctx) !== null
-        ? t("edit.review.restore")
-        : t("command.proposal.reject"),
+    label: "command.proposal.reject",
     shortcut: { keys: "CmdOrCtrl+Backspace", inText: true },
     group: "main",
     appliesTo: ["block"],
     reversible: true,
-    // In the text, ⌘⌫ in a change the User changed since does nothing, rather than delete their line.
-    when: (ctx) =>
-      noteOnProposal(ctx) !== null ||
-      (ctx.surface === "palette" ? restorableHere(ctx) : noteOnReviewedChange(ctx) !== null),
-    run(ctx) {
-      if (noteOnProposal(ctx)) {
-        resolveAt(ctx, "reject");
-        return;
-      }
-      const editor = noteOnReviewedChange(ctx);
-      const index = editor ? reviewedChangeAt(editor.state) : null;
-      if (editor && index !== null) restoreChange(editor, index);
-    },
+    when: (ctx) => noteOnProposal(ctx) !== null,
+    run: (ctx) => resolveAt(ctx, "reject"),
   },
   {
-    // A paragraph or section written anew: its "Was: …" or "Show original" line, from ⌘K.
+    // A waiting paragraph or section written anew: its "Was: …" or "Show original" line, from ⌘K.
     id: "change.original",
     label: (_ctx, t) => t(originalAt()?.shown ? "change.hideOriginal" : "change.showOriginal"),
     group: "main",
