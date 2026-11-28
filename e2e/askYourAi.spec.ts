@@ -268,22 +268,17 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     expect(typedIn((await urlsOpened(app))[3])).toBe(noteNamed);
     await expect(assistant).toBeHidden();
 
-    // IncarnaMind's own model is under the pill's ⌄, last, by the keyboard as its agents are: it
-    // opens Settings › AI, and the assistant stays out of sight (#3612).
+    // The pill's ⌄ holds the User's own AIs only, by the keyboard: no model is set up in
+    // IncarnaMind from it (#3767), and the assistant stays out of sight (#3612).
     await window.getByTestId("own-ai-pill-others").focus();
     await window.keyboard.press("Enter");
     await expect(window.getByRole("menuitem", { name: "Continue in the open chat" })).toBeFocused();
     await window.keyboard.press("ArrowDown");
     await expect(window.getByRole("menuitem", { name: "Ask VS Code" })).toBeFocused();
-    await window.keyboard.press("ArrowDown");
-    const useModel = window.getByTestId("own-ai-pill-use-model");
-    await expect(useModel).toHaveText("Use a model in IncarnaMind…");
-    await expect(useModel).toBeFocused();
-    await window.keyboard.press("Enter");
-    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
-    // It lands on the model's own quiet row, under Your AI (#3645).
-    await expect(window.getByTestId("ai-use-model-open")).toBeFocused();
-    await closeSettings(window);
+    await expect(window.getByRole("menuitem")).toHaveCount(2);
+    await expect(window.getByTestId("own-ai-pill-use-model")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(window.getByRole("menuitem")).toHaveCount(0);
     await expect(assistant).toBeHidden();
     await expect(window.getByTestId("model-setup")).toHaveCount(0);
     await expect(window.getByTestId("own-ai-pill")).toBeVisible();

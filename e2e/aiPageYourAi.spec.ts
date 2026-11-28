@@ -1,6 +1,7 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import { AGENT_CLIENT_DEFINITIONS } from "../src/core/agents/clients";
 import type { CoreBridge } from "../src/core/api";
 import { installAgent } from "../tests/helpers/agentInstalls";
 import {
@@ -12,16 +13,15 @@ import {
   launchApp,
   openSettings,
   removeDataFolder,
-  runCommand,
   setLanguage,
   setWindowSize,
   showSettingsPage,
 } from "./app";
 
 /*
- * Settings › AI is one page that starts with the User's own AI (#3645): Your AI, then a model in
- * IncarnaMind, optional and one quiet row while there is none, then the jobs, the accounts and the
- * limits. Each setup a User can be in, with no model set up unless the test says so. The home
+ * Settings › AI is one page that starts with the User's own AI (#3645): Your AI, then the jobs, the
+ * accounts and the limits. No chat model is set up in IncarnaMind (#3767): only a profile that
+ * has one shows its jobs and accounts. Each setup a User can be in, with no model set up unless the test says so. The home
  * folder is a temporary one with Claude Code's settings in it, so no agent of the User's is
  * touched. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
@@ -101,14 +101,7 @@ async function order(settings: Locator, ids: readonly string[]): Promise<string[
   return tops.sort((a, b) => a[1] - b[1]).map(([id]) => id);
 }
 
-const PARTS = [
-  "ai-lede",
-  "agents-connected",
-  "ai-use-model",
-  "ai-jobs",
-  "your-providers",
-  "ai-limits",
-] as const;
+const PARTS = ["ai-lede", "agents-connected", "ai-jobs", "your-providers", "ai-limits"] as const;
 
 /** The rows of What each job uses that need a model in IncarnaMind. */
 const MODEL_ROWS = [
@@ -118,24 +111,26 @@ const MODEL_ROWS = [
   "web-search-settings",
 ] as const;
 
-// protects=with nothing set up, AI leads with Your AI's line and the agents to connect, then one quiet row for a model, then only the jobs that run without one, and Limits with no cap; no Agents page and no switch to find; Add an account or key… from ⌘K still opens its sheet; fails_when=the model row comes first, a job that needs a model is listed, the cap or the switch shows, or the sheet can't be reached; no_claim=the setup dialog the row opens (firstRunSetup.spec.ts).
-test("nothing set up: Your AI and the agents to connect, then one quiet row, and only the jobs that run without a model", async () => {
+// protects=with nothing set up, AI leads with Your AI's line and the agents to connect, then only the jobs that run without a model, and Limits with no cap; no row to set up a model in IncarnaMind (#3767), no Agents page and no switch to find; fails_when=a row to set up a model shows, a job that needs a model is listed, Accounts and keys, the cap or the switch shows.
+test("nothing set up: Your AI and the agents to connect, then only the jobs that run without a model", async () => {
   const window = await launch();
   const settings = await openSettings(window, "ai");
   expect(await nav(settings)).toEqual(["general", "ai", "meetings", "privacy"]);
-  await expect(settings.getByTestId("agents-list").getByTestId("agent-client")).toHaveCount(8);
+  // Every agent and Other agent, none left out because another was found (#3767).
+  const listed = await settings
+    .getByTestId("agents-list")
+    .getByTestId("agent-client")
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-client")));
+  expect([...listed].sort()).toEqual(AGENT_CLIENT_DEFINITIONS.map((each) => each.id).sort());
   expect(await order(settings, PARTS)).toEqual([
     "ai-lede",
     "agents-connected",
-    "ai-use-model",
     "ai-jobs",
     "ai-limits",
   ]);
   await expect(settings.getByTestId("agents-enabled")).toHaveCount(0);
   await expect(settings.getByTestId("agents-connect-another")).toHaveCount(0);
-  await expect(settings.getByTestId("ai-use-model-open")).toContainText(
-    "Optional: the assistant, sorting by itself, notes after calls",
-  );
+  await expect(settings.getByTestId("ai-use-model")).toHaveCount(0);
   for (const row of MODEL_ROWS) await expect(settings.getByTestId(row), row).toHaveCount(0);
   await expect(settings.getByTestId("check-writes-settings")).toContainText(
     "Check what your own AI writes",
@@ -154,25 +149,12 @@ test("nothing set up: Your AI and the agents to connect, then one quiet row, and
   await expect(settings.getByTestId("spending-cap-moved")).toHaveCount(0);
   await closeSettings(window);
 
-  // ⌘K's Add an account or key… opens its sheet on the page, with no model.
-  await runCommand(window, "settings.addProvider", "Add an account or key…");
-  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
-  await expect(window.getByTestId("ai-add-sheet")).toBeVisible();
-  await window.keyboard.press("Escape");
-  await expect(window.getByTestId("ai-add-sheet")).toBeHidden();
-  await closeSettings(window);
-
   await setLanguage(window, "zh-CN");
   await setWindowSize(app as ElectronApplication, window, 900, 900);
   await window.getByRole("button", { name: "设置", exact: true }).click();
   const chinese = await showSettingsPage(window, "ai");
   await expect(chinese.getByTestId("ai-lede")).toHaveText("让你常用的 AI 工具读取你的文档。");
-  await expect(chinese.getByTestId("ai-use-model-open")).toContainText(
-    "在 IncarnaMind 里用一个模型…",
-  );
-  await expect(chinese.getByTestId("ai-use-model-open")).toContainText(
-    "可选：助手、自动整理、会后笔记",
-  );
+  await expect(chinese.getByTestId("ai-use-model")).toHaveCount(0);
   await expect(chinese.getByTestId("check-writes-settings")).toContainText(
     "自动核对你自己的 AI 写入的内容",
   );
@@ -183,17 +165,13 @@ test("nothing set up: Your AI and the agents to connect, then one quiet row, and
   await shot(window, "ai-nothing-zh-900");
 });
 
-// protects=with Claude Code connected and no model, Your AI holds its row and Connect another agent…, which unfolds the list with its search focused and without Claude Code, then the quiet row and the jobs that run without a model; Organize says to ask the connected AI; at 900 × 560 nothing spills; fails_when=the list is open, the switch shows, Claude Code is offered again, the search isn't focused, or a model's row shows
-test("Claude Code connected, no model: its row, Connect another agent…, then the quiet row", async () => {
+// protects=with Claude Code connected and no model, Your AI holds its row and Connect another agent…, which unfolds the list with its search focused and without Claude Code, then the jobs that run without a model and no row to set one up (#3767); Organize says to ask the connected AI; at 900 × 560 nothing spills; fails_when=the list is open, the switch shows, Claude Code is offered again, the search isn't focused, or a model's row or a row to set one up shows
+test("Claude Code connected, no model: its row, Connect another agent…, then the jobs that run without a model", async () => {
   const window = await launch();
   await connectClaudeCode(window);
   const settings = await openSettings(window, "ai");
-  expect(await order(settings, PARTS)).toEqual([
-    "agents-connected",
-    "ai-use-model",
-    "ai-jobs",
-    "ai-limits",
-  ]);
+  expect(await order(settings, PARTS)).toEqual(["agents-connected", "ai-jobs", "ai-limits"]);
+  await expect(settings.getByTestId("ai-use-model")).toHaveCount(0);
   await expect(settings.getByTestId("agent-pairing")).toHaveAttribute("data-name", "Claude Code");
   await expect(settings.getByTestId("agents-enabled")).toHaveCount(0);
   await expect(settings.getByTestId("agents-list")).toHaveCount(0);
@@ -261,7 +239,7 @@ test("connecting turned off: the switch stays, off, until the User turns it on",
   await expect(window.getByTestId("agents-enabled")).toHaveCount(0);
 });
 
-// protects=with Claude Code connected and a model set up, Your AI still leads, then every job, Accounts and keys and Limits with the cap, with no quiet row; the sorting picker names the model ("Use Claude Haiku 5.5"), not "your AI"; General's cap link shows; fails_when=the model's sections come first, the quiet row shows, a job is missing, or the picker says "your AI model"
+// protects=with Claude Code connected and a model set up, Your AI still leads, then every job, Accounts and keys and Limits with the cap, with no row to set up a model; the sorting picker names the model ("Use Claude Haiku 5.5"), not "your AI"; General's cap link shows; fails_when=the model's sections come first, a row to set up a model shows, a job is missing, or the picker says "your AI model"
 test("Claude Code connected and a model: Your AI first, then every job, Accounts and keys and Limits", async () => {
   const window = await launch();
   await connectClaudeCode(window);
@@ -327,7 +305,6 @@ test("agents that can't be read: Your AI says so with Try again, and the page st
   const settings = await openSettings(window, "ai");
   const failed = settings.getByTestId("agents-read-failed");
   await expect(failed).toContainText("Couldn’t read your AI’s connections");
-  await expect(settings.getByTestId("ai-use-model-open")).toBeVisible();
   await expect(settings.getByTestId("ai-jobs")).toBeVisible();
   await expect(settings.getByTestId("ai-limits")).toBeVisible();
 
@@ -336,8 +313,8 @@ test("agents that can't be read: Your AI says so with Try again, and the page st
   // The retried read is held where the core answers, before anything is checked or settled.
   await expect.poll(() => controlReads(app as ElectronApplication, "core:getAgents", {})).toBe(1);
   await expect(failed).toBeVisible();
-  await expect(settings.getByTestId("ai-use-model-open")).toBeVisible();
   await expect(settings.getByTestId("ai-jobs")).toBeVisible();
+  await expect(settings.getByTestId("ai-limits")).toBeVisible();
 
   await controlReads(app as ElectronApplication, "core:getAgents", { settle: "resolve" });
   await expect(failed).toHaveCount(0);

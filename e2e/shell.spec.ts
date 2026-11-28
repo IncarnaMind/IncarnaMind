@@ -18,6 +18,7 @@ import {
   previewLink,
   removeDataFolder,
   showSourceLocations,
+  taggingWaitsForAModel,
   turnOnEmbeddings,
 } from "./app";
 
@@ -431,6 +432,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   await writeFile(paper, "A report on attention in language models.\n");
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
+  await taggingWaitsForAModel(window);
   await newMind(window);
   await nameMind(window, "Field notes");
   // An empty Linked folder: its own Folder is listed, with nothing in it to tag.
@@ -454,7 +456,8 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   await expect(watched[1] as Locator).toBeVisible();
   const before = await layout();
 
-  // No chat model yet: the Document is ready, and tagging waits. The footer says so.
+  // Local mode refuses the one chat model: the Document is ready, and tagging waits. The footer
+  // says so.
   // Added by the core, not through the picker, whose step puts an undo line in the footer.
   await (await coreOf(window)).evaluate(async (core, file) => core.addDocuments([file]), paper);
   const item = window.getByTestId("document-list-item");
@@ -472,7 +475,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   // The plain words keep the row one 28px line (#763), so the footer keeps its height.
   expect(await layout()).toEqual(before);
 
-  // A chat model: tagging starts, then stops. Nothing above the footer moves.
+  // A model on this computer: tagging starts, then stops. Nothing above the footer moves.
   await connectLocalChatModel(window);
   await expect(item).toHaveAttribute("data-tagging", "tagged");
   await expect(status.locator("[role]")).toHaveCount(0);

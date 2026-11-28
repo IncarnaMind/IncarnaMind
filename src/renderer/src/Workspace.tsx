@@ -17,7 +17,6 @@ import { ErrorNotices } from "./components/ErrorNotices";
 import { FeedbackDialog } from "./components/FeedbackDialog";
 import { DropOverlay, useFileDrop, useWindowDrop } from "./components/FileDrop";
 import { FileWriteDialog } from "./components/FileWriteDialog";
-import { SetupDialog } from "./components/firstRun/SetupDialog";
 import { HistoryView } from "./components/history/HistoryView";
 import { InfoPanel } from "./components/InfoPanel";
 import { DocumentMoveTo } from "./components/library/DocumentMoveTo";
@@ -310,7 +309,6 @@ export function Workspace() {
             className="pointer-events-none fixed top-16 left-[calc(50%-8rem)] size-px"
           />
           <SettingsDialog />
-          <SetupDialog />
           <HistoryView />
           <TagsDialog />
           <RequestedDialogs />

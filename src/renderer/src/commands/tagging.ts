@@ -1,4 +1,5 @@
 import { sortingSwitchOn } from "../../../shared/libraryModels";
+import { canTagNow } from "../canTag";
 import { useAppStore } from "../store";
 import { failedTagging, retryTagging } from "../taggingRetry";
 import { stoppedPlaces, stopTagging, taggingPlaces, tagWithAi } from "../taggingStop";
@@ -9,14 +10,15 @@ const store = () => useAppStore.getState();
 export const taggingCommands: readonly Command[] = [
   {
     // Opens the line that says what goes before anything is turned on (#2308); while it asks
-    // before the first Document goes, the switch is on already (#3353).
+    // before the first Document goes, the switch is on already (#3353). Offered only where
+    // something can tag: its switch shows only then.
     id: "tagging.turnOn",
     label: "command.tagging.turnOn",
     keywords: ["command.tagging.turnOn.keywords"],
     group: "open",
     when: () => {
       const library = store().library;
-      return !!library && !sortingSwitchOn(library);
+      return !!library && !sortingSwitchOn(library) && canTagNow();
     },
     reversible: true,
     run: () => store().openSettings("ai", "turn-on-tagging"),

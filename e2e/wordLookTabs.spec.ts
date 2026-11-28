@@ -12,6 +12,7 @@ import {
   launchApp,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -394,6 +395,8 @@ test("at 1,100 px a line of tab stops scrolls in its own frame, in English and C
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1100, 720);
   await dismissChatSetup(window);
+  // The narrow page this tests is the one an assistant beside it leaves; with no model and no AI there is none (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await importWordFile(app, window, files, "林晓_简历.docx", resumeFile());
   const date = "2023.09 – 2026.06";
   for (const language of ["en", "zh-CN"] as const) {

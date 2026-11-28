@@ -1766,7 +1766,9 @@ export function createChecks(options: ChecksOptions) {
               ? "error.check.localMode"
               : reason === "cancelled" || reason === "consent-declined"
                 ? "error.check.declined"
-                : "error.recordCite.modelNotReady",
+                : reason === "no-provider"
+                  ? "error.recordCite.needsAi"
+                  : "error.recordCite.modelNotReady",
         });
       }
       const judged = await judgeResolvedRecordCites(

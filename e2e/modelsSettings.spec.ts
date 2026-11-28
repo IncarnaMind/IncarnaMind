@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
@@ -15,9 +15,9 @@ import {
 } from "./app";
 
 /*
- * Settings › AI (#179, #2835): what each job uses, the User's accounts and keys as rows, Add an
- * account or key's directory in the language's groups, and a provider's page with Test and its
- * models. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ * Settings › AI (#179, #2835): what each job uses, the User's accounts and keys as rows, and a
+ * provider's page with Test and its models. No chat provider is added in IncarnaMind (#3767),
+ * so a profile's providers are saved by the bridge. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -49,11 +49,6 @@ const chatModel = (window: Page) =>
     return (await core.getSettings()).user.chatModel;
   });
 
-const groupsShown = (directory: Locator) =>
-  directory
-    .getByTestId("provider-directory-group")
-    .evaluateAll((all) => all.map((each) => each.getAttribute("data-group")));
-
 let dataDir: string;
 const servers: Server[] = [];
 test.beforeEach(async () => {
@@ -67,7 +62,7 @@ test.afterEach(async () => {
   }
 });
 
-test("adds a provider from the directory with a fake endpoint, tests it, and picks its model for Answers; the provider already there is a row", async () => {
+test("a second saved provider has its own page: it tests, its models go in and out of the menu, its model is picked for Answers, and removed it leaves no default", async () => {
   const first = await modelServer(["first-model"]);
   const second = await modelServer(["b-fast", "b-strong"]);
   servers.push(first.server, second.server);
@@ -100,30 +95,23 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     await expect(settings.getByTestId("model-default-row-sorting")).toBeVisible();
     await screenshot(window, "models-1100-en");
 
-    // Add an account or key…: the directory, its search focused, in English's groups.
-    await settings.getByTestId("models-add-provider").click();
-    const directory = settings.getByTestId("provider-directory");
-    await expect(directory.getByTestId("provider-directory-search")).toBeFocused();
-    await expect
-      .poll(() => groupsShown(directory))
-      .toEqual(["plans", "popular", "meetings", "organize", "more", "local"]);
-    await expect(
-      directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
-    ).toHaveText([/^Anthropic/, /^OpenAI/, /^Google/, /^OpenRouter/, /^DeepSeek/, /^Qwen/]);
-    await window.keyboard.type("compatible");
-    const entries = directory.getByTestId("provider-directory-entry");
-    await expect(entries).toHaveCount(1);
-    await entries.click();
-
-    // Its page adds it: the address and a model to try, and the default stays.
-    const add = settings.getByTestId("provider-add");
-    const form = add.getByTestId("provider-form");
-    await form.locator('input[type="url"]').fill(second.url);
-    await form.getByTestId("provider-model-text").fill("b-fast");
-    await form.getByTestId("provider-use-key").click();
+    // A second provider saved through the bridge (#3767) is a row of its own, and the default
+    // stays.
+    const added = await window.evaluate(async (baseUrl) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (
+        await core.saveChatProvider({
+          kind: "openai-compatible",
+          baseUrl,
+          modelId: "b-fast",
+          keepDefault: true,
+        })
+      ).id;
+    }, second.url);
+    await expect(rows).toHaveCount(2);
+    await settings.locator(`[data-provider-id="${added}"]`).click();
     const page = settings.getByTestId("provider-page");
     await expect(page.getByTestId("provider-page-title")).toHaveText(second.host);
-    const added = (await page.getAttribute("data-provider-id")) ?? "";
     expect(await chatModel(window)).toEqual({ providerId: existing.id, modelId: "first-model" });
 
     // Test: its list, then one word from its first model.
@@ -156,7 +144,6 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     // Back on Settings › AI, its model becomes the Answers default.
     await page.getByTestId("models-back").click();
     await expect(settings.getByTestId("provider-row")).toHaveCount(2);
-    await expect(settings.getByTestId("models-add-provider")).toBeFocused();
     await answers.selectOption(`${added}\nb-strong`);
     await expect.poll(() => chatModel(window)).toEqual({ providerId: added, modelId: "b-strong" });
     // Quick tasks follow it, in their own row.
@@ -170,60 +157,6 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     );
     await expect(answers).toHaveValue(`${existing.id}\nfirst-model`);
     await expect(settings.getByTestId("provider-row")).toHaveCount(1);
-  } finally {
-    await app.close();
-  }
-});
-
-test("by keyboard alone, in Chinese: ⌘K opens Add an account or key, its groups follow the language, and a provider's page opens and goes back", async () => {
-  const { app, window } = await launchApp(dataDir, { ollama: "http://127.0.0.1:9" });
-  try {
-    await dismissChatSetup(window);
-    await setWindowSize(app, window, 900, 760);
-    await setLanguage(window, "zh-CN");
-    await window.keyboard.press("ControlOrMeta+k");
-    await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type("> 添加账户或密钥");
-    await expect(window.getByTestId("palette").getByTestId("palette-item").first()).toHaveText(
-      /添加账户或密钥…/,
-    );
-    await window.keyboard.press("Enter");
-
-    const settings = window.getByTestId("settings");
-    const directory = settings.getByTestId("provider-directory");
-    await expect(directory.getByTestId("provider-directory-search")).toBeFocused();
-    await expect
-      .poll(() => groupsShown(directory))
-      .toEqual(["plans", "popular", "meetings", "organize", "more", "local"]);
-    await expect(directory.locator("h3")).toHaveText([
-      "登录你已付费的订阅",
-      "常用密钥",
-      "仅用于会议",
-      "仅用于整理",
-      "更多服务和你自己的服务器",
-      "在这台电脑上 · 免费，数据不会离开",
-    ]);
-    await expect(
-      directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
-    ).toHaveText([/^DeepSeek/, /^通义千问/, /^Kimi/, /^智谱/, /^硅基流动/, /^OpenRouter/]);
-    await screenshot(window, "directory-900-zh");
-
-    // Typing narrows it; Tab reaches the tile and Enter opens the page that adds it.
-    await window.keyboard.type("kimi");
-    await expect(directory.getByTestId("provider-directory-entry")).toHaveCount(1);
-    await window.keyboard.press("Tab");
-    await expect(directory.getByTestId("provider-directory-entry").first()).toBeFocused();
-    await window.keyboard.press("Enter");
-    const add = settings.getByTestId("provider-add");
-    await expect(add.getByTestId("provider-page-title")).toHaveText("Kimi（月之暗面）");
-    await expect(add.getByTestId("models-back")).toBeFocused();
-    await window.keyboard.press("Enter");
-    // Still no model: a model is the quiet row, and there is no Accounts and keys (#3645).
-    await expect(settings.getByTestId("provider-row")).toHaveCount(0);
-    await expect(settings.getByTestId("ai-use-model-open")).toContainText(
-      "在 IncarnaMind 里用一个模型…",
-    );
-    await expect(settings.getByTestId("model-default-chatModel")).toHaveCount(0);
   } finally {
     await app.close();
   }

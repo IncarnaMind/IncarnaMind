@@ -14,6 +14,7 @@ import { useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { ProblemMark } from "../ProblemLine";
 import { buttonStyle } from "../ui";
+import { AgentMark } from "./AgentMark";
 
 export const ANTHROPIC_SETUP_GUIDE_URL = "https://code.claude.com/docs/en/setup";
 
@@ -41,28 +42,23 @@ export function installFailureKey(reason: ClaudeCodeInstallFailureReason) {
 }
 
 export interface ClaudeCodeInstallRowProps {
-  /** "first-run" renders as a calm standalone card row; "settings" sits inside SettingsGroup. */
-  variant: "first-run" | "settings";
   /** Connected pairings, used to name a connected desktop app (e.g. Claude) on the no-plan state. */
   pairings: readonly AgentPairing[];
   /** Called once when sign-in succeeds so the host opens the standard Connect consent card. */
   onSignedIn(): void;
-  /** Called when the User chooses "Set up a model in IncarnaMind" from the no-plan fallback. */
-  onSetUpModel(): void;
   /** Called when the User chooses "Keep asking through …" from the no-plan fallback. */
   onKeepDesktop?(): void;
 }
 
 /**
- * In-place offer, progress, browser sign-in handoff, installer failure, and no-plan fallback for
- * installing Anthropic's official Claude Code binary (#3638). Hidden whenever a command-line AI
- * is already detected and no install flow is active.
+ * In Settings › AI, the in-place offer, progress, browser sign-in handoff, installer failure, and
+ * no-plan fallback for installing Anthropic's official Claude Code binary (#3638). Hidden whenever
+ * a command-line AI is already detected and no install flow is active; then the list's Claude Code
+ * row is its one entry, as this is while it shows (#3767).
  */
 export function ClaudeCodeInstallRow({
-  variant,
   pairings,
   onSignedIn,
-  onSetUpModel,
   onKeepDesktop,
 }: ClaudeCodeInstallRowProps) {
   const t = useT();
@@ -86,10 +82,7 @@ export function ClaudeCodeInstallRow({
   if (isIdle && availability.cliAgentPresent) return null;
   if (state.kind === "signed-in") return null;
 
-  const wrapperClass =
-    variant === "first-run"
-      ? "rounded-lg bg-surface-subtle px-3.5 py-3 shadow-[inset_0_0_0_1px_var(--color-rule)]"
-      : "border-b border-rule bg-surface-subtle px-4 py-3 last:border-b-0";
+  const wrapperClass = "border-b border-rule bg-surface-subtle px-4 py-3 last:border-b-0";
 
   if (state.kind === "installing") {
     const fillWidth = state.stage === "installing" ? "w-4/5" : "w-1/2";
@@ -252,9 +245,6 @@ export function ClaudeCodeInstallRow({
 
   if (state.kind === "no-plan") {
     const desktopPairing = pairings.find((each) => each.client === "claude-desktop");
-    const detail = desktopPairing
-      ? t("agents.install.noPlan.detail.named", { agent: desktopPairing.name })
-      : t("agents.install.noPlan.detail.desktop");
     const keepLabel = desktopPairing
       ? t("agents.install.noPlan.keepAsking.named", { agent: desktopPairing.name })
       : t("agents.install.noPlan.keepAsking.desktop");
@@ -269,19 +259,7 @@ export function ClaudeCodeInstallRow({
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-ui leading-5 text-ink">{t("agents.install.noPlan.title")}</div>
-          <p className="mt-0.5 text-small leading-[18px] text-ink-meta">{detail}</p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              data-testid="claude-code-no-plan-model"
-              onClick={() => {
-                void resetClaudeCodeInstall();
-                onSetUpModel();
-              }}
-              className={buttonStyle("primary", "sm")}
-            >
-              {t("agents.install.noPlan.setUpModel")}
-            </button>
             <button
               type="button"
               data-testid="claude-code-no-plan-desktop"
@@ -289,7 +267,7 @@ export function ClaudeCodeInstallRow({
                 void resetClaudeCodeInstall();
                 onKeepDesktop?.();
               }}
-              className={buttonStyle("secondary", "sm")}
+              className={buttonStyle("primary", "sm")}
             >
               {keepLabel}
             </button>
@@ -307,19 +285,14 @@ export function ClaudeCodeInstallRow({
     );
   }
 
-  const title =
-    variant === "first-run"
-      ? t("agents.install.firstRun.title")
-      : t("agents.install.settings.title");
-  const detail =
-    variant === "first-run"
-      ? t("agents.install.firstRun.detail")
-      : t("agents.install.settings.detail");
+  const title = t("agents.install.settings.title");
+  const detail = t("agents.install.settings.detail");
   return (
     <div
       data-testid="claude-code-install-offer"
-      className={`${wrapperClass} flex items-center justify-between gap-4`}
+      className={`${wrapperClass} flex items-center justify-between gap-3`}
     >
+      <AgentMark id="claude-code" name={title} />
       <div className="min-w-0 flex-1">
         <div className="text-ui leading-5 text-ink">{title}</div>
         <p className="mt-0.5 text-small leading-[18px] text-ink-meta">{detail}</p>
@@ -333,7 +306,7 @@ export function ClaudeCodeInstallRow({
           onClick={() => void startClaudeCodeInstall()}
           className={buttonStyle("primary", "sm")}
         >
-          {starting ? t("agents.install.progress.title") : t("agents.install.action")}
+          {starting ? t("agents.install.progress.title") : t("agents.install.short")}
         </button>
       </div>
     </div>

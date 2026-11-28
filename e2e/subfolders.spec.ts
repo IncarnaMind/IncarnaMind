@@ -14,6 +14,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -124,6 +125,8 @@ for (const [language, width] of [
     try {
       await setWindowSize(app, window, width, 800);
       await dismissChatSetup(window);
+      // With no model and no AI there is no assistant (#3767).
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
       if (language !== "en") await setLanguage(window, language);
       const folderIds = async (name: string) =>
         (await coreOf(window)).evaluate(async (core: CoreBridge, wanted: string) => {

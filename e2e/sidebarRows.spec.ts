@@ -19,6 +19,7 @@ import {
   setSidebarWidth,
   setWindowSize,
   tabTo,
+  taggingWaitsForAModel,
   textBoxOf,
 } from "./app";
 
@@ -459,6 +460,7 @@ test("Tags need an AI model keeps one 28px line at the narrowest sidebar, in Eng
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await taggingWaitsForAModel(window);
     await setWindowSize(app, window, 1100, 700);
     const note = join(sources, "Reading notes.txt");
     await writeFile(note, "Membrane separation figures for the Leeds office.");
@@ -490,8 +492,8 @@ test("Tags need an AI model keeps one 28px line at the narrowest sidebar, in Eng
       await expect(row).toHaveAttribute(
         "title",
         language === "en"
-          ? "Tags come once you choose an AI model."
-          : "选择 AI 模型后会自动打标签。",
+          ? "Tags come once Organize and Tags has a model it can use."
+          : "“整理和标签”有可用的模型后，会自动打标签。",
       );
     }
   } finally {

@@ -3540,6 +3540,16 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE own_ai_turns ADD COLUMN ended_at_ask INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 169,
+    description:
+      "A provider's key added for meeting transcription and Document search alone (#3767)",
+    sql: `
+      -- Saved from Add a key… for those jobs: its models answer nothing in IncarnaMind, and none
+      -- is offered in a model picker or made a default. A provider saved before stays a chat one.
+      ALTER TABLE chat_providers ADD COLUMN jobs_only INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 /**

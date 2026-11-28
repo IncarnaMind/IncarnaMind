@@ -9,6 +9,7 @@ import {
   moveAssistant,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -158,6 +159,8 @@ for (const language of LANGUAGES) {
   test(`after Move assistant to a place, the focus is on the assistant's ⋯ in its new place (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await mindWrittenBefore(window, "Harbour log", [{ note: "The harbour log for the week." }]);
@@ -176,6 +179,7 @@ for (const language of LANGUAGES) {
 test("after Move assistant chosen with the keyboard, the focus is on the assistant's ⋯", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await setWindowSize(app, window, 1440, 900);
   await mindWrittenBefore(window, "Harbour log", [{ note: "The harbour log for the week." }]);
   await pointAndClick(window, mindItem(window, "Harbour log"));

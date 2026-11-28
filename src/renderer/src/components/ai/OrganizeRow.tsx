@@ -7,6 +7,7 @@ import { useAgentAlone } from "../../agentNote";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
+import { useOwnAiOnly } from "../../ownAiPanel";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { placesText, stoppedPlaces, tagWithAi } from "../../taggingStop";
@@ -22,9 +23,9 @@ const TAGGING = ["tagging"] as const;
 const TURN_ON = ["turn-on-tagging"] as const;
 
 /**
- * Settings › AI › Organize and Tags: the one model for Organize, Tags and meeting hints, set up in
- * place from its picker's foot (Jev, a decision model host), and its options under it: sorting
- * and tagging new Documents as they arrive, and reading scans as page images.
+ * Settings › AI › Organize and Tags: the one model for Organize, Tags and meeting hints, among
+ * those already set up, and its options under it: sorting and tagging new Documents as they
+ * arrive, and reading scans as page images.
  */
 export function OrganizeRows({
   id,
@@ -37,12 +38,13 @@ export function OrganizeRows({
   const t = useT();
   const { current, read, library } = sorting;
   const agentAlone = useAgentAlone();
+  const ownAiOnly = useOwnAiOnly() === true;
   // Their AI suggests Folders and Tags when asked: with no model chosen, that is what the job
   // uses, so the row names it rather than a model it lacks (#3764).
   const picker = useSortingPicker(
     id,
     sorting,
-    agentAlone ? t("ai.jobs.organize.yourAi") : undefined,
+    agentAlone || ownAiOnly ? t("ai.jobs.organize.yourAi") : undefined,
   );
 
   const failed = picker.failed;

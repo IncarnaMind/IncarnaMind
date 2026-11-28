@@ -9,6 +9,7 @@ import {
   nameMind,
   newMind,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
 } from "./app";
 
@@ -75,6 +76,8 @@ for (const language of ["en", "zh-CN"] as const) {
     test(`the assistant is 4px from the card in each dock and folded (${language}, ${width}px)`, async () => {
       const { app, window } = await launchApp(dataDir);
       await dismissChatSetup(window);
+      // With no model and no AI there is no assistant (#3767).
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
       await setLanguage(window, language);
       await setWindowSize(app, window, width, 820);
       await newMind(window);

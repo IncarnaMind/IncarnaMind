@@ -17,9 +17,9 @@ import {
   openMoveAssistant,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setGroupBeside,
   setLanguage,
-  useLocalChatModel as setLocalChatModel,
   setWindowSize,
   widthOf,
 } from "./app";
@@ -73,6 +73,8 @@ async function mindWithText(window: Page, title: string) {
 async function start(width = 1600, options: { fakeChat?: boolean } = {}) {
   const session = await launchApp(dataDir, options);
   await dismissChatSetup(session.window);
+  // With no model and no AI there is no assistant (#3767).
+  await saveProvider(session.window, { kind: "ollama", modelId: "fake-model" });
   await setWindowSize(session.app, session.window, width, 660);
   await mindWithText(session.window, "Tides");
   return session;
@@ -488,7 +490,6 @@ for (const language of ["en", "zh-CN"] as const) {
     const rowsNow = () => window.getByTestId("assistant-history-row");
     const history = () => window.getByTestId("assistant-history-popover");
     await setLanguage(window, language);
-    await setLocalChatModel(window);
 
     // With no conversation yet, History says so, and has no row to open.
     await pointAndClick(window, window.getByTestId("assistant-title"));
@@ -547,7 +548,6 @@ for (const language of ["en", "zh-CN"] as const) {
 test("a History row opened while New chat is pressed never replaces the new chat (#2310)", async () => {
   const { app, window } = await start(1600, { fakeChat: true });
   try {
-    await setLocalChatModel(window);
     await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await core.askInConversation({ text: "When do spring tides happen?" });
@@ -665,7 +665,6 @@ test("under 1,000px a side dock sits at the bottom and goes back when wider; gro
 
 test("moving, resizing and folding it keep the composer's draft, the Mind's scroll and an Answer that is streaming", async () => {
   const { app, window } = await start(1600, { fakeChat: true });
-  await setLocalChatModel(window);
   const editor = window.getByTestId("mind-editor");
   // A Mind long enough to scroll.
   await editor.evaluate((dom) => {

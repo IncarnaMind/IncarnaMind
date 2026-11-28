@@ -22,6 +22,7 @@ import {
 } from "../settings/SettingsGroup";
 import { buttonStyle, noticeClass } from "../ui";
 import { AgentFinder } from "./AgentFinder";
+import { AgentChip, AgentMark } from "./AgentMark";
 import { AgentPairingRow, type JustSetUp } from "./AgentPairingRow";
 import {
   DisconnectAll,
@@ -29,7 +30,7 @@ import {
   RepairAll,
   useAgentsNeedingRepair,
 } from "./AllAgentsActions";
-import { clientName, clientNote, setupWords } from "./agentWords";
+import { clientName, kindWords } from "./agentWords";
 import { ClaudeCodeInstallRow } from "./ClaudeCodeInstallRow";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 import { type AgentChoice, useAgentConnection } from "./ConnectAgentFields";
@@ -169,7 +170,6 @@ export function YourAiSection({
   const language = useLanguage();
   const reportError = useAppStore((state) => state.reportError);
   const openSettings = useAppStore((state) => state.openSettings);
-  const openSetup = useAppStore((state) => state.openSetup);
   const folders = useAppStore((state) => state.library?.groups ?? NO_FOLDERS);
   const noModel = useAppStore((state) => noModelSetUp(state.chatReadiness));
   const installAvailability = useClaudeCodeInstallAvailability();
@@ -263,29 +263,30 @@ export function YourAiSection({
       key={client.id}
       data-testid="agent-client"
       data-client={client.id}
+      leading={<AgentMark id={client.id} name={clientName(client, t)} />}
       label={clientName(client, t)}
-      detail={
-        <>
-          {setupWords(client, t)}
-          {clientNote(client, t) && <span className="block">{clientNote(client, t)}</span>}
-        </>
-      }
+      detail={kindWords(client, t)}
       control={
-        <button
-          type="button"
-          data-testid="agent-connect"
-          onClick={() => setConnecting(client)}
-          className={buttonStyle("secondary", "sm")}
-        >
-          {t("agents.settings.connectButton")}
-        </button>
+        <span className="flex items-center gap-3">
+          {client.installed && <AgentChip>{t("setupPage.agent.found")}</AgentChip>}
+          <button
+            type="button"
+            data-testid="agent-connect"
+            onClick={() => setConnecting(client)}
+            className={buttonStyle("secondary", "sm")}
+          >
+            {t("agents.settings.connectButton")}
+          </button>
+        </span>
       }
     />
   );
 
   const inUse = new Set(connected.map((pairing) => pairing.client));
   const toConnect = (clients ?? []).filter(
-    (client) => client.id === "other" || !inUse.has(client.id),
+    (client) =>
+      client.id === "other" ||
+      (!inUse.has(client.id) && !(showInstallRow && client.id === "claude-code")),
   );
   const foundToConnect = toConnect.filter((client) => client.installed && client.id !== "other");
 
@@ -382,16 +383,6 @@ export function YourAiSection({
             onRepaired={() => void repair.read()}
           />
         }
-        help={
-          listed &&
-          clients &&
-          !clientsFailed && (
-            <>
-              <p>{t("agents.settings.connect.note")}</p>
-              <p className="mt-1">{t("agents.settings.web")}</p>
-            </>
-          )
-        }
       >
         <div className="flex flex-col gap-3">
           {(connected.length > 0 || !listed) && (
@@ -437,10 +428,8 @@ export function YourAiSection({
               ))}
               {showInstallRow && (
                 <ClaudeCodeInstallRow
-                  variant="settings"
                   pairings={connected}
                   onSignedIn={openClaudeCodeConnect}
-                  onSetUpModel={openSetup}
                   onKeepDesktop={keepDesktop}
                 />
               )}
@@ -465,10 +454,8 @@ export function YourAiSection({
           {!(connected.length > 0 || !listed) && showInstallRow && (
             <SettingsGroup>
               <ClaudeCodeInstallRow
-                variant="settings"
                 pairings={connected}
                 onSignedIn={openClaudeCodeConnect}
-                onSetUpModel={openSetup}
                 onKeepDesktop={keepDesktop}
               />
             </SettingsGroup>

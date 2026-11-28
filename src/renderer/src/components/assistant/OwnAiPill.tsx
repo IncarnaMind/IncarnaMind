@@ -1,14 +1,13 @@
 import { askOnPill } from "../../askYourAi";
 import { shortcutLabel } from "../../commands/keymap";
 import { useT } from "../../i18n";
-import { type OwnAiPill as Pill, setUpModelInstead } from "../../ownAiPanel";
+import type { OwnAiPill as Pill } from "../../ownAiPanel";
 import { OtherAgents } from "../AskAgentLine";
 
 /**
  * The Ask pill for a User with only their own AI, the assistant out of sight (#3373, #3612): "Ask
  * {agent}" with ⌘J asks it about the Note at whose foot it stands, where the User types their
- * question; its ⌄ holds the others, as the card offers them, and last IncarnaMind's own model,
- * set up in Settings.
+ * question; its ⌄ holds the others, as the card offers them.
  */
 export function OwnAiPill(pill: Pill) {
   const { agents } = pill;
@@ -40,12 +39,6 @@ export function OwnAiPill(pill: Pill) {
         onContinue={() => void askOnPill(first, pill, true)}
         testId="own-ai-pill"
         className="h-6 hover:bg-hover hover:text-ink"
-        name={t("agents.ask.more")}
-        foot={{
-          label: t("agents.ask.useModel"),
-          testId: "own-ai-pill-use-model",
-          onClick: setUpModelInstead,
-        }}
       />
     </div>
   );

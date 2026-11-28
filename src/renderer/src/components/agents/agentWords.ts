@@ -37,15 +37,22 @@ export function pairingInSentence(
   return hasListName(pairing) ? clientInSentence({ id: client, name: "" }, t) : pairing.name;
 }
 
-/** Whether a connection still has the name the list gave it ("ChatGPT app and Codex 2"), in either language. */
+/** The list's earlier names for an agent, which connections made then still carry (#3767). */
+const EARLIER_LIST_NAMES: Readonly<Partial<Record<string, readonly string[]>>> = {
+  codex: ["ChatGPT app and Codex", "ChatGPT 应用和 Codex"],
+};
+
+/** Whether a connection still has the name the list gave it ("ChatGPT 2"), in either language. */
 export function hasListName(pairing: Pick<AgentPairing, "name" | "client">): boolean {
   const client = pairing.client === "other" || pairing.client === "codex" ? pairing.client : null;
   if (client === null) return false;
-  return (["en", "zh-CN"] as const).some((language) => {
-    const listName = translate(
-      language,
-      client === "other" ? "agents.client.other" : "agents.client.codex",
-    );
+  const listNames = [
+    ...(["en", "zh-CN"] as const).map((language) =>
+      translate(language, client === "other" ? "agents.client.other" : "agents.client.codex"),
+    ),
+    ...(EARLIER_LIST_NAMES[client] ?? []),
+  ];
+  return listNames.some((listName) => {
     const rest = pairing.name.slice(listName.length);
     return pairing.name.startsWith(listName) && (rest === "" || /^ \d+$/.test(rest));
   });
@@ -103,11 +110,11 @@ export function setupWords(client: AgentClient, t: Translate): string {
   }
 }
 
-/** A line under an agent's setup, where its row has more to say. */
-export function clientNote(client: Pick<AgentClient, "id">, t: Translate): string | null {
-  if (client.id === "codex") return t("agents.note.codex");
-  if (client.id === "gemini-cli") return t("agents.note.gemini-cli");
-  return null;
+/** What an agent is, in a line under its name. */
+export function kindWords(client: Pick<AgentClient, "id" | "chat">, t: Translate): string {
+  if (client.id === "other") return t("agents.kind.other");
+  if (client.id === "codex") return t("agents.kind.codex");
+  return t(client.chat ? "agents.kind.chat" : "agents.kind.code");
 }
 
 /** What came of setting an agent up, as one line. Pass `copied: false` when the text wasn't put on the clipboard. */

@@ -12,7 +12,7 @@ export function clientTitle(
 
 /**
  * An agent's name inside a sentence ("Let your agent read…"), where its list name
- * ("Other agent", "ChatGPT app and Codex") would not read as one.
+ * ("Other agent") would not read as one.
  */
 export function clientInSentence(
   client: { id: string; name: string },

@@ -54,7 +54,7 @@ for (const [language, width] of [
       await runCommand(window, "library.open", translate(language, "library.open"));
       const organize = window.getByTestId("library-organize");
       await pointAndClick(window, organize);
-      await expect(window.getByTestId("library-organize-needs-model")).toBeVisible();
+      await expect(window.getByTestId("library-organize-needs-ai")).toBeVisible();
       if (shots) {
         await mkdir(shots, { recursive: true });
         await motionSettled(window);

@@ -175,6 +175,8 @@ function placeOf(xml: string, id: number) {
 }
 
 const centre = async (locator: Locator) => {
+  // A slide below the window's foot is scrolled to, as a person does before aiming at it.
+  await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   if (!box) throw new Error("Not on screen.");
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };

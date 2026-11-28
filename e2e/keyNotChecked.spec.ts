@@ -1,18 +1,17 @@
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
-  acceptPlainTextKeys,
-  addProviderForm,
   createDataFolder,
   launchApp,
-  openSettings,
+  openProviderRow,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
 } from "./app";
 
 /*
  * With "Keep everything on this computer" on, saving a key sends nothing to its provider: the key
- * is kept, and one line by the key field says it wasn't checked.
+ * is kept, and one line by the key field on the provider's page says it wasn't checked.
  */
 
 let dataDir: string;
@@ -39,18 +38,30 @@ const setLanguage = (window: Page, value: "en" | "zh-CN") =>
     value,
   );
 
-test("with “Keep everything on this computer” on, a key saved on Add a provider or on a provider's page is kept unchecked, and one line says so in both languages", async () => {
+// No chat model's key is added in IncarnaMind (#3767): a profile's provider is saved by the
+// bridge, and its key is replaced on its own page.
+async function openSavedProvider(window: Page) {
+  const providerId = await saveProvider(window, {
+    kind: "openai",
+    apiKey: "sk-proj-not-a-real-key",
+    modelId: "gpt-5.4-mini",
+  });
+  const settings = await openProviderRow(window, providerId);
+  const page = settings.getByTestId("provider-page");
+  await expect(page.getByTestId("provider-page-key")).toHaveAttribute("placeholder", "Key saved");
+  return page;
+}
+
+test("a key replaced on a provider's page with “Keep everything on this computer” on is kept unchecked, and one line says so in both languages", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
+  const page = await openSavedProvider(window);
+  await expect(page.getByTestId("provider-key-not-checked")).toHaveCount(0);
+
   await setLocalOnly(window, true);
-  const settings = await openSettings(window, "ai");
-  const form = await addProviderForm(settings, "openai");
-  await acceptPlainTextKeys(window, form);
-  await form.getByLabel(/^API key/).fill("sk-proj-not-a-real-key");
+  await page.getByTestId("provider-page-key").fill("sk-proj-another-not-a-real-key");
+  await page.getByTestId("provider-page-save-key").click();
 
-  await form.getByTestId("provider-use-key").click();
-
-  const page = settings.getByTestId("provider-page");
   const line = page.getByTestId("provider-key-not-checked");
   await expect(line).toHaveText("Saved, not checked: nothing was sent to OpenAI.");
   await expect(page.getByTestId("provider-page-key")).toHaveAttribute("placeholder", "Key saved");
@@ -62,25 +73,4 @@ test("with “Keep everything on this computer” on, a key saved on Add a provi
   // Turned off, the line is no longer true to say: the key is checked when it is next used.
   await setLocalOnly(window, false);
   await expect(line).toHaveCount(0);
-});
-
-test("a key replaced on a provider's page while the setting is on says it wasn't checked either", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await setWindowSize(app, window, 1280, 800);
-  const settings = await openSettings(window, "ai");
-  const form = await addProviderForm(settings, "openai");
-  await acceptPlainTextKeys(window, form);
-  await form.getByLabel(/^API key/).fill("sk-proj-not-a-real-key");
-  await form.getByTestId("provider-use-key").click();
-  const page = settings.getByTestId("provider-page");
-  await expect(page.getByTestId("provider-page-key")).toHaveAttribute("placeholder", "Key saved");
-  await expect(page.getByTestId("provider-key-not-checked")).toHaveCount(0);
-
-  await setLocalOnly(window, true);
-  await page.getByTestId("provider-page-key").fill("sk-proj-another-not-a-real-key");
-  await page.getByTestId("provider-page-save-key").click();
-
-  await expect(page.getByTestId("provider-key-not-checked")).toHaveText(
-    "Saved, not checked: nothing was sent to OpenAI.",
-  );
 });

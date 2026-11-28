@@ -20,6 +20,7 @@ import {
   openExample,
   pointAt,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -164,6 +165,8 @@ for (const [language, width] of [
   test(`New note on Home makes a Mind in one click, the cursor in its title; its ▾ opens the sidebar's New menu by mouse and keyboard; ⌘J goes to the assistant and Home stays (${language}, ${width}px)`, async () => {
     const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
     let { app, window } = await launchApp(dataDir);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await makeMinds(window, ["Ledger"]);
     await app.close();
     ({ app, window } = await launchApp(dataDir));

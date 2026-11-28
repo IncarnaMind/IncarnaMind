@@ -1,8 +1,11 @@
 import { type ReactNode, useEffect, useState } from "react";
-import type { AgentClient, AgentSetupResult } from "../../../../core/api";
+import type { AgentClient, AgentClientId, AgentSetupResult } from "../../../../core/api";
 import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import { markOf } from "../agents/AgentMark";
+import { LogoDrawing } from "../providers/ProviderLogo";
+import { PROVIDER_LOGOS } from "../providers/providerLogos";
 import { buttonStyle } from "../ui";
 import type { StepPlace } from "./SetupPanel";
 import { monogram } from "./yourAiList";
@@ -36,14 +39,15 @@ export const listClass = "flex flex-col rounded-[10px] shadow-[inset_0_0_0_1px_v
 export const rowClass =
   "flex min-h-11 min-w-0 items-center gap-3 border-t border-rule px-3 py-2 first:border-t-0";
 
-/** An app's mark in the list, until it has an icon of its own. */
-export function AppMark({ name }: { name: string }) {
+/** An app's mark in the list: its logo, else its name's first letters. */
+export function AppMark({ id, name }: { id: AgentClientId; name: string }) {
+  const paths = PROVIDER_LOGOS[markOf(id) ?? ""];
   return (
     <span
       aria-hidden="true"
       className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-chip text-small leading-none text-ink-secondary"
     >
-      {monogram(name)}
+      {paths ? <LogoDrawing paths={paths} className="size-4" /> : monogram(name)}
     </span>
   );
 }

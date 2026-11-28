@@ -12,8 +12,9 @@ import {
   showSettingsPage,
 } from "./app";
 
-// ADR-0019: Add a provider in Settings › AI lists every provider, the language's popular ones
-// first; a provider the User already set up is among theirs, whatever its tier.
+// ADR-0019: Add a key… in Settings › AI lists the language's popular companies first. It adds no
+// chat model (#3767), so of those it lists the ones whose key meeting transcription or Document
+// search uses; a provider the User set up before is among theirs, whatever its tier.
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -26,13 +27,11 @@ test.afterEach(async () => {
 const LANGUAGES = [
   {
     language: "en",
-    popular: ["Anthropic", "OpenAI", "Google", "OpenRouter", "DeepSeek", "Qwen"],
-    added: "Added",
+    popular: ["OpenAI", "Google", "Qwen"],
   },
   {
     language: "zh-CN",
-    popular: ["DeepSeek 深度求索", "通义千问", "Kimi", "智谱 GLM", "硅基流动", "OpenRouter"],
-    added: "已添加",
+    popular: ["通义千问"],
   },
 ] as const;
 
@@ -52,8 +51,8 @@ async function setUpMistral(window: Page): Promise<void> {
   });
 }
 
-for (const { language, popular, added } of LANGUAGES) {
-  test(`Add a provider lists the popular providers first, and Mistral, set up, is a row with its own page (${language})`, async () => {
+for (const { language, popular } of LANGUAGES) {
+  test(`Add a key… lists the popular companies whose key meetings or search use first, and Mistral, set up, is a row with its own page (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await setUpMistral(window);
@@ -80,9 +79,13 @@ for (const { language, popular, added } of LANGUAGES) {
       await expect(
         directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
       ).toHaveText(popular.map((name) => new RegExp(`^${name}`)));
-      const mistral = directory.locator('[data-catalog-id="mistral"]');
-      await expect(mistral).toContainText(added);
-      await mistral.click();
+      await expect(directory.locator('[data-catalog-id="mistral"]')).toHaveCount(0);
+      await window.keyboard.press("Escape");
+      await expect(directory).toBeHidden();
+      await settings
+        .getByTestId("provider-row")
+        .filter({ hasText: /^Mistral/ })
+        .click();
       const page = settings.getByTestId("provider-page");
       await expect(page.getByTestId("provider-page-title")).toHaveText("Mistral");
       await expect(page.getByTestId("provider-page-get-key")).toHaveAttribute(

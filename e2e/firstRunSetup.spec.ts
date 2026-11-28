@@ -3,28 +3,24 @@ import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { EXAMPLE_SETS } from "../src/core/exampleSets";
-import { translate } from "../src/shared/i18n";
 import {
-  acceptPlainTextKeys,
   createDataFolder,
   exampleRow,
   expectExampleInFront,
   frontMindName,
   launchApp,
   openExample,
-  openInAppModel,
   openSettings,
+  paletteOffers,
   removeDataFolder,
-  runCommand,
   setWindowSize,
   startFakePostHog,
-  useLocalChatModel,
 } from "./app";
 
 /*
  * The first run's setup (#3296): a fresh profile opens on three short steps before the example
- * (what the User works on, their AI and meeting transcription), every one skippable, and
- * Settings › AI with nothing set leads to its model steps, in a dialog over the app. Every launch
+ * (what the User works on, their AI and meeting transcription), every one skippable. No step
+ * sets up a model in IncarnaMind, and Settings › AI with nothing set offers none (#3767). Every launch
  * uses the scripted chat model, and Ollama and the decision model hosts are pointed nowhere, so no
  * key reaches a service. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
@@ -36,8 +32,6 @@ async function shot(window: Page, name: string): Promise<void> {
   await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 }
 
-const OPENROUTER_KEY = `sk-or-v1-${"0f9a".repeat(16)}`;
-const OPENAI_KEY = "sk-proj-a-made-up-key";
 /** Nowhere: a request to it fails at once. */
 const NOWHERE = "http://127.0.0.1:9";
 const STAND_INS = { fakeChat: true, ollama: NOWHERE, decisions: NOWHERE } as const;
@@ -51,14 +45,6 @@ const bridge = (window: Page) => ({
     window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary(),
     ),
-  /** The catalog entry of the saved account that answers Questions, or null with none. */
-  answersFrom: () =>
-    window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { chatModel } = (await core.getSettings()).user;
-      const providers = await core.listChatProviders();
-      return providers.find((each) => each.id === chatModel?.providerId)?.catalogId ?? null;
-    }),
   setLanguage: (language: "en" | "zh-CN") =>
     window.evaluate(
       (value) =>
@@ -96,7 +82,6 @@ async function launch(options: Parameters<typeof launchApp>[1] = {}, width = 144
 }
 
 const setupOf = (window: Page) => window.getByTestId("first-run-setup");
-const dialogOf = (window: Page) => window.getByTestId("setup-dialog");
 /** The step shown, on the first run's page or in the dialog: one at a time. */
 const panelOf = (window: Page) => window.getByTestId("setup-panel");
 
@@ -206,7 +191,7 @@ test("a fresh profile opens on the setup: two picks, sent once, lead to their ex
   }
 });
 
-// protects=Skip on every step reaches the credit paper with nothing set up, a setup quit halfway returns to the same step, a finished one never shows again, and ⌘J with no AI connected leads to Connect your AI rather than opening the model-setup panel (#3819); fails_when=a step sets something up when skipped, the example is made before the end, the setup loses its step or shows again once ended, or ⌘J opens model-setup; no_claim=the composer's setup card itself (modelSetup.spec.ts).
+// protects=Skip on every step reaches the credit paper with nothing set up, a setup quit halfway returns to the same step, a finished one never shows again, and ⌘J with no AI connected leads to Connect your AI, with no assistant column (#3819, #3767); fails_when=a step sets something up when skipped, the example is made before the end, the setup loses its step or shows again once ended, or ⌘J opens the assistant; no_claim=Connect your AI's own page.
 test("Skip on every step: nothing set, the setup gone for good, and ⌘J leads to Connect your AI", async () => {
   test.setTimeout(120_000);
   let window = await launch();
@@ -232,11 +217,10 @@ test("Skip on every step: nothing set, the setup gone for good, and ⌘J leads t
   expect(user.chatModel).toBeNull();
   expect((await bridge(window).library()).settings.classifier).toEqual({ kind: "automatic" });
 
-  // ⌘J with no AI app connected focuses Connect your AI rather than opening the model-setup panel (#3819).
+  // ⌘J with no AI app connected focuses Connect your AI, and no assistant opens (#3819, #3767).
   await window.getByTestId("mind-editor").click();
   await window.keyboard.press("ControlOrMeta+j");
   await expect(window.getByTestId("note-ask-connect")).toBeFocused();
-  await expect(window.getByTestId("model-setup")).toHaveCount(0);
   await expect(window.getByTestId("assistant")).toBeHidden();
 
   await app?.close();
@@ -263,86 +247,8 @@ test("with no transcription key, Finish ends the setup as Set up when I record d
   expect(device).toMatchObject({ setupFinished: true, transcriptionRoute: null });
 });
 
-// protects=in the model steps opened from Settings › AI (first run no longer offers a model, #3791), a pasted key works with no other click, More services… opens the directory inside the step and Esc comes back to it, and the steps after it end with sorting left automatic; fails_when=the dialog is left, a click is needed after the paste, sorting requires its own setup, or tagging is turned on; no_claim=the hosts' own requests.
-test("a pasted key works at once, More services… stays in the setup, and sorting stays automatic", async () => {
-  test.setTimeout(120_000);
-  const { app: launched, window } = await launchApp(dataDir, STAND_INS);
-  app = launched;
-  await setWindowSize(launched, window, 900, 900);
-  await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "ai");
-  await settings.getByTestId("ai-use-model-open").click();
-  const ai = await atStep(window, "ai");
-  const dialog = dialogOf(window);
-  const field = ai.getByTestId("setup-key");
-  // The AI the User already has comes first (#3362): its first choice takes the focus, and a
-  // model in IncarnaMind is one quiet line until it is pressed (#3537).
-  await expect(ai.getByTestId("setup-agent").first().locator("input")).toBeFocused();
-  await expect(field).toHaveCount(0);
-  await expect(ai.getByTestId("setup-in-app-open")).toHaveText("Use a model in IncarnaMind");
-  await openInAppModel(ai);
-  await expect(ai.getByTestId("setup-keys-stay")).toHaveText("Keys stay on this computer.");
-  await expect(ai.getByTestId("setup-next")).toBeDisabled();
-  // The other ways: cloud first, a model on this computer last.
-  await expect(ai.locator('[data-testid^="setup-way-"]:not([data-testid$="-open"])')).toHaveText([
-    "Use my ChatGPT plan",
-    "Use my Claude plan",
-    "More services…",
-    "A model on this computer",
-  ]);
-  await shot(window, "setup-ai-en-900");
-
-  // More services…: the directory in the step, its search focused; Esc goes back.
-  await ai.getByTestId("setup-way-more-open").click();
-  const services = dialog.getByTestId("setup-services");
-  await expect(services.getByTestId("provider-directory-search")).toBeFocused();
-  const groups = await services
-    .getByTestId("provider-directory-group")
-    .evaluateAll((all) => all.map((each) => each.getAttribute("data-group")));
-  expect(groups.at(-1)).toBe("local");
-  expect(groups).not.toContain("meetings");
-  await shot(window, "setup-services-en-900");
-  await window.keyboard.press("Escape");
-  await expect(services).toHaveCount(0);
-  await atStep(window, "ai");
-
-  // A service chosen there is set up in the step, and the crumb comes back.
-  await ai.getByTestId("setup-way-more-open").click();
-  await services.locator('[data-entry="provider:anthropic"]').click();
-  await expect(services.getByTestId("provider-form")).toBeVisible();
-  await expect(dialog).toBeVisible();
-  await dialog.getByTestId("setup-crumb").click();
-  await expect(services).toHaveCount(0);
-
-  // A pasted key is recognised by its form and works with no other click.
-  await field.fill(OPENROUTER_KEY);
-  await field.press("Enter");
-  await expect(ai.getByTestId("setup-ai-works")).toBeVisible({ timeout: 20_000 });
-  await expect(ai.getByTestId("setup-next")).toBeEnabled();
-  await ai.getByTestId("setup-next").click();
-
-  await (await atStep(window, "sorting")).getByTestId("setup-skip").click();
-  const meetings = await atStep(window, "meetings");
-  const routes = meetings.getByTestId("setup-transcription");
-  await expect(routes.first()).toHaveAttribute("data-value", "cloud");
-  await expect(routes.first().locator("input")).toBeChecked();
-  await expect(routes.last()).toHaveAttribute("data-value", "local");
-  await routes.last().locator("input").check();
-  await meetings.getByTestId("setup-next").click();
-  await expect(dialog).toBeHidden();
-
-  const library = (await bridge(window).library()).settings;
-  expect(library.classifier).toEqual({ kind: "automatic" });
-  const automatic = await window.evaluate(() =>
-    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getTaggingModels(),
-  );
-  expect(automatic.automatic).not.toBeNull();
-  expect(library.automatic).toBe(false);
-  expect((await bridge(window).settings()).device.transcriptionRoute).toBe("local");
-});
-
-// protects=Settings › AI with nothing set up leads with Your AI (its line, then the agents to connect), then one quiet row, Use a model in IncarnaMind…, at 900 and 1,440, in English and Chinese, and lists no job that needs a model (#3645); the row opens the three model steps in a dialog over Settings, which Esc and its ✕ close with the focus back on the row, Esc in More services going back first; from ⌘K the same dialog leaves the Note in front as it was; fails_when=the quiet row comes before Your AI, a job that needs a model is listed, the steps replace the window or close Settings, Esc or ✕ leaves the focus elsewhere, or the app loses its place; no_claim=the add sheet itself (aiSettings.spec.ts).
-test("Settings › AI with nothing set: Your AI, then the quiet row, whose press opens the steps in a dialog over the app", async () => {
+// protects=Settings › AI with nothing set up leads with Your AI (its line, then the agents to connect) at 900 and 1,440, in English and Chinese, lists no job that needs a model (#3645), and offers no way to set up a model in IncarnaMind, neither a row nor ⌘K's Set up step by step (#3767); fails_when=a job that needs a model is listed, the Use a model in IncarnaMind row shows, or ⌘K offers the steps; no_claim=the add sheet itself (aiSettings.spec.ts).
+test("Settings › AI with nothing set: Your AI, and no way to set up a model in IncarnaMind", async () => {
   test.setTimeout(120_000);
   const { app: launched, window } = await launchApp(dataDir, { ...STAND_INS, examples: true });
   app = launched;
@@ -361,16 +267,13 @@ test("Settings › AI with nothing set: Your AI, then the quiet row, whose press
         ? "Let the AI tool you use read your Documents."
         : "让你常用的 AI 工具读取你的文档。",
     );
-    const list = settings.getByTestId("agents-list");
-    const row = settings.getByTestId("ai-use-model-open");
-    await expect(row).toContainText(
-      language === "en" ? "Use a model in IncarnaMind…" : "在 IncarnaMind 里用一个模型…",
-    );
-    await expect(row).toContainText(language === "en" ? "Optional" : "可选");
-    const [agents, quiet] = [await list.boundingBox(), await row.boundingBox()];
-    expect(agents && quiet && agents.y + agents.height <= quiet.y, `${language} ${width}`).toBe(
-      true,
-    );
+    await expect(settings.getByTestId("agents-list")).toBeVisible();
+    await expect(settings.getByTestId("ai-use-model-open")).toHaveCount(0);
+    await expect(
+      settings.getByText(
+        language === "en" ? "Use a model in IncarnaMind" : "在 IncarnaMind 里用一个模型",
+      ),
+    ).toHaveCount(0);
     await expect(settings.getByTestId("model-default-row-chatModel")).toHaveCount(0);
     await expect(settings.getByTestId("web-search-settings")).toHaveCount(0);
     await expect(settings.getByTestId("check-writes-settings")).toContainText(
@@ -379,274 +282,10 @@ test("Settings › AI with nothing set: Your AI, then the quiet row, whose press
     await shot(window, `settings-ai-empty-${language}-${width}`);
   }
   await bridge(window).setLanguage("en");
-  await setWindowSize(launched, window, 1440, 900);
-
-  // A dialog over Settings, which stays where it was.
-  const stepByStep = settings.getByTestId("ai-use-model-open");
-  await stepByStep.click();
-  const dialog = dialogOf(window);
-  await expect(dialog).toBeVisible();
-  await expect(setupOf(window)).toHaveCount(0);
-  await expect(settings).toBeVisible();
-  await expect(panelOf(window).getByTestId("setup-progress-step")).toHaveText([
-    "Your AI",
-    "Sorting",
-    "Meetings",
-  ]);
-  await expect(panelOf(window).getByTestId("setup-back")).toHaveCount(0);
-  await expect(dialog.getByTestId("setup-agent").first().locator("input")).toBeFocused();
-  // A Sorting step of its own follows, so the optional line of the first run isn't offered twice.
-  await expect(dialog.getByTestId("setup-sorting-model-open")).toHaveCount(0);
-  await shot(window, "setup-dialog-ai-en-1440");
-  // Esc in More services goes back to the step; Esc again closes the dialog.
-  await openInAppModel(dialog);
-  await dialog.getByTestId("setup-way-more-open").click();
-  await expect(dialog.getByTestId("provider-directory-search")).toBeFocused();
-  await window.keyboard.press("Escape");
-  await expect(dialog.getByTestId("setup-services")).toHaveCount(0);
-  await expect(dialog).toBeVisible();
-  await window.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-  await expect(settings).toBeVisible();
-  await expect(stepByStep).toBeFocused();
-
-  // ✕ closes it the same way.
-  await stepByStep.click();
-  await expect(dialog).toBeVisible();
-  await dialog.getByTestId("setup-close").click();
-  await expect(dialog).toBeHidden();
-  await expect(stepByStep).toBeFocused();
   await window.keyboard.press("Escape");
   await expect(settings).toBeHidden();
-
-  // From ⌘K, over the Note in front, which is still there once the steps are skipped through.
-  const front = await frontMindName(window).textContent();
-  await runCommand(window, "settings.setUpStepByStep", "Set up step by step");
-  await expect(dialog).toBeVisible();
-  await skipTheRest(window, ["ai", "sorting", "meetings"]);
-  await expect(dialog).toBeHidden();
-  await expect(frontMindName(window)).toHaveText(front ?? "");
-  await expect(window.getByTestId("plus-menu")).toBeVisible();
-});
-
-// protects=with no AI, the sorting step asks only for the host's key, under its name with where to get one, with the line that says what sorting sends and, as that key will also answer Questions, that line and the chat's; a refused key says so in one line under the field and puts the focus back; Use this then checks, keeps and chooses at once, the key becoming the Answers model; the transcription step asks for its service's key the same way, Finish enabled once one is typed; fails_when=a model line, a price link or a button of the form's own shows, the primary is enabled with no key, a refusal leaves the step or loses the focus, the key is not chosen, or the Answers model is not set; no_claim=the hosts' own checks.
-test("with no AI yet, sorting and transcription each ask for one key, and one press checks, keeps and chooses", async () => {
-  test.setTimeout(120_000);
-  const { app: launched, window } = await launchApp(dataDir, STAND_INS);
-  app = launched;
-  await setWindowSize(launched, window, 900, 900);
-  await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "ai");
-  await settings.getByTestId("ai-use-model-open").click();
-  await (await atStep(window, "ai")).getByTestId("setup-skip").click();
-
-  const sorting = await atStep(window, "sorting");
-  const next = sorting.getByTestId("setup-next");
-  await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openrouter");
-  const decision = sorting.getByTestId("setup-decision");
-  await expect(decision.getByText("Connection key from OpenRouter", { exact: true })).toBeVisible();
-  await expect(decision.getByRole("link", { name: /Get a key/ })).toBeVisible();
-  await expect(decision.getByTestId("setup-keys-stay")).toHaveText("Keys stay on this computer.");
-  await expect(decision.getByTestId("setup-sorting-sends")).toContainText("OpenRouter receives");
-  await expect(decision.getByTestId("setup-decision-answers")).toHaveText(
-    "OpenRouter will also answer your Questions.",
-  );
-  await expect(decision.getByTestId("setup-decision-chat-sends")).toBeVisible();
-  await expect(decision.getByRole("link", { name: /Pricing/ })).toHaveCount(0);
-  await expect(decision.getByTestId("decision-sorting-line")).toHaveCount(0);
-  await expect(decision.getByRole("button", { name: /Use this|Cancel|Save/ })).toHaveCount(0);
-  await expect(next).toBeDisabled();
-  await shot(window, "setup-sorting-needs-key-en-900");
-
-  const key = sorting.getByTestId("setup-decision-key");
-  await key.fill("sk-or-v1-a-key-that-is-refused");
-  await next.click();
-  await expect(sorting.getByTestId("setup-decision-key-problem")).toContainText(
-    "The key was refused",
-  );
-  await expect(key).toBeFocused();
-  await atStep(window, "sorting");
-
-  await key.fill(OPENROUTER_KEY);
-  await expect(sorting.getByTestId("setup-decision-key-problem")).toHaveCount(0);
-  await expect(next).toBeEnabled();
-  await shot(window, "setup-sorting-key-typed-en-900");
-  await next.click();
-
-  const meetings = await atStep(window, "meetings");
-  const finish = meetings.getByTestId("setup-next");
-  const library = (await bridge(window).library()).settings;
-  expect(library.classifier).toMatchObject({ kind: "decision", host: "openrouter" });
-  expect(library.automatic).toBe(false);
-  expect(await bridge(window).answersFrom()).toBe("openrouter");
-
-  await expect(meetings.getByTestId("setup-transcription").first()).toContainText(
-    "Soniox, Deepgram and others",
-  );
-  const service = await meetings.getByTestId("setup-transcription-service").inputValue();
-  const cloud = meetings.getByTestId("setup-cloud");
-  await expect(cloud.getByText(/ key$/)).toBeVisible();
-  await expect(cloud.getByRole("link", { name: /Get a key/ })).toBeVisible();
-  await expect(cloud.getByTestId("setup-keys-stay")).toBeVisible();
-  await expect(cloud.getByTestId("setup-transcription-sends")).toContainText("an hour");
-  await expect(cloud.getByRole("button", { name: /Use this|Cancel|Save/ })).toHaveCount(0);
-  // With no key typed, Finish is the way on too: it leaves the choice to the first recording (#3536).
-  await expect(finish).toBeEnabled();
-  await shot(window, `setup-meetings-needs-key-${service}-en-900`);
-  await meetings.getByTestId("setup-transcription-key").fill("a-made-up-transcription-key");
-  await expect(finish).toBeEnabled();
-  await shot(window, `setup-meetings-key-typed-${service}-en-900`);
-  // Not pressed with that key: it would be checked with the service. This computer instead.
-  await meetings.getByTestId("setup-transcription").last().locator("input").check();
-  await finish.click();
-  await expect(dialogOf(window)).toBeHidden();
-  expect((await bridge(window).settings()).device.transcriptionRoute).toBe("local");
-});
-
-// protects=a key from the AI step of the model steps (Settings › AI › Use a model in IncarnaMind…) reaches the steps after it: sorting uses it where its host offers a decision model, transcription where it transcribes, each saying so; a key typed for another host keeps the Answers model as it was and says nothing of answering; fails_when=a step asks again for a key the User gave, the line about answering shows with an Answers model, or the Answers model changes; no_claim=the hosts' own checks.
-test("an OpenAI key from the AI step is used by sorting and transcription, and another host's key keeps the Answers model", async () => {
-  test.setTimeout(120_000);
-  const { app: launched, window } = await launchApp(dataDir, STAND_INS);
-  app = launched;
-  await setWindowSize(launched, window, 900, 900);
-  await acceptPlainTextKeys(window);
-  const settings = await openSettings(window, "ai");
-  await settings.getByTestId("ai-use-model-open").click();
-  const ai = await atStep(window, "ai");
-  await openInAppModel(ai);
-  await ai.getByTestId("setup-key").fill(OPENAI_KEY);
-  await ai.getByTestId("setup-key").press("Enter");
-  await expect(ai.getByTestId("setup-ai-works")).toBeVisible({ timeout: 20_000 });
-  await ai.getByTestId("setup-next").click();
-
-  const sorting = await atStep(window, "sorting");
-  await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openai");
-  await expect(sorting.getByTestId("setup-decision-works")).toContainText(
-    "Uses your connection to OpenAI",
-  );
-  await expect(sorting.getByTestId("setup-next")).toBeEnabled();
-  await shot(window, "setup-sorting-uses-openai-key-en-900");
-
-  await sorting.getByTestId("setup-decision-host").selectOption("openrouter");
-  await expect(sorting.getByText("Connection key from OpenRouter", { exact: true })).toBeVisible();
-  await expect(sorting.getByTestId("setup-decision-answers")).toHaveCount(0);
-  await expect(sorting.getByTestId("setup-decision-chat-sends")).toHaveCount(0);
-  await sorting.getByTestId("setup-decision-key").fill(OPENROUTER_KEY);
-  await sorting.getByTestId("setup-next").click();
-
-  const meetings = await atStep(window, "meetings");
-  expect(await bridge(window).answersFrom()).toBe("openai");
-  expect((await bridge(window).library()).settings.classifier).toMatchObject({
-    kind: "decision",
-    host: "openrouter",
-  });
-  await expect(meetings.getByTestId("setup-transcription").first()).toContainText(
-    "Uses the key you already added",
-  );
-  await expect(meetings.getByTestId("setup-transcription-works")).toContainText(
-    "Uses your OpenAI key",
-  );
-  await expect(meetings.getByTestId("setup-transcription-service")).toHaveCount(0);
-  await expect(meetings.getByTestId("setup-transcription-sends")).toContainText("OpenAI");
-  await shot(window, "setup-meetings-uses-openai-key-en-900");
-  await meetings.getByTestId("setup-next").click();
-  await expect(dialogOf(window)).toBeHidden();
-  expect((await bridge(window).settings()).device.transcriptionRoute).toBe("openai");
-});
-
-// protects=in Local mode the model steps offer only what runs on this computer: no key field, plan, service list, decision model or cloud transcription; fails_when=a cloud choice shows; no_claim=Local mode's own switch.
-test("in Local mode, every model step offers only this computer", async () => {
-  test.setTimeout(120_000);
-  const { app: launched, window } = await launchApp(dataDir, STAND_INS);
-  app = launched;
-  await window.evaluate(() =>
-    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(true),
-  );
-  const settings = await openSettings(window, "ai");
-  await settings.getByTestId("ai-use-model-open").click();
-  const ai = await atStep(window, "ai");
-  await openInAppModel(ai);
-  await expect(ai.getByTestId("setup-local-mode")).toBeVisible();
-  await expect(ai.getByTestId("setup-key")).toHaveCount(0);
-  await expect(ai.locator('[data-testid^="setup-way-"]:not([data-testid$="-open"])')).toHaveText([
-    "A model on this computer",
-  ]);
-  await ai.getByTestId("setup-skip").click();
-  const sorting = await atStep(window, "sorting");
-  await expect(sorting.getByTestId("setup-sorting")).toHaveCount(1);
-  await expect(sorting.getByTestId("setup-sorting")).toHaveAttribute("data-value", "local");
-  await expect(sorting.getByTestId("setup-decision")).toHaveCount(0);
-  await sorting.getByTestId("setup-skip").click();
-  const meetings = await atStep(window, "meetings");
-  await expect(meetings.getByTestId("setup-transcription")).toHaveCount(1);
-  await expect(meetings.getByTestId("setup-transcription")).toHaveAttribute("data-value", "local");
-  await meetings.getByTestId("setup-skip").click();
-  await expect(dialogOf(window)).toBeHidden();
-});
-
-// protects=the Your AI step ends with one closed line, marked optional, for the model that sorts and tags new Documents: closed, the step has the same three steps and the same way on, and nothing is set; opened, it shows Settings › AI's own choice in place, asks for a key under the line that says what goes and sends nothing before Use this, and a model chosen there with the step never waiting for it is the one Settings › AI shows; fails_when=the line is open at first, opening it saves or sends anything, first run gains or loses a step, the way on waits for it, a key reaches a host, or Settings shows another choice than the one made; no_claim=the hosts' own requests (none are reached here).
-test("the model that sorts and tags is one optional line: closed, the step is as it was; opened, its choice is Settings' own", async () => {
-  test.setTimeout(180_000);
-  const window = await launch({}, 900);
-  await acceptPlainTextKeys(window);
-  await (await atStep(window, "work")).getByTestId("setup-skip").click();
-  const ai = await atStep(window, "ai");
-  const line = ai.getByTestId("setup-sorting-model-open");
-  await expect(line).toHaveText(translate("en", "setupPage.ai.sorting"));
-  await expect(line).toHaveAttribute("aria-expanded", "false");
-  await expect(ai.getByTestId("setup-progress-step")).toHaveText([
-    "Your work",
-    "Your AI",
-    "Meetings",
-  ]);
-  await expect(ai.getByTestId("setup-sorting-model")).toHaveCount(0);
-  // No AI app here, so the step's way on is Set up later.
-  await expect(ai.getByTestId("setup-skip")).toBeEnabled();
-  await shot(window, "setup-ai-sorting-closed-en-900");
-
-  await line.click();
-  const panel = ai.getByTestId("setup-sorting-model");
-  await expect(panel).toContainText(translate("en", "setupPage.ai.sorting.about"));
-  const picker = panel.getByTestId("models-sorting");
-  await expect(picker).toBeVisible();
-  // The rows that set a sorting model up are Settings' own, and none is chosen by opening.
-  await expect(picker.locator("option[value^='set-up:']")).not.toHaveCount(0);
-  expect((await bridge(window).library()).settings.classifier).toEqual({ kind: "automatic" });
-  await shot(window, "setup-ai-sorting-open-en-900");
-
-  // A host with a key of its own asks for it in place, under what goes to it; Esc leaves it.
-  await picker.selectOption("set-up:perplexity");
-  const form = panel.getByTestId("decision-key-form-perplexity");
-  await expect(form.getByTestId("decision-key-input")).toBeFocused();
-  await expect(form.getByTestId("models-sorting-line")).toContainText(
-    translate("en", "setup.sorting.sendsWhenOn", { service: "Perplexity" }),
-  );
-  await form.getByTestId("decision-key-input").press("Escape");
-  await expect(form).toHaveCount(0);
-  expect((await bridge(window).library()).settings.classifier).toEqual({ kind: "automatic" });
-
-  // A model set up in IncarnaMind can sort too: choosing it is the one setting Settings › AI has.
-  await useLocalChatModel(window);
-  // The model set up, by its name: "Use fake-model".
-  const ownOption = picker.locator(`option[value*='"kind":"chat"']`);
-  await expect(ownOption).toHaveCount(1);
-  const own = (await ownOption.textContent()) ?? "";
-  expect(own).toBe(translate("en", "models.sorting.chat", { model: "fake-model" }));
-  await picker.selectOption({ label: own });
-  await expect(panel.getByTestId("models-sorting-line")).toContainText("nothing leaves");
-  const library = (await bridge(window).library()).settings;
-  expect(library.classifier).toMatchObject({ kind: "chat", choice: { modelId: "fake-model" } });
-  await ai.getByTestId("setup-skip").click();
-  await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
-  await expect(setupOf(window)).toHaveCount(0);
-
-  const settings = await openSettings(window, "ai");
-  await expect(
-    settings
-      .getByTestId("model-default-row-sorting")
-      .getByTestId("models-sorting")
-      .locator("option:checked"),
-  ).toHaveText(own);
+  expect(await paletteOffers(window, "settings.setUpStepByStep", "Set up step by step")).toBe(0);
+  expect(await paletteOffers(window, "settings.addProvider", "Add an account or key")).toBe(0);
 });
 
 // protects=the setup holds its layout at 900 and 1,280 px, in English and Chinese, light and dark: one panel, no sideways scroll, the title where it was from step to step and the foot's buttons in view; fails_when=the panel overflows the window, the title moves between steps, or a button is cut off; no_claim=the steps' behaviour, tested above.
@@ -675,20 +314,6 @@ test("the setup holds at 900 and 1,280 px, in English and Chinese, light and dar
         await expect(wayOn).toBeInViewport();
         tops.push((await panel.locator("#setup-title").boundingBox())?.y ?? -1);
         await shot(window, `setup-${step}-${language}-${appearance}-${width}`);
-        if (step === "ai") {
-          // The model that sorts and tags, pressed open, fits as the whole step did (#3570).
-          const sorting = panel.getByTestId("setup-sorting-model-open");
-          await sorting.click();
-          await expect(panel.getByTestId("setup-sorting-model")).toBeVisible();
-          const sortingOpen = await window.evaluate(
-            () => document.documentElement.scrollWidth <= globalThis.innerWidth,
-          );
-          expect(sortingOpen, `${language} ${appearance} ${width} ${step} sorting open`).toBe(true);
-          await expect(wayOn).toBeInViewport();
-          await shot(window, `setup-ai-sorting-open-${language}-${appearance}-${width}`);
-          await sorting.click();
-          await expect(panel.getByTestId("setup-sorting-model")).toHaveCount(0);
-        }
         if (step !== "meetings") await panel.getByTestId("setup-skip").click();
       }
       expect(new Set(tops).size, `${language} ${appearance} ${width}`).toBe(1);
