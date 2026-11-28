@@ -14,14 +14,12 @@ import { isMoveToKey, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { useIsExample } from "./GettingStarted";
 import { InlineName } from "./InlineName";
-import { MindLineIcon } from "./icons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import {
   clearsActions,
   rowActionsClass,
   rowButtonClass,
   rowClass,
-  rowIconClass,
   rowPadding,
 } from "./sidebarRows";
 
@@ -63,7 +61,6 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
           className="flex h-full w-full min-w-0 items-center gap-2 pr-1"
           style={rowPadding(depth)}
         >
-          <MindLineIcon className={rowIconClass(lit)} />
           <InlineName
             value={mind.title}
             label={t("mind.renameLabel", { title })}
@@ -116,7 +113,6 @@ export function MindRow({ mind, depth }: { mind: Mind; depth: number }) {
         className={`${rowButtonClass} ${clearsActions.menu}`}
         style={rowPadding(depth)}
       >
-        <MindLineIcon className={rowIconClass(lit)} />
         <span
           data-testid="row-text"
           className={`min-w-0 flex-1 truncate ${mindName(mind) ? "" : "text-ink-meta"}`}
