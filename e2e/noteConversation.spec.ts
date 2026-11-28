@@ -2409,9 +2409,16 @@ test("History opens from the clock button at both widths, groups conversations t
     await send(harbour, "When does the 07:40 leave?", "timetable");
 
     // History groups Harbour notes's conversations first, then Other conversations.
+    // Pointer opening must not leave a keyboard focus ring on Close, and the current Note's group
+    // shows only the time without repeating its heading.
     await pointAndClick(window, column.getByTestId("conversation-history-button"));
     const history = window.getByTestId("note-history-popover");
     await expect(history).toBeVisible();
+    expect(
+      await history
+        .getByTestId("note-history-close")
+        .evaluate((el) => el.matches(":focus-visible")),
+    ).toBe(false);
     await expect(history.getByTestId("note-history-group-heading")).toHaveText([
       "Harbour notes",
       "Other conversations",
@@ -2420,8 +2427,11 @@ test("History opens from the clock button at both widths, groups conversations t
     await expect(items).toHaveCount(3);
     await expect(items.nth(0)).toHaveAttribute("data-active", "true");
     await expect(items.nth(0)).toContainText("When does the 07:40 leave?");
+    await expect(items.nth(0).locator(".note-history-row-meta")).not.toContainText("Harbour notes");
     await expect(items.nth(1)).toContainText("What does the harbour plan add?");
+    await expect(items.nth(1).locator(".note-history-row-meta")).not.toContainText("Harbour notes");
     await expect(items.nth(2)).toContainText("Check the pier piles");
+    await expect(items.nth(2).locator(".note-history-row-meta")).toContainText("Pier inspection");
 
     // Switching loads the chosen conversation.
     await pointAndClick(window, items.nth(1).getByTestId("note-history-row-pick"));

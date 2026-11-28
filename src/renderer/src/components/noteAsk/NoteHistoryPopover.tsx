@@ -58,6 +58,7 @@ export function NoteHistoryPopover({
   pairingId,
   activeId,
   place,
+  openedBy = "keyboard",
   onClose,
 }: {
   anchor: Element;
@@ -65,9 +66,11 @@ export function NoteHistoryPopover({
   pairingId: string;
   activeId: string | null;
   place: "column" | "upward";
+  openedBy?: "pointer" | "keyboard";
   onClose(): void;
 }) {
   const t = useT();
+  const panel = useRef<HTMLElement>(null);
   const close = useRef<HTMLButtonElement>(null);
   const all = useNoteConversations((state) => state.list);
   const minds = useAppStore((state) => state.minds);
@@ -100,12 +103,16 @@ export function NoteHistoryPopover({
         onDismiss={() => {
           if (confirmDelete === null) onClose();
         }}
-        initialFocus={close}
+        initialFocus={openedBy === "keyboard" ? close : panel}
         returnFocus
         aria-label={t("noteColumn.history")}
         data-testid="note-history-popover"
       >
-        <section className="assistant-history note-history">
+        <section
+          ref={panel}
+          tabIndex={-1}
+          className="assistant-history note-history focus:outline-none"
+        >
           <header className="assistant-history-head">
             <HistoryLineIcon className="shrink-0 text-ink-meta" />
             <h2 className="min-w-0 flex-1 truncate">{t("noteColumn.history")}</h2>
@@ -140,6 +147,7 @@ export function NoteHistoryPopover({
                         conversation={conversation}
                         active={conversation.id === activeId}
                         renaming={renamingId === conversation.id}
+                        showNotes={false}
                         onPick={() => pick(conversation)}
                         onStartRename={() => setRenamingId(conversation.id)}
                         onDoneRename={() => setRenamingId(null)}
@@ -166,6 +174,7 @@ export function NoteHistoryPopover({
                         conversation={conversation}
                         active={conversation.id === activeId}
                         renaming={renamingId === conversation.id}
+                        showNotes
                         onPick={() => pick(conversation)}
                         onStartRename={() => setRenamingId(conversation.id)}
                         onDoneRename={() => setRenamingId(null)}
@@ -191,6 +200,7 @@ function HistoryRow({
   conversation,
   active,
   renaming,
+  showNotes,
   onPick,
   onStartRename,
   onDoneRename,
@@ -199,6 +209,7 @@ function HistoryRow({
   conversation: NoteConversationSummary;
   active: boolean;
   renaming: boolean;
+  showNotes: boolean;
   onPick(): void;
   onStartRename(): void;
   onDoneRename(): void;
@@ -241,12 +252,14 @@ function HistoryRow({
   };
 
   const separator = language === "zh-CN" ? "、" : ", ";
-  const noteTitles = conversation.notes
-    .map((each) => {
-      const live = minds.find((m) => m.id === each.mindId);
-      return (live && mindName(live)) || each.title;
-    })
-    .filter((each) => each !== "");
+  const noteTitles = showNotes
+    ? conversation.notes
+        .map((each) => {
+          const live = minds.find((m) => m.id === each.mindId);
+          return (live && mindName(live)) || each.title;
+        })
+        .filter((each) => each !== "")
+    : [];
   const dateText = formatDateTime(conversation.updatedAt, language);
   const metaLine = noteTitles.length > 0 ? `${noteTitles.join(separator)} · ${dateText}` : dateText;
 

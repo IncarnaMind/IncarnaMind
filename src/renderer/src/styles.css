@@ -3540,6 +3540,9 @@
     gap: 20px;
     min-height: 0;
     overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-rule-strong) transparent;
     padding: var(--scroll-head) 16px var(--scroll-foot);
   }
   .note-column-turn {
@@ -3888,6 +3891,9 @@
     /* About half the Note's visible height at the window sizes the app opens at, under the top row. */
     max-height: 40vh;
     overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-rule-strong) transparent;
     padding: var(--scroll-head) var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
     .note-column-reply-foot {
       min-height: 16px;
@@ -12997,6 +13003,9 @@
     margin: 0;
     padding: 4px;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-rule-strong) transparent;
     list-style: none;
   }
   .assistant-history-row {

@@ -49,13 +49,13 @@ export function ConversationMenu({
   const t = useT();
   const menu = usePopoverMenu({ focus: "first" });
   const historyButton = useRef<HTMLButtonElement>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState<false | "pointer" | "keyboard">(false);
   const historyRequest = useNoteColumns((state) => state.historyRequest);
   const lastHistoryRequest = useRef(historyRequest);
   useEffect(() => {
     if (historyRequest !== lastHistoryRequest.current) {
       lastHistoryRequest.current = historyRequest;
-      setHistoryOpen(true);
+      setHistoryOpen("keyboard");
     }
   }, [historyRequest]);
 
@@ -143,23 +143,26 @@ export function ConversationMenu({
         ref={historyButton}
         type="button"
         data-testid="conversation-history-button"
-        aria-expanded={historyOpen}
+        aria-expanded={historyOpen !== false}
         aria-haspopup="dialog"
         aria-label={t("noteColumn.history")}
         title={t("noteColumn.history")}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setHistoryOpen((was) => !was)}
+        onClick={(event) =>
+          setHistoryOpen((was) => (was ? false : event.detail === 0 ? "keyboard" : "pointer"))
+        }
         className="note-column-icon note-conversation-history-button"
       >
         <HistoryLineIcon />
       </button>
-      {historyOpen && historyButton.current && (
+      {historyOpen !== false && historyButton.current && (
         <NoteHistoryPopover
           anchor={historyButton.current}
           mindId={mindId}
           pairingId={pairingId}
           activeId={conversationId}
           place={place}
+          openedBy={historyOpen}
           onClose={() => setHistoryOpen(false)}
         />
       )}

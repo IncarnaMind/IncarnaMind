@@ -313,8 +313,10 @@ export function NoteConversationBody({
       : null;
     atEnd.current = !turn;
     roomForNewest(element);
-    if (turn) element.scrollTop = turn.offsetTop - 8;
-    else element.scrollTop = element.scrollHeight;
+    const target = turn
+      ? Math.max(0, turn.offsetTop - 8)
+      : Math.max(0, element.scrollHeight - element.clientHeight);
+    if (Math.abs(element.scrollTop - target) > 1) element.scrollTop = target;
     markScrolled(element);
   }, [turns, trails, waiting, at, ask?.questions]);
 
@@ -332,7 +334,8 @@ export function NoteConversationBody({
     };
     const observer = new ResizeObserver(() => {
       roomForNewest(element);
-      if (atEnd.current) element.scrollTop = element.scrollHeight;
+      const bottom = Math.max(0, element.scrollHeight - element.clientHeight);
+      if (atEnd.current && Math.abs(element.scrollTop - bottom) > 1) element.scrollTop = bottom;
     });
     observer.observe(element);
     sizes.current = observer;
