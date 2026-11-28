@@ -357,13 +357,13 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
   test("on a model whose rooms for thinking would pass the Answer's $0.25, its batches share what the limit leaves in equal parts (#2962)", async () => {
     // Claude Fable 5 at $10 in and $50 out a million tokens: 7,400 tokens out is $0.37 alone. Beside
-    // both records' rooms, the $0.25 leaves 588 tokens: 294 each.
+    // both records' rooms, the $0.25 leaves 597 tokens: 298 and 299.
     const { answer, batches } = await answered(9, { modelId: "claude-fable-5" });
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_694],
-        [1, 594],
+        [8, 2_698],
+        [1, 599],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -376,8 +376,8 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 4_075],
-        [1, 1_976],
+        [8, 4_081],
+        [1, 1_982],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -506,8 +506,8 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 6_444],
-        [1, 4_344],
+        [8, 6_448],
+        [1, 4_349],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -519,13 +519,13 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
       model: "Claude Sonnet 5.5",
       modelId: "claude-sonnet-5-5",
       count: 48,
-      rooms: [3_188, 3_188, 3_188, 3_188, 3_188, 3_187],
+      rooms: [3_193, 3_193, 3_192, 3_192, 3_192, 3_192],
     },
     {
       model: "Claude Opus 5.5",
       modelId: "claude-opus-5-5",
       count: 24,
-      rooms: [3_242, 3_242, 3_242],
+      rooms: [3_247, 3_247, 3_246],
     },
   ])(
     "$count sentences on $model: every batch is out before the first settles, as on main, each with an equal part",
@@ -620,7 +620,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
       .filter((each) => each.currency === "USD")
       .reduce((total, each) => total + each.amount, 0);
     // $0.025 left: 5,300 tokens out on Sonnet ($10 a million) is $0.053, 300 is $0.003. The cap counts
-    // a batch out twice, so half of what it leaves, less the records' room, is 145 tokens more.
+    // a batch out twice, so half of what it leaves, less the records' room, is 150 tokens more.
     await core.updateSettings({
       user: { monthlyCap: { amount: spent + 0.025, currency: "USD" } },
     });
@@ -629,7 +629,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
     const again = await answerJudged(core, answer.conversationId, answer.id);
 
-    expect(roomsOf(batches)).toEqual([445]);
+    expect(roomsOf(batches)).toEqual([450]);
     expect(checksOf(again.citations)).toEqual(["found"]);
   });
 });
@@ -682,7 +682,7 @@ describe("a batch a limit kept below its room for thinking, cut short there (#29
     [...citations].sort((a, b) => a.marker - b.marker).map((citation) => citation.checkReason);
 
   test("the Answer's limit held it: Not checked, naming that limit, never ✓ or asked again, and the next batch still goes", async () => {
-    // Claude Fable 5: the batch of eight has 2,694 tokens, under the 3,500 its model writes.
+    // Claude Fable 5: the batch of eight has 2,698 tokens, under the 3,500 its model writes.
     const { answer, batches } = await answered(9, {
       modelId: "claude-fable-5",
       writes: (sentences) => (sentences === 8 ? 3_500 : 200),
@@ -690,8 +690,8 @@ describe("a batch a limit kept below its room for thinking, cut short there (#29
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_694],
-        [1, 594],
+        [8, 2_698],
+        [1, 599],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual([...Array(8).fill("not-checked"), "found"]);
