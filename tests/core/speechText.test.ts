@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   cleanSpeech,
   onlyPromptWord,
+  repeatedTail,
   textOfResult,
   wordsOnly,
 } from "../../src/core/transcription/speechText";
@@ -105,5 +106,24 @@ describe("The words after the model's header (#981)", () => {
     for (const said of ["The system is down.", "Systems.", "System one.", "", "。"]) {
       expect(onlyPromptWord(said)).toBe(false);
     }
+  });
+});
+
+describe("A repetition loop truncated at the tail (#1031)", () => {
+  test("detects long verbatim consecutive tail repeats in Chinese and English, ignoring short natural emphasis", () => {
+    expect(
+      repeatedTail(
+        "就是那个纸箱，咱们得找个人去买，买一下，从明码标价。这个打包特别重要，就是那个纸箱，咱们得找个人去买，买一下，从明码标价。这个打包特别重要。",
+      ),
+    ).toBe(true);
+    expect(
+      repeatedTail(
+        "We should check the shipping schedule before Friday afternoon we should check the shipping schedule before Friday afternoon.",
+      ),
+    ).toBe(true);
+    expect(repeatedTail("对，对，就是这样的。对，对，就是这样的。")).toBe(false);
+    expect(repeatedTail("I think we should go. I think we should go.")).toBe(false);
+    expect(repeatedTail("Plain words.")).toBe(false);
+    expect(repeatedTail("")).toBe(false);
   });
 });
