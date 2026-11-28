@@ -115,7 +115,7 @@ const mode = (value: string) => writeFile(modeFile, value);
 const run = (
   signal = new AbortController().signal,
   started?: () => void,
-  limits: { runMs?: number; stallMs?: number } = {},
+  limits: { runMs?: number; codexStallMs?: number } = {},
 ) =>
   createOwnAi({ command: null, codexCommand: "codex", ...limits }).run({
     client: "codex",
@@ -263,12 +263,14 @@ describe("a check run on the User's own Codex (#3639)", () => {
   // protects=a Codex that goes silent past the stall limit, or works past the run's limit, is stopped and says which; fails_when=a stuck or endless run keeps the check and its grant open
   it("stops a run that stalls, and one that goes on past its limit", async () => {
     await mode("stall");
-    await expect(run(undefined, undefined, { stallMs: 1_000 })).resolves.toEqual({
+    await expect(run(undefined, undefined, { codexStallMs: 1_000 })).resolves.toEqual({
       kind: "failed",
       reason: "stalled",
     });
     await mode("slow");
-    await expect(run(undefined, undefined, { runMs: 3_000, stallMs: 60_000 })).resolves.toEqual({
+    await expect(
+      run(undefined, undefined, { runMs: 3_000, codexStallMs: 60_000 }),
+    ).resolves.toEqual({
       kind: "failed",
       reason: "timeout",
     });
