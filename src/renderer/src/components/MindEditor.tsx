@@ -198,6 +198,7 @@ import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPartOf, writingPlaceOf } from "../mindWriting";
 import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
+import { writingAsAsked } from "../ownAiInNote";
 import { hiddenForOwnAiNow, ownAiOnlyNow, useHiddenForOwnAi, useOwnAiOnly } from "../ownAiPanel";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
@@ -790,7 +791,8 @@ function MindEditorView({
         ProposalReview.configure({
           translate: translateNow,
           asked: (current, request) =>
-            askedInThisWindow(current, request, useConversations.getState().messages),
+            askedInThisWindow(current, request, useConversations.getState().messages) ||
+            writingAsAsked(doc, mindId, request),
         }),
         ReviewPick,
         ProposalRewrites.configure({ translate: translateNow }),

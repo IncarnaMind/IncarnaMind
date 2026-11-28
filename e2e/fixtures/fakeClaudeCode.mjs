@@ -11,6 +11,8 @@
 // the 07:40 crossing); "write" writes a new Note, "Ferry summary"; "summary" writes a summary into
 // the Note asked from, from its top when it has no named paragraph and at its end otherwise
 // ("plan", "timetable", "explain" and "summary" answer in Chinese to a request in Chinese);
+// "summary-two" writes the summary's heading and first paragraph, waits until the mode file's
+// ".step" reaches 1, then adds a second paragraph after them;
 // "long" reads the ferry interviews step by step, each step waiting until the number in the mode
 // file's ".step" file reaches it, then answers with Citations; "page" streams its thinking, a read,
 // a quote and a change as partial messages do, held the same way, and writes the change; "lost" finds no conversation to resume, then changes as "change" does; "make" writes
@@ -637,6 +639,42 @@ async function run(message) {
           },
         ],
       });
+      await agent.close();
+      say({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: chinese
+          ? "我已在你的笔记里写好渡轮访谈的总结。"
+          : "I wrote a summary of the ferry interviews in your note.",
+      });
+      return;
+    }
+    if (mode === "summary-two") {
+      // Each change at the Note's end, as the instructions say for a note with named paragraphs.
+      const atEnd = async (text) => {
+        const read = await use("read_mind", { mindId, named: true });
+        const names = [...(read?.markdown ?? "").matchAll(/^¶(\d+)/gm)].map((each) =>
+          Number(each[1]),
+        );
+        await use("propose_changes", {
+          mindId,
+          version: read?.version,
+          changes: [{ paragraph: `¶${Math.max(0, ...names)}+`, text }],
+        });
+      };
+      await atEnd(
+        chinese
+          ? "## 渡轮访谈\n\n红隼湾工作日 07:40 的班次大多晚点，因为货车先上船。"
+          : "## Ferry interviews\n\nThe 07:40 crossing from Kestrel Bay leaves late most weeks, because the freight vans load first.",
+      );
+      sayText(chinese ? "再补充一段。" : "Adding one more paragraph.");
+      await gate(1);
+      await atEnd(
+        chinese
+          ? "晚点时，通勤者会错过 08:15 的火车。"
+          : "Commuters miss the 08:15 train when it does.",
+      );
       await agent.close();
       say({
         type: "result",

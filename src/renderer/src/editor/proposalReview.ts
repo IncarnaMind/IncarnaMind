@@ -485,6 +485,17 @@ export function setApplying(editor: Editor, applying: ReadonlySet<string>): void
 export const applyingIn = (state: EditorState): ReadonlySet<string> =>
   proposalReviewKey.getState(state)?.applying ?? new Set();
 
+/** Draws one request's Proposals as the text they make, or as waiting again. */
+export function drawApplying(editor: Editor, request: string, applying: boolean): void {
+  if (editor.isDestroyed) return;
+  const now = applyingIn(editor.state);
+  if (now.has(request) === applying) return;
+  const next = new Set(now);
+  if (applying) next.add(request);
+  else next.delete(request);
+  setApplying(editor, next);
+}
+
 /** The Proposals of the edits applying, drawn as the text they make. */
 export const appliedIn = (state: EditorState): readonly PendingProposal[] =>
   proposalReviewKey.getState(state)?.applied ?? [];

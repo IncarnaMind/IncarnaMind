@@ -179,6 +179,11 @@ export interface OwnAiConversationsOptions {
   /** Calls `listener` at each change that can end what `heldBack` allows; returns its end. */
   onReachChange(listener: () => void): () => void;
   turned(event: NoteTurnEvent): void;
+  /**
+   * Takes back changes a request made in the Note it was asked from, which apply only once it
+   * ends: a request stopped part-way leaves nothing it wrote (#3885).
+   */
+  takeBack(changes: readonly { mindId: string; request: string }[]): void;
   /** The mode the input shows for a conversation may have changed: every window reads it again. */
   moded(conversationId: string | null, mindId: string): void;
   /** The list or titles of own-AI conversations changed: every window refreshes History. */
@@ -1278,6 +1283,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         : of.readOnly && of.applied.length === 0 && of.waiting.size === 0 && of.made.length === 0
           ? { state: "failed", problem: "read-only" }
           : { state: "landed", problem: null };
+    const takeBackWritten = (of: Taken) => {
+      const written = of.applied.filter((each) => !each.own);
+      if (written.length === 0 || options.lifetime.aborted) return;
+      try {
+        options.takeBack(written);
+      } catch (error) {
+        // Left as they were, its changes wait in the Note for the User to accept or reject.
+        options.log.warn("agents.ownAiConversation.takeBackFailed", {
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+    };
     /** Ends a request of the run: its record, and every window told. */
     const close = (
       of: Taken,
@@ -1286,6 +1303,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       endedAtAsk = false,
     ) => {
       if (current === of) current = null;
+      if (outcome.state === "stopped") takeBackWritten(of);
       if (outcome.state === "failed") {
         options.log.warn("agents.ownAiConversation.ended", {
           problem: outcome.problem ?? "failed",

@@ -7701,6 +7701,16 @@ export function createCore(adapters: CoreAdapters): Core {
     heldBack: hostedHeldBack,
     onReachChange: onHostedReachChange,
     turned: (turn) => events.emit("agents.noteTurn", turn),
+    takeBack: (changes) => {
+      // Last first: taking back a later change brings back what it replaced, which an earlier
+      // change of the request may have written.
+      for (const change of [...changes].reverse()) {
+        if (!mindExists(change.mindId)) continue;
+        content.edit(change.mindId, (blocks) => {
+          resolveProposals(blocks, (ref) => ref.request === change.request, "reject");
+        });
+      }
+    },
     moded: (conversationId, mindId) => events.emit("agents.noteMode", { conversationId, mindId }),
     changed: (conversationId) =>
       events.emit(

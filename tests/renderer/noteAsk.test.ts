@@ -5,20 +5,24 @@
  * that may only read is let to propose changes in place, and the active conversation follows the
  * User across Notes.
  */
-import { getSchema } from "@tiptap/core";
+import { Editor, getSchema } from "@tiptap/core";
+import Collaboration from "@tiptap/extension-collaboration";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { DOMParser } from "linkedom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type {
-  AgentPairing,
-  AskAgentInput,
-  AskAgentResult,
-  NoteConversationSummary,
-  NoteRequestInput,
-  NoteRequestStart,
-  NoteTurnEvent,
+import * as Y from "yjs";
+import {
+  type AgentPairing,
+  type AskAgentInput,
+  type AskAgentResult,
+  MIND_CONTENT_FIELD,
+  type NoteConversationSummary,
+  type NoteRequestInput,
+  type NoteRequestStart,
+  type NoteTurnEvent,
+  PROPOSAL_ATTRIBUTE,
 } from "../../src/core/api";
-import { NODE_CHARACTER } from "../../src/shared/proposals";
+import { NODE_CHARACTER, recordProposalRequest } from "../../src/shared/proposals";
 
 const page = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
 const view = page.defaultView;
@@ -77,6 +81,22 @@ Object.assign(view, { incarnamind: methods, incarnamindFiles: methods });
 vi.stubGlobal("window", view);
 vi.stubGlobal("document", page);
 vi.stubGlobal("navigator", { userAgent: "node" });
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+);
+vi.stubGlobal("requestAnimationFrame", (callback: () => void) => setTimeout(callback, 0));
+vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
+vi.stubGlobal("getComputedStyle", () => ({
+  fontStyle: "",
+  fontWeight: "",
+  fontSize: "",
+  fontFamily: "",
+}));
 
 const applyTurn = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("../../src/renderer/src/askedChanges", async (original) => ({
@@ -106,9 +126,14 @@ const {
   useNoteColumns,
   useNoteConversations,
   withGivenBack,
+  writingAsAsked,
 } = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
+const { appliedIn, pendingIn, ProposalReview } = await import(
+  "../../src/renderer/src/editor/proposalReview"
+);
+const { registerMindEditor } = await import("../../src/renderer/src/editor/openEditors");
 
 const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   conversationId: "c1",
@@ -582,5 +607,109 @@ describe("words given back to the input", () => {
       words: "and where\nand who",
       after: true,
     });
+  });
+});
+
+describe("a change made while the request runs (#3885)", () => {
+  /** The Note "m1" open in an editor that draws as written what a request asked here makes. */
+  function openNote() {
+    const doc = new Y.Doc();
+    const editor = new Editor({
+      element: document.createElement("div"),
+      injectCSS: false,
+      extensions: [
+        ...noteExtensions(),
+        Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+        ProposalReview.configure({
+          asked: (_state, request) => writingAsAsked(doc, "m1", request),
+        }),
+      ],
+    });
+    editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+    return { doc, editor };
+  }
+
+  /** The core writes a paragraph the request proposes, as its own update to the Note. */
+  function proposed(doc: Y.Doc, request: string, { pairingId = "p1", asked = true } = {}) {
+    doc.transact(() => {
+      recordProposalRequest(doc, request, {
+        source: "outside-agent",
+        agent: "Claude Code",
+        pairingId,
+        createdAt: "2026-11-28T10:00:00.000Z",
+        ...(asked && { requested: "edit" as const, instruction: "add a summary" }),
+      });
+      const paragraph = new Y.XmlElement("paragraph");
+      paragraph.setAttribute("id", `block-${request}`);
+      paragraph.setAttribute(PROPOSAL_ATTRIBUTE, {
+        id: `change-${request}`,
+        request,
+        kind: "insert",
+      } as unknown as string);
+      paragraph.insert(0, [new Y.XmlText("The 07:40 crossing leaves late.")]);
+      doc.getXmlFragment(MIND_CONTENT_FIELD).push([paragraph]);
+    }, "core");
+  }
+
+  const waiting = (editor: Editor) => pendingIn(editor.state).map((each) => each.request);
+  const written = (editor: Editor) => appliedIn(editor.state).map((each) => each.request);
+
+  // protects=while a request asked here runs, each change it makes in the Note asked from is drawn as written from its first frame, never as waiting with Accept and Reject, and applies with the rest once it ends; a change of another connection's, one not asked for here (as in another Note), or one made once the request ended, still waits (#3885); fails_when=the Note shows a running request's change as waiting, or draws as written a change no request asked here makes
+  test("draws a running request's changes as written, and applies them when it ends", async () => {
+    bridge.start = { kind: "started", pairing: claude, conversationId: "c5", turnId: "t5" };
+    const { doc, editor } = openNote();
+    const unregister = registerMindEditor("m1", editor);
+    try {
+      await askInNote("m1", { words: "add a summary", quote: "", selection: null });
+      const working = { conversationId: "c5", turnId: "t5" };
+      tell(event({ ...working }));
+      proposed(doc, "r1");
+      expect(waiting(editor)).toEqual([]);
+      expect(written(editor)).toEqual(["r1"]);
+      const first = { mindId: "m1", request: "r1", changed: 0, added: 1, tables: 0 };
+      tell(event({ ...working, applied: [first] }));
+      proposed(doc, "r2");
+      proposed(doc, "theirs", { pairingId: "p2" });
+      proposed(doc, "unasked", { asked: false });
+      expect(written(editor)).toEqual(["r1", "r2"]);
+      expect(waiting(editor)).toEqual(["theirs", "unasked"]);
+      const both = [first, { ...first, request: "r2" }];
+      tell(event({ ...working, applied: both }));
+      tell(event({ ...working, state: "landed", applied: both }));
+      await vi.waitFor(() => expect(applyTurn).toHaveBeenCalledOnce());
+      expect(applyTurn).toHaveBeenCalledWith(
+        "t5",
+        expect.objectContaining({ mindId: "m1", requests: ["r1", "r2"], wrote: 2 }),
+        expect.any(Function),
+        expect.anything(),
+      );
+      proposed(doc, "late");
+      expect(waiting(editor)).toEqual(["theirs", "unasked", "late"]);
+    } finally {
+      unregister();
+      editor.destroy();
+    }
+  });
+
+  // protects=a Note opened while a request asked here still writes in it draws what the request wrote as written, and a Stop draws nothing of it as written, its changes being taken back (#3885); fails_when=a Note opened mid-request shows its changes as waiting, or a stopped request's changes stay drawn as written
+  test("draws them in a Note opened meanwhile, and nothing of them once stopped", async () => {
+    bridge.start = { kind: "started", pairing: claude, conversationId: "c6", turnId: "t6" };
+    await askInNote("m1", { words: "add a summary", quote: "", selection: null });
+    const working = { conversationId: "c6", turnId: "t6" };
+    const applied = [{ mindId: "m1", request: "r6", changed: 0, added: 1, tables: 0 }];
+    tell(event({ ...working, applied }));
+    const { doc, editor } = openNote();
+    proposed(doc, "r6");
+    const unregister = registerMindEditor("m1", editor);
+    try {
+      expect(written(editor)).toEqual(["r6"]);
+      tell(event({ ...working, state: "stopped", applied }));
+      expect(written(editor)).toEqual([]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(applyTurn).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+      editor.destroy();
+    }
   });
 });

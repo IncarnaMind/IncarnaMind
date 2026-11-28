@@ -573,6 +573,99 @@ test.describe("Note-input and AI-owned Note Cmd+Z (#3839)", () => {
       }
     });
   }
+
+  for (const language of ["en", "zh-CN"] as const) {
+    // protects=a change made while a Note-input request still runs is written into the Note as it is made, and nothing to accept or reject is ever on screen while it runs or after; one Undo after the end takes both changes back; Stop part-way leaves the Note as it was (#3885); fails_when=a change waits under Accept all / Reject all or Accept / Reject until the request ends, Undo takes back only part of the request, or a stopped request leaves what it wrote
+    test(`a change made while the request runs is written at once, with nothing to review, and Undo or Stop takes the request back (${language})`, async () => {
+      test.setTimeout(120_000);
+      const copy =
+        language === "en"
+          ? {
+              title: "Harbour notes",
+              seed: "The harbour handled 1,240 ship calls in 2025.",
+              ask: "Add a summary of the ferry interviews",
+              first: "The 07:40 crossing from Kestrel Bay leaves late most weeks",
+              second: "Commuters miss the 08:15 train when it does.",
+            }
+          : {
+              title: "港口笔记",
+              seed: "2025 年港口接待了 1,240 次靠港。",
+              ask: "加一段渡轮访谈的总结",
+              first: "红隼湾工作日 07:40 的班次大多晚点",
+              second: "晚点时，通勤者会错过 08:15 的火车。",
+            };
+      const { app, window } = await launchApp(dataDir, {
+        home,
+        ownAi: join(bin, "claude"),
+        extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+      });
+      await acceptPlainTextKeys(window);
+      try {
+        await dismissChatSetup(window);
+        await setLanguage(window, language);
+        await setWindowSize(app, window, 1440, 900);
+        const { folderId } = await connectClaude(window);
+        const mindId = await writeNote(window, copy.title, [{ text: copy.seed }], { folderId });
+        await openMind(window, mindId);
+        // Every control that reviews a change, noted the moment any of them is drawn.
+        await window.evaluate(() => {
+          const review = [
+            "proposals-line",
+            "proposals-accept-all",
+            "proposals-reject-all",
+            "change-bar",
+            "change-accept",
+            "change-reject",
+            "note-ask-accept-all",
+          ];
+          const seen = new Set<string>();
+          Object.assign(globalThis, { reviewSeen: seen });
+          new MutationObserver(() => {
+            for (const id of review) {
+              if (document.querySelector(`[data-testid="${id}"]`)) seen.add(id);
+            }
+          }).observe(document.body, { subtree: true, childList: true, attributes: true });
+        });
+        const reviewSeen = () =>
+          window.evaluate(() => [
+            ...(globalThis as unknown as { reviewSeen: Set<string> }).reviewSeen,
+          ]);
+
+        await setStep(0);
+        await nextRun("summary-two");
+        const { box } = await sendNoteAsk(window, copy.ask);
+        const pill = box.getByTestId("note-ask-pill");
+        await expect(frontMind(window)).toContainText(copy.first, { timeout: 30_000 });
+        await expect(pill).toHaveAttribute("data-state", "working");
+        expect(await reviewSeen()).toEqual([]);
+
+        await setStep(1);
+        await expect(pill).toHaveAttribute("data-state", "landed", { timeout: 30_000 });
+        await expect(frontMind(window)).toContainText(copy.second);
+        await expect(frontMind(window)).toContainText(copy.first);
+        await expect(box.getByTestId("note-ask-undo")).toBeVisible();
+        expect(await reviewSeen()).toEqual([]);
+
+        await pointAndClick(window, box.getByTestId("note-ask-undo"));
+        await expect(frontMind(window)).not.toContainText(copy.first);
+        await expect(frontMind(window)).not.toContainText(copy.second);
+        await expect(frontMind(window)).toContainText(copy.seed);
+
+        await setStep(0);
+        await nextRun("summary-two");
+        await sendNoteAsk(window, copy.ask);
+        await expect(frontMind(window)).toContainText(copy.first, { timeout: 30_000 });
+        await pointAndClick(window, box.getByTestId("note-ask-stop"));
+        await expect(frontMind(window)).not.toContainText(copy.first);
+        await expect(frontMind(window)).toContainText(copy.seed);
+        await expect(box.getByTestId("note-ask-stop")).toHaveCount(0);
+        expect(await reviewSeen()).toEqual([]);
+        await expect(frontMind(window).locator("ins, del, .proposal-node")).toHaveCount(0);
+      } finally {
+        await app.close();
+      }
+    });
+  }
 });
 
 test("Check reply fixes (Fix the sentence, Accept change, Change to) save History and isolate adjacent typing in EN and ZH-CN", async () => {
