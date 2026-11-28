@@ -3552,21 +3552,39 @@ const windowLanguage = async (window: Page): Promise<"en" | "zh-CN"> =>
   (await window.evaluate(() => document.documentElement.lang)) === "zh-CN" ? "zh-CN" : "en";
 
 /**
+ * Opens ⌘K, types `>label` and waits for the row of command `id`; the row is then the one Enter
+ * runs. Nothing is clicked: a click on a row would leave the pointer over the page, where a mark's
+ * hover card opens under it after 120 ms and takes the next click (#1741).
+ */
+async function commandRow(window: Page, id: string, label: string): Promise<Locator> {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(`>${label}`);
+  const row = window.getByTestId("palette").locator(`[data-key="command:${id}"]`);
+  await expect(row).toBeVisible();
+  return row;
+}
+
+/** Runs the row `commandRow` found, with Enter, and waits for ⌘K to close. */
+async function enterCommand(window: Page, row: Locator): Promise<void> {
+  await expect(row).toHaveAttribute("aria-selected", "true");
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("palette")).toBeHidden();
+}
+
+/**
  * Turns on "Show every check result" for the Note in view (#3358), from ⌘K as the User does: every
  * checked sentence shows its mark again, for a spec about a mark that only shows so. Once on, ⌘K
  * offers to hide them instead, so it is left as it is.
  */
 export async function showEveryCheckResult(window: Page): Promise<void> {
   const label = translate(await windowLanguage(window), "checks.everyResult.show.command");
-  await window.keyboard.press("ControlOrMeta+k");
-  await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type(`>${label}`);
-  const palette = window.getByTestId("palette");
-  const item = palette.locator('[data-key="command:mind.everyCheckResult"]');
-  await expect(item).toBeVisible();
-  if ((await item.textContent())?.includes(label)) await pointAndClick(window, item);
-  else await window.keyboard.press("Escape");
-  await expect(palette).toBeHidden();
+  const row = await commandRow(window, "mind.everyCheckResult", label);
+  if ((await row.textContent())?.includes(label)) await enterCommand(window, row);
+  else {
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("palette")).toBeHidden();
+  }
 }
 
 /**
@@ -3600,12 +3618,14 @@ export async function chooseLook(window: Page, look: "word" | "plain"): Promise<
 /** "Show word count while writing", from ⌘K: the count is hidden until then. */
 export async function showCountWhileWriting(window: Page): Promise<void> {
   await runCommandNamed(window, "mind.countShown", "page.countShown.command");
-  await expect(window.getByTestId("palette")).toBeHidden();
 }
 
-/** Runs a command from ⌘K, typing its name in the window's language. */
+/** Runs a command from ⌘K, typing its name in the window's language and pressing Enter. */
 export async function runCommandNamed(window: Page, id: string, name: MessageKey): Promise<void> {
-  await runCommand(window, id, translate(await windowLanguage(window), name));
+  const label = translate(await windowLanguage(window), name);
+  const row = await commandRow(window, id, label);
+  await expect(row).toContainText(label);
+  await enterCommand(window, row);
 }
 
 /** Renames the Mind the User is in from its tab, as a person does: double-click, a name, Enter. */
