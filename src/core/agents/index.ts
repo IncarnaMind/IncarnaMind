@@ -131,6 +131,18 @@ export const serviceOf = (pairing: { id: string; name: string }): ExternalServic
   id: `agent:${pairing.id}`,
   name: pairing.name,
 });
+/**
+ * A pairing as its flows' service: with the client it was set up for, so its consent and
+ * Settings › Privacy, which shows its flows together, say what that agent does (#3639, #3653).
+ */
+export const agentServiceOf = (pairing: {
+  id: string;
+  name: string;
+  client: string | null;
+}): ExternalService => ({
+  ...serviceOf(pairing),
+  ...(pairing.client && { agentClient: pairing.client }),
+});
 /** The activity kept per pairing; older calls go. */
 const ACTIVITY_KEPT = 500;
 /** How often a pairing's "last used" time is written while it keeps calling. */
@@ -405,7 +417,7 @@ export function createAgents(options: AgentsOptions) {
     options.consent.registry.register({
       id: "agents",
       sends: AGENT_FLOW_SENDS,
-      services: async () => livePairings().map(serviceOf),
+      services: async () => livePairings().map(agentServiceOf),
     });
     options.consent.registry.register({
       id: "hosted-agents",
@@ -413,7 +425,7 @@ export function createAgents(options: AgentsOptions) {
       services: async () =>
         livePairings()
           .filter((pairing) => HOSTED_CLIENTS.includes(pairing.client ?? ""))
-          .map(serviceOf),
+          .map(agentServiceOf),
     });
   }
 

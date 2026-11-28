@@ -11,8 +11,10 @@ import {
   fromConversationMenu,
   frontMind,
   launchApp,
+  openPrivacySettings,
   pointAndClick,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   sidebarFolder,
   writeNote,
@@ -154,7 +156,7 @@ async function conversationFolder(): Promise<string> {
   return join(conversations, key ?? "");
 }
 
-test("on the User's own Codex: the first request asks in Codex's words; a command asks with Codex's own answers, runs once allowed and not when denied, which says in one line that it stopped; its answer for this request; a write that steers says so; Stop with a card open ends all it started; a setting that never asks is said once", async () => {
+test("on the User's own Codex: the first request asks in Codex's words; a command asks with Codex's own answers, runs once allowed and not when denied, which says in one line that it stopped; its answer for this request; a write that steers says so; Stop with a card open ends all it started; a setting that never asks is said once; Settings › Privacy lists what a request sends in Codex's own words", async () => {
   test.setTimeout(150_000);
   const { app, window } = await launchApp(dataDir, {
     home,
@@ -275,6 +277,17 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     await expect(group(window).getByTestId("note-ask-panel").getByTestId("own-mode")).toHaveText(
       "Codex is set never to ask, so here it acts without asking you.",
     );
+
+    // Settings › Privacy lists what a request sends in Codex's own words, as the consent did, in
+    // English and Chinese.
+    const privacy = await openPrivacySettings(window);
+    const codex = privacy.getByTestId("data-service").filter({ hasText: "Codex" });
+    await pointAndClick(window, codex.getByTestId("data-service-decision-details"));
+    await expect(codex).toContainText("your AGENTS.md in its own folder");
+    await expect(codex).not.toContainText("CLAUDE.md");
+    await setLanguage(window, "zh-CN");
+    await expect(codex).toContainText("你在它自己文件夹里的 AGENTS.md");
+    await expect(codex).not.toContainText("CLAUDE.md");
   } finally {
     await app.close();
   }

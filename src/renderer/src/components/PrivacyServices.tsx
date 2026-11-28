@@ -311,7 +311,7 @@ function Uses({
             <p className="text-ink">{flow}</p>
             <ul aria-label={t("privacy.flows.sends")} className="list-disc pl-4">
               {use.sends.map((kind) => (
-                <li key={kind}>{t(dataKindKey(use.flow, kind, agentClient))}</li>
+                <li key={kind}>{t(dataKindKey(null, kind, agentClient))}</li>
               ))}
             </ul>
             {use.flow === "decision-checks" && decision?.maker && (
