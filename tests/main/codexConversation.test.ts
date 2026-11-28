@@ -7,7 +7,17 @@
  */
 import { spawn as spawnNode } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -102,16 +112,23 @@ function converse({
   resume = false,
   signal = new AbortController().signal,
   meanwhile,
+  runMs,
 }: {
   answer?: (asked: OwnAiAsk, signal: AbortSignal) => Promise<NoteAnswer>;
   resume?: boolean;
   signal?: AbortSignal;
   meanwhile?: (send: (id: string, prompt: string) => void) => void;
+  runMs?: number;
 } = {}) {
   const steps: OwnAiProgress[] = [];
   const asked: OwnAiAsk[] = [];
   let started = 0;
-  const own = createOwnAi({ command: null, codexCommand: "codex", conversations });
+  const own = createOwnAi({
+    command: null,
+    codexCommand: "codex",
+    conversations,
+    ...(runMs !== undefined && { runMs }),
+  });
   const ended = own.run({
     client: "codex",
     server: SERVER,
@@ -478,6 +495,77 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
     createOwnAi({ command: null, codexCommand: "codex", conversations });
     await expect.poll(() => existsSync(kept), { timeout: 10_000 }).toBe(false);
     expect(JSON.parse(await readFile(join(bin, "threads.json"), "utf8"))).toEqual([]);
+  });
+
+  // protects=requests sent before Codex's turn has an id wait in line and are steered into it in the order sent once it has one, never left behind a later request: Codex takes the first, and the one it didn't take goes as the next turn; fails_when=a request sent early waits for the turn to end while a later one is steered ahead of it
+  it("steers requests sent meanwhile in the order sent", async () => {
+    await mode("conv-steer");
+    const run = converse({
+      meanwhile: (send) => {
+        send("turn-2", "and the early ones");
+        send("turn-3", "and the cancelled ones");
+      },
+    });
+    expect(await run.ended).toEqual({ kind: "finished", reply: "Done." });
+    expect((await sent("turn/steer")).map((each) => each.clientUserMessageId)).toEqual([
+      "turn-2",
+      "turn-3",
+    ]);
+    expect(run.steps).toContainEqual({
+      kind: "answered",
+      end: { kind: "finished", reply: "Answered: and the early ones" },
+    });
+    expect(run.steps).toContainEqual({ kind: "taken", id: "turn-3" });
+  });
+
+  // protects=a subagent's turn, told on the same connection, neither ends the request nor takes the place of its turn; fails_when=the request ends with the subagent's words while its own turn still runs
+  it("keeps to its own thread's turn while a subagent works", async () => {
+    await mode("conv-subagent");
+    expect(await converse().ended).toEqual({
+      kind: "finished",
+      reply: "Done, with the subagent's count.",
+    });
+  });
+
+  // protects=a question waiting on the User doesn't count towards the request's limit, as on Claude Code: an answer given after the limit's time has gone by still runs; fails_when=the request ends as timed out while the User decides
+  it("leaves the time a question waits out of the request's limit", async () => {
+    await mode("conv-command");
+    const run = converse({
+      runMs: 1_500,
+      answer: () => new Promise((resolve) => setTimeout(() => resolve("once"), 3_000)),
+    });
+    expect(await run.ended).toEqual({ kind: "finished", reply: "Ran it." });
+  });
+
+  // protects=a fresh thread's id is added to those kept before, written aside and moved over them, so nothing is left half written; fails_when=an id kept before is lost, or a stray file stays beside the ids
+  it("keeps every thread's id when a fresh one is added", async () => {
+    await mode("");
+    await converse().ended;
+    await converse().ended;
+    const threads = JSON.parse(await readFile(join(bin, "threads.json"), "utf8")) as string[];
+    const folder = join(conversations, ".codex-threads");
+    expect(JSON.parse(await readFile(join(folder, `${KEY}.json`), "utf8"))).toEqual(threads);
+    expect(threads).toHaveLength(2);
+    expect(await readdir(folder)).toEqual([`${KEY}.json`]);
+  });
+
+  // protects=a conversation's threads are deleted later only once its folder is known gone: a folder that can't be looked at (a loop of links here, a disk error alike) keeps them; fails_when=threads of a conversation whose folder still exists are deleted
+  it("deletes no threads of a folder it can't tell is gone", async () => {
+    await mode("");
+    await converse().ended;
+    const folder = join(conversations, KEY);
+    await rm(folder, { recursive: true, force: true });
+    await symlink(folder, folder);
+    const threads = join(conversations, ".codex-threads");
+    const kept = join(threads, `${KEY}.json`);
+    const empty = join(threads, "c0nversation-gone.json");
+    await mkdir(threads, { recursive: true });
+    await writeFile(empty, "[]");
+    createOwnAi({ command: null, codexCommand: "codex", conversations });
+    await expect.poll(() => existsSync(empty), { timeout: 10_000 }).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    expect(existsSync(kept)).toBe(true);
+    expect(await sent("thread/delete")).toEqual([]);
   });
 
   // protects=a request the User sends while Codex works is steered into its turn, said taken when Codex takes it, and answered there; fails_when=it waits for the turn to end, is lost, or is answered as the first request

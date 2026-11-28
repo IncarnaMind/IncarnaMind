@@ -7,7 +7,18 @@
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { OwnAiEnd, OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
@@ -140,10 +151,14 @@ function parsedInput(json: string): Record<string, unknown> | null {
   }
 }
 
-const there = (path: string) =>
+/** Whether a path is gone: only the system's own word for it counts, so an error it can't be told by (EIO, ELOOP) is null. */
+const gone = (path: string): Promise<boolean | null> =>
   stat(path).then(
-    () => true,
     () => false,
+    (error: unknown) => {
+      const code = errorCode(error);
+      return code === "ENOENT" || code === "ENOTDIR" ? true : null;
+    },
   );
 
 const errorCode = (error: unknown) =>
@@ -250,7 +265,14 @@ export function createOwnAi({
     const threads = await threadsOf(key);
     if (threads.includes(id)) return;
     await mkdir(threadsFolder(), { recursive: true, mode: 0o700 });
-    await writeFile(threadsFile(key), JSON.stringify([...threads, id]), { mode: 0o600 });
+    // Written aside and moved over it: a write cut short never leaves the ids kept before lost.
+    const aside = join(threadsFolder(), `.${randomUUID()}.tmp`);
+    try {
+      await writeFile(aside, JSON.stringify([...threads, id]), { mode: 0o600 });
+      await rename(aside, threadsFile(key));
+    } finally {
+      await rm(aside, { force: true });
+    }
   };
   /**
    * Deletes a conversation's threads in Codex, by the ids kept of them, and then the file of
@@ -291,7 +313,13 @@ export function createOwnAi({
       for (const name of names) {
         const key = name.replace(/\.json$/, "");
         if (key === name || !/^[A-Za-z0-9-]{1,64}$/.test(key)) continue;
-        if (await there(folderOf(key))) continue;
+        const folderGone = await gone(folderOf(key));
+        if (folderGone === null) {
+          console.warn(
+            "Could not tell whether a conversation's folder is gone; its Codex threads stay.",
+          );
+        }
+        if (folderGone !== true) continue;
         const threads = await threadsOf(key).catch((error: unknown) => {
           console.warn("Could not read a gone conversation's Codex threads:", error);
           return null;
@@ -329,7 +357,19 @@ export function createOwnAi({
     }
     if (conversation.resume && thread === null)
       return { kind: "failed", reason: "lost-conversation" };
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(runMs)]);
+    // The time a question waits on the User isn't the run's, as on Claude Code.
+    let waiting = 0;
+    const worked = workingTime(runMs, () => waiting > 0);
+    const signal = AbortSignal.any([request.signal, worked.signal]);
+    const asking: typeof own = {
+      ...own,
+      ask: (question, until) => {
+        waiting++;
+        return own.ask(question, until).finally(() => {
+          waiting--;
+        });
+      },
+    };
     try {
       await mkdir(cwd, { recursive: true, mode: 0o700 });
       return await runCodexConversation({
@@ -341,7 +381,7 @@ export function createOwnAi({
         prompt: request.prompt,
         thread,
         kept: (id) => keepThread(conversation.key, id),
-        own,
+        own: asking,
         ...(request.model && { model: request.model }),
         ...(request.listModels && { listModels: true }),
         ...(request.progress && { progress: request.progress }),
@@ -362,6 +402,7 @@ export function createOwnAi({
       );
       return { kind: "failed", reason: "other" };
     } finally {
+      worked.end();
       void sweepThreads();
     }
   }

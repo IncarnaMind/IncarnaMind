@@ -252,8 +252,10 @@ export function steeringOf(names: SteeringNames) {
       if (dirname(at) === at) break;
     }
     named.push(...names.own());
+    // Its own home may be on another computer (a CODEX_HOME on a share): it isn't looked at, since
+    // looking would reach that computer before the User answers.
     return named
-      .filter(there)
+      .filter((place) => !elsewhereOnWindows(place) && there(place))
       .flatMap(readingsOf)
       .flatMap((real) => (real === null ? [] : [real]));
   };

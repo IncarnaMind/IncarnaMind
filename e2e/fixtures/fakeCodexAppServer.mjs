@@ -10,7 +10,8 @@
 // notes.md unasked; "conv-steering" asks to write a skill under .agents; "conv-tool" uses
 // IncarnaMind's server's tool, then asks to use another server's; "conv-input" asks the User for input
 // in a form the card can't show; "conv-wait" starts a process of its own, notes its id, then asks
-// and waits; "conv-steer" answers once a request is steered into its turn; "conv-never" is set never
+// and waits; "conv-steer" answers once a request is steered into its turn; "conv-subagent" runs a
+// subagent whose thread's turn starts and ends on the same connection; "conv-never" is set never
 // to ask; "conv-full" has full access; "conv-limit" ends as a plan's limit does; "resume-broken"
 // fails to resume with an error of its own; "delete-unsupported" knows no `thread/delete`. Anything
 // else replies "Done.".
@@ -264,6 +265,20 @@ async function act(mode, prompt) {
       content: [{ type: "text", text: next.text }],
     });
     reply(`Answered: ${next.text}`);
+  } else if (mode === "conv-subagent") {
+    const sub = { threadId: "thread-of-a-subagent", turn: { id: "turn-of-a-subagent" } };
+    notify("turn/started", { ...sub, turn: { ...sub.turn, status: "inProgress" } });
+    notify("item/completed", {
+      threadId: sub.threadId,
+      turnId: sub.turn.id,
+      item: { type: "agentMessage", id: "msg-sub", text: "Subagent done.", phase: "final_answer" },
+    });
+    notify("turn/completed", {
+      ...sub,
+      turn: { ...sub.turn, status: "completed", error: null, items: [] },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    reply("Done, with the subagent's count.");
   } else if (mode === "conv-limit") {
     ended("failed", {
       message: "You've hit your usage limit.",

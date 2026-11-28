@@ -231,16 +231,14 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
           throw new Error("Codex didn't start its turn.");
         }
         turnId = started.id;
+        flush();
         return undefined;
       },
     );
   };
 
-  const send = (id: string, prompt: string) => {
-    if (!rpc || threadId === null || turnId === null || !turning) {
-      queued.push({ id, prompt });
-      return;
-    }
+  const steer = (id: string, prompt: string) => {
+    if (!rpc || threadId === null || turnId === null) return;
     steered.set(id, prompt);
     rpc.request(
       "turn/steer",
@@ -256,6 +254,16 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
         return undefined;
       },
     );
+  };
+  /** Steers what waits into the turn going, oldest first, once there is one to steer into. */
+  const flush = () => {
+    if (!rpc || threadId === null || turnId === null || !turning) return;
+    for (const { id, prompt } of queued.splice(0)) steer(id, prompt);
+  };
+  // One line for every request sent meanwhile: a later one never goes ahead of one still waiting.
+  const send = (id: string, prompt: string) => {
+    queued.push({ id, prompt });
+    flush();
   };
 
   /** A thread Codex couldn't resume or read: lost where Codex no longer has it. */
@@ -540,10 +548,21 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
         }
         if (method === "") return rpc?.answered(message)?.value;
         const params = object(message.params);
+        // A subagent's thread tells its turns and items on this connection too: they aren't the
+        // request's, whose turn they would otherwise end or be steered into.
+        const from = params.threadId;
+        if (
+          (method.startsWith("turn/") || method.startsWith("item/")) &&
+          typeof from === "string" &&
+          from !== threadId
+        ) {
+          return undefined;
+        }
         if (method === "turn/started") {
           const turn = object(params.turn);
           if (typeof turn.id === "string") turnId = turn.id;
           turning = true;
+          flush();
           return undefined;
         }
         if (method === "turn/completed") return turnEnded(object(params.turn));
