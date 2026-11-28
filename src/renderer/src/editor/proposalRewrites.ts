@@ -82,7 +82,7 @@ function decorations(
 ): DecorationSet {
   const { doc } = state;
   const blocks = changedBlocks(doc, applying);
-  const sections = rewrittenSections(doc, blocks, true);
+  const sections = rewrittenSections(doc, blocks);
   const marks: Decoration[] = [];
   for (const section of sections) {
     const open = shown.has(sectionKey(section));
@@ -168,7 +168,7 @@ export function proposalOriginalAt(state: EditorState): { key: string; shown: bo
   if (!value) return null;
   const { doc, selection } = state;
   const blocks = changedBlocks(doc, value.applying);
-  const sections = rewrittenSections(doc, blocks, true);
+  const sections = rewrittenSections(doc, blocks);
   const here = blocks.find((block) => {
     const node = doc.nodeAt(block.pos);
     return (

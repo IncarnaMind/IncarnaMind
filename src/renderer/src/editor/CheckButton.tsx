@@ -68,7 +68,8 @@ function useHeldWidth(room: RefObject<HTMLElement | null>, held: boolean): numbe
  * The Note's Check (#3794): the word Check and the sentences not checked yet, dark while they
  * wait, which checks in one press; while it runs, how far it has got, with Stop; then what the
  * check found, which opens the Checks card. The tab strip's row and the line above the Note's input
- * show the same one.
+ * show the same one. In the strip it carries the room its running words and Stop will take, drawn
+ * by nothing, for the row's fit to count before a run begins (#3765).
  */
 export function CheckButton({
   view,
@@ -127,6 +128,15 @@ export function CheckButton({
         >
           <StopLineIcon />
         </button>
+      )}
+      {place === "strip" && (
+        <span aria-hidden="true" className="note-check-ghost">
+          <span className="note-check-button">
+            <span className="note-check-dot" />
+            <span className="note-check-words" data-words={view.widest} />
+          </span>
+          <span className="note-check-stop" />
+        </span>
       )}
     </span>
   );

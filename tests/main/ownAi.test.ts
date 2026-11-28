@@ -521,7 +521,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       tools: "all",
       own: { ask: async () => "deny" },
       instructions: INSTRUCTIONS,
-      prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+      prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
       conversation: { key: KEY, sessionId: SESSION, resume },
       signal: new AbortController().signal,
     });
@@ -610,7 +610,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     const lines = require("node:readline").createInterface({ input: process.stdin });
     const say = (value) => console.log(JSON.stringify(value));
     const end = (result) => say({ type: "result", subtype: "success", is_error: false, result });
-    const asked = (v) => String(v.message.content).replace(/^.*asks: /, "");
+    const asked = (v) => String(v.message.content).replace(/^.*request: /, "");
     let first = null;
     lines.on("line", (line) => {
       const v = JSON.parse(line);
@@ -633,7 +633,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       end(step ? "Answered " + asked(first) + " and " + asked(v) : "Answered " + asked(v));
     });
   `;
-  const LATER = "In their note “Tides” (mindId: m1), the User asks: longer";
+  const LATER = "In their note “Tides” (mindId: m1), the User's request: longer";
   /** A request whose second message goes once `when` hears the step it waits for, then once only. */
   const meanwhile = async (timing: "step" | "turn", when: OwnAiProgress["kind"]) => {
     const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
@@ -659,7 +659,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
           },
         },
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
         conversation: { key: KEY, sessionId: SESSION, resume: false },
         progress: (step) => {
           steps.push(step);
@@ -759,7 +759,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
         tools: "all",
         own: { ask: async () => "deny" },
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
         conversation: { key: KEY, sessionId: SESSION, resume: false },
         model: "haiku",
         listModels: true,
@@ -814,7 +814,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     expect(slow.end).toEqual({ kind: "finished", reply: "Checked." });
   });
 
-  // protects=an initialize Claude Code never answers sends nothing, and the request ends after its own short wait, well before the stall limit, with the line that says to update it; fails_when=the request runs without IncarnaMind's hook, or the User waits six minutes under "working" with nothing sent
+  // protects=an initialize Claude Code never answers sends nothing, and the request ends after its own short wait, well before the stall limit, with the line that says to update it; fails_when=the request runs without IncarnaMind's hook, or the User waits three minutes under "working" with nothing sent
   it("sends nothing when Claude Code never answers its initialize", async () => {
     const heard = join(await mkdtemp(join(tmpdir(), "own-ai-heard-")), "prompts.txt");
     useClaude({ run: listing(false, "never", heard) });
@@ -925,7 +925,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         tools: "all",
         own: { ask: answer },
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: count the late crossings",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: count the late crossings",
         conversation: {
           key: KEY,
           sessionId: "8d2c4b6a-1e3f-4a5b-9c7d-0e2f4a6b8c1d",
@@ -2295,7 +2295,7 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
           tools: "all",
           own: { ask: async () => "deny" },
           instructions: INSTRUCTIONS,
-          prompt: "In their note “Tides” (mindId: m1), the User asks: run the tests",
+          prompt: "In their note “Tides” (mindId: m1), the User's request: run the tests",
           conversation: {
             key: "7b2d4f6a-8c1e-4a3b-9d5f-2e4a6c8b0d1f",
             sessionId: "1e3a5c7b-9d2f-4b6a-8c0e-3f5a7b9d1c2e",
@@ -2354,7 +2354,7 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
         server: SERVER,
         tools: TOOLS,
         instructions: INSTRUCTIONS,
-        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        prompt: "In their note “Tides” (mindId: m1), the User's request: shorter",
         progress: (step) => steps.push(step),
         signal,
       });
@@ -2472,6 +2472,292 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
         reason: "compaction",
       });
     }, 15_000);
+  });
+
+  describe("a run that gets nowhere, on the run's own clock (#3677)", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+    /** The run's clock and its timers are the test's: minutes pass at once. */
+    const ownClock = () =>
+      vi.useFakeTimers({
+        toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"],
+      });
+    /** A moment of real time, for what the stand-in prints to come in. */
+    const lettingIn = async () => {
+      const until = Date.now() + 30;
+      while (Date.now() < until) await new Promise((resolve) => setImmediate(resolve));
+    };
+    /** Real time until `check` holds, for what a process does by itself. */
+    const until = async (check: () => boolean) => {
+      const by = Date.now() + 10_000;
+      while (!check()) {
+        if (Date.now() > by) throw new Error("It never came.");
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    };
+    /** Moves the run's clock on by `ms`, ten seconds at a time, letting the stand-in's lines in. */
+    const pass = async (ms: number) => {
+      for (let left = ms; left > 0; left -= 10_000) {
+        await vi.advanceTimersByTimeAsync(Math.min(10_000, left));
+        await lettingIn();
+      }
+    };
+    /** The run's end once it ends; "running" until then. */
+    const watched = <T>(running: Promise<T>) => {
+      const seen: { end: T | "running" } = { end: "running" };
+      running.then((end) => {
+        seen.end = end;
+      });
+      return seen;
+    };
+    const started = { ...init(), model: "claude-haiku-5-5" };
+    const MINUTE = 60_000;
+    const check = (steps: unknown[], options: Parameters<typeof createOwnAi>[0] = {}) =>
+      createOwnAi(options).run({
+        client: "claude-code",
+        server: SERVER,
+        tools: TOOLS,
+        instructions: INSTRUCTIONS,
+        prompt: "In their note “Interviews” (mindId: m1), the User asks: summarise onboarding",
+        progress: (step) => steps.push(step),
+        signal: new AbortController().signal,
+      });
+    const begun = (steps: unknown[]) => () =>
+      steps.some((step) => (step as { kind: string }).kind === "model");
+    /** Claude Code 2.1.332's lines that say it is alive, or retrying, while nothing moves on. */
+    const alive = (category = "server_error") => [
+      { type: "keep_alive" },
+      {
+        type: "tool_progress",
+        tool_use_id: "toolu_1",
+        tool_name: "Bash",
+        elapsed_time_seconds: 40,
+        heartbeat: true,
+      },
+      { type: "system", subtype: "status", status: "requesting" },
+      { type: "system", subtype: "api_retry", attempt: 3, retry_delay_ms: 4000, error: category },
+    ];
+    const sayingEvery20ms = (lines: unknown[]) =>
+      `setInterval(() => { for (const each of ${JSON.stringify(lines)}) console.log(JSON.stringify(each)); }, 20);`;
+
+    // protects=a run whose Claude Code keeps saying it is alive or retrying, and nothing else, ends by itself at the three-minute limit with a plain reason, not at the 15-minute one; fails_when=heartbeats, retries or status lines keep a stuck run going
+    it("ends a run that only says it is alive, three minutes on", async () => {
+      ownClock();
+      useClaude({ run: session([started], false, sayingEvery20ms(alive())) });
+      const steps: unknown[] = [];
+      const run = watched(check(steps));
+      await until(begun(steps));
+      await pass(2.5 * MINUTE);
+      expect(run.end).toBe("running");
+      await pass(MINUTE);
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "failed", reason: "stalled" });
+    });
+
+    // protects=a run stuck retrying a limit Claude Code names says that limit, not that it went quiet; fails_when=the User reads "didn't answer" for a plan or key at its limit
+    it("names the limit a run stuck retrying it waits on", async () => {
+      ownClock();
+      useClaude({ run: session([started], false, sayingEvery20ms(alive("rate_limit"))) });
+      const steps: unknown[] = [];
+      const run = watched(check(steps));
+      await until(begun(steps));
+      await pass(3.5 * MINUTE);
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "failed", reason: "plan-limit" });
+    });
+
+    // protects=a long honest run whose words come slowly but steadily, minutes apart, is never ended; fails_when=a long summary of many Documents is cut off as stuck
+    it("lets a run go on whose words come minutes apart", async () => {
+      ownClock();
+      const folder = await mkdtemp(join(tmpdir(), "own-ai-steady-"));
+      onTestFinished(() => rm(folder, { recursive: true, force: true }));
+      const next = join(folder, "next");
+      const finish = join(folder, "finish");
+      const tick = { type: "system", subtype: "thinking_tokens", estimated_tokens: 900 };
+      const answer = { type: "assistant", message: { content: [{ type: "text", text: "Done." }] } };
+      useClaude({
+        run: session(
+          [started],
+          false,
+          `const fs = require("node:fs");
+          setInterval(() => {
+            if (fs.existsSync(${JSON.stringify(next)})) {
+              fs.unlinkSync(${JSON.stringify(next)});
+              console.log(${JSON.stringify(JSON.stringify(tick))});
+            }
+            if (fs.existsSync(${JSON.stringify(finish)})) {
+              console.log(${JSON.stringify(JSON.stringify(answer))});
+              console.log(${JSON.stringify(JSON.stringify(done))});
+              process.exit(0);
+            }
+          }, 10);`,
+        ),
+      });
+      const steps: unknown[] = [];
+      const run = watched(check(steps));
+      await until(begun(steps));
+      for (let round = 0; round < 5; round++) {
+        await pass(2.5 * MINUTE);
+        await writeFile(next, "");
+        await until(() => !existsSync(next));
+        await lettingIn();
+      }
+      expect(run.end).toBe("running");
+      await writeFile(finish, "");
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "finished", reply: "Checked." });
+    });
+
+    const KEY = "3e5a7c9b-1d2f-4a6b-8c0e-2f4a6b8c0d1e";
+    /**
+     * A conversation's Claude Code that, once the prompt comes, calls `call` and asks about it when
+     * `asks`, then says it is alive every 20 ms; an answer ends it with the call's result, unless
+     * `runsOn`, when the call runs on silently.
+     */
+    const calling = (
+      call: Record<string, unknown>,
+      asks: boolean,
+      lines: unknown[],
+      runsOn = false,
+    ) => `
+      const lines = require("node:readline").createInterface({ input: process.stdin });
+      const say = (value) => console.log(JSON.stringify(value));
+      lines.on("line", (line) => {
+        const v = JSON.parse(line);
+        if (v.type === "control_request") {
+          say({ type: "control_response", response: { subtype: "success", request_id: v.request_id,
+            response: { models: [], current_permission_mode: "default", ...${HOOKS_TAKEN} } } });
+        } else if (v.type === "user") {
+          say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "default", model: "claude-haiku-5-5",
+            tools: ["Bash", "mcp__incarnamind__read_mind"], mcp_servers: [{ name: "incarnamind", status: "connected" }] });
+          say({ type: "assistant", message: { content: [{ type: "tool_use", ...${JSON.stringify(call)} }] } });
+          if (${asks}) say({ type: "control_request", request_id: "q0", request: { subtype: "can_use_tool",
+            tool_name: ${JSON.stringify(call.name)}, tool_use_id: ${JSON.stringify(call.id)}, input: ${JSON.stringify(call.input)} } });
+          ${sayingEvery20ms(lines)}
+        } else if (v.type === "control_response" && !${runsOn}) {
+          say({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: ${JSON.stringify(call.id)}, content: "Done." }] } });
+          say({ type: "result", subtype: "success", is_error: false, result: "Built." });
+        }
+      });
+    `;
+    const converse = async (
+      steps: unknown[],
+      options: Parameters<typeof createOwnAi>[0],
+      ask: () => Promise<NoteAnswer> = () => new Promise<NoteAnswer>(() => undefined),
+    ) => {
+      const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+      onTestFinished(() => rm(conversations, { recursive: true, force: true }));
+      return createOwnAi({ conversations, ...options }).run({
+        client: "claude-code",
+        server: SERVER,
+        tools: "all",
+        own: { ask },
+        instructions: INSTRUCTIONS,
+        prompt: "In their note “Tides” (mindId: m1), the User asks: build the site",
+        conversation: {
+          key: KEY,
+          sessionId: "9c1e3a5b-7d2f-4b6a-8c0e-4f6a8b0c2d1e",
+          resume: false,
+        },
+        progress: (step) => steps.push(step),
+        signal: new AbortController().signal,
+      });
+    };
+    const build = (input: Record<string, unknown>) => ({
+      id: "toolu_1",
+      name: "Bash",
+      input: { command: "npm run build", ...input },
+    });
+
+    // protects=a question waiting on the User is not the AI getting nowhere: however long the card stays open, past the stall limit and the run's own working limit, the run waits, and goes on once answered; fails_when=a card the User hasn't answered yet ends the run, or its wait counts towards the run's limit
+    it("waits on a question as long as the User takes, past every limit", async () => {
+      ownClock();
+      useClaude({ run: calling(build({}), true, [{ type: "keep_alive" }]) });
+      let answer: (given: NoteAnswer) => void = () => undefined;
+      let asked = false;
+      const steps: unknown[] = [];
+      const run = watched(
+        converse(
+          steps,
+          { stallMs: 20_000, runMs: 1_000 },
+          () =>
+            new Promise<NoteAnswer>((resolve) => {
+              asked = true;
+              answer = resolve;
+            }),
+        ),
+      );
+      await until(() => asked);
+      await pass(4 * MINUTE);
+      // Past the run's limit on the wall's clock too, whichever clock it is counted on.
+      const by = Date.now() + 1_500;
+      while (Date.now() < by) await lettingIn();
+      expect(run.end).toBe("running");
+      answer("once");
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "finished", reply: "Built." });
+    });
+
+    // protects=a command of the AI's own keeps the run waiting only as long as Claude Code's own time for it, its call's own timeout or two minutes: past that and the stall limit a run still waiting on it is stuck, and ends; fails_when=a command that hangs holds the User until the 15-minute limit, or a long build the AI asked time for is cut off
+    it.each([
+      ["with its own timeout", build({ timeout: 4 * MINUTE }), 4 * MINUTE],
+      ["with Claude Code's own two minutes", build({}), 2 * MINUTE],
+    ])("waits on a command %s, and no longer", async (_name, call, bound) => {
+      ownClock();
+      useClaude({ run: calling(call, false, alive()) });
+      const steps: unknown[] = [];
+      const run = watched(converse(steps, { stallMs: 20_000 }));
+      await until(begun(steps));
+      await pass(bound);
+      expect(run.end).toBe("running");
+      await pass(40_000);
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "failed", reason: "stalled" });
+    });
+
+    // protects=a command's own time starts once the User lets it run, not while its question waited; fails_when=a command allowed after a long look at its card is ended as stuck while it runs within its time
+    it("counts a command's own time from the User's answer", async () => {
+      ownClock();
+      useClaude({ run: calling(build({}), true, [{ type: "keep_alive" }], true) });
+      let answer: (given: NoteAnswer) => void = () => undefined;
+      let asked = false;
+      const steps: unknown[] = [];
+      const run = watched(
+        converse(
+          steps,
+          { stallMs: 20_000 },
+          () =>
+            new Promise<NoteAnswer>((resolve) => {
+              asked = true;
+              answer = resolve;
+            }),
+        ),
+      );
+      await until(() => asked);
+      await pass(3 * MINUTE);
+      answer("once");
+      await pass(1.5 * MINUTE);
+      expect(run.end).toBe("running");
+      await pass(MINUTE);
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "failed", reason: "stalled" });
+    });
+
+    // protects=a tool of the AI's own that isn't a command, one of the User's own servers say, that sends only heartbeats ends at the stall limit; fails_when=a hung tool server holds the User until the 15-minute limit
+    it("waits on another tool of its own no longer than the stall limit", async () => {
+      ownClock();
+      const query = { id: "toolu_1", name: "mcp__ferry-data__query", input: { sql: "select 1" } };
+      useClaude({ run: calling(query, false, alive()) });
+      const steps: unknown[] = [];
+      const run = watched(converse(steps, { stallMs: 20_000 }));
+      await until(begun(steps));
+      await pass(10_000);
+      expect(run.end).toBe("running");
+      await pass(20_000);
+      await until(() => run.end !== "running");
+      expect(run.end).toEqual({ kind: "failed", reason: "stalled" });
+    });
   });
 
   // protects=a run's words as they come don't count towards the size limit of its whole messages, which still stops one too long; fails_when=a long streamed reply fails, or a run prints without bound
