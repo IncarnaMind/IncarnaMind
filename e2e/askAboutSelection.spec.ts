@@ -139,45 +139,11 @@ test("at 900 px, a chip added with the Document's tab in front goes with the wor
   );
 });
 
-test("with no model set, the waiting Question shows its quote, and Set up later or a quit gives back the words and the chip", async () => {
-  const { app, window, layer } = await paperBesideMind({ model: false });
-  await select(window, layer(2), "Margins recover within two quarters");
-  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
-  await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.type("What does this mean?");
-  await window.keyboard.press("Enter");
-
-  await expect(window.getByTestId("model-setup")).toBeVisible();
-  const waiting = window.getByTestId("assistant").getByTestId("assistant-question").last();
-  await expect(waiting.getByTestId("assistant-question-quote")).toContainText(
-    "Margins recover within two quarters",
-  );
-  await pointAndClick(window, window.getByTestId("setup-later"));
-  await expect(window.getByTestId("composer-input")).toHaveValue("What does this mean?");
-  await expect(chips(window)).toHaveCount(1);
-
-  // Asked again, it waits again; quitting keeps it for the next start.
-  await window.getByTestId("composer-input").focus();
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("model-setup")).toBeVisible();
-  await app.close();
-  const again = await launchApp(dataDir, { fakeChat: true, home });
-  await setWindowSize(again.app, again.window, 1440, 900);
-  await pointAndClick(again.window, again.window.getByTestId("mind-tab").first());
-  await expect(again.window.getByTestId("composer-input")).toHaveValue("What does this mean?");
-  await expect(chips(again.window)).toHaveCount(1);
-  await again.app.close();
-});
-
-test("while a Question waits for setup, the same words offer no second Ask, by the menu, ⌘/ or ⌘K, and ⌘J asks about none of it", async () => {
+// With no model and no AI of the User's there is no assistant to ask in (#3767): the words can be
+// added to the note or copied, never asked about.
+test("with no AI, the selected words offer no Ask, by the menu, ⌘/ or ⌘K, and ⌘J puts them nowhere", async () => {
   const { window, layer } = await paperBesideMind({ model: false });
-  await select(window, layer(2), "Margins recover within two quarters");
-  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
-  await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.type("What does this mean?");
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("model-setup")).toBeVisible();
-
+  await expect(window.getByTestId("assistant")).toBeHidden();
   await select(window, layer(2), "Margins recover within two quarters");
   await expect(window.getByTestId("viewer-selection-ask")).toHaveCount(0);
   await expect(window.getByTestId("viewer-selection-add")).toBeVisible();
@@ -201,24 +167,16 @@ test("while a Question waits for setup, the same words offer no second Ask, by t
   );
   await window.keyboard.press("Escape");
 
-  // Another line, so a second Ask would show as a second chip once the setup card goes.
   await select(window, layer(1), "Grocers studied across the eleven chains");
   await window.keyboard.press("ControlOrMeta+j");
-  await pointAndClick(window, window.getByTestId("setup-later"));
-  await expect(window.getByTestId("composer-input")).toHaveValue("What does this mean?");
-  await expect(chips(window)).toHaveCount(1);
-  await expect(chips(window)).toContainText("“Margins recover within two quarters”");
+  await expect(window.getByTestId("note-ask-connect")).toBeFocused();
+  await expect(window.getByTestId("composer-input")).toBeHidden();
+  await expect(chips(window)).toHaveCount(0);
 });
 
-test("while a Question waits for setup, Add to note and Copy with citation stay and Copy works, in Chinese", async () => {
+test("with no AI, Add to note and Copy with citation stay and Copy works, in Chinese", async () => {
   const { window, layer } = await paperBesideMind({ model: false });
   await setLanguage(window, "zh-CN");
-  await select(window, layer(2), "Margins recover within two quarters");
-  await pointAndClick(window, window.getByTestId("viewer-selection-ask"));
-  await expect(window.getByTestId("composer-input")).toBeFocused();
-  await window.keyboard.type("这句话是什么意思？");
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("model-setup")).toBeVisible();
 
   const copied = await stubClipboard(window);
   await select(window, layer(2), "Margins recover within two quarters");

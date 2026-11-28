@@ -1,5 +1,6 @@
 import { COMPARISON_TABLE_NODE } from "../../../core/api";
 import { comparisonCellOf, comparisonQuestionsOf } from "../../../shared/comparisons";
+import { noModel } from "../askYourAi";
 import {
   type ComparisonCellHandle,
   comparisonCellHandles,
@@ -221,11 +222,13 @@ const moveEnabled = (direction: -1 | 1) => (ctx: CommandContext) => {
 
 export const comparisonCommands: readonly Command[] = [
   {
-    // Compare Documents (#98): the sheet at the foot of the Mind in front, or of a new Mind.
+    // Compare Documents (#98): the sheet at the foot of the Mind in front, or of a new Mind. It
+    // fills by a model in IncarnaMind, which can no longer be set up here (#3767).
     id: "comparison.start",
     label: "command.compareDocuments",
     keywords: ["command.compareDocuments.keywords"],
     group: "main",
+    when: () => !noModel(),
     // Opening the sheet changes nothing; the table it makes is a change to accept.
     reversible: true,
     run: () => {

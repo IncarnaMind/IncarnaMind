@@ -6,8 +6,6 @@ import { createFakeGitHub, LOGIN, USER_CODE } from "../tests/helpers/fakeGitHub"
 import {
   acceptPlainTextKeys,
   addDocuments,
-  addProviderForm,
-  addProviderPage,
   assistantAnswers,
   closeSettings,
   createDataFolder,
@@ -16,22 +14,19 @@ import {
   launchApp,
   motionSettled,
   newMind,
-  openDirectoryEntry,
-  openPlanPage,
   openSettings,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  urlsOpened,
 } from "./app";
 
 /*
  * A new User's dead ends lead somewhere (#765): a refused key opens its field
  * in Settings and the Question is asked again once a new one is saved; a
- * model that can't add Citations says so with a way to another model; and
- * with no Ollama, the first-run choice offers to get it. Set
- * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
+ * model that can't add Citations says so with a way to another model; and a
+ * saved provider that local mode stops says why, with the way to turn it off.
+ * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -56,11 +51,23 @@ test.afterEach(async () => {
 });
 
 const saveProvider = (window: Page, input: SaveChatProviderInput) =>
-  window.evaluate(async (provider) => {
-    await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider(
-      provider,
-    );
-  }, input);
+  window.evaluate(
+    async (provider) =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider(
+          provider,
+        )
+      ).id,
+    input,
+  );
+
+/** A saved provider's own page, from Settings › AI's Accounts and keys. */
+async function openProviderPage(settings: Locator, providerId: string): Promise<Locator> {
+  await settings.locator(`[data-testid="provider-row"][data-provider-id="${providerId}"]`).click();
+  const page = settings.getByTestId("provider-page");
+  await expect(page).toBeVisible();
+  return page;
+}
 
 const setLocalMode = (window: Page, on: boolean) =>
   window.evaluate(
@@ -189,62 +196,23 @@ test("a model that can't add Citations says so under its Answer, and Choose anot
   await app.close();
 });
 
-test("with no Ollama on this computer, the setup card's local way says so, and opened offers Get Ollama before Check again", async () => {
-  const { app, window } = await launchApp(dataDir, { ollama: NO_OLLAMA });
-  await interceptOpenExternal(app);
-  await setWindowSize(app, window, 1200, 860);
-  await newMind(window);
-  await window.getByTestId("mind-editor").click();
-  await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("What is in my Documents?");
-  await window.keyboard.press("Enter");
-  const setup = window.getByTestId("model-setup");
-  await expect(setup).toBeVisible();
-  // A model on this computer is one of the ways in from the start (#1922), and says it needs Ollama.
-  const local = setup.getByTestId("way-local");
-  await expect(local).toContainText("Install a model on this computer…");
-  await expect(local.getByTestId("ollama-status")).toHaveText("Needs the free Ollama app");
-  const get = setup.getByTestId("ollama-get");
-  const again = setup.getByTestId("ollama-check-again");
-  await expect(get).toHaveText("Get Ollama ↗");
-  await expect(again).toHaveText("Check again");
-  const getBox = await get.boundingBox();
-  const againBox = await again.boundingBox();
-  expect(getBox && againBox && getBox.x + getBox.width <= againBox.x).toBe(true);
-  await screenshot(setup, "first-run-get-ollama");
-
-  await pointAndClick(window, get);
-  await expect.poll(() => urlsOpened(app)).toEqual(["https://ollama.com/download"]);
-  await app.close();
-});
-
-test("a choice that can't be used right now says why, with its next step: Ollama not running, and in local mode a hosted provider, the plans and the model menu; English and Chinese", async () => {
+test("a choice that can't be used right now says why, with its next step: in local mode a saved hosted provider, a saved plan and the model menu; English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, ollama: NO_OLLAMA });
   await dismissChatSetup(window);
   await setWindowSize(app, window, 1440, 900);
   await acceptPlainTextKeys(window);
+  const plan = await saveProvider(window, { kind: "chatgpt", modelId: "gpt-5.5" });
+  const anthropic = await saveProvider(window, {
+    kind: "anthropic",
+    apiKey: "sk-ant-test-0000",
+    modelId: "claude-haiku-5-5",
+  });
   await setLocalMode(window, true);
 
   const settings = await openSettings(window, "ai");
-  const ollama = await addProviderPage(settings, "ollama");
-  await expect(ollama.getByTestId("ollama-status")).toHaveText(
-    "Install and start Ollama from ollama.com to run models here.",
-  );
-  await expect(ollama.getByTestId("ollama-get")).toHaveText("Get Ollama ↗");
-  await expect(ollama.getByTestId("ollama-check-again")).toHaveText("Check again");
-  await expect(ollama.getByTestId("local-mode-unavailable")).toHaveCount(0);
-  await setLanguage(window, "zh-CN");
-  await expect(ollama.getByTestId("ollama-status")).toHaveText(
-    "要在本机运行模型，请从 ollama.com 安装并启动 Ollama。",
-  );
-  await expect(ollama.getByTestId("ollama-get")).toHaveText("下载 Ollama ↗");
-  await expect(ollama.getByTestId("ollama-check-again")).toHaveText("重新检查");
-  await setLanguage(window, "en");
-  await settings.getByTestId("models-back").click();
-
-  const hosted = await addProviderPage(settings, "anthropic");
+  const hosted = await openProviderPage(settings, anthropic);
   const hostedLine = hosted.getByTestId("local-mode-unavailable");
-  const plansLine = settings.getByTestId("ai-entry-page").getByTestId("local-mode-unavailable");
+  const plansLine = settings.getByTestId("provider-page").getByTestId("local-mode-unavailable");
   const unavailable = "Unavailable: “Keep everything on this computer” is on · Allow cloud models";
   await expect(hostedLine).toHaveText(unavailable);
   await screenshot(settings, "why-unavailable-provider-en");
@@ -256,8 +224,8 @@ test("a choice that can't be used right now says why, with its next step: Ollama
   await setLanguage(window, "en");
   await settings.getByTestId("models-back").click();
 
-  // A plan's own page, from Add an account or key, says so too.
-  await openDirectoryEntry(settings, "plan:chatgpt");
+  // A saved plan's own page says so too.
+  await openProviderPage(settings, plan);
   await expect(plansLine).toHaveText(unavailable);
   await screenshot(settings, "why-unavailable-plans-en");
   await plansLine.getByTestId("local-mode-turn-off").click();
@@ -270,11 +238,6 @@ test("a choice that can't be used right now says why, with its next step: Ollama
   await expect(plansLine).toHaveText(unavailable);
   await closeSettings(window);
 
-  await saveProvider(window, {
-    kind: "anthropic",
-    apiKey: "sk-ant-test-0000",
-    modelId: "claude-haiku-5-5",
-  });
   await newMind(window);
   await window.getByTestId("composer-model").click();
   const option = window.getByTestId("composer-model-option").first();
@@ -345,7 +308,10 @@ test("signing in again to a plan clears its failure line before anything is aske
     await interceptOpenExternal(app);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    const row = await openPlanPage(window, "copilot");
+    // A plan is no longer added in IncarnaMind (#3767): this one was saved before.
+    const copilot = await saveProvider(window, { kind: "copilot", modelId: "gpt-5.5" });
+    await openProviderPage(await openSettings(window, "ai"), copilot);
+    const row = window.getByTestId("settings").getByTestId("plans-copilot");
     await row.getByTestId("plans-copilot-sign-in").focus();
     await window.keyboard.press("Enter");
     await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
@@ -370,13 +336,12 @@ test("signing in again to a plan clears its failure line before anything is aske
 
     const settings = await openSettings(window, "ai");
     const health = settings.getByTestId("model-health");
+    // A key is no longer added in IncarnaMind (#3767): Sign in again is the line's one way back.
     await expect(health).toHaveText(
-      "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again · Use an API key instead",
+      "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again",
     );
     await setLanguage(window, "zh-CN");
-    await expect(health).toHaveText(
-      "GitHub 不允许 IncarnaMind 使用你的 Copilot 订阅 · 重新登录 · 改用 API 密钥",
-    );
+    await expect(health).toHaveText("GitHub 不允许 IncarnaMind 使用你的 Copilot 订阅 · 重新登录");
     await setLanguage(window, "en");
     await pointAndClick(window, health.getByTestId("answer-error-action"));
     await pointAndClick(window, row.getByTestId("copilot-sign-in"));
@@ -404,7 +369,7 @@ test("signing in again to a plan clears its failure line before anything is aske
   }
 });
 
-test("with local mode on, a hosted provider's key can still be saved: its field stays usable beside the line", async () => {
+test("with local mode on, a saved hosted provider's key can still be changed: its field stays usable beside the line", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, ollama: NO_OLLAMA });
   await dismissChatSetup(window);
   await setWindowSize(app, window, 1440, 900);
@@ -428,15 +393,5 @@ test("with local mode on, a hosted provider's key can still be saved: its field 
   await save.click();
   await expect(key).toHaveValue("");
   await expect(page.getByTestId("provider-page-key-error")).toHaveCount(0);
-  await settings.getByTestId("models-back").click();
-
-  const form = await addProviderForm(settings, "openai");
-  const addKey = form.locator('input[type="password"]');
-  await expect(addKey).toBeEditable();
-  await addKey.fill(`sk-proj-${"aZ3".repeat(20)}`);
-  const use = form.getByTestId("provider-use-key");
-  await expect(use).toBeEnabled();
-  await use.click();
-  await expect(settings.getByTestId("provider-page-title")).toHaveText("OpenAI");
   await app.close();
 });

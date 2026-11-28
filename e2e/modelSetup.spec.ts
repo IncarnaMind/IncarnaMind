@@ -1,45 +1,37 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
-import { createFakeAnthropic } from "../tests/helpers/fakeAnthropic";
-import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
   ANTHROPIC_KEY,
   acceptPlainTextKeys,
   addDocuments,
-  askFirstQuestion,
   assistantAnswers,
   controlReads,
   createDataFolder,
   dismissChatSetup,
-  exampleRow,
   firstTranscriptLine,
-  interceptOpenExternal,
   launchApp,
   newMind,
-  ollamaListing,
   openSettings,
   paletteOffers,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
   runCommand,
+  useCloudChatModel as setCloudChatModel,
   setLanguage,
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
   showSettingsPage,
-  urlsOpened,
 } from "./app";
 
 /*
- * First run, to the first checked Answer (#1922): a pasted key named by its form and working at
- * once, or another way in. Each choice is the consent for its flow (ADR-0022). Meeting
- * transcription and sorting are set up where they are first used, not here.
+ * A model set up in IncarnaMind (#1922), as a profile from before #3767 has it: no model is set up
+ * in the interface any more, so each spec sets one up through the core. Settings › AI says what
+ * each choice sends (ADR-0022). Meeting transcription and sorting are chosen where they are used.
  */
 
 let dataDir: string;
@@ -62,47 +54,8 @@ const bridge = (window: Page) => ({
     }),
 });
 
-test("a pasted key is named by its form and works at once: the waiting Question runs, and the composer is back with nothing more asked", async () => {
-  const { app, window } = await launchApp(dataDir, {
-    fakeChat: true,
-    ollama: "http://127.0.0.1:9",
-  });
-  try {
-    await setWindowSize(app, window, 1100, 900);
-    await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-
-    // No provider list and no Continue: the field is the way in, and it takes the focus.
-    await expect(card.getByTestId("provider-form")).toHaveCount(0);
-    await expect(card.getByTestId("setup-continue")).toHaveCount(0);
-    const field = card.getByTestId("setup-key");
-    await expect(field).toBeFocused();
-    await expect(card.getByTestId("setup-key-line")).toHaveText(
-      "OpenAI, Anthropic, Google, OpenRouter and xAI keys are recognized here.",
-    );
-
-    await field.fill(ANTHROPIC_KEY);
-    await field.press("Enter");
-    // The Question that waited is asked at once, and the composer is back (#2310).
-    await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
-      timeout: 20_000,
-    });
-    await expect(window.getByTestId("composer-input")).toBeVisible();
-    await expect(card).toHaveCount(0);
-
-    // Nothing else was set up on the way: transcription and sorting are chosen where they are
-    // first used, and tagging stays off until Turn on… (#2308).
-    expect((await bridge(window).settings()).device.transcriptionRoute).toBeNull();
-    const library = await bridge(window).library();
-    expect(library.classifier.kind).toBe("automatic");
-    expect(library.automatic).toBe(false);
-  } finally {
-    await app.close();
-  }
-});
-
 for (const language of ["en", "zh-CN"] as const) {
-  test(`after the first Answer the composer is there, ⌘J takes it and a follow-up is asked, with no setup step in the way (${language}, 1280 × 800) (#2310)`, async () => {
+  test(`after the first Answer the composer is there, ⌘J takes it and a follow-up is asked, with no setup step in the way (${language}, 1280 × 800) (#2310, #3767)`, async () => {
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
       ollama: "http://127.0.0.1:9",
@@ -111,18 +64,20 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, 1280, 800);
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
-      const card = await askFirstQuestion(window);
-      const field = card.getByTestId("setup-key");
-      await field.fill(ANTHROPIC_KEY);
-      await field.press("Enter");
+      // A model is no longer set up in the interface (#3767): the profile has one.
+      await setCloudChatModel(window, { cap: false });
+      await newMind(window);
+      const composer = window.getByTestId("composer-input");
+      if (!(await composer.isVisible())) await window.keyboard.press("ControlOrMeta+Shift+O");
+      await composer.click();
+      await window.keyboard.type("What is in my Documents?");
+      await window.keyboard.press("Enter");
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
 
-      // The setup no longer takes the composer's place, and nothing waits above it.
-      const composer = window.getByTestId("composer-input");
+      // Nothing waits above the composer.
       await expect(composer).toBeVisible();
-      await expect(card).toHaveCount(0);
 
       // ⌘J puts the cursor in the composer, from the Mind.
       await window.getByTestId("mind-editor").click();
@@ -948,212 +903,6 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("with no key, the ChatGPT plan comes first, the Claude account second, and a model on this computer third", async () => {
-  const openai = await createFakeOpenAI();
-  const claude = await createFakeAnthropic();
-  const ollama = await ollamaListing(["qwen3.5:4b"]);
-  const { app, window } = await launchApp(dataDir, {
-    fakeChat: true,
-    chatGpt: openai.endpoints.issuer,
-    claude: claude.origin,
-    ollama: ollama.url,
-  });
-  try {
-    await setWindowSize(app, window, 1100, 900);
-    await interceptOpenExternal(app);
-    await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-    await expect(card.getByTestId("way-claude")).toBeVisible();
-    const order = await card.evaluate((element) =>
-      [
-        ...element.querySelectorAll(
-          '[data-testid="setup-chatgpt"], [data-testid="way-claude"], [data-testid="way-local"]',
-        ),
-      ].map((each) => each.getAttribute("data-testid")),
-    );
-    expect(order).toEqual(["setup-chatgpt", "way-claude", "way-local"]);
-
-    // The plan's sign-in is the first choice, and it finishes first run as a key does.
-    await pointAndClick(window, card.getByTestId("setup-chatgpt"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-    const [authorize] = await urlsOpened(app);
-    expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
-    await window.getByTestId("chatgpt-welcome-ok").click();
-    // The composer is back (#2310).
-    await expect(window.getByTestId("composer-input")).toBeVisible({ timeout: 15_000 });
-    await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
-      timeout: 20_000,
-    });
-  } finally {
-    await app.close();
-    await openai.close();
-    await claude.close();
-    await new Promise<void>((done) => ollama.server.close(() => done()));
-  }
-});
-
-for (const language of ["en", "zh-CN"] as const) {
-  test(`a silent model app settles to not heard from, never to missing, and Check again finds it (${language})`, async () => {
-    // The app's probe gives up after two seconds and then asks again once; a server that holds
-    // its answer, as a loaded computer's app may, is asked a second time only after the first
-    // look ran out. Two silent looks settle the card: it says it wasn't heard from, offers no
-    // Get, and keeps Check again, which finds the app once it answers.
-    const waiting: (() => void)[] = [];
-    let answers = false;
-    let asked = 0;
-    const server = createServer((request, response) => {
-      request.resume();
-      if (request.url !== "/api/tags") {
-        response.writeHead(404);
-        response.end();
-        return;
-      }
-      asked += 1;
-      const answer = () => {
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ models: [{ name: "qwen3.5:4b", model: "qwen3.5:4b" }] }));
-      };
-      if (answers) answer();
-      else waiting.push(answer);
-    });
-    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
-    const { port } = server.address() as AddressInfo;
-    const { app, window } = await launchApp(dataDir, {
-      fakeChat: true,
-      examples: true,
-      ollama: `http://127.0.0.1:${port}`,
-    });
-    try {
-      await setWindowSize(app, window, 1100, 900);
-      await setLanguage(window, language);
-      const card = await askFirstQuestion(window);
-      const way = card.getByTestId("way-local");
-      const status = way.getByTestId("ollama-status");
-      // The first frame, before anything has been looked at.
-      await expect(status).toHaveAttribute("data-looking", "true");
-      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
-      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
-      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
-      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
-
-      // A second request is the first look given up on: the card still says it is looking.
-      await expect.poll(() => asked, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
-      await expect(status).toHaveAttribute("data-looking", "true");
-      await expect(way).toContainText(translate(language, "providers.ollama.checking"));
-      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
-
-      // Both looks are silent: it settles, out of looking, saying it wasn't heard from — not
-      // that the app is missing, so there is no Get, and Check again stays.
-      await expect(status).not.toHaveAttribute("data-looking", "true", { timeout: 25_000 });
-      await expect(status).toHaveAttribute("data-read", "no-answer");
-      await expect(way).toContainText(translate(language, "providers.ollama.noAnswer"));
-      await expect(way).not.toContainText(translate(language, "setup.way.local.install"));
-      await expect(way).not.toContainText(translate(language, "setup.way.local.notRunning"));
-      await expect(card.getByTestId("ollama-get")).toHaveCount(0);
-      await expect(card.getByTestId("ollama-check-again")).toBeEnabled();
-
-      // The app answers now: Check again finds it.
-      answers = true;
-      for (const answer of waiting.splice(0)) answer();
-      await pointAndClick(window, card.getByTestId("ollama-check-again"));
-      await expect(way).toContainText(translate(language, "setup.way.local.running"), {
-        timeout: 15_000,
-      });
-    } finally {
-      await app.close();
-      server.close();
-    }
-  });
-}
-
-test("nothing at all: installing a model on this computer is offered, the example still opens, and Set up later gives the words back", async () => {
-  const { app, window } = await launchApp(dataDir, {
-    fakeChat: true,
-    examples: true,
-    ollama: "http://127.0.0.1:9",
-  });
-  try {
-    await setWindowSize(app, window, 1100, 900);
-    await interceptOpenExternal(app);
-    const card = await askFirstQuestion(window);
-    // A refused address is an answer: it is not running, so Get is offered (a silent look
-    // settles to not heard from instead, with Check again and no Get).
-    await expect(card.getByTestId("ollama-status")).toHaveAttribute("data-read", "not-running");
-    await expect(card.getByTestId("way-local")).toContainText("Install a model on this computer…");
-    await expect(card.getByTestId("way-local")).toContainText("Needs the free Ollama app");
-    await card.getByTestId("ollama-get").click();
-    await expect.poll(() => urlsOpened(app)).toContain("https://ollama.com/download");
-
-    // The example the app opens on is still there.
-    await expect(exampleRow(window)).toBeVisible();
-
-    await pointAndClick(window, card.getByTestId("setup-later"));
-    await expect(card).toHaveCount(0);
-    await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");
-  } finally {
-    await app.close();
-  }
-});
-
-test("a refused key, a key with no credit and a key from a service we don’t list each say what to do in one line", async () => {
-  const { app, window } = await launchApp(dataDir, {
-    fakeChat: true,
-    ollama: "http://127.0.0.1:9",
-  });
-  try {
-    await setWindowSize(app, window, 1100, 900);
-    await interceptOpenExternal(app);
-    await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-    const field = card.getByTestId("setup-key");
-
-    await field.fill("sk-ant-a-key-that-is-refused");
-    await field.press("Enter");
-    await expect(card.getByTestId("setup-key-refused")).toHaveText(
-      "The key was refused · Check the key",
-    );
-
-    await field.fill("sk-ant-a-key-with-no-credit");
-    await field.press("Enter");
-    const credit = card.getByTestId("setup-key-refused");
-    await expect(credit).toHaveText("No credit on this key · Add credit · Use another key");
-    await credit.getByTestId("setup-key-credit").click();
-    expect((await urlsOpened(app))[0]).toBe("https://platform.claude.com/settings/billing");
-    await credit.getByTestId("setup-key-another").click();
-    await expect(field).toBeFocused();
-
-    // A form no prefix names: one line, and the way on is to say which service it is.
-    await field.fill("pk-live-a-key-from-a-service-we-dont-list");
-    await field.press("Enter");
-    await expect(card.getByTestId("setup-key-unrecognised")).toHaveText(
-      "We don’t recognize this key’s service · Choose the service",
-    );
-    await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
-    await expect(card.getByTestId("provider-form")).toBeVisible();
-    // The form opens on the service the key belongs to, its key kept.
-    await expect(card.getByTestId("provider-form").locator('input[type="password"]')).toHaveValue(
-      "pk-live-a-key-from-a-service-we-dont-list",
-    );
-  } finally {
-    await app.close();
-  }
-});
-
-test("with no key and no AI model, the Example still opens and Set up later returns the words", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
-  try {
-    await setWindowSize(app, window, 900, 760);
-    await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-    await expect(card.getByTestId("setup-chatgpt")).toBeVisible();
-    await expect(exampleRow(window)).toBeVisible();
-    await pointAndClick(window, card.getByTestId("setup-later"));
-    await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");
-  } finally {
-    await app.close();
-  }
-});
-
 test("Settings › AI shows the jobs, editable in place, with Quick tasks following Answers", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -1202,7 +951,7 @@ test("Settings › AI shows the jobs, editable in place, with Quick tasks follow
   }
 });
 
-test("Local mode offers only choices on this computer, in the setup card and in Settings › AI", async () => {
+test("Local mode offers only choices on this computer in Settings › AI, and nothing to set up (#3767)", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     ollama: "http://127.0.0.1:9",
@@ -1210,103 +959,23 @@ test("Local mode offers only choices on this computer, in the setup card and in 
   try {
     await setWindowSize(app, window, 1100, 900);
     await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
     await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await core.setLocalOnly(true);
     });
-    await expect(card.getByTestId("setup-local-mode")).toContainText(
-      "Cloud models are off: “Keep everything on this computer”.",
-    );
-    await expect(card.getByTestId("setup-key")).toHaveCount(0);
-    await expect(card.getByTestId("setup-chatgpt")).toHaveCount(0);
-    await expect(card.getByTestId("way-local")).toBeVisible();
-
     await setLocalChatModel(window);
-    await expect(card).toHaveCount(0);
     const settings = await openSettings(window, "ai");
     await expect(settings.getByTestId("meetings-route").locator("option")).toHaveText([
       "On this computer",
     ]);
-    await expect(settings.getByTestId("models-sorting").locator("option")).toHaveText([
-      /^Use /,
-      "Other model…",
-    ]);
+    // The picker chooses among what is set up: it offers no model to set up (#3767).
+    await expect(settings.getByTestId("models-sorting").locator("option")).toHaveText([/^Use /]);
   } finally {
     await app.close();
   }
 });
 
-test("the card holds at 900 px and 1,600 px, in English and Chinese", async () => {
-  const { app, window } = await launchApp(dataDir, {
-    fakeChat: true,
-    ollama: "http://127.0.0.1:9",
-  });
-  try {
-    for (const [width, height] of [
-      [900, 700],
-      [1600, 900],
-    ] as const) {
-      await setWindowSize(app, window, width, height);
-      for (const language of ["en", "zh-CN"] as const) {
-        await setLanguage(window, language);
-        await dismissChatSetup(window);
-        const card = await askFirstQuestion(window);
-        const box = await card.boundingBox();
-        expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(height);
-        expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(width);
-        expect(
-          await window.evaluate(
-            () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
-          ),
-        ).toBe(true);
-        await expect(card.getByTestId("setup-key")).toBeVisible();
-        await expect(card.getByTestId("way-local")).toBeVisible();
-        await pointAndClick(window, card.getByTestId("setup-later"));
-        // Each language's own words, at the card's title.
-        expect(await card.count()).toBe(0);
-      }
-    }
-  } finally {
-    await app.close();
-  }
-});
-
-test("a Question waiting for a model is kept if the app quits before a model works", async () => {
-  const first = await launchApp(dataDir, { fakeChat: true });
-  await setWindowSize(first.app, first.window, 1100, 900);
-  await acceptPlainTextKeys(first.window);
-  await askFirstQuestion(first.window);
-  await first.app.close();
-
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await setWindowSize(app, window, 1100, 900);
-  await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");
-  await app.close();
-});
-
-test("when the model that worked goes, the card asks for one again", async () => {
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  try {
-    await setWindowSize(app, window, 1100, 900);
-    await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-    await setLocalChatModel(window);
-    await expect(card).toHaveCount(0);
-    await expect(window.getByTestId("composer-input")).toBeVisible();
-    await window.evaluate(async () => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      for (const provider of await core.listChatProviders())
-        await core.deleteChatProvider(provider.id);
-    });
-    await expect(card.getByRole("heading", { level: 2 })).toHaveText("Set up your AI");
-    await expect(card.getByTestId("setup-key")).toBeVisible();
-  } finally {
-    await app.close();
-  }
-});
-
-test("call help with no model offers the key field where the help was asked, and the buttons come back once a model works", async () => {
+test("call help with no model offers no key field, and the buttons come once a model works (#3767)", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     ollama: "http://127.0.0.1:9",
@@ -1319,9 +988,9 @@ test("call help with no model offers the key field where the help was asked, and
     await expect(control).toBeVisible();
     await firstTranscriptLine(window);
     await window.getByTestId("mind-editor").click();
-    const needs = window.getByTestId("meeting-needs-model");
-    await expect(needs).toBeVisible();
-    await expect(needs.getByTestId("meeting-needs-model-key")).toBeVisible();
+    // With no model, the assistant isn't shown, and nothing offers a key to set one up.
+    await expect(window.getByTestId("meeting-needs-model")).toHaveCount(0);
+    await expect(window.getByTestId("meeting-starters")).toHaveCount(0);
     await setLocalChatModel(window);
     await expect(window.getByTestId("meeting-starters")).toBeVisible();
   } finally {
@@ -1329,7 +998,7 @@ test("call help with no model offers the key field where the help was asked, and
   }
 });
 
-test("Compare Documents with no model offers the key field in place, and the comparison runs once a key works", async () => {
+test("Compare Documents isn't offered with no model, and runs once a model works (#3767)", async () => {
   const sources = await mkdtemp(join(tmpdir(), "incarnamind-1922-compare-"));
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
@@ -1349,6 +1018,17 @@ test("Compare Documents with no model offers the key field in place, and the com
     await window.keyboard.press("Enter");
     await window.keyboard.type("Two suppliers made the shortlist.");
     await window.keyboard.press("Enter");
+    // It fills by a model in IncarnaMind, which can't be set up here: neither ⌘K nor "/" offers it.
+    expect(await paletteOffers(window, "comparison.start", "Compare Documents")).toBe(0);
+    await window.keyboard.type("/");
+    await expect(window.getByTestId("slash-menu")).toBeVisible();
+    await window.keyboard.type("compare");
+    await expect(window.getByTestId("slash-item-compare")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    for (let typed = 0; typed < "/compare".length; typed++)
+      await window.keyboard.press("Backspace");
+
+    await setLocalChatModel(window);
     await window.keyboard.type("/compare");
     await expect(window.getByTestId("slash-item-compare")).toBeVisible();
     await window.keyboard.press("Enter");
@@ -1356,17 +1036,6 @@ test("Compare Documents with no model offers the key field in place, and the com
     await expect(sheet.getByTestId("compare-sheet-question").first()).toBeFocused();
     await window.keyboard.type("Termination notice");
     await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
-
-    const needs = sheet.getByTestId("compare-sheet-needs-model");
-    await expect(needs).toContainText(
-      "Compare Documents needs an AI model. It sends the Documents you chose to the model you set up.",
-    );
-    const field = needs.getByTestId("compare-sheet-needs-model-key");
-    await expect(field).toBeVisible();
-    await field.fill(ANTHROPIC_KEY);
-    await field.press("Enter");
-
-    // The comparison goes on by itself once the key works.
     await expect(window.getByTestId("comparison-table")).toBeVisible({ timeout: 30_000 });
     await expect(sheet).toHaveCount(0);
   } finally {

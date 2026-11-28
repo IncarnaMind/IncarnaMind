@@ -115,16 +115,16 @@ describe("setting an agent up", () => {
     expect(clients.find((each) => each.id === "codex")?.name).toBe("ChatGPT app and Codex");
   });
 
-  it("names a new Codex pairing in the interface language, and keeps the name it had", async () => {
+  it("names a new Codex pairing as the list does, in either language, and keeps the name it had", async () => {
     const { core, coast } = await started();
     const english = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
-    expect(english.pairing.name).toBe("ChatGPT app and Codex");
+    expect(english.pairing.name).toBe("ChatGPT");
     await core.updateSettings({ user: { language: "zh-CN" } });
     const again = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
-    expect(again.pairing).toMatchObject({ id: english.pairing.id, name: "ChatGPT app and Codex" });
+    expect(again.pairing).toMatchObject({ id: english.pairing.id, name: "ChatGPT" });
     await core.disconnectAgent(english.pairing.id);
     const chinese = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
-    expect(chinese.pairing.name).toBe("ChatGPT 应用和 Codex");
+    expect(chinese.pairing.name).toBe("ChatGPT");
   });
 
   it("writes Codex's settings as shown, works from them, and takes them back with Undo", async () => {
@@ -142,7 +142,7 @@ describe("setting an agent up", () => {
     const { pairing, result } = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
     expect(result).toEqual({ kind: "wrote", path });
     expect(pairing).toMatchObject({
-      name: "ChatGPT app and Codex",
+      name: "ChatGPT",
       client: "codex",
       folderIds: [coast.id],
     });

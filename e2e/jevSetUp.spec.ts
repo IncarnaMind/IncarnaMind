@@ -6,7 +6,6 @@ import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
   createDataFolder,
-  interceptOpenExternal,
   launchApp,
   openSettings,
   pointAndClick,
@@ -14,16 +13,13 @@ import {
   setLanguage,
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
-  urlsOpened,
 } from "./app";
 
 /*
- * Decision models offered before their key is saved (#2615, #1907): the sorting picker in
- * Settings › AI ends with "Set up another sorting model", which holds
- * "Use TypeSafe Jev…" and each host with a key of its own. Choosing one opens its key entry in
- * place, with what choosing it sends. Nothing goes to the host before its Use this; a refused key
- * says so there and chooses nothing; a valid one makes it what sorts. One stand-in plays TypeSafe
- * and every other host here.
+ * Decision models in Settings › AI's sorting picker (#2615, #1907): no sorting model is set up
+ * from the picker any more (#3767), but one a profile set up before stays a choice there, with what
+ * choosing it sends, and its key stays in Accounts and keys, where it can be changed or removed.
+ * One stand-in plays TypeSafe and every other host here.
  */
 
 const JEV_KEY = "jev-smoke-key";
@@ -70,21 +66,8 @@ const library = (window: Page) =>
     return (await core.getLibrary()).settings;
   });
 
-/** The rows that set a sorting model up, as Settings › AI lists them with no key. */
-const setUpRows = (language: "en" | "zh-CN") => [
-  translate(language, "jev.settings.setUp"),
-  translate(language, "decisions.setUp.row", { model: "Decider v1.2", provider: "Perplexity" }),
-  translate(language, "decisions.setUp.row", { model: "d1-ultra", provider: "Liquid AI" }),
-  translate(language, "decisions.setUp.row", {
-    model: "Clef",
-    provider: "Cloudflare Workers AI",
-  }),
-  translate(language, "tagging.other"),
-];
-
-/** The picker's rows, in order. */
-const rowsOf = (picker: Locator) =>
-  picker.locator("option").evaluateAll((options) => options.map((each) => each.textContent));
+/** The rows that would set a sorting model up from the picker, which offers none (#3767). */
+const setUpRows = (picker: Locator) => picker.locator("option[value^='set-up:']");
 
 /** Whether the element fits inside `container` sideways, as the layout holds at any width. */
 async function fitsIn(element: Locator, container: Locator): Promise<boolean> {
@@ -109,65 +92,29 @@ for (const [language, width, height] of [
   ["en", 1440, 900],
   ["zh-CN", 900, 800],
 ] as const) {
-  test(`Settings › AI offers Jev until its key is saved, then lists it first (${language}, ${width} × ${height}) (#2615)`, async () => {
+  test(`Settings › AI sets no sorting model up from the picker; Jev set up before stays a choice, listed first, and choosing it allows nothing by itself (${language}, ${width} × ${height}) (#2615, #3767)`, async () => {
     const { app, window } = await launch("en", width, height);
     try {
       await setLocalChatModel(window);
+      // A profile from before #3767, with Jev's key kept.
+      await window.evaluate(
+        (apiKey) =>
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveJevSettings({
+            apiKey,
+          }),
+        JEV_KEY,
+      );
       // The button that opens Settings is named in English until the language is changed inside it.
       const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
       const row = settings.getByTestId("model-default-row-sorting");
       const picker = row.getByTestId("models-sorting");
-      const setUp = translate(language, "jev.settings.setUp");
-      await expect(picker.locator("option[value^='set-up:']")).toHaveText(setUpRows(language));
-      const before = await rowsOf(picker);
-      expect(before.length).toBeGreaterThan(1);
-      const chosen = await picker.locator("option:checked").textContent();
-
-      await picker.selectOption({ label: setUp });
-      const form = row.getByTestId("jev-form");
-      const field = form.getByLabel(translate(language, "jev.form.apiKey"));
-      await expect(field).toBeFocused();
-      // Choosing here never turns tagging on: the line says what goes once it is on.
-      await expect(form.getByTestId("models-sorting-line")).toContainText(
-        translate(language, "setup.sorting.sendsWhenOn", { service: "TypeSafe Jev" }),
-      );
-      expect(await fitsIn(form, settings)).toBe(true);
-      expect(typeSafe.requests).toEqual([]);
-
-      // Esc is Cancel: the choice is as it was.
-      await field.press("Escape");
-      await expect(form).toHaveCount(0);
-      await expect(settings).toBeVisible();
-      await expect(picker.locator("option:checked")).toHaveText(chosen ?? "");
-      expect(await rowsOf(picker)).toEqual(before);
-
-      // The link opens TypeSafe's own page; the app states no price.
-      await interceptOpenExternal(app);
-      await picker.selectOption({ label: setUp });
-      await pointAndClick(window, row.getByTestId("jev-pricing"));
-      await expect.poll(() => urlsOpened(app)).toEqual(["https://docs.typesafe.ai/models"]);
-      expect(typeSafe.requests).toEqual([]);
-
-      // Typed, the key goes nowhere until Use this. A refused key says so in place, and nothing
-      // is chosen.
-      const use = form.getByTestId("jev-save");
-      await expect(use).toHaveText(translate(language, "setup.step.useThis"));
-      await field.fill("jev-a-wrong-key");
-      expect(typeSafe.requests).toEqual([]);
-      await pointAndClick(window, use);
-      await expect(form.getByTestId("connection-test")).toContainText(
-        translate(language, "providers.test.auth"),
-      );
-      expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key"]);
-      expect((await library(window)).classifier).toEqual({ kind: "automatic" });
-
-      await field.fill(JEV_KEY);
-      await pointAndClick(window, use);
-      await expect(form).toHaveCount(0);
-      await expect(picker.locator("option:checked")).toHaveText("TypeSafe Jev");
+      // Jev is the picker's first choice, and nothing in it sets a model up.
       await expect(picker.locator("option").first()).toHaveText("TypeSafe Jev");
-      await expect(picker.locator("option", { hasText: setUp })).toHaveCount(0);
+      await expect(setUpRows(picker)).toHaveCount(0);
+      await expect(row.getByTestId("jev-form")).toHaveCount(0);
+      await picker.selectOption({ label: "TypeSafe Jev" });
+      await expect(picker.locator("option:checked")).toHaveText("TypeSafe Jev");
       // Choosing it allows nothing by itself: the switch asks before the first Document goes (#3353).
       await expect(settings.getByTestId("tagging-automatic-organize")).toBeChecked();
       await expect(settings.getByTestId("tagging-automatic-asks")).toHaveText(
@@ -175,7 +122,6 @@ for (const [language, width, height] of [
       );
       expect(await fitsIn(settings.getByTestId("tagging-automatic-asks"), settings)).toBe(true);
       expect((await library(window)).classifier).toEqual({ kind: "jev" });
-      expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key", `Bearer ${JEV_KEY}`]);
     } finally {
       await app.close();
     }
@@ -183,58 +129,34 @@ for (const [language, width, height] of [
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › AI sets a host up in place: a refused key, then a valid one makes its best model what sorts and joins Accounts and keys, and Remove key gives sorting back to Automatic (${language}) (#1907)`, async () => {
+  test(`Settings › AI: a host set up before stays a choice for sorting and joins Accounts and keys; Change key edits it in place, and Remove key gives sorting back to Automatic (${language}) (#1907, #3767)`, async () => {
     const { app, window } = await launch("en", 900, 800);
     try {
       await setLocalChatModel(window);
+      // A profile from before #3767 that kept Liquid AI's key: the host checks it as it is saved.
+      await window.evaluate(
+        (apiKey) =>
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setDecisionKey({
+            host: "liquid",
+            apiKey,
+          }),
+        JEV_KEY,
+      );
+      expect(typeSafe.requests).toEqual([`Bearer ${JEV_KEY}`]);
       const settings = await openSettings(window, "ai");
       await setLanguage(window, language);
       // No list of hosts: the sorting row chooses, and Accounts and keys holds the keys.
       const providers = settings.getByTestId("your-providers");
       await expect(providers.getByTestId("provider-row")).toHaveCount(1);
-      await expect(providers.getByTestId("sorting-key-row")).toHaveCount(0);
       await expect(settings.getByTestId("decision-hosts")).toHaveCount(0);
       const row = settings.getByTestId("model-default-row-sorting");
       const picker = row.getByTestId("models-sorting");
-      const liquid = translate(language, "decisions.setUp.row", {
-        model: "d1-ultra",
-        provider: "Liquid AI",
-      });
-      // The list is read: its set-up rows show.
-      await expect(picker.locator("option[value^='set-up:']")).toHaveText(setUpRows(language));
+      await expect(picker.locator("option:checked")).toBeAttached();
+      await expect(setUpRows(picker)).toHaveCount(0);
       const chosen = await picker.locator("option:checked").textContent();
 
-      await picker.selectOption({ label: liquid });
-      const form = row.getByTestId("decision-key-form-liquid");
-      const field = form.getByTestId("decision-key-input");
-      await expect(field).toBeFocused();
-      await expect(form.getByTestId("models-sorting-line")).toContainText(
-        translate(language, "setup.sorting.sendsWhenOn", { service: "Liquid AI" }),
-      );
-      expect(await fitsIn(form, settings)).toBe(true);
-      expect(typeSafe.requests).toEqual([]);
-
-      // Esc is Cancel: the choice is as it was.
-      await field.press("Escape");
-      await expect(form).toHaveCount(0);
-      await expect(picker.locator("option:checked")).toHaveText(chosen ?? "");
-
-      await picker.selectOption({ label: liquid });
-      await field.fill("a-wrong-key");
-      await pointAndClick(window, form.getByTestId("decision-key-save"));
-      await expect(form.getByTestId("decision-key-problem")).toContainText(
-        translate(language, "error.decision.keyRefused", {
-          provider: "Liquid AI",
-          message: "Invalid API key.",
-        }),
-      );
-      expect((await library(window)).classifier).toEqual({ kind: "automatic" });
-
-      await field.fill(JEV_KEY);
-      await pointAndClick(window, form.getByTestId("decision-key-save"));
-      await expect(form).toHaveCount(0);
+      await picker.selectOption({ label: "d1-ultra · Liquid AI" });
       await expect(picker.locator("option:checked")).toHaveText("d1-ultra · Liquid AI");
-      await expect(picker.locator("option", { hasText: liquid })).toHaveCount(0);
       // As for Jev, choosing here allows nothing: the switch asks before the first Document goes.
       await expect(settings.getByTestId("tagging-automatic-organize")).toBeChecked();
       await expect(settings.getByTestId("tagging-automatic-asks")).toHaveText(
@@ -249,7 +171,7 @@ for (const language of ["en", "zh-CN"] as const) {
         host: "liquid",
         modelId: "d1-ultra",
       });
-      expect(typeSafe.requests).toEqual(["Bearer a-wrong-key", `Bearer ${JEV_KEY}`]);
+      expect(typeSafe.requests).toEqual([`Bearer ${JEV_KEY}`]);
 
       // Change key opens its form in place; Esc puts it away.
       await pointAndClick(window, liquidKey.getByTestId("sorting-key-change"));
@@ -258,13 +180,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await keyField.press("Escape");
       await expect(liquidKey.getByTestId("decision-key-form-liquid")).toHaveCount(0);
 
-      // Remove key: sorting goes back to Automatic's pick, and the host is offered again.
+      // Remove key: sorting goes back to Automatic's pick, and nothing offers to set the host up.
       await pointAndClick(window, liquidKey.getByTestId("sorting-key-remove"));
       await expect(liquidKey).toHaveCount(0);
       await expect(picker.locator("option:checked")).toHaveText(chosen ?? "");
-      await expect(picker.locator("optgroup option", { hasText: liquid })).toHaveCount(1);
+      await expect(setUpRows(picker)).toHaveCount(0);
       expect((await library(window)).classifier).toEqual({ kind: "automatic" });
-      expect(typeSafe.requests).toHaveLength(2);
+      expect(typeSafe.requests).toHaveLength(1);
     } finally {
       await app.close();
     }
@@ -340,11 +262,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(qwen.getByTestId("sorting-key-status")).toContainText(
         translate(language, "ai.uses.workspace", { id: "llm-test" }),
       );
-      // Set up, it isn't offered again in the picker's fold.
+      // The picker offers no host to set up (#3767).
       const picker = settings
         .getByTestId("model-default-row-sorting")
         .getByTestId("models-sorting");
-      await expect(picker.locator("option[value^='set-up:']")).toHaveText(setUpRows(language));
+      await expect(setUpRows(picker)).toHaveCount(0);
 
       await pointAndClick(window, qwen.getByTestId("sorting-key-change"));
       const field = qwen.getByTestId("decision-account-input");
@@ -364,11 +286,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, qwen.getByTestId("sorting-key-remove"));
       await expect(qwen).toHaveCount(0);
       expect((await library(window)).classifier).toEqual({ kind: "automatic" });
-      // The Qwen key stays for chat, and the fold offers Alibaba's workspace again.
+      // The Qwen key stays for chat, and nothing offers Alibaba's workspace again (#3767).
       await expect(providers.getByTestId("provider-row")).toHaveCount(1);
-      await expect(picker.locator("option[value^='set-up:']")).toHaveCount(
-        setUpRows(language).length + 1,
-      );
+      await expect(setUpRows(picker)).toHaveCount(0);
     } finally {
       await app.close();
     }

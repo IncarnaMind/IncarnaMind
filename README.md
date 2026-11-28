@@ -15,7 +15,7 @@
 
 <p align="center">A free, open-source desktop app for macOS, Windows and Linux.<br>Your files in one Library, sorted and searchable, your meetings with them.<br>The AI you already use writes here. Then check every sentence and figure against the page it came from.</p>
 
-<p align="center">No IncarnaMind account needed. Connect Claude Code or <a href="docs/agents.md">another agent</a>, or use a model in IncarnaMind: your ChatGPT plan, your own key, or a local model through Ollama.</p>
+<p align="center">No IncarnaMind account needed. Connect Claude Code or <a href="docs/agents.md">another AI you already use</a>.</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-en.svg" width="216" height="40" alt="Download a test build"></a>&nbsp;&nbsp;<a href="https://tally.so/r/rjN2jL?ref=readme"><img src="docs/images/notify-en.svg" width="278" height="40" alt="Get notified when the alpha opens"></a></p>
 
@@ -78,8 +78,6 @@ npm install && npm run dev
 | **Write and analyse** | No agent? IncarnaMind's own assistant drafts, charts spreadsheets and asks many documents the same questions, every input cited. |
 | **Word** | Edit a Word file and export it as Word again: the parts you didn't touch stay exactly as they were, and your edits can go in as tracked changes. Or export a Note to Word with footnotes in eight citation styles. |
 
-Works fully offline with [Ollama](https://ollama.com): nothing leaves your computer.
-
 <details>
 <summary><b>More</b></summary>
 
@@ -116,12 +114,12 @@ Code confirms that every quote a verdict rests on is on its page. "Quote found" 
 
 ## Privacy
 
-You don't need an account. IncarnaMind reads your files where they are and changes a file of yours only when you edit it by hand or confirm a change your AI proposes, keeping the file as it was first so you can put it back in one step; a question sends only what it needs to the model you picked.
+You don't need an account. IncarnaMind reads your files where they are and changes a file of yours only when you edit it by hand or confirm a change your AI proposes, keeping the file as it was first so you can put it back in one step; a question sends only what it needs to your AI.
 
 | What | Where it goes |
 |---|---|
 | Your files, Notes and search index | Your computer |
-| Questions, writing and checks | The model you picked, with only what each needs. With Ollama, nowhere |
+| Questions, writing and checks | Your AI, with only what each needs |
 | What an agent you connected reads from IncarnaMind | That agent's own AI model, under its service's terms. IncarnaMind gives it only the Folders you chose, and nothing while **Keep everything on this computer** is on. The agent's other tools stay under its own control |
 | Your own AI in a note's conversation | It can act on this computer with its own tools (commands, files, the web), by its own settings for them. IncarnaMind shows each step and passes on what it asks, with the answers the AI itself suggests, one of which can be kept in its own settings; it can't see or undo what those tools do |
 | Meeting audio | Transcribed on your computer |
@@ -137,9 +135,9 @@ Where a provider offers the choice, IncarnaMind asks it not to keep your request
 - **Is it free?** Yes, open source under Apache 2.0. The model is billed by its provider, or covered by a plan you already have.
 - **How is it different from NotebookLM (now Gemini Notebook)?** It runs on your computer, reads your files where they are and needs no account. It works with the AI you already use, checks what that AI writes as well as your own drafts, opens each citation at its page and exports to Word with footnotes. The table above has the rest.
 - **Can a check miss something?** Yes: a check can miss a change of obligation, such as “should” where the Document says “may”.
-- **Which AI can I use?** Connect an agent you already use, such as [Claude Code](docs/claude-code.md); [docs/agents.md](docs/agents.md) lists the others. Or set up a model in IncarnaMind: sign in with ChatGPT Plus or Pro, or use your own key from OpenAI, Anthropic, Google, DeepSeek, Qwen, SiliconFlow, OpenRouter, Kimi, GLM, Mistral, xAI or any OpenAI-compatible server.
-- **Does it work offline?** Reading files and search do. Answers and checks need a model: a cloud one, or a local one through Ollama, which is slower.
-- **Can I use it on client documents?** Your files stay on your computer, and only the model you chose and the services you allow receive anything. Read the [client data statement](docs/client-data-statement.md) first.
+- **Which AI can I use?** Connect an agent you already use, such as [Claude Code](docs/claude-code.md); [docs/agents.md](docs/agents.md) lists the others.
+- **Does it work offline?** Reading files and search do. Asking and checks need your AI.
+- **Can I use it on client documents?** Your files stay on your computer, and only the AI you connected and the services you allow receive anything. Read the [client data statement](docs/client-data-statement.md) first.
 - **Will it change my files?** Only when you edit a deck in it by hand or confirm a change your AI proposes. Before writing, it keeps the file as it was so you can put it back in one step. Everything else goes only to its own data folder and the files you export.
 - **How do I back up?** Copy the data folder. It holds your Notes, the search index and your settings.
 

@@ -66,7 +66,10 @@ export const SIGN_IN_ROUTES: Record<SignInRoute, SignInRouteWords> = {
         line: "claudeAccount.problem.signInExpired",
         waysBack: ["sign-in-again"],
       },
-      refused: { line: "claudeAccount.problem.refused", waysBack: ["paste-api-key"] },
+      refused: {
+        line: "claudeAccount.problem.refused",
+        waysBack: ["sign-in-again", "paste-api-key"],
+      },
       "plan-limit": {
         line: "claudeAccount.problem.planLimit",
         lineUntil: "claudeAccount.problem.planLimitUntil",
@@ -74,7 +77,7 @@ export const SIGN_IN_ROUTES: Record<SignInRoute, SignInRouteWords> = {
       },
       "unexpected-response": {
         line: "claudeAccount.problem.unexpectedResponse",
-        waysBack: ["paste-api-key"],
+        waysBack: ["try-again", "paste-api-key"],
       },
     },
   },

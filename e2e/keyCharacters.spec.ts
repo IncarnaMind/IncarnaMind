@@ -3,19 +3,19 @@ import type { AddressInfo } from "node:net";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
-  acceptPlainTextKeys,
-  addProviderForm,
   createDataFolder,
   launchApp,
-  openSettings,
+  openProviderRow,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
 } from "./app";
 
 /*
  * A key with a character keys don't use, such as a Chinese word pasted by mistake, is said in
  * place in plain words before anything is sent, and a key with spaces and invisible characters
- * around it is cleaned and tested.
+ * around it is cleaned and tested. A key is no longer added in IncarnaMind (#3767): a profile's
+ * provider is saved by the bridge, and its key is replaced on its own page.
  */
 
 let dataDir: string;
@@ -76,38 +76,52 @@ async function recordingServer(): Promise<{
   };
 }
 
+/** Saves a provider as a profile from before #3767 has it, and opens its page in Settings › AI. */
+async function providerPage(
+  window: Page,
+  input: { kind: "openai-compatible"; baseUrl: string } | { kind: "kimi" },
+) {
+  const providerId = await saveProvider(window, {
+    ...input,
+    apiKey: "first-key",
+    modelId: input.kind === "kimi" ? "kimi-k2.6" : "any",
+  });
+  const settings = await openProviderRow(window, providerId);
+  const page = settings.getByTestId("provider-page");
+  await expect(page).toBeVisible();
+  return page;
+}
+
 test("a key with a Chinese word in it is said in place in plain words, in English and Chinese, and sends nothing", async () => {
   const fake = await recordingServer();
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 900, 900);
-    await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "ai");
-    const form = await addProviderForm(settings, "openai-compatible");
-    await form.locator('input[type="url"]').fill(fake.url);
-    await form.getByTestId("provider-model-text").fill("any");
-    const key = form.locator('input[type="password"]');
-    const use = form.getByTestId("provider-use-key");
-    const said = form.getByTestId("key-character-line");
+    const page = await providerPage(window, { kind: "openai-compatible", baseUrl: fake.url });
+    const before = fake.keysSeen.length;
+    const key = page.getByTestId("provider-page-key");
+    const save = page.getByTestId("provider-page-save-key");
+    const said = page.getByTestId("key-character-line");
     const expectUnderKey = async () => {
       const keyBox = await key.boundingBox();
       const saidBox = await said.boundingBox();
-      const formBox = await form.boundingBox();
+      const pageBox = await page.boundingBox();
       expect(saidBox?.y ?? 0).toBeGreaterThan((keyBox?.y ?? 0) + (keyBox?.height ?? 0) - 1);
       expect((saidBox?.x ?? 0) + (saidBox?.width ?? 0)).toBeLessThanOrEqual(
-        (formBox?.x ?? 0) + (formBox?.width ?? 0) + 1,
+        (pageBox?.x ?? 0) + (pageBox?.width ?? 0) + 1,
       );
     };
 
     await key.fill("sk-test-1234作品-not-a-real-key");
     await expect(said).toHaveText("This key has a character keys don’t use (作). Paste it again.");
     await expect(key).toHaveAttribute("aria-invalid", "true");
-    await expect(use).toBeDisabled();
-    await expect(form.getByTestId("connection-test")).toHaveCount(0);
-    await expect(form).not.toContainText("ByteString");
+    await expect(save).toBeDisabled();
+    await expect(page.getByTestId("provider-test-result")).toHaveCount(0);
+    await expect(page).not.toContainText("ByteString");
     await key.press("Enter");
     await expect(said).toBeVisible();
     await expectUnderKey();
+    expect(fake.keysSeen.length).toBe(before);
     if (process.env.INCARNAMIND_SCREENSHOTS) {
       await window.screenshot({
         path: `${process.env.INCARNAMIND_SCREENSHOTS}/key-character-900-en.png`,
@@ -116,7 +130,7 @@ test("a key with a Chinese word in it is said in place in plain words, in Englis
 
     await language(window, "zh-CN");
     await expect(said).toHaveText("密钥里有一个不该有的字符（作）。重新粘贴密钥。");
-    await expect(form).not.toContainText("ByteString");
+    await expect(page).not.toContainText("ByteString");
     await expectUnderKey();
     if (process.env.INCARNAMIND_SCREENSHOTS) {
       await window.screenshot({
@@ -134,11 +148,14 @@ test("a key with a Chinese word in it is said in place in plain words, in Englis
     await key.fill("good-key");
     await expect(said).toHaveCount(0);
     await expect(key).not.toHaveAttribute("aria-invalid", "true");
-    await expect(use).toBeEnabled();
-    await use.click();
-    await expect(settings.getByTestId("provider-page")).toBeVisible();
-    expect(fake.keysSeen.length).toBeGreaterThan(0);
-    expect(new Set(fake.keysSeen)).toEqual(new Set(["Bearer good-key"]));
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(key).toHaveAttribute("placeholder", "Key saved");
+    // Its test sends the key as it was saved, the only one the server sees after the first.
+    await page.getByTestId("provider-test").click();
+    await expect(page.getByTestId("provider-test-result")).toBeVisible();
+    expect(fake.keysSeen.length).toBeGreaterThan(before);
+    expect(new Set(fake.keysSeen.slice(before))).toEqual(new Set(["Bearer good-key"]));
   } finally {
     await app.close();
     fake.server.closeAllConnections();
@@ -151,18 +168,18 @@ test("a key with spaces and invisible characters around it is cleaned and tested
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 900, 900);
-    await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "ai");
-    const form = await addProviderForm(settings, "openai-compatible");
-    await form.locator('input[type="url"]').fill(fake.url);
-    await form.getByTestId("provider-model-text").fill("any");
-    await form.locator('input[type="password"]').fill("  \u200B\uFEFFgood-key\u00A0 ");
+    const page = await providerPage(window, { kind: "openai-compatible", baseUrl: fake.url });
+    const before = fake.keysSeen.length;
+    const key = page.getByTestId("provider-page-key");
+    await key.fill("  \u200B\uFEFFgood-key\u00A0 ");
 
-    await expect(form.getByTestId("key-character-line")).toHaveCount(0);
-    await form.getByTestId("provider-use-key").click();
-    await expect(settings.getByTestId("provider-page")).toBeVisible();
-    expect(fake.keysSeen.length).toBeGreaterThan(0);
-    expect(new Set(fake.keysSeen)).toEqual(new Set(["Bearer good-key"]));
+    await expect(page.getByTestId("key-character-line")).toHaveCount(0);
+    await page.getByTestId("provider-page-save-key").click();
+    await expect(key).toHaveAttribute("placeholder", "Key saved");
+    await page.getByTestId("provider-test").click();
+    await expect(page.getByTestId("provider-test-result")).toBeVisible();
+    expect(fake.keysSeen.length).toBeGreaterThan(before);
+    expect(new Set(fake.keysSeen.slice(before))).toEqual(new Set(["Bearer good-key"]));
   } finally {
     await app.close();
     fake.server.closeAllConnections();
@@ -174,17 +191,15 @@ test("a key that names another service and holds an invisible character gets the
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 900, 900);
-    await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "ai");
-    const form = await addProviderForm(settings, "kimi");
-    const key = form.locator('input[type="password"]');
-    const said = form.getByTestId("key-character-line");
-    const wrong = form.getByTestId("provider-key-wrong");
+    const page = await providerPage(window, { kind: "kimi" });
+    const key = page.getByTestId("provider-page-key");
+    const said = page.getByTestId("key-character-line");
+    const wrong = page.getByTestId("provider-key-wrong");
 
     await key.fill("sk-proj-abc123\u200Bdef456");
     await expect(said).toContainText("(U+200B)");
     await expect(wrong).toHaveCount(0);
-    await expect(form.getByTestId("provider-use-key")).toBeDisabled();
+    await expect(page.getByTestId("provider-page-save-key")).toBeDisabled();
 
     await key.fill("sk-proj-abc123def456");
     await expect(said).toHaveCount(0);

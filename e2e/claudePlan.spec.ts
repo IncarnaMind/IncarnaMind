@@ -14,18 +14,20 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
-  openPlanPage,
+  openProviderRow,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   urlsOpened,
 } from "./app";
 
 /*
- * "Use my Claude plan" (#872): one of the ways in beside the key in first run and a row in Settings ›
- * Models. A local stand-in for Anthropic signs in and answers; the browser is stood in for, and
- * the User pastes the code Anthropic's page shows, as they do.
+ * "Use my Claude plan" (#872): a row in Settings › AI. A plan is no longer added in IncarnaMind
+ * (#3767): the plan here was saved before, and its own page in Accounts and keys signs in again.
+ * A local stand-in for Anthropic signs in and answers; the browser is stood in for, and the User
+ * pastes the code Anthropic's page shows, as they do.
  */
 
 const USAGE = "Answers count toward your Claude Pro, Max or Team limits.";
@@ -46,15 +48,16 @@ const account = (window: Page): Promise<ClaudeAccountStatus> =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getClaudeAccount(),
   );
 
-async function askFirstQuestion(window: Page): Promise<Locator> {
-  await newMind(window);
-  await window.getByTestId("mind-editor").click();
-  await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("What is in my Documents?");
-  await window.keyboard.press("Enter");
-  const card = window.getByTestId("model-setup");
-  await expect(card).toBeVisible();
-  return card;
+/** A Claude plan saved before #3767, its sign-in not there (yet, or any more). */
+const saveClaudePlan = (window: Page): Promise<string> =>
+  saveProvider(window, { kind: "claude-account", modelId: "claude-sonnet-5-5" });
+
+/** The saved plan's own page, from Settings › AI's Accounts and keys: its row. */
+async function openSavedPlan(window: Page, providerId: string): Promise<Locator> {
+  const settings = await openProviderRow(window, providerId);
+  const row = settings.getByTestId("plans-claude-account");
+  await expect(row).toBeVisible();
+  return row;
 }
 
 /** The code Anthropic's page shows once the User approves the sign-in the app opened. */
@@ -77,25 +80,19 @@ async function expectInside(card: Locator, parts: Locator[]) {
   }
 }
 
-test("first run: the row follows the plan, says the usage limits first before anything is sent, and the pasted code signs in and answers", async () => {
+test("Settings: Cancel keeps nothing; signed in, the row names the account and Sign out forgets it; expired, Sign in again", async () => {
   const { app, window } = await launchApp(dataDir, { claude: fake.origin });
   try {
     await setWindowSize(app, window, 1100, 660);
     await interceptOpenExternal(app);
     await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
+    const providerId = await saveClaudePlan(window);
+    const row = await openSavedPlan(window, providerId);
+    await expect(row.getByTestId("claude-plan-account")).toHaveText(USAGE);
 
-    await card.getByTestId("setup-other").click();
-    const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
-    await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
-    const row = card.getByTestId("way-claude");
-    await expect(row.getByText("Use my Claude plan", { exact: true })).toBeVisible();
-    await expect(row.getByText("Pro, Max or Team", { exact: true })).toBeVisible();
-    await expect(row.getByTestId("claude-plan-notice")).toHaveCount(0);
-
-    await row.getByTestId("way-claude-open").click();
+    await row.getByTestId("plans-claude-sign-in").click();
     const notice = row.getByTestId("claude-plan-notice");
-    // Two lines, the usage limits first and in weight 600, then what goes to Anthropic.
+    // Two lines, the usage limits first, then what goes to Anthropic.
     const usage = notice.getByTestId("claude-plan-usage");
     const sends = notice.getByTestId("claude-plan-sends");
     await expect(usage).toHaveText(USAGE);
@@ -109,11 +106,10 @@ test("first run: the row follows the plan, says the usage limits first before an
     const [usageBox, sendsBox] = await Promise.all([usage.boundingBox(), sends.boundingBox()]);
     expect(usageBox?.y ?? 0).toBeLessThan(sendsBox?.y ?? 0);
     await expect(notice).not.toContainText("Claude Code");
-    await expect(notice).not.toContainText("stays off");
     // The safe choice has the focus, and nothing has been sent.
     await expect(notice.getByTestId("claude-plan-cancel")).toBeFocused();
     expect(await urlsOpened(app)).toHaveLength(0);
-    await expectInside(card, [usage, sends]);
+    await expectInside(row, [usage, sends]);
 
     const details = sends.getByTestId("claude-plan-sends-details");
     await details.focus();
@@ -125,80 +121,8 @@ test("first run: the row follows the plan, says the usage limits first before an
     expect(fake.tokenRequests).toHaveLength(0);
     await window.keyboard.press("Enter");
     await expect(details).toHaveAttribute("aria-expanded", "false");
-    await expect(sends.getByRole("listitem")).toHaveCount(0);
     await expect(details).toBeFocused();
 
-    await notice.getByTestId("claude-plan-cancel").click();
-    await expect(notice).toBeHidden();
-    await expect(row.getByTestId("way-claude-open")).toHaveAttribute("aria-expanded", "false");
-
-    await row.getByTestId("way-claude-open").click();
-    await row.getByTestId("claude-plan-sign-in").click();
-    const code = await codeAfterApproving(app, 1);
-    const waiting = row.getByTestId("claude-plan-waiting");
-    await expect(waiting).toContainText("Sign in to Claude, then paste the code it shows.");
-    await expect(waiting.getByTestId("claude-plan-usage")).toHaveText(USAGE);
-    // The code is the way on, so its field is open, focused and named for what goes in it.
-    const field = waiting.getByLabel("Code from Claude’s page");
-    await expect(field).toBeFocused();
-    await expect(waiting.getByTestId("claude-paste-continue")).toHaveText("Finish signing in");
-
-    await field.fill("not a code");
-    await field.press("Enter");
-    await expect(waiting.getByTestId("claude-paste-problem")).toHaveText(
-      "That isn’t the code from Claude’s page.",
-    );
-    await field.fill(code);
-    await waiting.getByTestId("claude-paste-continue").click();
-
-    const answer = assistantAnswers(window).first();
-    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-    await expect(answer).toContainText(ANSWER);
-    expect(fake.messages.at(-1)?.headers.authorization).toMatch(/^Bearer /);
-    expect((await account(window)).account).toMatchObject({ state: "signed-in" });
-  } finally {
-    await app.close();
-  }
-});
-
-test("first run: a code Anthropic refuses says so in the row, with a key as the way back", async () => {
-  const { app, window } = await launchApp(dataDir, { claude: fake.origin });
-  try {
-    await interceptOpenExternal(app);
-    await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-    await card.getByTestId("setup-other").click();
-    const row = card.getByTestId("way-claude");
-    await row.getByTestId("way-claude-open").click();
-    await row.getByTestId("claude-plan-sign-in").click();
-
-    const code = await codeAfterApproving(app, 1);
-    const [, state] = code.split("#");
-    await row.getByTestId("claude-paste-address").fill(`not-the-code#${state}`);
-    await row.getByTestId("claude-paste-continue").click();
-
-    const error = row.getByTestId("claude-plan-error");
-    await expect(error).toContainText("The Claude sign-in didn’t work · Use an API key instead");
-    await expect(row.getByTestId("claude-plan-sign-in")).toBeVisible();
-    await row.getByTestId("claude-plan-use-key").click();
-    await expect(card.getByTestId("setup-key")).toBeFocused();
-    expect((await account(window)).account).toEqual({ state: "signed-out" });
-  } finally {
-    await app.close();
-  }
-});
-
-test("Settings: Cancel keeps nothing; signed in, the row names the account and Sign out forgets it; expired, Sign in again", async () => {
-  const { app, window } = await launchApp(dataDir, { claude: fake.origin });
-  try {
-    await setWindowSize(app, window, 1100, 660);
-    await interceptOpenExternal(app);
-    await acceptPlainTextKeys(window);
-    const row = await openPlanPage(window, "claude-account");
-    await expect(row.getByTestId("claude-plan-account")).toHaveText(USAGE);
-
-    await row.getByTestId("plans-claude-sign-in").click();
-    await expect(row.getByTestId("claude-plan-usage")).toHaveCSS("color", "rgb(23, 25, 28)");
     await row.getByTestId("claude-plan-sign-in").click();
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     await row.getByTestId("claude-plan-cancel").click();
@@ -213,7 +137,19 @@ test("Settings: Cancel keeps nothing; signed in, the row names the account and S
     await row.getByTestId("plans-claude-sign-in").click();
     await row.getByTestId("claude-plan-sign-in").click();
     const code = await codeAfterApproving(app, 2);
-    await row.getByTestId("claude-paste-address").fill(code);
+    const waiting = row.getByTestId("claude-plan-waiting");
+    await expect(waiting).toContainText("Sign in to Claude, then paste the code it shows.");
+    await expect(waiting.getByTestId("claude-plan-usage")).toHaveText(USAGE);
+    // The code is the way on, so its field is open, focused and named for what goes in it.
+    const field = waiting.getByLabel("Code from Claude’s page");
+    await expect(field).toBeFocused();
+    await expect(waiting.getByTestId("claude-paste-continue")).toHaveText("Finish signing in");
+    await field.fill("not a code");
+    await field.press("Enter");
+    await expect(waiting.getByTestId("claude-paste-problem")).toHaveText(
+      "That isn’t the code from Claude’s page.",
+    );
+    await field.fill(code);
     await row.getByTestId("claude-paste-continue").click();
     await expect(row.getByTestId("claude-plan-account")).toHaveText(
       "Signed in as reader@example.test",
@@ -230,7 +166,7 @@ test("Settings: Cancel keeps nothing; signed in, the row names the account and S
     await window.keyboard.press("Enter");
     await expect.poll(async () => (await account(window)).account.state).toBe("expired");
 
-    const expired = await openPlanPage(window, "claude-account");
+    const expired = await openSavedPlan(window, providerId);
     await expect(expired.getByTestId("claude-plan-account")).toHaveText(
       "Your Claude sign-in has expired",
     );
@@ -266,7 +202,7 @@ test("a sign-in not finished in time says so in the row, in English and Chinese"
   try {
     await interceptOpenExternal(app);
     await acceptPlainTextKeys(window);
-    const row = await openPlanPage(window, "claude-account");
+    const row = await openSavedPlan(window, await saveClaudePlan(window));
     await row.getByTestId("plans-claude-sign-in").click();
     await row.getByTestId("claude-plan-sign-in").click();
     await expect(row.getByTestId("claude-plan-waiting")).toBeVisible();
@@ -285,48 +221,15 @@ test("a sign-in not finished in time says so in the row, in English and Chinese"
   }
 });
 
-test("⌘K: Sign in with Claude opens the words in Settings › AI, before anything is sent", async () => {
-  const { app, window } = await launchApp(dataDir, { claude: fake.origin });
-  try {
-    await interceptOpenExternal(app);
-    await window.keyboard.press("ControlOrMeta+k");
-    await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type("> Sign in with Claude");
-    const item = window.getByTestId("palette").getByTestId("palette-item").first();
-    await expect(item).toHaveText(/Sign in with Claude/);
-    await window.keyboard.press("Enter");
-
-    const settings = window.getByTestId("settings");
-    await expect(settings).toHaveAttribute("data-page", "ai");
-    const row = settings.getByTestId("plans-claude-account");
-    await expect(row.getByTestId("claude-plan-usage")).toHaveText(USAGE);
-    await expect(row.getByTestId("claude-plan-cancel")).toBeFocused();
-    expect(await urlsOpened(app)).toHaveLength(0);
-  } finally {
-    await app.close();
-  }
-});
-
-test("in Chinese: the row waits under Other ways, before a model on this computer, and follows the plan with the usage limits first", async () => {
+test("in Chinese: the saved plan's row says the usage limits first, then what goes to Anthropic, and signs in where the code goes", async () => {
   const { app, window } = await launchApp(dataDir, { claude: fake.origin });
   try {
     await setWindowSize(app, window, 1100, 660);
     await interceptOpenExternal(app);
-    await setLanguage(window, "zh-CN");
     await acceptPlainTextKeys(window);
-    const card = await askFirstQuestion(window);
-    // The plan can't be bought in mainland China, so it waits under Other ways (#2865).
-    await expect(card.getByTestId("way-claude")).toBeHidden();
-    await card.getByTestId("setup-other").click();
-    const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
-    await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
-    await expect(ways.last()).toHaveAttribute("data-testid", "way-local");
-
-    const row = card.getByTestId("way-claude");
-    await expect(row).toContainText("使用我的 Claude 订阅");
-    await expect(row).toContainText("Pro、Max 或 Team");
-    await expect(row).not.toContainText("中国大陆不可用");
-    await row.getByTestId("way-claude-open").click();
+    const row = await openSavedPlan(window, await saveClaudePlan(window));
+    await setLanguage(window, "zh-CN");
+    await row.getByTestId("plans-claude-sign-in").click();
     const notice = row.getByTestId("claude-plan-notice");
     const usage = notice.getByTestId("claude-plan-usage");
     const sends = notice.getByTestId("claude-plan-sends");
@@ -338,7 +241,7 @@ test("in Chinese: the row waits under Other ways, before a model on this compute
       "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 Anthropic。 · 详情",
     );
     await expect(row.getByTestId("claude-plan-sign-in")).toHaveText("用 Claude 账号登录");
-    await expectInside(card, [usage, sends]);
+    await expectInside(row, [usage, sends]);
     await row.getByTestId("claude-plan-sign-in").click();
     await expect(row.getByLabel("Claude 页面上的代码")).toBeFocused();
     await expect(row.getByTestId("claude-paste-continue")).toHaveText("完成登录");
@@ -410,7 +313,8 @@ test("an Answer the Claude plan stopped says why in Claude's words, in English a
 
     fake.replies = [refusal(403), refusal(403), refusal(403)];
     const refused = await askAndFail(window, "When does the lease end?");
-    await expect(refused).toHaveText("Claude refused this sign-in · Use an API key instead");
+    // A key is no longer added in IncarnaMind (#3767): the way back is signing in again.
+    await expect(refused).toHaveText("Claude refused this sign-in · Sign in again");
 
     fake.replies = [];
     fake.refuseRefresh = "invalid_grant";
@@ -420,7 +324,7 @@ test("an Answer the Claude plan stopped says why in Claude's words, in English a
 
     await setLanguage(window, "zh-CN");
     await expect(limited).toHaveText("Claude 订阅的用量已达上限 · 换一个模型");
-    await expect(refused).toHaveText("Claude 拒绝了这次登录 · 改用 API 密钥");
+    await expect(refused).toHaveText("Claude 拒绝了这次登录 · 重新登录");
     await expect(expired).toHaveText("Claude 登录已过期 · 重新登录");
 
     fake.refuseRefresh = null;

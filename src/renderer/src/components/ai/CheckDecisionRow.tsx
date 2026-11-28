@@ -6,7 +6,6 @@ import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { hostName } from "../providers/DecisionKeyForm";
 import { SettingsRow, SettingsSwitch } from "../settings/SettingsGroup";
-import { buttonStyle } from "../ui";
 
 const TARGET = ["check-decision"] as const;
 
@@ -14,18 +13,11 @@ const TARGET = ["check-decision"] as const;
  * Checking sentences (#3118): a switch for the one measured decision model that reads each
  * sentence of a check first. Its line says what goes to its host, before it is turned on:
  * turning it on there is the User allowing it. On by default, the line says which checks it
- * reads. Without the host's key, or in Local mode, a line says why it stays off. The tip names
+ * reads. Without the host's key, or in Local mode, a line says why it stays off: no key is added
+ * here (#3767). The tip names
  * the company whose model it is, where the host passes its requests on.
  */
-export function CheckDecisionRow({
-  id,
-  status,
-  onAddKey,
-}: {
-  id: string;
-  status: CheckDecisionStatus;
-  onAddKey(): void;
-}) {
+export function CheckDecisionRow({ id, status }: { id: string; status: CheckDecisionStatus }) {
   const t = useT();
   const language = useLanguage();
   const reportError = useAppStore((state) => state.reportError);
@@ -91,17 +83,6 @@ export function CheckDecisionRow({
           testId="check-decision-switch"
         />
       }
-    >
-      {blocked === "no-key" && (
-        <button
-          type="button"
-          data-testid="check-decision-add-key"
-          onClick={onAddKey}
-          className={buttonStyle("secondary", "sm")}
-        >
-          {t("ai.jobs.checks.addKey")}
-        </button>
-      )}
-    </SettingsRow>
+    />
   );
 }

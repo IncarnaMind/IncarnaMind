@@ -12,8 +12,8 @@ import {
 } from "./app";
 
 /*
- * A new Mind on a fresh data folder says little (#1191): the page's note that asking needs an AI
- * model, and the assistant's lines about what it reads, and nothing else. Making it leaves no
+ * A new Mind on a fresh data folder says little (#1191): the line at its foot that asking needs
+ * the User's AI, and nothing above the page (#3767). Making it leaves no
  * "Made a new note" line, because deleting it is what takes it back.
  */
 
@@ -28,7 +28,6 @@ test.afterEach(async () => {
 const MESSAGES = [
   '[data-testid="chat-readiness"]',
   '[data-testid="undo-message"]',
-  '[data-testid="model-setup"]',
   '[data-testid="note-ask-no-ai"]',
   '[data-testid="assistant-empty"]',
 ].join(", ");
@@ -47,7 +46,8 @@ for (const examples of [false, true]) {
       await setLanguage(window, language);
       await newMind(window);
 
-      await expect(window.getByTestId("chat-readiness")).toBeVisible();
+      await expect(window.getByTestId("note-ask-no-ai")).toBeVisible();
+      await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
       await expect(window.getByTestId("undo-message")).toHaveCount(0);
       await expect(window.getByTestId("undo-line")).not.toContainText(/Made a new note|已新建笔记/);
       const shown = await window.locator(MESSAGES).evaluateAll(

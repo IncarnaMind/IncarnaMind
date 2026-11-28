@@ -89,7 +89,7 @@ export function ServiceDirectory({
   searchRef,
 }: {
   offered(plan: PlanId): boolean;
-  /** The entries it lists, where only some fit (the first run's AI step lists only Answers'). */
+  /** The entries it lists, where only some fit. */
   only?(entry: ServiceEntry): boolean;
   /** Whether an entry is set up already: it says so. */
   added(entry: ServiceEntry): boolean;
@@ -215,7 +215,14 @@ function Entry({
 }
 
 /**
- * "Add an account or key": the directory over Settings, as a sheet. Choosing an entry closes it
+ * A key for a job that is no chat model: meeting transcription, or putting the best search results
+ * first. Chat models are no longer added in IncarnaMind (#3767).
+ */
+const otherJobs = (entry: ServiceEntry) =>
+  entry.kind === "transcription" || entry.kind === "rerank";
+
+/**
+ * "Add an account or key": the directory over Settings, as a sheet, of the keys for other jobs. Choosing an entry closes it
  * and opens that entry's page in Settings; Cancel or Esc closes it with nothing changed.
  */
 export function AddSheet({
@@ -253,7 +260,13 @@ export function AddSheet({
             <h2 id="ai-add-sheet-title" className="text-body leading-6 text-ink">
               {t("ai.add.title")}
             </h2>
-            <ServiceDirectory offered={offered} added={added} onOpen={onOpen} searchRef={search} />
+            <ServiceDirectory
+              offered={offered}
+              only={otherJobs}
+              added={added}
+              onOpen={onOpen}
+              searchRef={search}
+            />
           </div>
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-rule px-6 py-3">
             <p className="text-small leading-[18px] text-ink-meta">{t("ai.add.foot")}</p>

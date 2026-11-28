@@ -3,10 +3,8 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
-  ANTHROPIC_KEY,
   acceptPlainTextKeys,
   addDocuments,
-  askFirstQuestion,
   askInAssistant,
   assistantAnswers,
   createDataFolder,
@@ -15,15 +13,17 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  useCloudChatModel as setCloudChatModel,
   setLanguage,
   setWindowSize,
   slideSelect,
 } from "./app";
 
 /*
- * The newcomer path runs unaided (#763): a first run, a model chosen, files added, an Answer, a
+ * The newcomer path runs unaided (#763): a first run, a first Answer, files added, an Answer, a
  * draft checked against the Documents and an export, each with a way on and none of the
- * glossary's left-column words. The example's own Documents are in place, as on a first run.
+ * glossary's left-column words. The example's own Documents are in place, as on a first run. A
+ * model is no longer set up in the interface (#3767): the profile has one, as one from before it.
  */
 
 let dataDir: string;
@@ -80,22 +80,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
 
-      // 1. First run: the first own Question waits, with the way to choose a model beside it;
-      // the pasted key is used at once.
-      const card = await askFirstQuestion(window);
-      await expect(window.getByTestId("assistant-waiting-model")).toContainText(
-        language === "en" ? "No AI model chosen yet" : "还没有选 AI 模型",
-      );
-      await expect(window.getByTestId("assistant-waiting-choose")).toBeVisible();
-      await card.getByTestId("setup-key").fill(ANTHROPIC_KEY);
-      await card.getByTestId("setup-key").press("Enter");
+      // 1. First run: the first own Question is answered; nothing more is asked of the newcomer.
+      await setCloudChatModel(window, { cap: false });
+      await newMind(window);
+      const input = window.getByTestId("composer-input");
+      if (!(await input.isVisible())) await window.keyboard.press("ControlOrMeta+Shift+O");
+      await input.click();
+      await window.keyboard.type("What is in my Documents?");
+      await window.keyboard.press("Enter");
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
-
-      // The setup card goes with the first Answer; nothing more is asked of the newcomer.
-      await expect(card).toHaveCount(0);
-      await expect(window.getByTestId("composer-input")).toBeVisible();
+      await expect(input).toBeVisible();
 
       // 2. Add Documents, then ask about them.
       await addDocuments(window, [join(sources, "Tides.pdf")]);

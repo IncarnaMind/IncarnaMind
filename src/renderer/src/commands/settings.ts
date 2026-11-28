@@ -101,15 +101,6 @@ export const settingsPageCommands: readonly Command[] = [
     run: () => useAppStore.getState().openSettings("general", "call-offers"),
   },
   {
-    id: "settings.addProvider",
-    assistant: { never: "keys" },
-    label: "command.settings.addProvider",
-    keywords: ["settings.title", "settings.pages.ai"],
-    group: "open",
-    reversible: true,
-    run: () => useAppStore.getState().openSettings("ai", "add-provider"),
-  },
-  {
     id: "settings.repairAllAgents",
     label: "command.settings.repairAllAgents",
     keywords: ["settings.title", "command.settings.allAgents.keywords"],
@@ -135,14 +126,5 @@ export const settingsPageCommands: readonly Command[] = [
     reversible: true,
     when: claudeCodeInstallOfferedNow,
     run: () => useAppStore.getState().openSettings("ai"),
-  },
-  {
-    id: "settings.setUpStepByStep",
-    assistant: { never: "keys" },
-    label: "setupPage.again.command",
-    keywords: ["setupPage.again.keywords"],
-    group: "open",
-    reversible: true,
-    run: () => useAppStore.getState().openSetup(),
   },
 ];

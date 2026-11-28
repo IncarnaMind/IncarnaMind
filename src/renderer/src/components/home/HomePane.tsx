@@ -9,7 +9,7 @@ import { useHomeNextStep } from "../../useHomeNextStep";
 import { CallOffersTip } from "./CallOffersTip";
 import { ComingUp } from "./ComingUp";
 import { FolderCards } from "./FolderCards";
-import { HomeAsk } from "./HomeAsk";
+import { HomeAsk, HomeFootConnect } from "./HomeAsk";
 import { HomeHeader } from "./HomeHeader";
 import { HomeNextStep } from "./HomeNextStep";
 import { MeetingOfferLine } from "./MeetingOfferLine";
@@ -32,6 +32,8 @@ export function HomePane() {
   const agents = useAgentsToAskRead(null);
   const noModel = useNoModel();
   const asksHere = (agents?.length ?? 0) > 0 || noModel;
+  // Nothing of their own yet: Home's next step is adding files, or asking about them (#3767).
+  const starting = next?.kind === "add" || next?.kind === "ask";
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = useHomeView.getState().scrollTop;
@@ -55,7 +57,7 @@ export function HomePane() {
       >
         <div className="mx-auto w-full max-w-[760px] px-6 pt-10 pb-24 @max-[760px]/home:px-4 @max-[760px]/home:pt-8">
           <HomeHeader now={now} />
-          <HomeAsk />
+          <HomeAsk starting={starting} empty={next?.kind === "add"} />
           {/* Adding files is the buttons above, and asking is their input or its line, unless a
               model in IncarnaMind is the way to ask (#3791). */}
           {next && next.kind !== "add" && !(next.kind === "ask" && asksHere) && (
@@ -70,6 +72,7 @@ export function HomePane() {
           <FolderCards now={now} />
         </div>
       </div>
+      {!starting && <HomeFootConnect />}
     </section>
   );
 }

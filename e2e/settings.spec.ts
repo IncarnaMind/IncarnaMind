@@ -2,19 +2,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
+import { createFakeOpenAI } from "../tests/helpers/fakeOpenAI";
 import {
-  acceptPlainTextKeys,
   addDocuments,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
-  interceptOpenExternal,
   launchApp,
-  openPlanPage,
+  openSettings,
   removeDataFolder,
   setWindowSize,
-  urlsOpened,
+  signInWithChatGpt,
 } from "./app";
 
 /*
@@ -203,7 +201,7 @@ test("the list of pages works by keyboard, with a focus ring", async () => {
   }
 });
 
-test("Organize in the Library, with no model chosen yet, offers a choice in Settings, and Dismiss puts the row away", async () => {
+test("Organize in the Library, with no AI yet, says it needs your AI; Dismiss puts the row away, and Connect your AI opens Settings › AI", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -224,11 +222,35 @@ test("Organize in the Library, with no model chosen yet, offers a choice in Sett
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
     await library.getByTestId("library-organize").click();
-    const needs = library.getByTestId("library-organize-needs-model");
-    await expect(needs.getByTestId("library-organize-set-up")).toBeVisible();
-    await expect(window.getByTestId("settings")).toBeHidden();
+    // A model is no longer chosen in IncarnaMind (#3767): the way on is connecting the User's AI.
+    const needs = library.getByTestId("library-organize-needs-ai");
+    await expect(needs).toContainText("Organizing needs your AI");
+    const connect = needs.getByTestId("library-organize-connect-ai");
+    await expect(connect).toBeVisible();
+    await expect(library.getByTestId("library-organize-needs-model")).toHaveCount(0);
+    await expect(library.getByTestId("library-organize-set-up")).toHaveCount(0);
+    const settings = window.getByTestId("settings");
+    await expect(settings).toBeHidden();
+    await window.evaluate(async () =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+        user: { language: "zh-CN" },
+      }),
+    );
+    await expect(needs).toContainText("整理需要你的 AI");
+    await window.evaluate(async () =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+        user: { language: "en" },
+      }),
+    );
     await needs.getByTestId("library-organize-dismiss").click();
     await expect(needs).toHaveCount(0);
+    await expect(settings).toBeHidden();
+
+    // Asked again, Connect your AI puts the row away and opens Settings › AI.
+    await library.getByTestId("library-organize").click();
+    await connect.click();
+    await expect(needs).toHaveCount(0);
+    await expect(settings).toHaveAttribute("data-page", "ai");
   } finally {
     await app.close();
   }
@@ -272,15 +294,11 @@ test("signed in with ChatGPT, the plan's model is chosen in one place: the Answe
   const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer });
   try {
     await dismissChatSetup(window);
-    await interceptOpenExternal(app);
-    const plan = await openPlanPage(window, "chatgpt");
-    const settings = window.getByTestId("settings");
-    await acceptPlainTextKeys(window, plan);
-    await plan.getByTestId("chatgpt-continue").click();
-    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-    const [authorize] = await urlsOpened(app);
-    expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
-    await window.getByTestId("chatgpt-welcome-ok").click();
+    // A plan is no longer added in IncarnaMind (#3767): this one was saved and signed in before.
+    await signInWithChatGpt(app, window, openai);
+    const settings = await openSettings(window, "ai");
+    await settings.getByTestId("provider-row").click();
+    const plan = settings.getByTestId("chatgpt-settings");
     await expect(plan.getByTestId("chatgpt-account")).toHaveText(
       "Signed in as reader@example.com.",
     );

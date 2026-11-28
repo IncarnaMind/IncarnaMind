@@ -27,6 +27,7 @@ import { core } from "../core";
 import { type EstimateLine, estimateLine, runStopParts } from "../cost";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
 import { useModelInUse } from "../modelInUse";
 import { enter } from "../motion";
 import { useEmptyScopeLine } from "../scopeDocuments";
@@ -619,8 +620,13 @@ export function VerifyCard({
           testId="verify-problem"
           className="mind-verify-problem"
           action={{
-            label: t("checks.problem.chooseModel"),
-            onClick: () => openSettings("ai", "model"),
+            label: t("localMode.turnOff"),
+            onClick: () => {
+              dismissVerifyOutcome(mindId);
+              void turnOffLocalMode().catch((error: unknown) =>
+                useAppStore.getState().reportError(error),
+              );
+            },
           }}
         >
           {t("checks.problem.local-mode")}

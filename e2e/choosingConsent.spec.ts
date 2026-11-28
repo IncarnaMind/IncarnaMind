@@ -1,7 +1,8 @@
 /**
  * Choosing a service is the consent for what it sends (ADR-0022, #718): the
- * place the User chooses the chat model's provider says what goes to it, and
- * no dialog follows, neither before the first Answer nor for Tags. Tagging,
+ * provider's page says what goes to it, and no dialog follows, neither before
+ * the first Answer nor for Tags. A provider is no longer chosen in IncarnaMind
+ * (#3767): a profile from before has it, saved by the bridge as it was chosen. Tagging,
  * background work, never asks: it waits and says so where its status shows.
  * Set INCARNAMIND_SCREENSHOTS to a folder to keep screenshots of each step.
  */
@@ -11,9 +12,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import {
-  acceptPlainTextKeys,
   addDocuments,
-  addProviderForm,
   askInAssistant,
   closeSettings,
   createDataFolder,
@@ -21,11 +20,11 @@ import {
   launchApp,
   makeTagOnDocument,
   newMind,
-  openPlanPage,
-  openServiceList,
+  openProviderRow,
   openSettings,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -97,6 +96,19 @@ async function recordConsentRequests(window: Page): Promise<() => Promise<string
     window.evaluate(() => (globalThis as unknown as { consentAsked: string[] }).consentAsked);
 }
 
+/** Saves an OpenAI key as a profile from before #3767 has it, and opens its page in Settings › AI. */
+async function openSavedOpenAi(window: Page): Promise<Locator> {
+  const providerId = await saveProvider(window, {
+    kind: "openai",
+    apiKey: "sk-proj-not-a-real-key",
+    modelId: "gpt-5.4-mini",
+  });
+  const settings = await openProviderRow(window, providerId);
+  const page = settings.getByTestId("provider-page");
+  await expect(page).toBeVisible();
+  return page;
+}
+
 /** A text file in the sources folder, which the scripted tagger tags "Invoice". */
 async function invoice(name: string): Promise<string> {
   const path = join(sources, `${name}.txt`);
@@ -104,31 +116,18 @@ async function invoice(name: string): Promise<string> {
   return path;
 }
 
-test("first run: choosing a provider with a key is the consent for what runs by itself, so no dialog comes before the Answer, and choosing its model for Tags starts them", async () => {
+test("a provider chosen with a key is the consent for what runs by itself, so no dialog comes before the Answer, and Tags start once allowed", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
   const consentAsked = await recordConsentRequests(window);
 
-  // The line above the button says what goes to the provider.
-  await newMind(window);
-  await window.getByTestId("mind-editor").click();
-  await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("What is due?");
-  await window.keyboard.press("Enter");
-  const setup = window.getByTestId("model-setup");
-  await openServiceList(window, setup);
-  const form = setup.getByTestId("provider-form");
-  await form
-    .locator("label")
-    .filter({ hasText: /^OpenAI$/ })
-    .click();
-  await expectSends(form.getByTestId("provider-sends"), SENDS_EN);
-  await acceptPlainTextKeys(window, form);
-  await form.getByLabel(/^API key/).fill("sk-proj-not-a-real-key");
-  await form.getByTestId("provider-sends").scrollIntoViewIfNeeded();
-  await screenshot(window, "choosing-line-setup-en");
-  await form.getByTestId("provider-use-key").click();
-  await expect(window.getByTestId("composer-input")).toBeVisible();
+  // The provider's page says in one line what goes to it.
+  const providerPage = await openSavedOpenAi(window);
+  const sends = providerPage.getByTestId("provider-sends");
+  await expectSends(sends, SENDS_EN);
+  await sends.scrollIntoViewIfNeeded();
+  await screenshot(window, "choosing-line-provider-en");
+  await closeSettings(window);
 
   // Tags are on, but ask before the first Document goes (#2308, #3353): Settings › AI's switch
   // says what goes and that it asks first, and the footer asks with the first Document, saying
@@ -231,7 +230,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await app.close();
 });
 
-test("before a model is chosen, a new Document's tagging waits with its line, and nothing asks", async () => {
+test("before a model is chosen, a new Document's tagging waits, no line asks for a model, and nothing asks", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   const consentAsked = await recordConsentRequests(window);
@@ -241,49 +240,22 @@ test("before a model is chosen, a new Document's tagging waits with its line, an
   const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 43" });
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
   await makeTagOnDocument(window, "Invoice 43");
-  const status = window.getByTestId("tagging-waiting");
-  await expect(status.getByTestId("status-label")).toHaveText("Tags need an AI model");
-  await expect(status).toHaveAttribute("title", "Tags come once you choose an AI model.");
+  // With no model and no AI, the sidebar has no Tags line: a model is no longer set up here (#3767).
+  await expect(window.getByTestId("tagging-waiting")).toHaveCount(0);
   await expect(window.getByTestId("consent-dialog")).toBeHidden();
   expect(await consentAsked()).toEqual([]);
-
-  await setLanguage(window, "zh-CN");
-  await expect(status).toHaveAttribute("title", "选择 AI 模型后会自动打标签。");
   await app.close();
 });
 
-test("Settings › AI says in one line what the ChatGPT plan sends, with the full list behind Details", async () => {
+test("in Chinese, a provider's page in Settings › AI says what goes to it", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  const plan = await openPlanPage(window, "chatgpt");
-  await expect(plan).toContainText("No key needed. Counts toward your plan’s limits.");
-  const sends = plan.getByTestId("provider-sends");
-  await expect(sends.locator("p")).toHaveText(
-    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to OpenAI. · Details",
-  );
-  await sends.getByTestId("provider-sends-details").click();
-  await expect(sends.getByRole("listitem")).toHaveText(SENDS_EN.items);
-  await expect(sends.getByText(SENDS_EN.onRequest)).toBeVisible();
-  await plan.scrollIntoViewIfNeeded();
-  await screenshot(window, "choosing-line-chatgpt-en");
-  await app.close();
-});
-
-test("in Chinese, adding a provider in Settings › AI says what goes to it above its button", async () => {
-  const { app, window } = await launchApp(dataDir);
-  await dismissChatSetup(window);
-  const settings = await openSettings(window, "ai");
+  const providerPage = await openSavedOpenAi(window);
   await setLanguage(window, "zh-CN");
 
-  const form = await addProviderForm(settings, "openai");
-
-  const line = form.getByTestId("provider-sends");
+  const line = providerPage.getByTestId("provider-sends");
   await expectSends(line, SENDS_ZH);
   await line.scrollIntoViewIfNeeded();
-  // Right above the button it is said for.
-  const lineBox = await line.boundingBox();
-  const buttonBox = await form.getByTestId("provider-use-key").boundingBox();
-  expect(lineBox && buttonBox && lineBox.y + lineBox.height <= buttonBox.y).toBe(true);
   await screenshot(window, "choosing-line-settings-zh");
   await app.close();
 });

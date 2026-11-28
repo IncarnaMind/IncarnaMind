@@ -4,7 +4,6 @@ import { expect, type Locator, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
-  addProviderForm,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
@@ -72,15 +71,24 @@ test("a refused key and a variable with no name read in ink after the amber mark
       };
     });
 
+    // A key is no longer added in IncarnaMind (#3767): the profile's key is saved by the bridge
+    // and refused when its own page tests it.
+    const provider = await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
+        kind: "openai",
+        apiKey: "sk-proj-wrong-key",
+        modelId: "gpt-5.4-mini",
+      }),
+    );
     const settings = await openSettings(window, "ai");
-    const form = await addProviderForm(settings, "openai");
-    await form.getByLabel(/^API key/).fill("sk-proj-wrong-key");
-    await form.getByTestId("provider-use-key").click();
-    const refused = form.getByTestId("connection-test");
-    await expect(refused).toContainText("This key isn’t valid for OpenAI");
+    await settings.locator(`[data-provider-id="${provider.id}"]`).click();
+    const providerPage = settings.getByTestId("provider-page");
+    await providerPage.getByTestId("provider-test").click();
+    const refused = providerPage.getByTestId("connection-test");
+    await expect(refused).toContainText("The key was refused.");
     await expectProblem(refused);
     await setLanguage(window, "zh-CN");
-    await expect(refused).toContainText("这个密钥对 OpenAI 无效");
+    await expect(refused).toContainText("密钥被拒绝。");
     await expectProblem(refused);
     await setLanguage(window, "en");
 

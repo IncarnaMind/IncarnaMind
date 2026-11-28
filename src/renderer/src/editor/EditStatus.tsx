@@ -13,6 +13,7 @@ import {
 } from "../editWithAi";
 import { providerErrorText } from "../errors";
 import { useLanguage, useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
 import { useAppStore } from "../store";
 
 /**
@@ -141,10 +142,12 @@ export function editProblemParts(
       return {
         text: t("edit.problem.local-mode"),
         action: {
-          label: t("edit.problem.chooseModel"),
+          label: t("localMode.turnOff"),
           run: () => {
             dismissEditProblem(mindId);
-            openSettings("ai", "model");
+            void turnOffLocalMode().catch((error: unknown) =>
+              useAppStore.getState().reportError(error),
+            );
           },
         },
         role: "alert",

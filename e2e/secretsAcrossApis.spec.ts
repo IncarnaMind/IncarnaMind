@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   acceptPlainTextKeys,
-  addProviderForm,
   coreOf,
   createDataFolder,
   launchApp,
@@ -69,18 +68,19 @@ test("a secret the synchronous safeStorage API wrote opens with the asynchronous
 test("a saved key that can't be opened says so where it is entered", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
+  // A key is no longer added in IncarnaMind (#3767): a profile's provider is saved by the bridge.
+  await acceptPlainTextKeys(window);
+  const provider = await (await coreOf(window)).evaluate((bridge) =>
+    bridge.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test-0123456789-unreadable",
+      modelId: "gpt-5.4-mini",
+    }),
+  );
   const settings = await openSettings(window, "ai");
-  const form = await addProviderForm(settings, "openai");
-  await acceptPlainTextKeys(window, form);
-  await form.getByLabel(/^API key/).fill("sk-test-0123456789-unreadable");
-  await form.getByTestId("provider-use-key").click();
+  await settings.locator(`[data-provider-id="${provider.id}"]`).click();
   const page = settings.getByTestId("provider-page");
   await expect(page.getByTestId("provider-page-key")).toHaveAttribute("placeholder", "Key saved");
-
-  const provider = (
-    await (await coreOf(window)).evaluate((bridge) => bridge.listChatProviders())
-  )[0];
-  if (!provider) throw new Error("The provider wasn't saved.");
 
   // A value the system store can't open, as after the keyring that saved it changed.
   await writeFile(

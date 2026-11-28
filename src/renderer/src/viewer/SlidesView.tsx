@@ -28,7 +28,6 @@ import { ChatLineIcon } from "../components/icons";
 import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { core, files } from "../core";
 import { translateNow, useT } from "../i18n";
-import { useSettingUp } from "../modelSetup";
 import { preparePicture } from "../pictureFile";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -257,7 +256,6 @@ function Slides({
 }) {
   const t = useT();
   const scroller = useRef<HTMLDivElement>(null);
-  const settingUp = useSettingUp();
   const [selectedShape, setSelectedShape] = useState<SelectedDeckShape | null>(null);
   const [clearSelectionTick, setClearSelectionTick] = useState(0);
   const [shortenTrigger, setShortenTrigger] = useState<DeckAskTrigger | null>(null);
@@ -435,8 +433,8 @@ function Slides({
     [document, loaded.deck.units],
   );
   const slideActions = useMemo<{ ask?: () => void }>(
-    () => (slides.length === 0 || settingUp ? {} : { ask: () => void askSlide(nearestSlide()) }),
-    [slides.length, settingUp, askSlide, nearestSlide],
+    () => (slides.length === 0 ? {} : { ask: () => void askSlide(nearestSlide()) }),
+    [slides.length, askSlide, nearestSlide],
   );
   useViewerHandle("slide", slideActions);
 
@@ -743,7 +741,7 @@ function Slides({
                       onNotesToggle={(open) =>
                         setNotesToggled((before) => new Map(before).set(slide.number, open))
                       }
-                      onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
+                      onAsk={() => void askSlide(slide.number)}
                       setElement={setElement(slide.number)}
                       editing={showingProposed ? null : editing}
                       proposedShapeIds={proposedBySlide.get(slide.number) ?? null}
@@ -778,7 +776,7 @@ function Slides({
                     setClearSelectionTick((n) => n + 1);
                   }}
                   proposalsState={proposalsState}
-                  canAsk={!settingUp && refusal === null}
+                  canAsk={refusal === null}
                   externalTrigger={shortenTrigger}
                   onAskShorten={(targetShape) =>
                     setShortenTrigger({

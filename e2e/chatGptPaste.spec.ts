@@ -1,17 +1,16 @@
-import { type ElectronApplication, expect, type Locator, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { createFakeOpenAI, type FakeOpenAIServer } from "../tests/helpers/fakeOpenAI";
 import {
-  acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
   launchApp,
-  newMind,
-  openPlanPage,
+  openSettings,
   removeDataFolder,
   setLanguage,
-  setupWay,
   setWindowSize,
+  signInWithChatGpt,
   urlsOpened,
 } from "./app";
 
@@ -19,6 +18,8 @@ import {
  * "Continue with ChatGPT" opened the browser, but the browser can't come back to IncarnaMind:
  * the User pastes the address it ended on. A local stand-in for OpenAI signs in, and the
  * browser is stood in for, so OpenAI's page never loads and the loopback port is never reached.
+ * A plan is no longer added in IncarnaMind (#3767): the plan here was saved before, and its
+ * sign-in ended since, so its own page in Accounts and keys signs in again.
  */
 
 let dataDir: string;
@@ -58,15 +59,30 @@ async function expectFieldRow(field: Locator, button: Locator, problem: Locator)
 const exchanges = () =>
   openai.tokenRequests.filter((request) => request.grant_type === "authorization_code");
 
+/** A saved ChatGPT plan signed out since: its page from Accounts and keys, Continue to press. */
+async function signedOutPlan(app: ElectronApplication, window: Page): Promise<Locator> {
+  await signInWithChatGpt(app, window, openai);
+  const providerId = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.signOutOfChatGpt();
+    return (await core.listChatProviders()).find((provider) => provider.kind === "chatgpt")?.id;
+  });
+  await interceptOpenExternal(app);
+  const settings = await openSettings(window, "ai");
+  await settings.locator(`[data-testid="provider-row"][data-provider-id="${providerId}"]`).click();
+  const plan = settings.getByTestId("chatgpt-settings");
+  await expect(plan.getByTestId("chatgpt-continue")).toBeEnabled();
+  return plan;
+}
+
 test("Settings: a pasted address that isn't the sign-in's is said under the field; the right one signs in", async () => {
   const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer });
   try {
     await setWindowSize(app, window, 900, 660);
     await dismissChatSetup(window);
-    await interceptOpenExternal(app);
-    const plan = await openPlanPage(window, "chatgpt");
+    const plan = await signedOutPlan(app, window);
     const settings = window.getByTestId("settings");
-    await acceptPlainTextKeys(window, plan);
+    const before = exchanges().length;
     await plan.getByTestId("chatgpt-continue").click();
     const address = await addressAfterApproving(app);
 
@@ -92,38 +108,30 @@ test("Settings: a pasted address that isn't the sign-in's is said under the fiel
     await expect(field).toHaveAttribute("aria-invalid", "true");
     await expectFieldRow(field, plan.getByTestId("chatgpt-paste-continue"), problem);
     await expect(plan.getByTestId("chatgpt-cancel")).toBeVisible();
-    expect(exchanges()).toHaveLength(0);
+    expect(exchanges()).toHaveLength(before);
 
     // As copied, with spaces and quotes around it.
     await field.fill(`  "${address}" `);
     await expect(problem).toBeHidden();
     await plan.getByTestId("chatgpt-paste-continue").click();
-    await window.getByTestId("chatgpt-welcome-ok").click();
     await expect(plan.getByTestId("chatgpt-account")).toHaveText(
       "Signed in as reader@example.com.",
     );
     await expect(plan.getByTestId("chatgpt-paste")).toHaveCount(0);
-    expect(exchanges()).toHaveLength(1);
+    expect(exchanges()).toHaveLength(before + 1);
   } finally {
     await app.close();
   }
 });
 
-test("first run, in Chinese: an earlier sign-in's address is refused, and the address from this one signs in", async () => {
+test("in Chinese: an earlier sign-in's address is refused, and the address from this one signs in", async () => {
   const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer });
   try {
     await setWindowSize(app, window, 1100, 660);
-    await interceptOpenExternal(app);
+    const setup = await signedOutPlan(app, window);
     await setLanguage(window, "zh-CN");
-    await acceptPlainTextKeys(window);
-    // The first own Question waits while the setup card offers the key first, then the ways.
-    await newMind(window);
-    await window.getByTestId("mind-editor").click();
-    await window.keyboard.press("ControlOrMeta+j");
-    await window.keyboard.type("我的文档里有什么？");
-    await window.keyboard.press("Enter");
-    const setup = window.getByTestId("model-setup");
-    await (await setupWay(window, setup, "setup-chatgpt")).click();
+    const before = exchanges().length;
+    await setup.getByTestId("chatgpt-continue").click();
     const address = await addressAfterApproving(app);
 
     await expect(setup).toContainText("没有回到 IncarnaMind？粘贴浏览器地址栏里的地址");
@@ -147,13 +155,14 @@ test("first run, in Chinese: an earlier sign-in's address is refused, and the ad
     const button = setup.getByTestId("chatgpt-paste-continue");
     await expect(button).toHaveText("继续");
     await expectFieldRow(field, button, problem);
-    expect(exchanges()).toHaveLength(0);
+    expect(exchanges()).toHaveLength(before);
 
     await field.fill(address);
     await button.click();
-    await expect(window.getByTestId("chatgpt-welcome")).toContainText("你正在使用 ChatGPT 订阅");
-    await window.getByTestId("chatgpt-welcome-ok").click();
-    expect(exchanges()).toHaveLength(1);
+    await expect(setup.getByTestId("chatgpt-paste")).toHaveCount(0);
+    await expect(setup.getByTestId("chatgpt-account")).toBeVisible();
+    await expect(setup.getByTestId("chatgpt-continue")).toHaveCount(0);
+    expect(exchanges()).toHaveLength(before + 1);
   } finally {
     await app.close();
   }

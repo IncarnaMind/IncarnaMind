@@ -6,7 +6,6 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
   addDocuments,
-  addProviderForm,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -17,9 +16,7 @@ import {
   linkFolderFromSidebar,
   nameMind,
   newMind,
-  openAddSheet,
   openDocumentMenu,
-  openPlanPage,
   openSettings,
   removeDataFolder,
   setWindowSize,
@@ -163,12 +160,24 @@ test("added files are processed, show as ready in the sidebar, and can be delete
   }
 });
 
-test("Continue with ChatGPT opens OpenAI's sign-in for IncarnaMind's own registration, and can be cancelled", async () => {
+test("a saved ChatGPT plan's Continue with ChatGPT opens OpenAI's sign-in for IncarnaMind's own registration, and can be cancelled", async () => {
   const { app, window } = await launchApp(dataDir);
   await interceptOpenExternal(app);
 
-  // Settings › AI's plan page has it too. Nothing is signed in here: the browser is stood in for.
-  const section = await openPlanPage(window, "chatgpt");
+  // A plan is no longer added in IncarnaMind (#3767): this one was saved before, and its own page
+  // in Accounts and keys signs in again. Nothing is signed in here: the browser is stood in for.
+  const providerId = await window.evaluate(
+    async () =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
+          kind: "chatgpt",
+          modelId: "gpt-5.5",
+        })
+      ).id,
+  );
+  const settings = await openSettings(window, "ai");
+  await settings.locator(`[data-testid="provider-row"][data-provider-id="${providerId}"]`).click();
+  const section = settings.getByTestId("chatgpt-settings");
   await expect(section.getByTestId("chatgpt-continue")).toBeVisible();
   // Where the sign-in couldn't be kept safely (Linux without a keyring), that's said up front and
   // Continue waits, so OpenAI's page never opens for a sign-in that would have nowhere to go.
@@ -202,93 +211,59 @@ test("Continue with ChatGPT opens OpenAI's sign-in for IncarnaMind's own registr
   await app.close();
 });
 
-test("first run asks for no model; the first own Question waits while the setup leads with the ChatGPT plan and a key, and Set up later gives the words back", async () => {
+test("first run asks for no model; with no AI, a Note has no assistant and its foot says asking needs your AI, whose Connect opens Settings › AI with no way to add a model", async () => {
   const first = await launchApp(dataDir);
   const { window } = first;
   await expect(window.getByTestId("chat-setup")).toHaveCount(0);
   await newMind(window);
   await expect(window.getByTestId("mind-pane")).toBeVisible();
-  await expect(window.getByTestId("chat-readiness")).toBeVisible();
-
-  // The first own Question waits in the conversation; the composer becomes the setup card.
   await window.getByTestId("mind-editor").click();
-  await window.keyboard.press("ControlOrMeta+j");
   await window.keyboard.type("What is in my Documents?");
-  await window.keyboard.press("Enter");
-  const card = window.getByTestId("model-setup");
-  await expect(card).toBeVisible();
-  await expect(window.getByTestId("assistant-waiting-model")).toHaveText(
-    "No AI model chosen yet · Choose…",
-  );
-  await expect(card).toContainText("Set up your AI");
-  await expect(card.getByTestId("setup-key")).toHaveAttribute("placeholder", "Paste an API key");
-  await expect(card.getByTestId("setup-chatgpt")).toHaveText("Use my ChatGPT plan");
-  // Choosing it is the consent (ADR-0022): one line says what goes, and Details names it all.
-  await expect(card.getByTestId("setup-chatgpt-line")).toHaveText("Plus or Pro · no key needed");
-  await expect(card.getByTestId("setup-chatgpt-sends").locator("p")).toHaveText(
-    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to OpenAI. · Details",
-  );
-  // The card says what the Mind's "needs an AI model" line would, so that line steps aside.
-  await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
-  // A model on this computer leads among the ways that need no key; the rest are folded.
-  await expect(card.getByTestId("way-local")).toBeVisible();
-  await expect(card.getByTestId("setup-other")).toBeVisible();
 
-  // In Chinese the key leads, and the plan, which can't be bought in mainland China, waits under
-  // Other ways (#2865).
+  // No old assistant and no model setup (#3767): one line where the Note's input would stand.
+  const line = window.getByTestId("note-ask-no-ai");
+  await expect(line).toHaveText("Asking needs your AI · Connect your AI");
+  await expect(window.getByTestId("assistant")).toBeHidden();
+  await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
+  await expect(window.getByTestId("model-setup")).toHaveCount(0);
+
+  // ⌘J goes to the one thing that fixes it, and the words typed stay in the Note.
+  await window.keyboard.press("ControlOrMeta+j");
+  const connect = line.getByTestId("note-ask-connect");
+  await expect(connect).toBeFocused();
+  await expect(window.getByTestId("composer-input")).toBeHidden();
+  await expect(window.getByTestId("mind-editor")).toContainText("What is in my Documents?");
+
   await window.evaluate(async () =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
       user: { language: "zh-CN" },
     }),
   );
-  await expect(card.getByTestId("setup-key")).toHaveAttribute("placeholder", "粘贴 API 密钥");
-  await expect(card.getByTestId("setup-chatgpt")).toBeHidden();
-  await card.getByTestId("setup-other").click();
-  await expect(card.getByTestId("setup-chatgpt-line")).toHaveText("Plus 或 Pro · 无需密钥");
-  await expect(card.getByTestId("setup-chatgpt-sends").locator("p")).toHaveText(
-    "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 OpenAI。 · 详情",
-  );
+  await expect(line).toHaveText("提问需要你的 AI · 连接你的 AI");
   await window.evaluate(async () =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
       user: { language: "en" },
     }),
   );
 
-  // Set up later: the words are back in the composer.
-  await card.getByTestId("setup-later").click();
-  await expect(card).toBeHidden();
-  await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");
-  await expect(window.getByTestId("chat-readiness")).toBeVisible();
+  await connect.press("Enter");
+  const settings = window.getByTestId("settings");
+  await expect(settings).toHaveAttribute("data-page", "ai");
+  // A model is no longer set up in IncarnaMind: with none, nothing offers to add one.
+  await expect(settings.getByTestId("ai-use-model-open")).toHaveCount(0);
+  await expect(settings.getByTestId("models-add-provider")).toHaveCount(0);
   await first.app.close();
 });
 
-test("Settings › AI offers Add an account or key, whose sheet starts with the plans to sign in to", async () => {
-  const { app, window } = await launchApp(dataDir);
-  const settings = await openSettings(window, "ai");
-  // With no model set up, a model is one quiet row and ⌘K holds Add an account or key (#3645).
-  await expect(settings.getByTestId("ai-use-model-open")).toContainText(
-    "Use a model in IncarnaMind…",
-  );
-  await openAddSheet(settings);
-  const plans = settings.locator('[data-testid="provider-directory-group"][data-group="plans"]');
-  await expect(plans).toContainText("Sign in with a plan you already pay for");
-  await expect(plans).toContainText("ChatGPTPlus or Pro");
-  await window.evaluate(async () =>
-    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-      user: { language: "zh-CN" },
-    }),
-  );
-  await expect(plans).toContainText("登录你已付费的订阅");
-  await app.close();
-});
-
-test("first run fits a small window; the not-ready notice and a long first line keep the Mind's text edge", async () => {
+test("first run fits a small window; a long first line wraps, and the line where asking would stand fits the Note", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1000, 600);
 
   await newMind(window);
   await enterContent(window);
-  const long = "Reading notes on spring and neap tides, harbour tables and the pull of the Moon";
+  // Long enough to wrap in the Note's measure, which has the window's width with no assistant (#3767).
+  const long =
+    "Reading notes on spring and neap tides, harbour tables, the pull of the Moon and what the ferry timetable makes of them";
   await window.keyboard.type(long);
   // Long, the first line wraps instead of being cut off.
   const line = window.getByTestId("mind-editor").locator("p").first();
@@ -298,11 +273,15 @@ test("first run fits a small window; the not-ready notice and a long first line 
   const lineHeight = await line.evaluate((p) => Number.parseFloat(getComputedStyle(p).lineHeight));
   expect(lineBox.height).toBeGreaterThan(lineHeight * 1.5);
 
-  // The notice's box reaches into the margin; its text starts where the Mind's does.
-  const notice = window.getByTestId("chat-readiness").locator("span").first();
-  const noticeBox = await notice.boundingBox();
-  if (!noticeBox) throw new Error("The notice isn't visible.");
-  expect(Math.abs(noticeBox.x - lineBox.x)).toBeLessThan(1);
+  // With no AI (#3767), the line at the Note's foot stays within the Note's measure, uncut.
+  const foot = window.getByTestId("note-foot-ask");
+  const noAi = foot.getByTestId("note-ask-no-ai");
+  await expect(noAi).toBeVisible();
+  const [footBox, noAiBox] = await Promise.all([foot.boundingBox(), noAi.boundingBox()]);
+  if (!footBox || !noAiBox) throw new Error("The line at the Note's foot isn't visible.");
+  expect(noAiBox.x).toBeGreaterThanOrEqual(footBox.x - 0.5);
+  expect(noAiBox.x + noAiBox.width).toBeLessThanOrEqual(footBox.x + footBox.width + 0.5);
+  expect(await foot.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await app.close();
 });
 
@@ -328,35 +307,6 @@ test("the window opens at the size and place it was left at", async () => {
   );
   expect(bounds).toEqual(left);
   await second.app.close();
-});
-
-test("an API key typed for one chat provider is cleared when another is chosen, or when the server changes", async () => {
-  const { app, window } = await launchApp(dataDir);
-  await dismissChatSetup(window);
-  const settings = await openSettings(window, "ai");
-
-  // Typed for OpenAI, the key isn't kept for Anthropic: there is nothing to test or use with it.
-  let form = await addProviderForm(settings, "openai");
-  await form.getByLabel(/^API key/).fill("sk-typed-for-openai");
-  await settings.getByTestId("models-back").click();
-  form = await addProviderForm(settings, "anthropic");
-  const key = () => form.getByLabel(/^API key/);
-  await expect(key()).toHaveValue("");
-  await expect(form.getByTestId("provider-use-key")).toBeDisabled();
-  await settings.getByTestId("models-back").click();
-
-  // For a server, the key stays while the address is fixed, and goes once it names another host.
-  form = await addProviderForm(settings, "openai-compatible");
-  const server = form.getByLabel("Server URL");
-  await server.fill("https://api.example.com/v1");
-  await key().fill("sk-typed-for-example");
-  await server.fill("https://api.example.com/v2");
-  await server.blur();
-  await expect(key()).toHaveValue("sk-typed-for-example");
-  await server.fill("https://other.example.net/v1");
-  await server.blur();
-  await expect(key()).toHaveValue("");
-  await app.close();
 });
 
 test("a Linked folder is a Folder in the one list of Folders: its files, from every depth, are in it, apart from those added on their own (#3613)", async () => {

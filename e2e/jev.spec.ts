@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   addDocuments,
@@ -78,19 +79,18 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and its Tag 
   await dismissChatSetup(window);
   await useLocalChatModel(window);
 
-  // Settings › AI › Organize and Tags: Jev set up in place from the picker's foot, with a key
-  // and a Jev-compatible server, then chosen with Use this.
+  // A profile that set Jev up before #3767, with a key and a Jev-compatible server: it is no
+  // longer set up from the picker, but stays a choice there, chosen in Settings › AI › Organize
+  // and Tags.
+  await acceptPlainTextKeys(window);
+  await window.evaluate(
+    (input) =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveJevSettings(input),
+    { apiKey: JEV_KEY, endpoint: jev.url },
+  );
   const settings = await openSettings(window, "ai");
   const { picker } = organizeRow(settings);
-  await picker.selectOption("set-up:jev");
-  const form = settings.getByTestId("jev-sorting-set-up").getByTestId("jev-form");
-  await form.getByLabel("Jev API key").fill(JEV_KEY);
-  await form.getByText("Server, model and threshold").click();
-  await form.getByLabel("Server URL (optional)").fill(jev.url);
-  await expect(form.getByLabel("Suggest from (%)")).toHaveValue("35");
-  await acceptPlainTextKeys(window, form);
-  await form.getByTestId("jev-save").click();
-  await expect(form).toHaveCount(0);
+  await picker.selectOption(JSON.stringify({ kind: "jev" }));
   await expect(picker.locator("option:checked")).toHaveText(/TypeSafe Jev/);
   await closeSettings(window);
 

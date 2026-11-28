@@ -21,6 +21,7 @@ import {
   leaveText,
   openFolderInLibrary,
   openSettings,
+  organizeWithChatModel,
   placeAssistant,
   pointAndClick,
   pointAt,
@@ -43,31 +44,28 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-/** Settings › AI's jobs, with Organize and Tags' "Other model…" open under its row (#2835). */
-async function taggingSettings(window: Page) {
-  const settings = await openSettings(window, "ai");
-  const jobs = settings.getByTestId("ai-jobs");
-  await jobs.getByTestId("models-sorting").selectOption("set-up:other");
-  await expect(jobs.getByTestId("tagging-other-form")).toBeVisible();
-  return jobs;
+/**
+ * A sorting model a profile chose before #3767 with "Other model…", which is no longer offered:
+ * saved as that form saved it, the switch for new Documents left as it was.
+ */
+async function sortWith(window: Page, classifier: unknown): Promise<void> {
+  await window.evaluate(async (chosen) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({
+      ...settings,
+      classifier: chosen as typeof settings.classifier,
+    });
+  }, classifier);
 }
 
-/** "Other model…": fills in a model the picker doesn't list, and uses it. */
-async function chooseOtherModel(section: Locator, fill: (form: Locator) => Promise<void>) {
-  const form = section.getByTestId("tagging-other-form");
-  await fill(form);
-  await form.getByRole("button", { name: "Use this model", exact: true }).click();
-  await expect(form).toHaveCount(0);
-}
-
-async function turnOffAutomaticSorting(settings: Locator) {
-  const automatic = settings.getByRole("switch", {
-    name: /^Sort and tag new Documents as they arrive/,
-  });
-  await expect(automatic).toBeChecked();
-  await automatic.click();
-  await expect(automatic).not.toBeChecked();
-}
+/** The classifier the Library sorts with now. */
+const classifierOf = (window: Page) =>
+  window.evaluate(
+    async () =>
+      (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getLibrary())
+        .settings.classifier,
+  );
 
 const makeFolders = async (
   window: Page,
@@ -244,22 +242,7 @@ test("Organize proposes a Folder that Confirm files, keeps the User's correction
     await dismissChatSetup(window);
     await connectLocalChatModel(window, "main-chat");
     await makeFolders(window, [{ name: "Research", description: "Research papers and reports" }]);
-    const settings = await taggingSettings(window);
-    const providerId = await window.evaluate(
-      async () =>
-        (
-          await (
-            globalThis as unknown as { incarnamind: CoreBridge }
-          ).incarnamind.listChatProviders()
-        )[0]?.id,
-    );
-    if (!providerId) throw new Error("No provider");
-    await chooseOtherModel(settings, async (form) => {
-      await form.getByLabel("Connection", { exact: true }).selectOption(providerId);
-      await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
-    });
-    await turnOffAutomaticSorting(settings);
-    await closeSettings(window);
+    await organizeWithChatModel(window, "small-classifier");
     const path = join(sources, "Research notes.txt");
     await writeFile(path, "Research report about membrane separation and water filtration.");
     await addDocuments(window, [path]);
@@ -318,10 +301,10 @@ test("Organize proposes a Folder that Confirm files, keeps the User's correction
     const library = reopened.window.getByTestId("library");
     const row = rowOf(section(library, "Not in a Folder"), "Research notes");
     await expect(row.getByTestId("document-tags")).toContainText("Invoice");
-    const settings = await taggingSettings(reopened.window);
-    await expect(settings.getByLabel("Model name", { exact: true })).toHaveValue(
-      "small-classifier",
-    );
+    expect(await classifierOf(reopened.window)).toMatchObject({
+      kind: "chat",
+      choice: { modelId: "small-classifier" },
+    });
   } finally {
     await reopened.app.close();
   }
@@ -333,22 +316,7 @@ test("⌘Z takes Organize's Confirm back and ⇧⌘Z files them again in one ste
     await dismissChatSetup(window);
     await connectLocalChatModel(window, "main-chat");
     await makeFolders(window, [{ name: "Research", description: "Research papers and reports" }]);
-    const settings = await taggingSettings(window);
-    const providerId = await window.evaluate(
-      async () =>
-        (
-          await (
-            globalThis as unknown as { incarnamind: CoreBridge }
-          ).incarnamind.listChatProviders()
-        )[0]?.id,
-    );
-    if (!providerId) throw new Error("No provider");
-    await chooseOtherModel(settings, async (form) => {
-      await form.getByLabel("Connection", { exact: true }).selectOption(providerId);
-      await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
-    });
-    await turnOffAutomaticSorting(settings);
-    await closeSettings(window);
+    await organizeWithChatModel(window, "small-classifier");
     const names = ["Research notes A", "Research notes B", "Research notes C"];
     const paths: string[] = [];
     for (const name of names) {
@@ -593,7 +561,7 @@ test("Organize's Review and Confirm's line say what they do, in English and Chin
   }
 });
 
-test("onboarding offers starter folders, and Organize with no model chosen opens its settings, in Chinese", async () => {
+test("onboarding offers starter folders, and Organize with no AI says it needs the User's AI, whose Connect opens Settings › AI, in Chinese (#3767)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
   try {
     await window.keyboard.press("ControlOrMeta+k");
@@ -608,10 +576,12 @@ test("onboarding offers starter folders, and Organize with no model chosen opens
     await window.getByTestId("library").getByRole("button", { name: "添加所选文件夹" }).click();
     await expect(sidebarFolder(window, "研究论文").getByTestId("folder-row")).toBeVisible();
     await pointAndClick(window, organize(window.getByTestId("library")));
-    const needs = window.getByTestId("library-organize-needs-model");
-    await expect(needs).toContainText("选好 AI 模型，就能整理文档。");
-    await needs.getByRole("button", { name: "去设置选模型" }).click();
-    await expect(window.getByTestId("model-default-row-sorting")).toBeVisible();
+    const needs = window.getByTestId("library-organize-needs-ai");
+    await expect(needs).toContainText("整理需要你的 AI");
+    const connect = needs.getByTestId("library-organize-connect-ai");
+    await expect(connect).toHaveText("连接你的 AI");
+    await connect.click();
+    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await expect(needs).toHaveCount(0);
   } finally {
     await app.close();
@@ -734,15 +704,10 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     });
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
-    let settings = await taggingSettings(window);
-    await chooseOtherModel(settings, async (form) => {
-      await form.getByLabel("Connection", { exact: true }).selectOption("auto");
-      await expect(form.getByLabel("Model name", { exact: true })).toHaveCount(0);
-      await form
-        .getByLabel("Local Ollama address", { exact: true })
-        .fill(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    await sortWith(window, {
+      kind: "auto",
+      baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     });
-    await closeSettings(window);
     await pointAndClick(window, organize(library));
     const notes = rowOf(library, "Research notes");
     const scan = rowOf(library, "Scanned diagram");
@@ -808,24 +773,6 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
         : "tev1:4b · Text",
     );
     await organized(scan, /Clef-Flash/);
-    // Explicit Clef override can include or omit PDF images; the choice persists.
-    settings = await taggingSettings(window);
-    const form = settings.getByTestId("tagging-other-form");
-    await expect(form.getByLabel("Connection", { exact: true })).toHaveValue("auto");
-    const images = form.getByRole("switch", { name: /Up to 3 PDF page images/ });
-    await chooseOtherModel(settings, async () => {
-      await form.getByLabel("Connection", { exact: true }).selectOption("ollama");
-      await form.getByLabel("Model name", { exact: true }).fill("clef-flash");
-      await images.check();
-    });
-    await closeSettings(window);
-    settings = await taggingSettings(window);
-    await expect(images).toBeChecked();
-    await chooseOtherModel(settings, () => images.uncheck());
-    await closeSettings(window);
-    settings = await taggingSettings(window);
-    await expect(images).not.toBeChecked();
-    await closeSettings(window);
   } finally {
     await app.close();
     server.closeAllConnections();

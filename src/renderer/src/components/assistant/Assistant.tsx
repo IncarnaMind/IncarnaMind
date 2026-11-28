@@ -28,7 +28,6 @@ import { AssistantFoldedContext } from "../../editor/mindContext";
 import { dialogOrMenuOpen } from "../../escapeDismiss";
 import { useT } from "../../i18n";
 import { useAssistantWaiting } from "../../mindStatus";
-import { useSettingUp } from "../../modelSetup";
 import { useKeyAsksOwnAi } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
 import {
@@ -42,7 +41,6 @@ import {
   PlusLineIcon,
 } from "../icons";
 import { HelpStrip } from "../meetings/HelpStrip";
-import { ModelSetupCard } from "../providers/ModelSetupCard";
 import { TaskTray } from "../TaskTray";
 import { useScrollFade } from "../useScrollFade";
 import { AssistantMenu } from "./AssistantMenu";
@@ -285,7 +283,6 @@ function AssistantMain({
   // in the Mind in focus once that Mind's editor is open, and of every Document until then.
   const seat = useComposer((state) => state.seat);
   const mind = seat !== null && seat.mindId === readMindId ? seat : null;
-  const settingUp = useSettingUp();
   const thread = useRef<HTMLDivElement>(null);
   useKeepInView(thread);
   useScrollFade(thread);
@@ -307,14 +304,9 @@ function AssistantMain({
       >
         <ConversationThread focusedMindId={mind?.mindId ?? null} focusedDoc={mind?.doc ?? null} />
       </div>
-      <div
-        ref={onComposerSlot}
-        data-testid="assistant-composer"
-        data-setup={settingUp || undefined}
-        className="assistant-composer"
-      >
+      <div ref={onComposerSlot} data-testid="assistant-composer" className="assistant-composer">
         <TaskTray mindId={mind?.mindId ?? null} />
-        {settingUp ? <ModelSetupCard /> : <Composer mind={mind} />}
+        <Composer mind={mind} />
       </div>
     </div>
   );

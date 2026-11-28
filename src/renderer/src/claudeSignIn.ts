@@ -6,7 +6,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import type { ClaudeAccountStatus, ClaudeSignInErrorKind } from "../../core/api";
-import { EXPERIMENTAL_SIGN_IN_ROUTES } from "../../core/buildFlags";
 import { catalogProvider } from "../../core/providers/catalog/providers";
 import { core } from "./core";
 import { errorMessage } from "./errors";
@@ -50,11 +49,6 @@ function load(): void {
 export function useClaudeAccount(): ClaudeAccountStatus | null {
   useEffect(load, []);
   return useClaudeSignIn((state) => state.status);
-}
-
-export function claudeSignInOffered(): boolean {
-  const status = useClaudeSignIn.getState().status;
-  return EXPERIMENTAL_SIGN_IN_ROUTES && status?.account.state !== "signed-in";
 }
 
 // A newer sign-in replaces one still waiting, which then ends as cancelled and must say nothing.

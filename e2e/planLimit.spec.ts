@@ -11,7 +11,6 @@ import {
 import {
   addDocuments,
   assistantAnswers,
-  closeSettings,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -31,8 +30,8 @@ import {
  * with it, and the model chip says which model answers, until when. The
  * limits last the session: reopened, the app says "for now". Tagging or
  * Organize that meets the plan's limit waits: one line in the sidebar says
- * until when, with Use an API key instead, and the work goes on by itself at
- * the reset. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots,
+ * until when, with no way to a key, which is no longer added in IncarnaMind
+ * (#3767), and the work goes on by itself at the reset. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots,
  * narrow and wide, in English and Chinese.
  */
 
@@ -243,7 +242,7 @@ async function invoices(sources: string, names: readonly string[]): Promise<stri
   return paths;
 }
 
-test("tagging that meets the plan's limit waits: one line says until when, with Use an API key instead, and tagging goes on by itself at the reset, in English and Chinese", async () => {
+test("tagging that meets the plan's limit waits: one line says until when, with no way to a key, and tagging goes on by itself at the reset, in English and Chinese", async () => {
   test.setTimeout(120_000);
   const openai = await createFakeOpenAI();
   openai.reply = { kind: "answer", text: JSON.stringify({ tags: [] }) };
@@ -287,26 +286,22 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
       /\. Tagging and Organize wait for it to reset, then go on by themselves\.$/,
     );
     await expect(footer.getByTestId("status-more")).toHaveCount(0);
-    const useKey = paused.getByTestId("tagging-paused-use-key");
-    await expect(useKey).toHaveText("Use an API key instead");
-    // At the narrowest window it wraps inside the sidebar, its action whole.
+    // A key is no longer added in IncarnaMind (#3767): the line offers no way to one.
+    await expect(paused.getByTestId("tagging-paused-use-key")).toHaveCount(0);
+    // At the narrowest window it wraps inside the sidebar, its words whole.
     const row = await footer.boundingBox();
-    const action = await useKey.boundingBox();
-    if (!row || !action) throw new Error("The plan's line isn't visible.");
-    expect(action.x + action.width).toBeLessThanOrEqual(row.x + row.width);
+    const words = await paused.getByTestId("status-label").boundingBox();
+    if (!row || !words) throw new Error("The plan's line isn't visible.");
+    expect(words.x + words.width).toBeLessThanOrEqual(row.x + row.width);
     await planLineShots(app, window, "tagging-limit-en");
 
     await setLanguage(window, "zh-CN");
     await expect(paused.getByTestId("status-label")).toHaveText(
       new RegExp(`^ChatGPT 订阅额度已用完，.*:${minutesOf(resets)}.* 恢复$`),
     );
-    await expect(useKey).toHaveText("改用 API 密钥");
+    await expect(paused).not.toContainText("API 密钥");
     await planLineShots(app, window, "tagging-limit-zh");
-
-    await pointAndClick(window, useKey);
-    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await setLanguage(window, "en");
-    await closeSettings(window);
 
     // Nothing more is sent while it waits; at the reset, tagging goes on by itself.
     const sent = () => openai.responses().filter((request) => request.body.model === LUNA);

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { openDatabase } from "../src/core/storage";
-import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
+import { createFakeOpenAI } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
   assistantAnswers,
@@ -11,14 +11,12 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
-  interceptOpenExternal,
   launchApp,
   newMind,
-  openDirectoryEntry,
   openSettings,
   removeDataFolder,
   setWindowSize,
-  urlsOpened,
+  signInWithChatGpt,
 } from "./app";
 
 /*
@@ -310,22 +308,15 @@ test("Settings › AI shows what a key spent this month, and the ChatGPT plan ke
     await bridge(window).language("en");
     await settings.getByTestId("models-back").click();
 
-    // Signed in with ChatGPT and using the plan: its line names the plan, never a price.
-    await interceptOpenExternal(app);
-    await openDirectoryEntry(settings, "plan:chatgpt");
+    // Signed in with ChatGPT and using the plan: its line names the plan, never a price. The plan
+    // is no longer added in IncarnaMind (#3767): a profile from before has it.
+    await signInWithChatGpt(app, window, openai);
+    await settings.getByTestId("provider-row").filter({ hasText: "ChatGPT plan" }).click();
+    await expect(settings.getByTestId("provider-page-title")).toHaveText("ChatGPT plan");
     const plan = settings.getByTestId("chatgpt-settings");
-    await plan.getByTestId("chatgpt-continue").click();
-    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-    const [authorize] = await urlsOpened(app);
-    expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
-    await window.getByTestId("chatgpt-welcome-ok").click();
-    await plan.getByTestId("chatgpt-use").click();
     await expect(plan.getByTestId("chatgpt-in-use")).toHaveText(
       "Using ChatGPT plan · Manage usage ↗",
     );
-    await settings.getByTestId("models-back").click();
-    await settings.getByTestId("provider-row").filter({ hasText: "ChatGPT plan" }).click();
-    await expect(settings.getByTestId("provider-page-title")).toHaveText("ChatGPT plan");
     await expect(settings.getByTestId("chat-provider-cost")).toHaveCount(0);
     await plan.scrollIntoViewIfNeeded();
     await shot(window, "models-plan-narrow-en");

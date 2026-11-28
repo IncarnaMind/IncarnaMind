@@ -18,8 +18,8 @@ const close = () => useOrganizeAsk.getState().close();
 /**
  * What Organize asks before it runs, at the Library's top where its run is said (#1569): the first
  * time a cloud service would read the Documents, what goes there, with "Allow and organize" and
- * "Not now" (ADR-0022); with no model that can organize, how to get one. Not now sends nothing
- * and records nothing.
+ * "Not now" (ADR-0022); with no AI that can organize, the way to connect one: no model is set
+ * up here (#3767). Not now sends nothing and records nothing.
  */
 export function OrganizeAsk() {
   const asked = useOrganizeAsk((state) => state.asked);
@@ -35,11 +35,7 @@ export function OrganizeAsk() {
 function ChooseOrganizer({ target }: { target: OrganizeTarget }) {
   const choice = useOrganizeAgents(target);
   if (!choice) return null;
-  return choice.connected ? (
-    <AskOwnAgent agents={choice.eligible} target={target} />
-  ) : (
-    <NeedsModel />
-  );
+  return choice.connected ? <AskOwnAgent agents={choice.eligible} target={target} /> : <NeedsAi />;
 }
 
 function Card({
@@ -155,26 +151,26 @@ function AskOwnAgent({
   );
 }
 
-function NeedsModel() {
+function NeedsAi() {
   const t = useT();
   const title = useId();
   return (
-    <Card testId="library-organize-needs-model" labelledBy={title}>
+    <Card testId="library-organize-needs-ai" labelledBy={title}>
       <p id={title} className="text-ink">
-        {t("library.organize.needsModel")}
+        {t("library.organize.needsAi")}
       </p>
       <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
         <NotNow />
         <button
           type="button"
-          data-testid="library-organize-set-up"
+          data-testid="library-organize-connect-ai"
           onClick={() => {
             close();
-            useAppStore.getState().openSettings("ai", "tagging");
+            useAppStore.getState().openSettings("ai");
           }}
           className={buttonStyle("secondary", "sm")}
         >
-          {t("library.organize.setUp")}
+          {t("agents.install.connectYourAi")}
         </button>
       </div>
     </Card>

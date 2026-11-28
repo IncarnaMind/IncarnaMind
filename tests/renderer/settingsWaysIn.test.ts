@@ -98,19 +98,17 @@ describe("a way that sets up or fixes a model", () => {
     ]);
   });
 
-  test("a plan's way back by a key, the assistant's “your keys” and a readiness to fix open it too", () => {
-    const opened: unknown[][] = [];
-    wayBackRun("claude-account", "paste-api-key", {
-      onOpenSettings: (...args) => opened.push(args),
-    })?.();
-    expect(opened).toEqual([["ai", "model"]]);
+  test("the assistant's “your keys” and a readiness to fix open it; with none set up, the page's top, where the User's AI connects, and no key is offered (#3767)", () => {
+    expect(wayBackRun("claude-account", "paste-api-key", { onOpenSettings: () => undefined })).toBe(
+      undefined,
+    );
     expect(yoursWordsOf("keys").opens).toEqual({ settings: "ai", at: "model" });
     expect(yoursWordsOf("spending").opens).toEqual({ settings: "ai", at: "spending-cap" });
 
     const readiness = (reason: string) =>
       ({ ready: false, reason }) as Extract<ChatReadiness, { ready: false }>;
     for (const [reason, landing] of [
-      ["no-provider", ["ai", "model"]],
+      ["no-provider", ["ai"]],
       ["missing-api-key", ["ai", "model"]],
       ["consent-declined", ["privacy", undefined]],
     ] as const) {

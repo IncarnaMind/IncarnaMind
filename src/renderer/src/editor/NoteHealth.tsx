@@ -24,6 +24,7 @@ import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
@@ -423,10 +424,12 @@ export function HealthCard({
           testId="checks-problem"
           className="mind-health-line"
           action={{
-            label: t("checks.problem.chooseModel"),
+            label: t("localMode.turnOff"),
             onClick: () => {
               dismissCheckProblem(mindId);
-              openSettings("ai", "model");
+              void turnOffLocalMode().catch((error: unknown) =>
+                useAppStore.getState().reportError(error),
+              );
             },
           }}
         >

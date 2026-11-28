@@ -6,7 +6,6 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   ANTHROPIC_KEY,
   acceptPlainTextKeys,
-  askFirstQuestion,
   askInAssistant,
   boxOf,
   coreOf,
@@ -15,6 +14,7 @@ import {
   interceptOpenDialog,
   launchApp,
   motionSettled,
+  newMind,
   openFolderInLibrary,
   paletteOffers,
   placeAssistant,
@@ -1090,9 +1090,10 @@ for (const dock of ["right", "left", "bottom", "float"] as const) {
 
 test("⌘K does not offer Add files to the chat while no chat box is drawn", async () => {
   const { app, window } = await launchApp(dataDir);
-  // With no model set, the first Question puts the model's setup card where the box was.
-  await askFirstQuestion(window);
-  await expect(window.getByTestId("composer")).toHaveCount(0);
+  // With no model and no AI of the User's, a Note shows no chat box (#3767).
+  await newMind(window);
+  await expect(window.getByTestId("note-ask-no-ai")).toBeVisible();
+  await expect(window.getByTestId("composer")).toBeHidden();
   expect(await paletteOffers(window, "composer.addFiles", "add files to the chat")).toBe(0);
   await app.close();
 });

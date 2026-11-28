@@ -6,8 +6,6 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
-  newMind,
-  openPlanPage,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -89,48 +87,6 @@ test("offering agents leaves the listener off until the User enables it", async 
     expect(await agentSocketAnswers(socket)).toBe(true);
     await bridge.evaluate((core) => core.setAgentsEnabled(false));
     expect(await agentSocketAnswers(socket)).toBe(false);
-  } finally {
-    await app.close();
-  }
-});
-
-test("the model setup keeps its Claude app shortcut separate from Your AI, in English and Chinese", async () => {
-  const { app, window } = await launchApp(dataDir);
-  try {
-    await setWindowSize(app, window, 1600, 900);
-    const leadsToAgents = {
-      en: ["Open Settings › AI", "Connect the Claude app", "Connect Antigravity"],
-      "zh-CN": ["打开“设置 › AI”", "连接 Claude 应用", "连接 Antigravity"],
-    } as const;
-    await newMind(window);
-    await window.getByTestId("mind-editor").click();
-    await window.keyboard.press("ControlOrMeta+j");
-    await window.keyboard.type("What is in my Documents?");
-    await window.keyboard.press("Enter");
-    const card = window.getByTestId("model-setup");
-    await card.getByTestId("setup-other").click();
-    await expect(card.getByTestId("way-local")).toBeVisible();
-    for (const language of ["en", "zh-CN"] as const) {
-      await setLanguage(window, language);
-      await expect(card.getByTestId("setup-other")).toHaveText(
-        language === "en" ? "Other ways" : "其他方式",
-      );
-      await expect(card.getByTestId("setup-claude")).toHaveCount(0);
-      for (const name of leadsToAgents[language]) {
-        await expect(window.getByRole("button", { name })).toHaveCount(0);
-      }
-    }
-    await setLanguage(window, "en");
-    await card.getByTestId("setup-later").click();
-    await expect(card).toBeHidden();
-
-    const plans = await openPlanPage(window, "chatgpt");
-    for (const language of ["en", "zh-CN"] as const) {
-      await setLanguage(window, language);
-      await expect(plans.getByTestId("chatgpt-continue")).toHaveText(
-        language === "en" ? "Continue with ChatGPT" : "使用 ChatGPT 继续",
-      );
-    }
   } finally {
     await app.close();
   }

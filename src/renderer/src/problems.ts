@@ -18,13 +18,13 @@ import type { SettingsPage, SettingsTarget } from "./settingsPages";
 /**
  * What a failed Answer says, and the one thing it offers (DESIGN.md,
  * Problems): its line, and either a page of Settings to fix it on, trying
- * again, a page of the provider's own, signing in again, getting a model
- * on this computer, or nothing when none would help.
+ * again, a page of the provider's own, signing in again, letting cloud
+ * models answer again, or nothing when none would help.
  */
 export type AnswerFix =
   | { kind: "settings"; page: SettingsPage; at?: SettingsTarget; label: MessageKey }
   | { kind: "retry"; label: MessageKey }
-  | { kind: "local-model"; label: MessageKey }
+  | { kind: "local-mode"; label: MessageKey }
   /** `label` only where Ollama's app is here: `OllamaNotRunningLine` offers Get Ollama or Try again otherwise. */
   | { kind: "ollama"; label: MessageKey }
   /** A page of the provider's own, opened in the browser. */
@@ -66,10 +66,11 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   },
   // Turned off on purpose: nothing to fix, and asking again asks for consent as usual.
   "consent-revoked": { line: "answer.error.consent-revoked", fix: { kind: "none" } },
-  // Stopped by local mode: a model on this computer can write it.
+  // Stopped by local mode: allowing cloud models again lets it answer; a model on this computer is
+  // no longer set up here (#3767).
   "local-mode": {
     line: "answer.error.local-mode",
-    fix: { kind: "local-model", label: "answer.error.useLocal" },
+    fix: { kind: "local-mode", label: "localMode.turnOff" },
   },
   "ollama-not-running": {
     line: "answer.error.ollama-not-running",
