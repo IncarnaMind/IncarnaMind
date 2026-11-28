@@ -9,11 +9,9 @@ import {
   focusSettled,
   launchApp,
   openMeetingSheet,
-  openPageMenu,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
-  reviewedWords,
   runCommand,
   setLanguage,
   setWindowSize,
@@ -30,7 +28,7 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-test("a meeting's ⌘K views retain its editor under the Transcript sheet; assistant return and page Review changes fold the sheet before focusing the notes", async () => {
+test("a meeting's ⌘K views retain its editor under the Transcript sheet, also after an AI edit; assistant return folds the sheet before focusing the notes", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 900, 660);
   await dismissChatSetup(window);
@@ -228,48 +226,12 @@ test("a meeting's ⌘K views retain its editor under the Transcript sheet; assis
     await askToChange(window, "replace strong with powerful");
     const edited = original.replace("strong", "powerful");
     await expect(paragraph).toHaveText([edited]);
-    await expect(editor.getByTestId("applied-review")).toBeVisible();
-    const beforeReview = await noteState();
+    await expect(editor.getByTestId("applied-undo")).toBeVisible();
+    const afterEdit = await noteState();
     await runCommand(window, "meeting.showTranscript", "Show the Transcript");
     await expect(transcript).toBeVisible();
-    expect(await noteState()).toEqual(beforeReview);
-    const menu = await openPageMenu(window);
-    await expect(menu.getByTestId("page-review-changes")).toHaveText("Review changes");
-    await retained.evaluate(({ state }) => {
-      state.phase = "review";
-    });
-    await pointAndClick(window, menu.getByTestId("page-review-changes"));
-
-    await expect(editor).toBeFocused();
-    await expect(transcript).toHaveCount(0);
-    await expect(paragraph.locator("del.applied-old")).toHaveText(["strong"]);
-    await expect(paragraph.locator(".applied-new")).toHaveText(["powerful"]);
-    await expect(editor.getByTestId("change-restore")).toHaveText(["Restore original"]);
-    await expect.poll(() => reviewedWords(paragraph)).toBe(edited);
-    const afterReview = await noteState();
-    expect(afterReview.document).toEqual(beforeReview.document);
-    expect(afterReview.connected && afterReview.sameEditor).toBe(true);
-    expect(afterReview.selection.from).toBe(afterReview.selection.to);
-    expect(
-      await retained.evaluate(({ editor: held }) =>
-        held.state.doc.textBetween(0, held.state.selection.from),
-      ),
-    ).toBe("The tides here are very ");
-    expect(
-      await retained.evaluate(({ state }) =>
-        state.events.filter((event) => event.phase === "review"),
-      ),
-    ).toEqual([
-      {
-        phase: "review",
-        kind: "focus",
-        data: null,
-        visible: true,
-        transcriptVisible: false,
-        focused: true,
-        selection: afterReview.selection,
-      },
-    ]);
+    await expect(editor).toBeVisible();
+    expect(await noteState()).toEqual(afterEdit);
     await expectSameTab();
   } finally {
     await test.info().attach("native-focus-events", {

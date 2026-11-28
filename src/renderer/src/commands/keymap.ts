@@ -191,6 +191,10 @@ export function pressesShortcut(id: CommandId, event: Parameters<typeof pressed>
   return keys.some((each) => pressed(each, event, isMac));
 }
 
+/** Whether a key pressed is these keys on this system, for a place whose keys are no command's. */
+export const pressesKeys = (keys: ShortcutKeys, event: Parameters<typeof pressed>[1]): boolean =>
+  pressed(keysOn(keys, isMac), event, isMac);
+
 /** Keys as this system writes them. */
 export const keysHere = (keys: ShortcutKeys): string => keysLabel(keysOn(keys, isMac), isMac);
 

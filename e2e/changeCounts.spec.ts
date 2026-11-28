@@ -44,7 +44,7 @@ const RETOLD = [
   "Both follow the Moon's cycle.",
 ];
 
-test("a summary written anew as three paragraphs is 3 changed on the Mind's line, the Answer's card and Review changes, and Undo takes it back, in English and Chinese", async () => {
+test("a summary written anew as three paragraphs is 3 changed on the Mind's line and the Answer's card, and Undo takes it back, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -70,17 +70,6 @@ test("a summary written anew as three paragraphs is 3 changed on the Mind's line
   await expect(answer.getByTestId("mind-changes-title")).toHaveText("已修改“Summary”中的 3 段");
   await screenshot(window, "counts-written-anew-zh");
   await setLanguage(window, "en");
-
-  await pointAndClick(window, line.getByTestId("applied-review"));
-  await expect(line.getByTestId("applied-count")).toHaveText(
-    "3 paragraphs changed by the assistant",
-  );
-  await screenshot(window, "counts-written-anew-review-en");
-  await setLanguage(window, "zh-CN");
-  await expect(line.getByTestId("applied-count")).toHaveText("助手修改的 3 个段落");
-  await setLanguage(window, "en");
-  await pointAndClick(window, line.getByTestId("applied-done"));
-  await expect(paragraphs).toHaveText(RETOLD);
 
   await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
   await expect(paragraphs).toHaveText([SPRING, NEAP]);

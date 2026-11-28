@@ -191,7 +191,7 @@ test("a font this computer lacks is drawn with the nearest of its kind, and the 
 /** The Answer's ink, the AI grey (DESIGN.md, `ink-answer`). */
 const INK_ANSWER = "rgb(59, 64, 72)";
 
-test("a clause the User types takes the clause's look, and an AI change in a justified Book Antiqua clause is in its font and alignment, struck and underlined, its new words in the AI grey", async () => {
+test("a clause the User types takes the clause's look, and an AI change in a justified Book Antiqua clause is in its font and alignment, its new words in the AI grey", async () => {
   const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
@@ -222,21 +222,11 @@ test("a clause the User types takes the clause's look, and an AI change in a jus
   await expect(grey).toHaveText("held");
   await expect(grey).toHaveCSS("color", INK_ANSWER);
   expect(await fontOf(grey)).toMatch(/^"Book Antiqua"/);
+  expect(await grey.evaluate((element) => getComputedStyle(element).fontSize)).toBe(
+    await clause.evaluate((element) => getComputedStyle(element).fontSize),
+  );
   await expect(typed.locator(".generated-text")).toHaveCount(0);
-
-  await pointAndClick(window, editor.getByTestId("applied-line").getByTestId("applied-review"));
-  const removed = clause.locator("del.applied-old");
-  const added = clause.locator(".applied-new");
-  await expect(removed).toContainText("fixed");
-  await expect(added).toContainText("held");
-  for (const mark of [removed, added]) {
-    expect(await fontOf(mark)).toMatch(/^"Book Antiqua"/);
-    expect(await mark.evaluate((element) => getComputedStyle(element).fontSize)).toBe(
-      await clause.evaluate((element) => getComputedStyle(element).fontSize),
-    );
-  }
-  await expect(removed).toHaveCSS("text-decoration-line", "line-through");
-  await expect(added).toHaveCSS("text-decoration-line", "underline");
+  await expect(editor.getByTestId("applied-line").getByTestId("applied-undo")).toBeVisible();
   await expect(clause).toHaveCSS("text-align", "justify");
   if (SCREENSHOTS) {
     await motionSettled(window);

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -21,9 +22,8 @@ import {
 
 /*
  * Edit with AI (#93): select text, ask for a change from the selection menu
- * or with ⌘J, and it applies at once (#880), with a line over it: Undo and
- * Review changes, which shows the changes again in the note, each with its
- * own bar, by mouse and keyboard, with Undo. The scripted model (see
+ * or with ⌘J, and it applies at once (#880), with a line over it that says what
+ * it changed and has Undo, which ⌘Z does too. The scripted model (see
  * src/main/fakeChat/edit.ts) shortens by dropping "very" and "really" (非常),
  * and does what "replace X with Y" (把 X 换成 Y) says. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
@@ -71,7 +71,7 @@ async function selectWords(window: Page, line: Locator, words: string, more = 0)
   for (let index = 0; index < more; index++) await window.keyboard.press("Shift+ArrowRight");
 }
 
-test("Shorten applies at once; Review changes shows its two changes over the applied text with one Restore original for the paragraph, which ⌘Z takes back; the Citation is still checked", async () => {
+test("Shorten applies at once and the line names the paragraph it changed; ⌘Z takes it back; the Citation is still checked", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -113,28 +113,22 @@ test("Shorten applies at once; Review changes shows its two changes over the app
   await pointAndClick(window, menu.getByTestId("selection-action-shorten"));
   await expect(note).toContainText("The tides here are strong and regular");
   const line = editor.getByTestId("applied-line");
-  await expect(line.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
-  await expect(window.getByTestId("proposal-spoken")).toHaveText("Changed 1 paragraph");
-
-  // Review changes: what it removed, struck, over the text as it now is, and the cursor in the first change.
-  await pointAndClick(window, line.getByTestId("applied-review"));
-  const removed = note.locator("del.applied-old");
-  await expect(removed).toHaveText(["very ", "really "]);
-  await expect(removed.first()).toHaveCSS("text-decoration-line", "line-through");
-  const restores = note.getByTestId("change-restore");
-  await expect(restores).toHaveCount(1);
+  const changed = translate("en", "edit.applied.named", {
+    start: "The tides here are strong and…",
+  });
+  await expect(line.getByTestId("applied-count")).toHaveText(changed);
+  await expect(window.getByTestId("proposal-spoken")).toHaveText(changed);
+  await expect(note.locator("del")).toHaveCount(0);
+  // The Citation in the sentence is kept, and its quote still found.
+  await expect(note.getByTestId("citation")).toHaveCount(1);
+  await expect(note.getByTestId("citation")).toHaveAttribute("data-check", "found");
   await screenshot(window, "edit-changes-en");
 
-  await pointAndClick(window, restores);
-  await expect(removed).toHaveCount(0);
+  // Undo puts the words back, and the Citation with them.
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
   await expect(note).toContainText("The tides here are very strong and really regular");
   await expect(line).toHaveCount(0);
-  await expect(window.getByTestId("undo-message")).toHaveText("Restored the original");
-
-  // Undo puts the edit's words back.
-  await window.keyboard.press("ControlOrMeta+z");
-  await expect(note).toContainText("The tides here are strong and regular");
-  // The Citation in the sentence is kept, and its quote still found.
   await expect(note.getByTestId("citation")).toHaveCount(1);
   await expect(note.getByTestId("citation")).toHaveAttribute("data-check", "found");
 });
@@ -283,12 +277,15 @@ test("⌘J with text selected says what to change in the selection menu's field,
   await expect(note.locator(".generated-text")).toHaveText("准时");
   await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
   const line = editor.getByTestId("applied-line");
-  await expect(line.getByTestId("applied-count")).toHaveText("修改了 1 个段落");
+  const changed = translate("zh-CN", "edit.applied.named", {
+    start: "潮水每天非常准时地涨落两次。",
+  });
+  await expect(line.getByTestId("applied-count")).toHaveText(changed);
   await expect(line).toHaveAttribute("title", "原因：已按你的要求修改。");
-  await expect(window.getByTestId("proposal-spoken")).toHaveText("修改了 1 个段落");
+  await expect(window.getByTestId("proposal-spoken")).toHaveText(changed);
   await screenshot(window, "edit-applied-zh");
   // The line fits in the narrow window.
-  const box = await line.getByTestId("applied-review").boundingBox();
+  const box = await line.getByTestId("applied-undo").boundingBox();
   expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(900);
 
   await editor.focus();
@@ -300,7 +297,9 @@ test("⌘J with text selected says what to change in the selection menu's field,
   await selectWords(window, note, "潮水每天非常规律地涨落两次。");
   await pointAndClick(window, window.getByTestId("selection-action-shorten"));
   await expect(note).toHaveText("潮水每天规律地涨落两次。");
-  await expect(line.getByTestId("applied-count")).toHaveText("修改了 1 个段落");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    translate("zh-CN", "edit.applied.named", { start: "潮水每天规律地涨落两次。" }),
+  );
 
   // Translate… asks for the language beside it. A text the model gives back as it was (the
   // scripted model only capitalises) says so where its Undo line would land, and changes nothing.
@@ -389,12 +388,19 @@ test("⌘J's change streams in and applies paragraph by paragraph, with Writing�
   await expect(paragraphs.nth(2)).toHaveText(
     "Harbours are very busy in the spring and really quiet in winter.",
   );
-  await expect(line.getByTestId("applied-count")).toHaveText(/^Changed \d+ paragraphs?$/);
+  const stopped = translate("en", "edit.applied.named", {
+    start: "The tides here are strong and…",
+  });
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    new RegExp(`^(?:${stopped}|Changed \\d+ paragraphs)$`),
+  );
 
   // The next edit, asked right after Stop, has its own Undo: the stopped one's stays its own.
   await ask("replace tides with waves");
   await expect(paragraphs.first()).toHaveText("The waves here are strong and regular.");
-  await expect(line.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    translate("en", "edit.applied.named", { start: "The waves here are strong and…" }),
+  );
   await editor.focus();
   await window.keyboard.press("ControlOrMeta+z");
   await expect(paragraphs.first()).toHaveText("The tides here are strong and regular.");

@@ -208,16 +208,9 @@ function NoteSurface({ editor }: { editor: Editor }) {
   });
 }
 
-async function flushFrame() {
-  const pending = [...frames.values()];
-  frames.clear();
-  await act(async () => {
-    for (const frame of pending) frame(0);
-  });
-}
-
-test("Review changes reveals this tab's Note before focusing its retained editor", async () => {
-  const { applyArrived, offersReview } = await import("../../src/renderer/src/appliedEdits");
+// protects=an AI's change to a Note is written at once and the Note's menu offers nothing to review; fails_when=a Review changes item comes back in the menu after an applied change
+test("after an AI's change the Note's menu has no Review changes", async () => {
+  const { applyArrived } = await import("../../src/renderer/src/appliedEdits");
   const { editor, doc } = noteWithAppliedEdit();
   expect(
     applyArrived(editor, MIND, new Set(["request"]), {
@@ -227,22 +220,7 @@ test("Review changes reveals this tab's Note before focusing its retained editor
       tables: 0,
     }),
   ).toBe("applied");
-  expect(offersReview(editor)).toBe(true);
-  showMeetingNoteView(TAB, MIND, "transcript");
-  showMeetingNoteView("other-tab", MIND, "transcript");
-  const focused: { view: string; hidden: boolean }[] = [];
-  const reviewed: { view: string; hidden: boolean }[] = [];
-  editor.on("transaction", () => {
-    if (appliedLineIn(editor.state)?.kind !== "review" || reviewed.length > 0) return;
-    const surface = container.querySelector<HTMLElement>('[data-testid="note-surface"]');
-    if (!surface) throw new Error("The Note surface is missing");
-    reviewed.push({ view: meetingNoteViewFor(TAB, MIND), hidden: surface.hasAttribute("hidden") });
-  });
-  vi.spyOn(editor.view, "focus").mockImplementation(() => {
-    const surface = container.querySelector<HTMLElement>('[data-testid="note-surface"]');
-    if (!surface) throw new Error("The Note surface is missing");
-    focused.push({ view: meetingNoteViewFor(TAB, MIND), hidden: surface.hasAttribute("hidden") });
-  });
+  expect(appliedLineIn(editor.state)?.kind).toBe("applied");
   await act(async () => {
     root?.render(
       createElement(
@@ -254,27 +232,15 @@ test("Review changes reveals this tab's Note before focusing its retained editor
           mindId: MIND,
           verification: null,
           readOnly: false,
-          revealEditor: () => flushSync(() => showMeetingNoteView(TAB, MIND, "notes")),
+          revealEditor: () => undefined,
         }),
         createElement(NoteSurface, { editor }),
       ),
     );
   });
-  frames.clear();
-  const button = container.querySelector('[data-testid="page-review-changes"]');
-  if (!button) throw new Error("Review changes is missing");
-  await act(async () => {
-    button.dispatchEvent(new window.Event("click", { bubbles: true }));
-  });
-  expect(ui.close).toHaveBeenCalledOnce();
-  expect(meetingNoteViewFor(TAB, MIND)).toBe("transcript");
-  expect(appliedLineIn(editor.state)?.kind).toBe("applied");
-  await flushFrame();
-  await flushFrame();
-  expect(appliedLineIn(editor.state)?.kind).toBe("review");
-  expect(reviewed).toEqual([{ view: "notes", hidden: false }]);
-  expect(focused).toEqual([{ view: "notes", hidden: false }]);
-  expect(meetingNoteViewFor("other-tab", MIND)).toBe("transcript");
+  expect(container.querySelector('[data-testid="page-style"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="page-review-changes"]')).toBeNull();
+  expect(container.textContent).not.toContain("Review changes");
 });
 
 test("Review their changes reveals the Note before opening its imported-Word review pane", async () => {

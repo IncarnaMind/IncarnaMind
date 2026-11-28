@@ -182,7 +182,7 @@ export function planChanges(
         const beside = besideStaying(doc, proposal.from, requests, accepted);
         if (beside === undefined) {
           console.warn(
-            `Review changes can't place Block ${proposal.id} of request ${proposal.request}, taken out with everything beside it: it won't show there.`,
+            `The applied line can't place Block ${proposal.id} of request ${proposal.request}, taken out with everything beside it: it won't count there.`,
           );
           return [];
         }
@@ -232,7 +232,7 @@ export function planChanges(
     });
 }
 
-/** The planned changes as `appliedEditLine` keeps them, once applied, for Review changes. */
+/** The planned changes as `appliedEditLine` keeps them, once applied, to count and place its line. */
 export function anchorChanges(state: EditorState, planned: readonly Planned[]): ChangePlace[] {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return [];

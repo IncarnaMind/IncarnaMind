@@ -3393,19 +3393,6 @@ export async function wordsBox(line: Locator, words: string, nth = 1) {
   return box;
 }
 
-/** A paragraph's words as the User reads them, without Review changes' struck old words or buttons. */
-export const reviewedWords = (paragraph: Locator) =>
-  paragraph.evaluate((node) => {
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    let words = "";
-    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
-      if (!each.parentElement?.closest(".applied-old, [contenteditable='false']")) {
-        words += each.textContent ?? "";
-      }
-    }
-    return words;
-  });
-
 /**
  * Returns once ProseMirror has settled its selection with the page after the editor got the
  * focus. 20 ms after the focus it puts its own selection back into the page if the page's has
@@ -4518,10 +4505,39 @@ export async function leaveText(window: Page): Promise<void> {
 }
 
 /**
+ * Waits for the tab strip's row to stand still. A Note's sentences are counted 300 ms after the
+ * last key, and the Check that then comes into the row can cost Export its word (#3765): a person
+ * aims at Export once it has settled.
+ */
+async function stripSettled(window: Page): Promise<void> {
+  let last = "";
+  let same = 0;
+  await expect
+    .poll(
+      async () => {
+        const now = await window.evaluate(() =>
+          [...document.querySelectorAll('[data-testid="tab-strip"] button')]
+            .map((each) => {
+              const box = each.getBoundingClientRect();
+              return `${Math.round(box.left)},${Math.round(box.width)}`;
+            })
+            .join(" "),
+        );
+        same = now === last ? same + 1 : 0;
+        last = now;
+        return same;
+      },
+      { intervals: [200] },
+    )
+    .toBeGreaterThanOrEqual(2);
+}
+
+/**
  * Exports the Mind in the shown tab from Export's menu: in `format`, or in the
  * one it lists first, the last one used.
  */
 export async function exportFromMenu(window: Page, format?: ExportFormat): Promise<void> {
+  await stripSettled(window);
   const menu = window.getByTestId("export-menu");
   const more = pageMenuButton(window);
   // A strip too tight for Export keeps it in the Note's ⋯ (#3765).
@@ -4562,6 +4578,7 @@ export async function exportFromMenu(window: Page, format?: ExportFormat): Promi
 
 /** Export's More formats › menu for the Mind in the shown tab, opened as a person opens it. */
 export async function openExportMore(window: Page): Promise<Locator> {
+  await stripSettled(window);
   await pointAndClick(window, window.getByTestId("export-mind"));
   const menu = window.getByTestId("export-menu");
   await expect(menu).toBeVisible();
@@ -4896,10 +4913,12 @@ export function controlReads(
 
 /**
  * A window picture for the pull request's before and after, where `INCARNAMIND_SCREENSHOTS`
- * names a folder: motion settled first, so nothing is caught moving.
+ * names a folder, or with the test's results where they are kept (Run named specs): motion
+ * settled first, so nothing is caught moving.
  */
 export async function capture(window: Page, name: string): Promise<void> {
-  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  const kept = KEEP_ARTIFACTS ? test.info().outputPath("shots") : undefined;
+  const folder = process.env.INCARNAMIND_SCREENSHOTS ?? kept;
   if (!folder) return;
   await motionSettled(window);
   await window.screenshot({ path: join(folder, `${name}.png`) });
