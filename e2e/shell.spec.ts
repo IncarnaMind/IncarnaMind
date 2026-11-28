@@ -72,29 +72,59 @@ async function boxOf(locator: Locator) {
 }
 
 /**
- * Each row's icon and text, from the sidebar's left edge, and its depth: all
- * read at one moment, as rows come in while a folder is indexed, and a row
- * read a piece at a time could be another row by its next piece.
+ * Each row's icon before its text (null when it has none, as a Note's or a
+ * Document's row), its text, from the sidebar's left edge, its depth, and
+ * whether it ends with a Document's page mark: all read at one moment, as
+ * rows come in while a folder is indexed, and a row read a piece at a time
+ * could be another row by its next piece.
  */
 async function rowEdges(sidebar: Locator, rows: Locator) {
   const left = (await boxOf(sidebar)).x;
   return rows.evaluateAll(
     (elements, from) =>
       elements.map((row) => {
-        const icon = row.querySelector("svg");
         const text = row.querySelector('[data-testid="row-text"]');
         const range = document.createRange();
         if (text) range.selectNodeContents(text);
         const first = text ? range.getClientRects()[0] : undefined;
-        if (!icon || !first) throw new Error("A row has no icon or no text.");
+        if (!first) throw new Error("A row has no text.");
+        // The row's own line: a Folder's row holds its children's rows below it.
+        const onLine = (element: Element) => {
+          const box = element.getBoundingClientRect();
+          return box.bottom > first.top && box.top < first.bottom;
+        };
+        const icon = [...row.querySelectorAll("svg")].find(
+          (each) => onLine(each) && each.getBoundingClientRect().right <= first.left,
+        );
+        const mark = [...row.querySelectorAll('[data-testid="row-file-mark"]')].find(onLine);
         return {
-          icon: icon.getBoundingClientRect().x - from,
+          icon: icon ? icon.getBoundingClientRect().x - from : null,
           text: first.left - from,
           depth: Number(row.getAttribute("data-depth") ?? "0"),
+          kind: row.getAttribute("data-testid") ?? "",
+          fileMark: mark ? mark.getBoundingClientRect().left - first.left : null,
         };
       }),
     left,
   );
+}
+
+/**
+ * A Folder's row puts its icon at x 16 and its text at x 40; a Note's or a Document's row is its
+ * name alone, at x 16, so one in a Folder sits under the Folder's name (#3766). Each level is
+ * 24px deeper. A Document's row ends with its page mark, after its name.
+ */
+function expectEdges(edge: Awaited<ReturnType<typeof rowEdges>>[number]): void {
+  const indent = edge.depth * 24;
+  if (edge.kind === "mind-list-item" || edge.kind === "document-list-item") {
+    expect(edge.icon, edge.kind).toBeNull();
+    expect(edge.text).toBeCloseTo(16 + indent, 0);
+  } else {
+    expect(edge.icon, edge.kind).toBeCloseTo(16 + indent, 0);
+    expect(edge.text).toBeCloseTo(40 + indent, 0);
+  }
+  if (edge.kind === "document-list-item") expect(edge.fileMark).toBeGreaterThan(0);
+  else expect(edge.fileMark, edge.kind).toBeNull();
 }
 
 /**
@@ -132,8 +162,8 @@ const treeRows = (window: Page) =>
     );
 
 /**
- * Every Folder, group and Document row is 28px, puts its icon at x 16 and
- * its text at x 40 (24px deeper per level), and keeps its name, its status
+ * Every Folder, group and Document row is 28px, on the edges `expectEdges`
+ * says, and keeps its name, its status
  * at the end and a Linked folder's bar on its one line. Returns how many rows.
  * Each row is read with its parts in one pass, as `rowEdges` reads its edges:
  * while a folder is indexed, a status or bar found first could be gone by the
@@ -141,10 +171,7 @@ const treeRows = (window: Page) =>
  */
 async function expectRowsAligned(window: Page): Promise<number> {
   const rows = treeRows(window);
-  for (const { icon, text, depth } of await rowEdges(window.getByTestId("sidebar"), rows)) {
-    expect(icon).toBeCloseTo(16 + depth * 24, 0);
-    expect(text).toBeCloseTo(40 + depth * 24, 0);
-  }
+  for (const edge of await rowEdges(window.getByTestId("sidebar"), rows)) expectEdges(edge);
   const measured = await rows.evaluateAll((elements) =>
     elements.map((row) => {
       const box = row.getBoundingClientRect();
@@ -209,15 +236,20 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
   const documents = window.getByTestId("document-list-item");
 
   const sidebar = window.getByTestId("sidebar");
-  // Not in a Folder: the Minds, then the Documents, at x 16 / 40.
+  // Not in a Folder: the Minds, then the Documents, their names at x 16, each Document's with its
+  // page mark.
   const projectRows = window
     .getByTestId("not-in-a-folder")
     .locator('[data-testid="mind-list-item"], [data-testid="document-list-item"]');
   await expect(projectRows).toHaveCount(3 + 4);
-  for (const { icon, text, depth } of await rowEdges(sidebar, projectRows)) {
-    expect(depth).toBe(0);
-    expect(icon).toBeCloseTo(16, 0);
-    expect(text).toBeCloseTo(40, 0);
+  const projectEdges = await rowEdges(sidebar, projectRows);
+  expect(projectEdges.map((edge) => edge.kind)).toEqual([
+    ...Array<string>(3).fill("mind-list-item"),
+    ...Array<string>(4).fill("document-list-item"),
+  ]);
+  for (const edge of projectEdges) {
+    expect(edge.depth).toBe(0);
+    expectEdges(edge);
   }
   for (const row of await projectRows.all()) {
     expect((await boxOf(row)).height).toBeCloseTo(28, 0);
@@ -229,10 +261,10 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
   const rows = linked.getByTestId("folder-item");
   await expect(rows).toHaveCount(2);
   await expect(linked.getByTestId("document-list-item")).toHaveCount(0);
-  for (const { icon, text, depth } of await rowEdges(sidebar, rows)) {
-    expect(depth).toBe(0);
-    expect(icon).toBeCloseTo(16, 0);
-    expect(text).toBeCloseTo(40, 0);
+  for (const edge of await rowEdges(sidebar, rows)) {
+    expect(edge.depth).toBe(0);
+    expect(edge.icon).toBeCloseTo(16, 0);
+    expect(edge.text).toBeCloseTo(40, 0);
   }
 
   // "Library", Settings and the Documents label share the columns (no Folder here).

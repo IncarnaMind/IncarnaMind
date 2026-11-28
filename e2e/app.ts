@@ -37,6 +37,7 @@ import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
 import { cellsText, fittedQuote, momentFound, quoteState } from "../src/shared/helpQuotes";
 import { translate } from "../src/shared/i18n";
+import type { MessageKey } from "../src/shared/i18n/types";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
 import { type FakeOpenAIServer, signInAt } from "../tests/helpers/fakeOpenAI";
@@ -3539,17 +3540,26 @@ export async function openPageMenu(window: Page): Promise<Locator> {
   return menu;
 }
 
+/** The language the window shows, for a command's label typed into ⌘K. */
+const windowLanguage = async (window: Page): Promise<"en" | "zh-CN"> =>
+  (await window.evaluate(() => document.documentElement.lang)) === "zh-CN" ? "zh-CN" : "en";
+
 /**
- * Turns on "Show every check result" for the Note in view (#3358), from its ⋯ menu as the User
- * does: every checked sentence shows its mark again, for a spec about a mark that only shows so.
+ * Turns on "Show every check result" for the Note in view (#3358), from ⌘K as the User does: every
+ * checked sentence shows its mark again, for a spec about a mark that only shows so. Once on, ⌘K
+ * offers to hide them instead, so it is left as it is.
  */
 export async function showEveryCheckResult(window: Page): Promise<void> {
-  const menu = await openPageMenu(window);
-  const toggle = menu.getByTestId("page-every-result");
-  if ((await toggle.getAttribute("aria-checked")) !== "true") await pointAndClick(window, toggle);
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
-  await window.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
+  const label = translate(await windowLanguage(window), "checks.everyResult.show.command");
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type(`>${label}`);
+  const palette = window.getByTestId("palette");
+  const item = palette.locator('[data-key="command:mind.everyCheckResult"]');
+  await expect(item).toBeVisible();
+  if ((await item.textContent())?.includes(label)) await pointAndClick(window, item);
+  else await window.keyboard.press("Escape");
+  await expect(palette).toBeHidden();
 }
 
 /**
@@ -3580,14 +3590,15 @@ export async function chooseLook(window: Page, look: "word" | "plain"): Promise<
   await expect(menu).toBeHidden();
 }
 
-/** "Show word count while writing", in the page's ⋯ menu: the count is hidden until then. */
+/** "Show word count while writing", from ⌘K: the count is hidden until then. */
 export async function showCountWhileWriting(window: Page): Promise<void> {
-  const menu = await openPageMenu(window);
-  const shown = menu.getByTestId("page-count-shown");
-  await pointAndClick(window, shown);
-  await expect(shown).toHaveAttribute("aria-checked", "true");
-  await window.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
+  await runCommandNamed(window, "mind.countShown", "page.countShown.command");
+  await expect(window.getByTestId("palette")).toBeHidden();
+}
+
+/** Runs a command from ⌘K, typing its name in the window's language. */
+export async function runCommandNamed(window: Page, id: string, name: MessageKey): Promise<void> {
+  await runCommand(window, id, translate(await windowLanguage(window), name));
 }
 
 /** Renames the Mind the User is in from its tab, as a person does: double-click, a name, Enter. */

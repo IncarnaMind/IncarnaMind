@@ -64,7 +64,7 @@ export function Sidebar({ width, onOpenSettings }: { width: number; onOpenSettin
         <SidebarStatus problemsOnly={firstOpen} />
         <div className={rowClass(false)}>
           <button type="button" onClick={onOpenSettings} className={rowButtonClass}>
-            <SettingsLineIcon className={rowIconClass(false)} />
+            <SettingsLineIcon className={rowIconClass} />
             <span className="truncate">{t("sidebar.settings")}</span>
           </button>
         </div>

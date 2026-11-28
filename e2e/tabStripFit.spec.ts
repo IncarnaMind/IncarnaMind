@@ -15,9 +15,11 @@ import {
   newMind,
   openDocumentAt,
   openExample,
+  paletteOffers,
   placeAssistant,
   pointAndClick,
   removeDataFolder,
+  runCommandNamed,
   saveProvider,
   setLanguage,
   setWindowSize,
@@ -502,12 +504,15 @@ for (const language of LANGUAGES) {
       await press("ArrowRight");
       const fit = await read();
       up.push(fit.step ?? "none");
-      // With Split out of the strip, the Note's ⋯, which holds the group's items, and the tab's own
-      // menu still offer it (#3765).
+      // With Split out of the strip, ⌘K and the tab's own menu still offer it (#3765, #3766).
       if (fit.split === false && fit.group >= 420) {
-        await window.getByTestId("tab-strip").first().getByTestId("page-menu").click();
-        await expect(window.getByTestId("tab-menu-split").first()).toBeEnabled();
-        await window.keyboard.press("Escape");
+        expect(
+          await paletteOffers(
+            window,
+            "tab.split",
+            language === "en" ? "Split to the right" : "向右拆分",
+          ),
+        ).toBe(1);
         await pointAndClick(window, shownTab(window).first(), { button: "right" });
         await expect(
           shownTab(window).first().getByTestId("tab-actions").getByTestId("tab.split"),
@@ -527,11 +532,8 @@ for (const language of LANGUAGES) {
     expect(fit.step).toBe("cut");
     await window.keyboard.press("ControlOrMeta+Alt+Backslash");
     await expect(window.getByTestId("tab-group")).toHaveCount(3);
-    // Back to two groups, through the pane's ⋯, which its page's menu holds (#2868).
-    // The new pane is the last, and alone in its group, so its page's ⋯ holds the group's items.
-    await pointAndClick(window, window.locator('[data-testid="page-menu"]:visible').last());
-    const closeGroup = window.locator('[data-testid="page-actions"]:visible');
-    await closeGroup.getByTestId("tab-menu-close-group").click();
+    // Back to two groups from ⌘K, which acts on the new pane: it has the focus (#3766).
+    await runCommandNamed(window, "group.close", "command.group.close");
     await expect(window.getByTestId("tab-group")).toHaveCount(2);
     await window.keyboard.press("ControlOrMeta+k");
     await expect(window.getByTestId("palette-search")).toBeFocused();
