@@ -2452,7 +2452,100 @@ export function createAgentAccess(
       });
     };
 
+    // Phase 1: resolve async file-path tags first so every synchronous Passage/sentence check runs
+    // after all awaits with zero window for Document changes before the Note is written.
+    const mintedFiles: {
+      key: string;
+      token: string;
+      raw: string;
+      document: string;
+      quote: string;
+    }[] = [];
     for (const tag of foundTags) {
+      if (tag.kind !== "file") continue;
+      const key = keyOf(tag);
+      if (byKey.has(key)) continue;
+      if (tag.ref === "" || tag.quote === "" || tag.quote.length > MAX_QUOTE_CHARS) {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: tag.quote || null,
+          changed: false,
+          text: t("agents.propose.citationNotFoundShort"),
+        });
+        continue;
+      }
+      hasFile = true;
+      const filed = await deps.citeFile(
+        text(tag.ref, "path", MAX_PATH_CHARS),
+        tag.quote,
+        pairing.name,
+        (documentId) => reachNow().has(documentId),
+      );
+      pairing = deps.admit(pairingId);
+      inScope = new Set(scopeOf(pairing, undefined));
+      cachedNotShared = undefined;
+      read.push(filed.documentId);
+      const found = filed.citation;
+      if (found && deps.notCited(found.passageId)) {
+        throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
+      }
+      if (found) {
+        const minted = mint(pairing, found);
+        byKey.set(key, citeTag(minted.token));
+        mintedFiles.push({
+          key,
+          token: minted.token,
+          raw: tag.raw,
+          document: filed.name,
+          quote: tag.quote,
+        });
+      } else {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: filed.name,
+          location: null,
+          quote: tag.quote,
+          changed: false,
+          text: t("agents.propose.citationNotFoundFile"),
+        });
+      }
+    }
+    if (hasFile) {
+      pairing = stillReaching(read.filter((documentId) => !deps.citedOutside(documentId)));
+      if (!pairing.propose) {
+        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+      }
+      inScope = new Set(scopeOf(pairing, undefined));
+      // If a file cited earlier in this call changed while a later file was awaited, drop its
+      // newly minted token rather than persisting historical `found` attributes.
+      if (mintedFiles.length > 1) {
+        for (const item of mintedFiles) {
+          const kept = deps.citations.find(pairing.id, item.token);
+          if (!kept || !usable(inScope, kept.documentId) || recheckKept(kept).check !== "found") {
+            byKey.set(item.key, null);
+            failedReports.push({
+              cite: clip(item.raw, 120),
+              check: "not-found",
+              document: item.document,
+              location: null,
+              quote: item.quote,
+              changed: false,
+              text: t("agents.propose.citationNotFoundFile"),
+            });
+          }
+        }
+      }
+    }
+
+    // Phase 2: resolve synchronous sentence handles and inline Passage quotes against live state.
+    for (const tag of foundTags) {
+      if (tag.kind === "file") continue;
       const key = keyOf(tag);
       if (byKey.has(key)) continue;
       if (tag.kind === "sentence") {
@@ -2466,7 +2559,7 @@ export function createAgentAccess(
             location: null,
             quote: null,
             changed: false,
-            text: t("agents.propose.citationNotFoundShort"),
+            text: t("agents.propose.citationUnknownHandle"),
           });
           continue;
         }
@@ -2505,38 +2598,6 @@ export function createAgentAccess(
         });
         continue;
       }
-      if (tag.kind === "file") {
-        hasFile = true;
-        const filed = await deps.citeFile(
-          text(tag.ref, "path", MAX_PATH_CHARS),
-          tag.quote,
-          pairing.name,
-          (documentId) => reachNow().has(documentId),
-        );
-        pairing = deps.admit(pairingId);
-        inScope = new Set(scopeOf(pairing, undefined));
-        cachedNotShared = undefined;
-        read.push(filed.documentId);
-        const found = filed.citation;
-        if (found && deps.notCited(found.passageId)) {
-          throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
-        }
-        if (found) {
-          byKey.set(key, citeTag(mint(pairing, found).token));
-        } else {
-          byKey.set(key, null);
-          failedReports.push({
-            cite: clip(tag.raw, 120),
-            check: "not-found",
-            document: filed.name,
-            location: null,
-            quote: tag.quote,
-            changed: false,
-            text: t("agents.propose.citationNotFoundFile"),
-          });
-        }
-        continue;
-      }
       const passage = findPassageInScope(pairing, inScope, tag.ref);
       if (passage && deps.notCited(passage.passageId)) {
         throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
@@ -2560,13 +2621,6 @@ export function createAgentAccess(
         continue;
       }
       recordPassageCitation(key, tag.raw, passage, citation);
-    }
-    if (hasFile) {
-      pairing = stillReaching(read.filter((documentId) => !deps.citedOutside(documentId)));
-      if (!pairing.propose) {
-        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
-      }
-      inScope = new Set(scopeOf(pairing, undefined));
     }
     return {
       texts: rewriteInlineQuoteTags(texts, (tag) => byKey.get(keyOf(tag)) ?? null),
@@ -4225,7 +4279,7 @@ export function createAgentAccess(
         if (inline.recheckedAfterWait) folder = placeToWriteIn(pairing, input?.folderId);
         const written = (inline.texts[0] ?? "").trim();
         if (written === "") {
-          throw new AgentRefusedError("invalid", "markdown must be non-empty text.");
+          throw new AgentRefusedError("invalid", t("agents.create.emptyText"));
         }
         const tokens = tokensIn(pairing, inScope, [written]);
         const made = draftBlocks(written, tokens, visuals);

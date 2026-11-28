@@ -8903,6 +8903,9 @@ export const en = {
     "Not attached: this quote couldn’t be checked in that passage.",
   "agents.propose.citationUnknownPassage":
     "Not attached: there is no passage “{passageId}” in the Folders shared with this agent. Give the passageId exactly as search or read_passages returned it.",
+  "agents.propose.citationUnknownHandle":
+    "Not attached: unknown or expired sentence handle. Read the passage again with cited: true.",
+  "agents.create.emptyText": "Give the note’s text.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
   "agents.propose.ownOutsideSelection":

@@ -25,7 +25,8 @@ function endOfFence(source: string, from: number, char: string, length: number):
   while (at < source.length) {
     const lineEnd = source.indexOf("\n", at);
     const end = lineEnd === -1 ? source.length : lineEnd + 1;
-    const line = source.slice(at, lineEnd === -1 ? source.length : lineEnd);
+    const rawLine = source.slice(at, lineEnd === -1 ? source.length : lineEnd);
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
     let i = 0;
     while (i < 3 && i < line.length && line[i] === " ") i++;
     let run = 0;
@@ -57,15 +58,20 @@ function endOfCodeSpan(source: string, from: number, ticks: number): number {
  * balanced `[...]` inside the quote. Leaves minted `[cite:<token>]` tags (which have no separator
  * after the token) untouched by returning null.
  */
-function matchInlineTag(source: string, at: number): { tag: ParsedInlineTag; end: number } | null {
+function matchInlineTag(
+  source: string,
+  at: number,
+  noCloseBefore: number,
+): { tag: ParsedInlineTag; end: number } | { unclosedUntil: number } | null {
   if (!source.startsWith("[cite:", at)) return null;
+  if (at < noCloseBefore) return null;
   const innerStart = at + "[cite:".length;
   let i = innerStart;
   let depth = 0;
   let end = -1;
   while (i < source.length) {
     const ch = source[i];
-    if (ch === "\n") return null;
+    if (ch === "\n") return { unclosedUntil: i };
     if (ch === "[") {
       depth++;
     } else if (ch === "]") {
@@ -77,7 +83,7 @@ function matchInlineTag(source: string, at: number): { tag: ParsedInlineTag; end
     }
     i++;
   }
-  if (end === -1) return null;
+  if (end === -1) return { unclosedUntil: source.length };
   const inner = source.slice(innerStart, end - 1);
   const sentenceMatch = SENTENCE_REF_INNER.exec(inner);
   if (sentenceMatch?.[1] && sentenceMatch[2]) {
@@ -114,6 +120,12 @@ function matchInlineTag(source: string, at: number): { tag: ParsedInlineTag; end
   };
 }
 
+function isEscaped(source: string, at: number): boolean {
+  let slashes = 0;
+  for (let i = at - 1; i >= 0 && source[i] === "\\"; i--) slashes++;
+  return slashes % 2 === 1;
+}
+
 /** Scans `source` outside fenced code blocks and inline code spans, rewriting inline quote tags. */
 function scanOne(
   source: string,
@@ -123,11 +135,20 @@ function scanOne(
   let out = "";
   let at = 0;
   let lineStart = true;
+  let noCloseBefore = -1;
 
   const stripAt = (after: number): number => {
+    const atLineEnd =
+      after >= source.length ||
+      source[after] === "\n" ||
+      (source[after] === "\r" && source[after + 1] === "\n");
     let trimmed = out.length;
     while (trimmed > 0 && (out[trimmed - 1] === " " || out[trimmed - 1] === "\t")) trimmed--;
-    out = out.slice(0, trimmed);
+    const trailing = out.slice(trimmed);
+    // Preserve Markdown hard breaks (two or more trailing spaces immediately before a newline).
+    if (!(atLineEnd && /^ {2,}$/.test(trailing))) {
+      out = out.slice(0, trimmed);
+    }
     let next = after;
     if (out.length === 0 || out[out.length - 1] === "\n") {
       while (next < source.length && (source[next] === " " || source[next] === "\t")) next++;
@@ -171,9 +192,11 @@ function scanOne(
       at += ticks;
       continue;
     }
-    if (ch === "[" && source.startsWith("[cite:", at)) {
-      const matched = matchInlineTag(source, at);
-      if (matched) {
+    if (ch === "[" && !isEscaped(source, at) && source.startsWith("[cite:", at)) {
+      const matched = matchInlineTag(source, at, noCloseBefore);
+      if (matched && "unclosedUntil" in matched) {
+        noCloseBefore = matched.unclosedUntil;
+      } else if (matched) {
         if (replace === null) {
           found.push(matched.tag);
           out += matched.tag.raw;

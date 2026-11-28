@@ -119,6 +119,9 @@ describe("inline quote tag parsing and rewriting", () => {
       "Pipe fallback [cite:p-1|Revenue was £4.2m].",
       "Sentence handle [cite:k3x9a.2] and unknown [cite:k3x9a.99].",
       "Inline `[cite:p-1: Revenue was £4.2m]` and `[cite:k3x9a.2]` stay literal.",
+      "Escaped \\[cite:k3x9a.99] stays literal.",
+      "Hard break stays  [cite:p-1: wrong quote]",
+      "next line.",
       "```markdown",
       "Fenced [cite:p-1: Revenue was £4.2m] and [cite:k3x9a.2] stay literal.",
       "```",
@@ -141,6 +144,7 @@ describe("inline quote tag parsing and rewriting", () => {
       "p-1 => Revenue was £4.2m",
       "sentence:k3x9a.2",
       "sentence:k3x9a.99",
+      "p-1 => wrong quote",
     ]);
 
     const [rewritten] = rewriteInlineQuoteTags([input], (tag) => {
@@ -163,10 +167,19 @@ describe("inline quote tag parsing and rewriting", () => {
         "Pipe fallback [cite:efgh6789].",
         "Sentence handle [cite:sent2345] and unknown.",
         "Inline `[cite:p-1: Revenue was £4.2m]` and `[cite:k3x9a.2]` stay literal.",
+        "Escaped \\[cite:k3x9a.99] stays literal.",
+        "Hard break stays  ",
+        "next line.",
         "```markdown",
         "Fenced [cite:p-1: Revenue was £4.2m] and [cite:k3x9a.2] stay literal.",
         "```",
       ].join("\n"),
+    );
+
+    // CRLF fenced code blocks close cleanly so tags after the fence still resolve.
+    const crlf = "```text\r\n[cite:k3x9a.2]\r\n```\r\nAfter fence [cite:k3x9a.2].";
+    expect(rewriteInlineQuoteTags([crlf], () => "[cite:crlf2345]")[0]).toBe(
+      "```text\r\n[cite:k3x9a.2]\r\n```\r\nAfter fence [cite:crlf2345].",
     );
   });
 });
@@ -404,6 +417,16 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
     const failed = created.citations.find((each) => each.check === "not-found");
     expect(failed?.text).toContain("未添加：");
     expect(failed?.text).toContain(EAST_ZH);
+
+    // Stripping an unknown handle that leaves empty markdown refuses in Simplified Chinese.
+    const empty = await agent.callTool({
+      name: "create_mind",
+      arguments: {
+        title: "空白笔记",
+        markdown: "[cite:zzzzz.99]",
+      },
+    });
+    expect(refusal(empty)).toBe(translate("zh-CN", "agents.create.emptyText"));
     await agent.close();
   });
 
@@ -520,11 +543,11 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
     expect(clipped).not.toContain(`[cite:${first.handle}.1]`);
     expect(clipped).toContain(`[cite:${first.handle}.2] Second sentence has 42% growth.`);
 
-    // Transcript timedText prefixes lines matching each span while preserving [time speaker].
+    // Transcript timedText tags every matched sentence within a multi-sentence turn while keeping [time speaker].
     const timed =
-      "[0:00 Me] First sentence of the passage.\n[0:05 Them] Second sentence has 42% growth.";
+      "[0:00 Me] First sentence of the passage. Second sentence has 42% growth.\n[0:05 Them] 第三句是中文陈述。";
     expect(formatCitedTimedText(timed, first)).toBe(
-      `[cite:${first.handle}.1] [0:00 Me] First sentence of the passage.\n[cite:${first.handle}.2] [0:05 Them] Second sentence has 42% growth.`,
+      `[cite:${first.handle}.1] [0:00 Me] First sentence of the passage. [cite:${first.handle}.2] Second sentence has 42% growth.\n[cite:${first.handle}.3] [0:05 Them] 第三句是中文陈述。`,
     );
 
     // Pairing isolation: another pairing cannot resolve pairing-a's handle.
@@ -588,7 +611,9 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
     expect(created.uncited).toEqual([]);
     const foundCites = created.citations.filter((each) => each.check === "found");
     expect(foundCites).toHaveLength(2);
-    expect(created.citations.find((each) => each.cite === fakeHandle)?.check).toBe("unknown");
+    const fakeReport = created.citations.find((each) => each.cite === fakeHandle);
+    expect(fakeReport?.check).toBe("unknown");
+    expect(fakeReport?.text).toBe(translate("en", "agents.propose.citationUnknownHandle"));
 
     const inspected = await inspectMind(core, created.mindId);
     expect(inspected.citations).toHaveLength(2);

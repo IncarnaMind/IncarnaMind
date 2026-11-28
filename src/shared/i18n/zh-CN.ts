@@ -8338,6 +8338,9 @@ export const zhCN = {
   "agents.propose.citationCantCheckShort": "未添加：无法核对该段落中的这条引文。",
   "agents.propose.citationUnknownPassage":
     "未添加：共享给此智能体的文件夹中没有段落“{passageId}”。请原样填写 search 或 read_passages 返回的 passageId。",
+  "agents.propose.citationUnknownHandle":
+    "未添加：该句引用标识无效或已过期，请带 cited: true 重新读取该段落。",
+  "agents.create.emptyText": "请填写笔记内容。",
   "agents.propose.unchecked.one":
     "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
   "agents.propose.unchecked":
