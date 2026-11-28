@@ -71,6 +71,32 @@ for (const language of ["en", "zh-CN"] as const) {
       ).toBe(language === "en" ? "Checking…" : "正在核对…");
     });
 
+    // protects=#3765: the button carries the words a run would say at their widest, from the sentences a run could cover, so the tab strip counts its room before a press; fails_when=the widest words are missing, or count fewer sentences than the Note has
+    test("carries its running words at their widest, whatever it shows now", () => {
+      const widest = language === "en" ? "Checking… 2 of 2" : "正在核对 2/2…";
+      expect(checkButtonOf(input(), t, language)?.widest).toBe(widest);
+      const checked = { ...NOT_CHECKED, kind: "checked" as const, toCheck: 0, notChecked: 0 };
+      expect(checkButtonOf(input({ state: checked }), t, language)?.widest).toBe(widest);
+      const many = { ...NOT_CHECKED, checkable: 120 };
+      expect(checkButtonOf(input({ state: many }), t, language)?.widest).toBe(
+        language === "en" ? "Checking… 120 of 120" : "正在核对 120/120…",
+      );
+      // A run that counts more than the Note shows still reserves its own count; none counted, the plain words.
+      const longer = checkButtonOf(
+        input({ running: { words: "", done: 1, total: 150 } }),
+        t,
+        language,
+      );
+      expect(longer?.widest).toBe(language === "en" ? "Checking… 150 of 150" : "正在核对 150/150…");
+      expect(
+        checkButtonOf(
+          input({ state: null, running: { words: "", done: 0, total: 0 } }),
+          t,
+          language,
+        )?.widest,
+      ).toBe(language === "en" ? "Checking…" : "正在核对…");
+    });
+
     // protects=#3794: what needs a look is said in words with its count, and opens the card; fails_when=it reads Checked, or loses its count in the tight row
     test("what needs a look, with its count kept for a tight row", () => {
       const view = checkButtonOf(

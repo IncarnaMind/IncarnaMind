@@ -1,9 +1,6 @@
 import { Editor, type JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test } from "vitest";
-import {
-  type ChangedBlock,
-  rewrittenSections,
-} from "../../src/renderer/src/editor/changeOriginals";
+import { rewrittenSections } from "../../src/renderer/src/editor/changeOriginals";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { ProposalReview } from "../../src/renderer/src/editor/proposalReview";
 import { changedBlocks } from "../../src/renderer/src/editor/proposalRewrites";
@@ -80,7 +77,7 @@ describe("How a waiting change reads", () => {
       paragraph(words("复旦大学 金融学 硕士")),
     ]);
     const blocks = changedBlocks(rewritten, new Set());
-    const sections = rewrittenSections(rewritten, blocks, true);
+    const sections = rewrittenSections(rewritten, blocks);
     expect(sections).toHaveLength(1);
     expect(sections[0]?.heading.title).toBe("核心优势");
     expect(sections[0]?.members.map((member) => member.key)).toEqual(["proposal:a", "proposal:b"]);
@@ -91,28 +88,6 @@ describe("How a waiting change reads", () => {
       paragraph(words("Financial modelling.")),
       paragraph(words("English, IELTS 7.5.")),
     ]);
-    expect(rewrittenSections(mostlyKept, changedBlocks(mostlyKept, new Set()), true)).toEqual([]);
-  });
-
-  test("an applied edit's Block removed at the end of a section is one of its members", () => {
-    const doc = docOf([
-      heading(2, words("Key strengths")),
-      paragraph(words("Ten years of consulting.")),
-      heading(2, words("Education")),
-      paragraph(words("Fudan University.")),
-    ]);
-    const at: number[] = [];
-    doc.forEach((_node, pos) => {
-      at.push(pos);
-    });
-    const blocks: ChangedBlock[] = [
-      { key: "h", pos: at[0] ?? 0, how: "rewritten", title: "Key strengths" },
-      { key: "a", pos: at[1] ?? 0, how: "rewritten" },
-      // The old last paragraph of the first section: it sits where the next heading starts.
-      { key: "gone", pos: at[2] ?? 0, how: "removed" },
-    ];
-    const sections = rewrittenSections(doc, blocks, false);
-    expect(sections).toHaveLength(1);
-    expect(sections[0]?.members.map((member) => member.key)).toEqual(["a", "gone"]);
+    expect(rewrittenSections(mostlyKept, changedBlocks(mostlyKept, new Set()))).toEqual([]);
   });
 });

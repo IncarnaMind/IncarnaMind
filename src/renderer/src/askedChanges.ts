@@ -27,11 +27,9 @@ import {
   type AppliedAsked,
   applyArrived,
   applyArrivedInHistory,
-  canReviewApplied,
   coreApplicationStatus,
   onAskedApplied,
   releaseCoreChange,
-  reviewApplied,
   shareCoreUndo,
   undoCoreChange,
 } from "./appliedEdits";
@@ -222,7 +220,7 @@ function headlessFor(each: Asked): HeadlessChange | null {
             return failHeadless(
               each,
               current,
-              new UndoRefused((t) => t("edit.review.changedSince"), null),
+              new UndoRefused((t) => t("edit.undo.changedSince"), null),
               "undo",
             );
           }
@@ -240,7 +238,7 @@ function headlessFor(each: Asked): HeadlessChange | null {
           return failHeadless(
             each,
             current,
-            new UndoRefused((t) => t("edit.review.changedSince"), null),
+            new UndoRefused((t) => t("edit.undo.changedSince"), null),
             "undo",
           );
         }
@@ -258,7 +256,7 @@ function headlessFor(each: Asked): HeadlessChange | null {
             return failHeadless(
               each,
               current,
-              new UndoRefused((t) => t("edit.review.changedSince"), null),
+              new UndoRefused((t) => t("edit.undo.changedSince"), null),
               "redo",
             );
           }
@@ -279,7 +277,7 @@ function headlessFor(each: Asked): HeadlessChange | null {
         return failHeadless(
           each,
           current,
-          new UndoRefused((t) => t("edit.review.changedSince"), null),
+          new UndoRefused((t) => t("edit.undo.changedSince"), null),
           "redo",
         );
       }
@@ -801,36 +799,6 @@ export function undoAsked(answerId: string, mindId: string): void {
   const created = headlessFor(each);
   if (created)
     void useUndo.getState().undo(created.change).catch(useAppStore.getState().reportError);
-}
-
-function reviewableIn(mindId: string, followed: FollowedSteps | null): boolean {
-  const editor = mindEditor(mindId);
-  return followed !== null && editor !== null && canReviewApplied(editor, followed);
-}
-
-/** Whether the Mind's ⌘K and ⋯ offer Review changes for this Answer's changes there: the card offers it too. */
-export function useAskedReview(answerId: string, mindId: string): boolean {
-  const followed = followedOf(answerId, mindId);
-  const subscribe = useCallback(
-    (changed: () => void) => {
-      const editor = mindEditor(mindId);
-      editor?.on("transaction", changed);
-      const stop = followed?.observe(changed);
-      return () => {
-        editor?.off("transaction", changed);
-        stop?.();
-      };
-    },
-    [followed, mindId],
-  );
-  return useSyncExternalStore(subscribe, () => reviewableIn(mindId, followed));
-}
-
-export function reviewAsked(answerId: string, mindId: string): void {
-  const editor = mindEditor(mindId);
-  if (!editor || !reviewableIn(mindId, followedOf(answerId, mindId))) return;
-  useAppStore.getState().openMind(mindId);
-  reviewApplied(editor, { focus: true });
 }
 
 core.on("conversation.message", (message) => {

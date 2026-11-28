@@ -90,6 +90,8 @@ export interface ClaudeCodeTurn {
    * its words as it writes them.
    */
   stallMs?: number;
+  /** Whether a message shows the turn getting somewhere, as `stallMs` counts; absent: every one. */
+  progressed?(message: Record<string, unknown>): boolean;
   /**
    * Whether it waits, without a word meanwhile, on a Tool of IncarnaMind's own, on the User, or on
    * a tool of its own at work: that time doesn't count towards `stallMs`.
@@ -207,6 +209,7 @@ function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     // Its words and calls as they came repeat what the whole messages say.
     counted: (message) => message.type !== "stream_event",
     ...(turn.stallMs !== undefined && { stallMs: turn.stallMs }),
+    ...(turn.progressed && { progressed: turn.progressed }),
     ...(turn.busy && { busy: turn.busy }),
     begin(stdin) {
       stdin.write(
@@ -322,6 +325,7 @@ function readOwnTurn(
     rawMaxBytes: turn.partial ? turn.maxResponseBytes * RAW_TIMES : turn.maxResponseBytes,
     counted: (message) => message.type !== "stream_event",
     ...(turn.stallMs !== undefined && { stallMs: turn.stallMs }),
+    ...(turn.progressed && { progressed: turn.progressed }),
     ...(turn.busy && { busy: turn.busy }),
     begin(stdin) {
       input = stdin;
