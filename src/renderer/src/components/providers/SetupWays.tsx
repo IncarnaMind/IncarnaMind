@@ -109,7 +109,8 @@ export function LocalWay({
         )}
       </span>
       <OllamaProgress ollama={ollama} />
-      <OllamaAction ollama={ollama} />
+      {/* A row's 28px buttons: at 32px the pair is wider than this card in the default panel. */}
+      <OllamaAction ollama={ollama} size="sm" />
       {/* One line in every state, so nothing under it moves when the line below changes. */}
       {(!quiet || keeps) && (
         <p data-testid="setup-local-keeps" className="min-h-[18px] text-small leading-[18px]">
