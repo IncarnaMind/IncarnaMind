@@ -118,7 +118,7 @@ test("the Library is a tab beside the Mind, which stays in its own tab, and it c
   }
 });
 
-test("each kind of Document has its own icon, names show no extension, and a machine-made name shows the title", async () => {
+test("each kind of Document is named in words, not by an icon, names show no extension, and a machine-made name shows the title", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -128,20 +128,14 @@ test("each kind of Document has its own icon, names show no extension, and a mac
     const rows = library.getByTestId("library-document");
     await expect(rows).toHaveCount(5);
 
-    // A mark of its own for each kind; Excel and CSV share one.
-    const marks = await rows
-      .locator("svg[data-kind]")
-      .evaluateAll((icons) =>
-        icons.map((icon) => [
-          icon.getAttribute("data-kind"),
-          icon.querySelector("path:last-child")?.getAttribute("d"),
-        ]),
-      );
-    const byKind = new Map(marks as [string, string][]);
-    expect([...byKind.keys()].sort()).toEqual(["csv", "markdown", "pdf", "text", "xlsx"]);
-    expect(byKind.get("csv")).toBe(byKind.get("xlsx"));
-    const distinct = new Set([...byKind.values()]);
-    expect(distinct.size).toBe(4);
+    // The list draws no mark per row; the Format column says each kind in words.
+    await expect(rows.locator("svg[data-kind]")).toHaveCount(0);
+    const kindOf = (name: string) =>
+      rows.filter({ hasText: name }).getByTestId("library-document-format");
+    await expect(kindOf("Quarterly report")).toHaveText("Plain text");
+    await expect(kindOf("Reading notes")).toHaveText("Markdown");
+    await expect(kindOf("Figures")).toHaveText("CSV");
+    await expect(kindOf("Field guide")).toHaveText("PDF");
 
     // No extension in names; the tooltip carries the file's name.
     const names = await library.getByTestId("library-document-name").allTextContents();
@@ -158,6 +152,7 @@ test("each kind of Document has its own icon, names show no extension, and a mac
     await expect(sheet.getByTestId("library-document-name")).toHaveText(
       "Rent roll for Upper Grosvenor Street",
     );
+    await expect(sheet.getByTestId("library-document-format")).toHaveText("Excel");
     await expect(sheet.getByRole("button").first()).toHaveAttribute("title", new RegExp(UUID_NAME));
     await sheet.locator("[data-row-main]").focus();
     await window.keyboard.press("ControlOrMeta+i");

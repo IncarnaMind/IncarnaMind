@@ -96,7 +96,10 @@ function candidateModel(review: SummaryAdapter) {
     return JSON.stringify(
       request.prompt.includes(reply)
         ? { summary: release, changes: [], unchanged: [1] }
-        : { summary: release, changes: [{ ...generatedDecision, id: null, quote: release }] },
+        : {
+            summary: release,
+            changes: [{ ...generatedDecision, id: null, quotes: [{ source: 1, quote: release }] }],
+          },
     );
   });
 }

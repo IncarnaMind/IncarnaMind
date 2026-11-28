@@ -1,7 +1,14 @@
 import type { CommandId } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import type { ObjectKind } from "../objects";
-import { COMMAND_GROUPS, type Command, type CommandContext, commands, offered } from "./registry";
+import {
+  COMMAND_GROUPS,
+  type Command,
+  type CommandContext,
+  type CommandGroup,
+  commands,
+  offered,
+} from "./registry";
 
 export interface Registered {
   id: CommandId;
@@ -12,6 +19,21 @@ export interface Registered {
 
 const registered = new Map<ObjectKind, Registered[]>();
 const mixed: Registered[] = [];
+const joined = new Map<string, readonly CommandGroup[]>();
+
+/**
+ * Draws `groups` of a kind's menu as one, with no rule between them, in the order the kind
+ * registers their items: so a short menu doesn't read as rows each alone between rules (#3766).
+ */
+export function joinMenuGroups(kind: ObjectKind, groups: readonly CommandGroup[]): void {
+  joined.set(kind, groups);
+}
+
+/** Which of `COMMAND_GROUPS` a command of `group` is drawn in, in a kind's menu. */
+export function menuGroupOf(kind: string | null, group: CommandGroup): number {
+  const together = kind === null ? undefined : joined.get(kind);
+  return COMMAND_GROUPS.indexOf(together?.includes(group) ? (together[0] ?? group) : group);
+}
 
 /**
  * Adds commands to a kind's menu. Within a section they show in the order of
@@ -99,12 +121,13 @@ export function buildMenu(
   ctx: CommandContext,
   without: readonly CommandId[] = [],
 ): MenuEntry[] {
-  return entriesOf(registered.get(kind) ?? [], ctx, without);
+  return entriesOf(kind, registered.get(kind) ?? [], ctx, without);
 }
 
-export const buildMixedMenu = (ctx: CommandContext): MenuEntry[] => entriesOf(mixed, ctx, []);
+export const buildMixedMenu = (ctx: CommandContext): MenuEntry[] => entriesOf(null, mixed, ctx, []);
 
 function entriesOf(
+  kind: ObjectKind | null,
   menu: readonly Registered[],
   ctx: CommandContext,
   without: readonly CommandId[],
@@ -119,7 +142,7 @@ function entriesOf(
   });
   const items: { group: number; item: MenuItem | MoreEntry }[] = here
     .filter((each) => !each.folded)
-    .map(({ item }) => ({ group: COMMAND_GROUPS.indexOf(item.command.group), item }));
+    .map(({ item }) => ({ group: menuGroupOf(kind, item.command.group), item }));
   const folded = here.filter((each) => each.folded).map((each) => each.item);
   const [first] = folded;
   // The last row of the main group, where the actions on the object end.

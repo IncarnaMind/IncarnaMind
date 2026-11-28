@@ -14,7 +14,7 @@ import type { TestHooks } from "../../shared/testHooks";
 import { setSilentWaitMs } from "./answerWaitWords";
 import { holdStyleCatalogue } from "./citationStylePicker";
 import { showComingUp } from "./comingUp";
-import { menuEntries, menuKinds } from "./commands/menus";
+import { menuEntries, menuGroupOf, menuKinds } from "./commands/menus";
 import { COMMAND_GROUPS, commands } from "./commands/registry";
 import { usePanelFault } from "./components/PanelBoundary";
 import { findable } from "./finding";
@@ -50,11 +50,15 @@ export function installTestHooks(): void {
       menus: Object.fromEntries(
         menuKinds().map((kind) => [
           kind,
-          menuEntries(kind).map(({ id, section, more }) => ({
-            id,
-            section,
-            ...(more && { more: true as const }),
-          })),
+          menuEntries(kind).map(({ id, section, more }) => {
+            const command = commands.get(id);
+            return {
+              id,
+              section,
+              group: command ? menuGroupOf(kind, command.group) : -1,
+              ...(more && { more: true as const }),
+            };
+          }),
         ]),
       ),
       commands: Object.fromEntries(

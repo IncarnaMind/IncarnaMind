@@ -4,6 +4,7 @@ import {
   isMenuItem,
   type MenuEntry,
   type MenuItem,
+  menuGroupOf,
   menuIds,
   menuKinds,
 } from "../../src/renderer/src/commands/menus";
@@ -128,7 +129,7 @@ function orderProblems(kind: string, entries: readonly MenuEntry[]): string[] {
       continue;
     }
     const named = isMenuItem(entry) ? entry.command.id : "More";
-    const group = COMMAND_GROUPS.indexOf(isMenuItem(entry) ? entry.command.group : "main");
+    const group = menuGroupOf(kind, isMenuItem(entry) ? entry.command.group : "main");
     const newSection = entry.section !== lastSection;
     if (!newSection && group < lastGroup) problems.push(`${kind}: ${named} is out of order`);
     // A rule comes exactly where the group or the section changes.

@@ -549,7 +549,7 @@ function FolderGroup({
             className="flex h-full w-full min-w-0 items-center gap-2 pr-1 pl-2"
             style={rowPadding(depth)}
           >
-            <FolderLineIcon className={rowIconClass(lit)} />
+            <FolderLineIcon className={rowIconClass} />
             <InlineName
               value={folder.name}
               label={t("folder.renameLabel", { name: folder.name })}
@@ -586,7 +586,7 @@ function FolderGroup({
             className={`${rowButtonClass} ${clearsActions.menu}`}
             style={rowPadding(depth)}
           >
-            <FolderLineIcon className={rowIconClass(lit)} />
+            <FolderLineIcon className={rowIconClass} />
             <span data-testid="row-text" className="min-w-0 flex-1 truncate">
               {folder.name}
             </span>

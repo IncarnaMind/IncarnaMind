@@ -1820,36 +1820,12 @@
       outline-offset: 1px;
     }
   }
-  .page-menu-foot {
-    display: flex;
-    flex-direction: column;
-    padding: 2px 0;
-    font-size: var(--text-small);
-    line-height: 20px;
-    color: var(--color-ink-meta);
-  }
   .page-menu-counts {
     margin: 0;
     padding: 2px 8px;
     font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
-  }
-  .page-menu-switch {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 30px;
-    padding: 0 8px;
-    border-radius: 6px;
-    text-align: start;
-    outline: none;
-
-    &:hover,
-    &:focus-visible {
-      background: var(--color-chip);
-      color: var(--color-ink);
-    }
   }
   /* Over the text, which fades out above them so no line runs under the count or the badge. */
   .mind-foot-slot {
@@ -15082,7 +15058,7 @@ body.assistant-dragging * {
 svg.app-icon {
   width: 16px;
   height: 16px;
-  stroke-width: 1.5;
+  stroke-width: 1.25;
 
   & * {
     vector-effect: non-scaling-stroke;
@@ -15108,6 +15084,11 @@ svg.app-icon.answer-steps-chevron {
 .table-add-row > svg.app-icon {
   width: 12px;
   height: 12px;
+}
+/* A Document's row in the sidebar ends with a small, faint page, as a chat app marks a chat that holds a file. */
+svg.app-icon.row-file-mark {
+  width: 14px;
+  height: 14px;
 }
 
 /* A menu opened with the pointer shows no item in focus until a key is pressed (DESIGN.md, Menus; #3761). */
