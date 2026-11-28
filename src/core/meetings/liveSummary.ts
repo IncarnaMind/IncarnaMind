@@ -16,6 +16,7 @@ export interface StoredMeetingSummary {
   route: string;
   documentId?: string;
   evidence?: Record<number, StoredSummaryQuote[]>;
+  latestEvidence?: Record<number, StoredSummaryQuote[]>;
   count: number;
   digest: string;
   lastItemId?: number;
@@ -214,16 +215,32 @@ export function createLiveSummaries(options: Options) {
     }
     let items = prior?.summary.items;
     const evidence = { ...prior?.evidence };
+    const latestEvidence = { ...prior?.latestEvidence };
     if (!samePrefix && items?.length) {
-      // Final speech can arrive out of order or be relabelled. Keep entries whose spoken evidence survives.
+      // Final speech can arrive out of order or be relabelled. Keep an item only while its latest change still has spoken evidence.
       const speech = cues.map(summaryEvidenceCue);
       items = items.filter((item) => {
-        const surviving = evidence[item.id]?.filter((quote) => summaryQuoteSurvives(quote, speech));
-        if (surviving?.length) {
-          evidence[item.id] = surviving;
-          return true;
+        const latestQuotes = latestEvidence[item.id];
+        if (latestQuotes) {
+          const survivingLatest = latestQuotes.filter((quote) =>
+            summaryQuoteSurvives(quote, speech),
+          );
+          if (survivingLatest.length) {
+            latestEvidence[item.id] = survivingLatest;
+            const surviving = evidence[item.id]?.filter((quote) =>
+              summaryQuoteSurvives(quote, speech),
+            );
+            evidence[item.id] = surviving?.length ? surviving : survivingLatest;
+            return true;
+          }
+        } else {
+          const quotes = evidence[item.id];
+          if (quotes?.length && quotes.every((quote) => summaryQuoteSurvives(quote, speech))) {
+            return true;
+          }
         }
         delete evidence[item.id];
+        delete latestEvidence[item.id];
         return false;
       });
     }
@@ -255,14 +272,20 @@ export function createLiveSummaries(options: Options) {
         const value = readMeetingSummaryUpdate(reply, input, lastItemId);
         const speech = slice.map(summaryEvidenceCue);
         for (const [id, cited] of Object.entries(value.evidence)) {
-          const next = [...(evidence[Number(id)] ?? [])];
+          const itemId = Number(id);
+          const next = [...(evidence[itemId] ?? [])];
+          const citedQuotes: StoredSummaryQuote[] = [];
           for (const entry of cited) {
             const quote = storeNumberedSummaryQuote(entry, speech);
+            if (!citedQuotes.some((old) => sameSummaryQuote(old, quote))) {
+              citedQuotes.push(quote);
+            }
             if (!next.some((old) => sameSummaryQuote(old, quote))) {
               next.push(quote);
             }
           }
-          evidence[Number(id)] = next;
+          evidence[itemId] = next;
+          latestEvidence[itemId] = citedQuotes;
         }
         failedAt.delete(m.id);
         const ready = !live(now) && now.transcript?.state === "saved" && currentCues.length === to;
@@ -270,6 +293,7 @@ export function createLiveSummaries(options: Options) {
           route: selected,
           ...(documentId && { documentId }),
           evidence,
+          latestEvidence,
           count: to,
           digest,
           summary: {
