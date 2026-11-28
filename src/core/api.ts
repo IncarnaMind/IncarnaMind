@@ -2474,6 +2474,8 @@ export interface WordExportReport {
   unknownParts: string[];
   /** The header and the footer, kept in the file though their Blocks were deleted from the Mind. */
   keptFurniture: ("header" | "footer")[];
+  /** The parts, by their names in the package, of the headers and footers `keptFurniture` names. */
+  furnitureParts: string[];
 }
 
 /**
@@ -8906,6 +8908,18 @@ export interface MindCheckRun {
    * the same (#2447).
    */
   unexamined: string[];
+  /**
+   * Sentences an outside check task left unreported (#3862), by `sentenceKey`: they keep the
+   * Check button on the Note until checked, undone, or removed, without marking them as
+   * classifier-undecided (`unexamined`, #1682).
+   */
+  unchecked?: string[];
+  /**
+   * Blocks an outside AI wrote or changed since the last whole check (#3862), by Block id: any
+   * `to-check` sentence inside them keeps the Check button on the Note until checked, undone, or
+   * removed, while User edits in other Blocks stay under `#3840`.
+   */
+  uncheckedBlocks?: string[];
 }
 
 /**

@@ -46,6 +46,7 @@ export class PackageWriter {
   private readonly texts = new Map<string, string>();
   private readonly changed = new Map<string, string | Uint8Array>();
   private readonly added = new Map<string, string | Uint8Array>();
+  private readonly removed = new Set<string>();
   private readonly relationships = new Map<string, PartRelationships>();
   /** Defaults and overrides to add to [Content_Types].xml. */
   private contentTypes: string[] = [];
@@ -103,6 +104,12 @@ export class PackageWriter {
   /** Adds a new part. */
   add(name: string, data: string | Uint8Array): void {
     this.added.set(name, data);
+  }
+
+  /** Leaves a stored part out of the package written. */
+  remove(name: string): void {
+    this.removed.add(name);
+    this.changed.delete(name);
   }
 
   /** The parts written as new text, changed or added. */
@@ -177,7 +184,8 @@ export class PackageWriter {
     for (const [name, data] of [...this.changed, ...this.added]) {
       if (typeof data === "string") check(name, data);
     }
-    const entries: ZipWriteEntry[] = this.zip.names().map((name) => {
+    const kept = this.zip.names().filter((name) => !this.removed.has(name));
+    const entries: ZipWriteEntry[] = kept.map((name) => {
       const data = this.changed.get(name);
       if (data !== undefined) return { name, data };
       const raw = this.zip.raw(name);

@@ -60,6 +60,11 @@ import { connectToMind } from "../helpers/mindClient";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
+import { expectOnlyGiven } from "../helpers/plantedWordFile";
+import { reviewedContract } from "../helpers/reviewedContracts";
+import { escapeXml, paragraph, run } from "../helpers/word";
+import { importWordBytes } from "../helpers/wordMinds";
+import { buildZip } from "../helpers/zip";
 
 interface Saved extends Handed {
   citations: { cite: string; check: string; document: string | null }[];
@@ -1578,6 +1583,67 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     ]);
   });
 
+  // protects=read_mind names the source of a Citation of a Document deleted and saved again as the one saved again, which the agent reaches, though the one cited was in a Folder not shared with it, as its Word file names it, in English and Chinese (#3751); fails_when=read_mind tells the source as a Document in a Folder not shared with the agent while save_as_word names it
+  it.each(["en", "zh-CN"] as const)(
+    "reads a Citation of a Document deleted and saved again where the agent reaches it (%s)",
+    async (language) => {
+      const { core, coast, writer } = await started([], { asItLands: false });
+      await core.updateSettings({ user: { language } });
+      await core.setOutputLocation(await createSourceFolder());
+      const away = await core.createLibraryGroup({ name: "Private", description: "" });
+      const page = async (folderId: string) => {
+        const result = await core.saveWebPage({
+          address: "https://encyclopedia.example/tea",
+          html: ARTICLE,
+          folderId,
+        });
+        if (result.outcome !== "saved") throw new Error(result.failure.message);
+        const [document] = await waitForProcessing(core, [result.document.id]);
+        if (!document) throw new Error("The page wasn't read.");
+        return document;
+      };
+      const removed = await page(away.id);
+      const introduced =
+        "Tea was first introduced to Portuguese priests and merchants in China during the 16th century";
+      const mind = await core.createMind({ title: "Tea notes", folderId: coast.id });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [
+        {
+          type: "paragraph",
+          attrs: { id: "tea-1" },
+          content: [text("Tea came to Europe"), citation(removed, introduced), text(".")],
+        },
+      ]);
+      await client.settled();
+      await core.deleteDocuments([removed.id]);
+      const replacement = await page(coast.id);
+      expect(replacement.id).not.toBe(removed.id);
+      const agent = await connectLegacyAgent(writer.launch);
+
+      const read = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id } }),
+      );
+      expect(read.markdown).not.toContain(translate(language, "agents.mind.outsideCitation"));
+      expect(read.markdown).toMatch(/\[\^1\]: Tea/);
+      const saved = structured<Saved>(await save(agent, { mindId: mind.id }));
+      expect(partsOf(await savedFile(saved)).footnotes).toEqual([
+        expect.stringContaining("https://encyclopedia.example/tea"),
+      ]);
+
+      const named = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+      );
+      const cite = named.markdown.match(/\[cite:[^\]]+\]/)?.[0];
+      if (!cite) throw new Error(`The named read gives no token: ${named.markdown}`);
+      const again = structured<Saved>(
+        await save(agent, { title: "Tea again", markdown: `Tea came to Europe ${cite}.` }),
+      );
+      expect(again.citations).toEqual([
+        expect.objectContaining({ cite, check: "found", document: replacement.name }),
+      ]);
+    },
+  );
+
   // protects=Ask in your agent on the check of a Word file whose Note was deleted since points the agent at the file's text in the check's Note and a save of the corrected Markdown, in English and Chinese, never at the deleted Note (#3751); fails_when=the request tells the agent to change the deleted Note with propose_changes or to save by its mindId
   it("asks for a fix to a Word file's own text once the Note it was saved from is deleted", async () => {
     const { core, coast, writer } = await started();
@@ -1714,6 +1780,155 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const saved = structured<Saved>(await save(citer, { mindId }));
     expect(partsOf(await savedFile(saved)).footnotes).toEqual(["Quay notes, § Quay notes"]);
   });
+
+  // protects=a Note imported from someone's Word file is written into that file, as Export › Word writes it, so the agent's file keeps the file's styles, numbering, header, footer, contents list and cross-reference; and it holds nothing the agent was never given: no comment or the parts naming its people, no tracked change's author but a neutral one in the User's language, no name or words of the file's properties, variables or custom XML, no template or first-page picture, and a field that shows a property is written as what it shows, with no property kept; Export › Word by hand still writes the file's comments and people as it did (#3751); fails_when=the agent's file is a new file without the original's styles or numbering, or any of those names or words is in any of its parts, or Export › Word by hand loses a comment
+  it.each(["en", "zh-CN"] as const)(
+    "writes a Note imported from Word into its own file, without what the agent was never given (%s)",
+    async (language) => {
+      const { core, coast, writer } = await started([], { asItLands: false });
+      await core.updateSettings({ user: { language } });
+      const output = await createSourceFolder();
+      await core.setOutputLocation(output);
+      const contract = reviewedContract(language);
+      const original = unzip(contract.bytes);
+      const { mindId } = await importWordBytes(core, await createSourceFolder(), contract.bytes, {
+        name: "Packaging agreement.docx",
+        origin: "someone-else",
+        folderId: coast.id,
+      });
+      const agent = await connectLegacyAgent(writer.launch);
+      const given = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId } }),
+      ).markdown;
+
+      const saved = structured<Saved>(await save(agent, { mindId }));
+      const files = unzip(await savedFile(saved));
+      expectOnlyGiven(files, given);
+      const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
+      // The file's look: its own styles and numbering, its clauses' styles and numbers.
+      for (const name of ["word/styles.xml", "word/numbering.xml"]) {
+        expect(files.get(name)?.toString("utf8")).toBe(original.get(name)?.toString("utf8"));
+      }
+      const document = part(files, "word/document.xml");
+      const header = part(files, "word/header1.xml");
+      for (const clause of part(original, "word/document.xml").match(/<w:p>.*?<\/w:p>/gs) ?? []) {
+        if (/comment|w:ins |rPrChange|w:object/.test(clause)) continue;
+        // A drawing's name in the selection pane, which anyone can type, is written empty.
+        expect(document).toContain(
+          clause.replace(/(<(?:wp:docPr|\w+:cNvPr)\b[^>]*?\sname=")[^"]*"/g, '$1"'),
+        );
+      }
+      // An embedded object is the picture it shows; a chart draws what it drew, its workbook gone.
+      expect(document).toContain(
+        '<w:pict><v:shape id="_x0000_i1025" type="#_x0000_t75" style="width:72pt;height:48pt"><v:imagedata r:id="rIdPreview1" o:title=""/></v:shape></w:pict>',
+      );
+      expect(files.get("word/media/image9.png")).toEqual(original.get("word/media/image9.png"));
+      const chart = part(files, "word/charts/chart1.xml");
+      expect(chart).toContain(`<c:v>${escapeXml(contract.words.series[0])}</c:v>`);
+      expect(chart).toContain(`<c:v>${contract.words.series[1]}</c:v>`);
+      expect(chart).not.toContain("externalData");
+      expect(part(files, "word/charts/_rels/chart1.xml.rels")).not.toContain("Relationship ");
+      // A content control keeps what it shows, without its tie to the custom XML, a building block or its names.
+      expect(header).toContain(
+        `<w:sdtContent>${paragraph(run(contract.words.bound))}</w:sdtContent>`,
+      );
+      expect(header).not.toMatch(/dataBinding|placeholder|docPart|altChunk|w:alias|w:tag/);
+      expect(document).toContain('TOC \\o "1-3" \\h \\z \\u');
+      expect(document).toMatch(/REF _Ref[0-9]+ \\r \\h/);
+      // A field that shows a property is what it shows: the file keeps no property.
+      const footer = part(files, "word/footer1.xml");
+      expect(footer).toContain(run(contract.words.client));
+      expect(footer).not.toMatch(/DOCPROPERTY|fldChar/);
+      // No tracked change of anyone's: a deletion stands, an insertion goes, a format is as it is.
+      expect(header).toContain(run(contract.words.header));
+      expect(header).not.toContain(escapeXml(contract.words.headerAdded));
+      expect(document).toContain('<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">');
+      expect(all).not.toMatch(/w:author=|<w:ins |<w:del |<w:moveFrom|<w:moveTo|Change /);
+
+      // Nothing of anyone the agent was never given, in any part.
+      // Nor any part of a kind not known for a Word file's look, or what points at one.
+      expect(
+        [...files.keys()].filter((name) =>
+          /comments|people|customXml|thumbnail|embeddings|reviewNotes|chunk/.test(name),
+        ),
+      ).toEqual([]);
+      expect(part(files, "word/_rels/document.xml.rels")).not.toMatch(/oleObject|reviewNotes/);
+      for (const words of [...contract.others, contract.words.title, contract.words.inserted]) {
+        expect(all).not.toContain(escapeXml(words));
+      }
+      expect(all).not.toMatch(/commentRangeStart|commentReference|<w:comment |attachedTemplate/);
+      expect(files.has("docProps/custom.xml")).toBe(false);
+      expect(part(files, "docProps/app.xml")).not.toContain("<Template>");
+      expect(part(files, "[Content_Types].xml")).not.toMatch(
+        /people|commentsExtended|customXml|reviewNotes/,
+      );
+      expect(part(files, "docProps/core.xml")).not.toMatch(/identifier|cp:version/);
+
+      // Export › Word by hand writes the file's comments and their people as before.
+      const byHand = unzip((await core.exportMind(mindId, { format: "docx" })).data);
+      expect(part(byHand, "word/comments.xml")).toContain(escapeXml(contract.words.comments[0]));
+      expect(part(byHand, "word/people.xml")).toContain(escapeXml(contract.words.people[1]));
+      expect(part(byHand, "docProps/core.xml")).toContain(escapeXml(contract.words.people[0]));
+    },
+  );
+
+  // protects=a Word file whose document part sits outside word/ is made fit for the agent as one in word/ is: its comments, people and properties go and its tracked changes are by no one, so where a package keeps its parts lets nothing through (#3751); fails_when=any of those names or words is in a part of the agent's file, or the file fails Word's package checks
+  it.each(["en", "zh-CN"] as const)(
+    "writes a Note imported from a Word file that keeps its document outside word/ without what the agent was never given (%s)",
+    async (language) => {
+      const { core, coast, writer } = await started([], { asItLands: false });
+      await core.updateSettings({ user: { language } });
+      await core.setOutputLocation(await createSourceFolder());
+      const contract = reviewedContract(language);
+      const moved = new Map(
+        [...unzip(contract.bytes)].map(([name, data]) => [
+          name.replace(/^word\//, "content/"),
+          name === "_rels/.rels" || name === "[Content_Types].xml"
+            ? Buffer.from(
+                data
+                  .toString("utf8")
+                  .replaceAll("/word/", "/content/")
+                  .replace('Target="word/', 'Target="content/'),
+              )
+            : data,
+        ]),
+      );
+      const bytes = buildZip([...moved].map(([name, data]) => ({ name, data })));
+      const { mindId } = await importWordBytes(core, await createSourceFolder(), bytes, {
+        name: "Packaging agreement.docx",
+        origin: "someone-else",
+        folderId: coast.id,
+      });
+      const agent = await connectLegacyAgent(writer.launch);
+      const given = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId } }),
+      ).markdown;
+
+      const saved = structured<Saved>(await save(agent, { mindId }));
+      if (!saved.saved) throw new Error(`The Word file wasn't saved: ${saved.notSaved}`);
+      const data = new Uint8Array(readFileSync(saved.saved));
+      // The package check looks for the document in word/ alone; every other check holds.
+      expect((await inspectPackage(data)).problems).toEqual(["word/document.xml is missing"]);
+      const files = unzip(data);
+      expectOnlyGiven(files, given);
+      const all = [...files.values()].map((each) => each.toString("utf8")).join("\n");
+      expect([...files.keys()].filter((name) => name.startsWith("word/"))).toEqual([]);
+      expect(part(files, "content/document.xml")).toContain('TOC \\o "1-3" \\h \\z \\u');
+      expect(part(files, "content/footer1.xml")).toContain(run(contract.words.client));
+      expect(part(files, "content/styles.xml")).toBe(part(moved, "content/styles.xml"));
+      expect(part(files, "content/header1.xml")).toContain(run(contract.words.header));
+      expect(all).not.toMatch(/w:author=|<w:ins |<w:del /);
+      expect(
+        [...files.keys()].filter((name) =>
+          /comments|people|customXml|thumbnail|embeddings|reviewNotes|chunk/.test(name),
+        ),
+      ).toEqual([]);
+      for (const words of [...contract.others, contract.words.title, contract.words.inserted]) {
+        expect(all).not.toContain(escapeXml(words));
+      }
+      expect(all).not.toMatch(/commentRangeStart|commentReference|attachedTemplate|externalData/);
+    },
+  );
 });
 
 const CHARTED = [

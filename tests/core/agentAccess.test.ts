@@ -17,6 +17,7 @@ import {
 } from "../../src/core/agents/access";
 import { CONVERSATION_TOOLS, type RunGrant } from "../../src/core/agents/askedChecks";
 import type { AgentCitation } from "../../src/core/agents/citations";
+import { createHandOverTurns } from "../../src/core/agents/handedFiles";
 import type { KeptRequest } from "../../src/core/agents/requests";
 import { createAgentWorkings } from "../../src/core/agents/workings";
 import type { OutsideAnswer } from "../../src/core/answers";
@@ -121,6 +122,7 @@ function accessAnswering(
     },
     checkRuns: createCheckRuns(),
     workings: createAgentWorkings(),
+    handOverTurns: createHandOverTurns(),
     versions: new Map(),
     citations: {
       find: () => null,
