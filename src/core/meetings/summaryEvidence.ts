@@ -54,35 +54,22 @@ export function storeSummaryQuote(
   return { words, targets: Array.from(matchingSummaryCues(words, cues), ({ target }) => target) };
 }
 
-export function storeSummaryQuotes(
-  quotes: readonly string[],
+export interface NumberedSummaryQuote {
+  source: number | null;
+  quote: string;
+}
+
+export function storeNumberedSummaryQuote(
+  { source, quote }: NumberedSummaryQuote,
   cues: readonly EvidenceCue[],
-): LocatedSummaryQuote[] {
-  const entries = quotes.map((quote) => {
-    const words = normalizeSummaryEvidence(quote);
-    return { words, matches: Array.from(matchingSummaryCues(words, cues)) };
-  });
-  const anchors = entries.filter(({ matches }) => matches.length === 1);
-  const anchorIndex = anchors.length === 1 ? anchors[0]?.matches[0]?.index : undefined;
-  return entries.map(({ words, matches }) => {
-    if (anchorIndex !== undefined && matches.length > 1) {
-      let best = Infinity;
-      let closest: typeof matches = [];
-      for (const match of matches) {
-        const distance = Math.abs(match.index - anchorIndex);
-        if (distance < best) {
-          best = distance;
-          closest = [match];
-        } else if (distance === best) {
-          closest.push(match);
-        }
-      }
-      if (closest.length === 1 && closest[0]) {
-        return { words, targets: [closest[0].target] };
-      }
-    }
-    return { words, targets: matches.map(({ target }) => target) };
-  });
+): LocatedSummaryQuote {
+  const words = normalizeSummaryEvidence(quote);
+  const cue =
+    source !== null && Number.isSafeInteger(source) && source >= 1 ? cues[source - 1] : undefined;
+  return {
+    words,
+    targets: words && cue?.words.includes(words) ? [cue.target] : [],
+  };
 }
 
 export function sameSummaryQuote(a: StoredSummaryQuote, b: LocatedSummaryQuote): boolean {

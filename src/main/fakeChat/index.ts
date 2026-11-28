@@ -209,9 +209,10 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
   }: {
     previous: string | null;
     items?: MeetingSummaryItem[];
-    utterances: { text: string }[];
+    utterances: { line: number; text: string }[];
   } = JSON.parse(lastUserText(prompt));
-  const said = (text: string) => utterances.some((line) => line.text.includes(text));
+  const sourceOf = (text: string) => utterances.find((entry) => entry.text.includes(text))?.line;
+  const said = (text: string) => sourceOf(text) !== undefined;
   const known = (text: string) => said(text) || items.some((item) => item.text === text);
   const fixture = SUMMARY_FIXTURES.find((sample) =>
     sample.rows.some(({ text, revision }) => known(text) || (revision && known(revision.text))),
@@ -225,13 +226,22 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
         revision,
       }): (Omit<MeetingSummaryItem, "id"> & {
         id: number | null;
-        quotes: string[];
+        quotes: { source: number; quote: string }[];
       })[] => {
         const prior = items.find((item) => item.text === text || item.text === revision?.text);
-        if (revision && said(revision.text) && prior?.text !== revision.text)
-          return [{ id: prior?.id ?? null, kind, ...revision, quotes: [revision.text] }];
-        if (prior || !said(text)) return [];
-        return [{ id: null, kind, status: "active", text, quotes: [text] }];
+        const revisedSource = revision ? sourceOf(revision.text) : undefined;
+        if (revision && revisedSource !== undefined && prior?.text !== revision.text)
+          return [
+            {
+              id: prior?.id ?? null,
+              kind,
+              ...revision,
+              quotes: [{ source: revisedSource, quote: revision.text }],
+            },
+          ];
+        const source = sourceOf(text);
+        if (prior || source === undefined) return [];
+        return [{ id: null, kind, status: "active", text, quotes: [{ source, quote: text }] }];
       },
     ) ?? [];
   return JSON.stringify({

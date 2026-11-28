@@ -174,8 +174,17 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
       JSON.stringify({
         summary: overview,
         changes: [
-          { ...decision, id: null, quotes: [appointment] },
-          { ...action, id: null, quotes: [assignment] },
+          {
+            ...decision,
+            id: null,
+            quotes: fixture.ambiguousDecision
+              ? [
+                  { source: 1, quote: appointment },
+                  { source: 3, quote: appointment },
+                ]
+              : [{ source: 1, quote: appointment }],
+          },
+          { ...action, id: null, quotes: [{ source: 2, quote: assignment }] },
         ],
       }),
     )
@@ -244,3 +253,91 @@ test("two live turns after the update interval reach the warm summary together",
     scheduler.close();
   }
 });
+
+test.each([
+  {
+    name: "English",
+    request: "Could each team report how many crates it needs?",
+    confirm: "Yes, we will count them after the call.",
+    item: {
+      id: 1,
+      kind: "action" as const,
+      status: "active" as const,
+      text: "Each team will count and report how many crates it needs.",
+    },
+    overviewText: "Each team will count required crates.",
+    finishedText: "The meeting ended.",
+  },
+  {
+    name: "Chinese",
+    request: "各组能不能报一下需要多少个箱子？",
+    confirm: "好的，会后我们去数一下。",
+    item: {
+      id: 1,
+      kind: "action" as const,
+      status: "active" as const,
+      text: "各组会后统计并上报所需箱子数量。",
+    },
+    overviewText: "各组将在会后统计所需箱子数量。",
+    finishedText: "会议结束。",
+  },
+])(
+  "a two-quote $name item survives when only the second line is re-timed and drops if both lines move",
+  async ({ request, confirm, item, overviewText, finishedText }) => {
+    for (const retimeBoth of [false, true]) {
+      const cues: Cue[] = [
+        { startMs: 1_000, endMs: 1_800, speaker: "Me", text: request },
+        { startMs: 2_100, endMs: 2_700, speaker: "Them", text: confirm },
+      ];
+      const generate = vi.fn<Parameters<typeof createLiveSummaries>[0]["generate"]>();
+      generate
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            summary: overviewText,
+            changes: [
+              {
+                ...item,
+                id: null,
+                quotes: [
+                  { source: 1, quote: request },
+                  { source: 2, quote: confirm },
+                ],
+              },
+            ],
+          }),
+        )
+        .mockImplementationOnce(async (_meeting, _route, input) =>
+          JSON.stringify({
+            summary: finishedText,
+            changes: [],
+            ...(input.items?.some((each) => each.status === "active") && {
+              unchanged: [item.id],
+            }),
+          }),
+        );
+      const { meeting, transcript, scheduler, failed } = await meetingScheduler(cues, generate);
+      try {
+        scheduler.changed([meeting]);
+        await vi.waitFor(() => expect(meeting.summary?.items).toEqual([item]));
+        if (retimeBoth) {
+          cues[0] = { startMs: 3_000, endMs: 3_800, speaker: "Me", text: request };
+        }
+        cues[1] = { startMs: 4_100, endMs: 4_700, speaker: "Them", text: confirm };
+        transcript.state = "saved";
+        meeting.status = "stopped";
+        scheduler.changed([meeting]);
+        await vi.waitFor(() => expect(meeting.summary?.state).toBe("ready"));
+        const expected = retimeBoth ? [] : [item];
+        expect(meeting.summary?.items).toEqual(expected);
+        expect(generate.mock.lastCall?.[2]).toEqual({
+          previous: null,
+          items: expected,
+          utterances: cues.map(({ text, speaker }) => ({ text, speaker })),
+        });
+        expect(failed).not.toHaveBeenCalled();
+      } finally {
+        scheduler.close();
+      }
+    }
+  },
+);

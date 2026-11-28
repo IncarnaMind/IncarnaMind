@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
 import {
+  storeNumberedSummaryQuote,
   storeSummaryQuote,
-  storeSummaryQuotes,
   summaryEvidenceCue,
 } from "../../src/core/meetings/summaryEvidence";
 import { meetingSummarySources } from "../../src/core/meetings/summarySources";
@@ -44,33 +44,72 @@ test("an ambiguous new quote stays unlocated while old uniquely matched quotes s
   expect(meetingSummarySources(units, [text])).toEqual([{ startMs: 3_000, endMs: 4_000, text }]);
 });
 
-test("a paired excerpt resolves a repeated confirmation to the match strictly closest to its anchor", () => {
-  const cues = [
-    { startMs: 1_000, endMs: 2_000, speaker: "A", text: "Each team can report its counts." },
-    { startMs: 2_000, endMs: 3_000, speaker: "B", text: "We will count them." },
-    { startMs: 3_000, endMs: 4_000, speaker: "C", text: "That helps with the budget." },
-    { startMs: 4_000, endMs: 5_000, speaker: "B", text: "We will count them." },
-  ];
-  const speech = cues.map(summaryEvidenceCue);
-  const units = transcriptUnits({ cues, gaps: [] });
+test.each([
+  {
+    name: "English",
+    lines: [
+      "Each team can report its counts.",
+      "We will count them.",
+      "That helps with the budget.",
+      "We will count them.",
+    ],
+  },
+  {
+    name: "Chinese",
+    lines: [
+      "各组报一下需要的箱子数量。",
+      "我们回去数一下。",
+      "这样方便核预算。",
+      "我们回去数一下。",
+    ],
+  },
+])(
+  "numbered excerpts resolve repeated $name lines to their exact utterance while unnumbered repeats stay unlinked",
+  ({ lines }) => {
+    const cues = lines.map((text, index) => ({
+      startMs: (index + 1) * 1_000,
+      endMs: (index + 2) * 1_000,
+      speaker: `Speaker ${index + 1}`,
+      text,
+    }));
+    const speech = cues.map(summaryEvidenceCue);
+    const units = transcriptUnits({ cues, gaps: [] });
+    const [first, confirm, middle, repeat] = lines;
+    if (!first || !confirm || !middle || !repeat) throw new Error("Expected four lines");
 
-  const anchored = storeSummaryQuotes(
-    ["Each team can report its counts.", "We will count them."],
-    speech,
-  );
-  expect(meetingSummarySources(units, anchored)).toEqual([
-    { startMs: 1_000, endMs: 2_000, text: cues[0]?.text },
-    { startMs: 2_000, endMs: 3_000, text: cues[1]?.text },
-  ]);
+    const earlierPair = [
+      storeNumberedSummaryQuote({ source: 1, quote: first }, speech),
+      storeNumberedSummaryQuote({ source: 2, quote: confirm }, speech),
+    ];
+    expect(meetingSummarySources(units, earlierPair)).toEqual([
+      { startMs: 1_000, endMs: 2_000, text: first },
+      { startMs: 2_000, endMs: 3_000, text: confirm },
+    ]);
 
-  const standalone = storeSummaryQuotes(["We will count them."], speech);
-  expect(meetingSummarySources(units, standalone)).toEqual([]);
+    const laterPair = [
+      storeNumberedSummaryQuote({ source: 3, quote: middle }, speech),
+      storeNumberedSummaryQuote({ source: 4, quote: repeat }, speech),
+    ];
+    expect(meetingSummarySources(units, laterPair)).toEqual([
+      { startMs: 3_000, endMs: 4_000, text: middle },
+      { startMs: 4_000, endMs: 5_000, text: repeat },
+    ]);
 
-  const equidistant = storeSummaryQuotes(
-    ["That helps with the budget.", "We will count them."],
-    speech,
-  );
-  expect(meetingSummarySources(units, equidistant)).toEqual([
-    { startMs: 3_000, endMs: 4_000, text: cues[2]?.text },
-  ]);
-});
+    expect(
+      meetingSummarySources(units, [
+        storeNumberedSummaryQuote({ source: 4, quote: repeat }, speech),
+      ]),
+    ).toEqual([{ startMs: 4_000, endMs: 5_000, text: repeat }]);
+
+    expect(meetingSummarySources(units, [storeSummaryQuote(confirm, speech)])).toEqual([]);
+
+    for (const invalid of [
+      storeNumberedSummaryQuote({ source: 1, quote: confirm }, speech),
+      storeNumberedSummaryQuote({ source: 9, quote: confirm }, speech),
+      storeNumberedSummaryQuote({ source: 0, quote: first }, speech),
+      storeNumberedSummaryQuote({ source: null, quote: first }, speech),
+    ]) {
+      expect(meetingSummarySources(units, [invalid])).toEqual([]);
+    }
+  },
+);

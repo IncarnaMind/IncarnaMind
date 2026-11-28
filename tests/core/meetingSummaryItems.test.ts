@@ -13,26 +13,28 @@ const draft: MeetingSummaryInput = {
     { text: "We have agreed to meet at the depot." },
   ],
 };
+const cite = (source: number | null, quote: string) => ({ source, quote });
+
 const cancelled = {
   id: 2,
   kind: "action",
   status: "cancelled",
   text: "The cone order was cancelled.",
-  quotes: ["Cancel the cones"],
+  quotes: [cite(1, "Cancel the cones")],
 };
 const added = {
   id: null,
   kind: "action",
   status: "active",
   text: "Park will book the van on Friday.",
-  quotes: ["park will book  the van on friday"],
+  quotes: [cite(1, "park will book  the van on friday")],
 };
 const decision = {
   id: null,
   kind: "decision",
   status: "active",
   text: "Meet at the depot.",
-  quotes: ["We have agreed to meet at the depot"],
+  quotes: [cite(2, "We have agreed to meet at the depot")],
 };
 const reply = (changes: unknown[], unchanged?: unknown) =>
   JSON.stringify({
@@ -78,14 +80,23 @@ test.each(["done", "cancelled"])(
       status === "done"
         ? "The team already returned the samples."
         : "The team called off the return.";
-    const update = reply([
-      { id: null, kind: "action", status, text: "Return the samples.", quotes: [quote] },
+    const spoken = reply([
+      { id: null, kind: "action", status, text: "Return the samples.", quotes: [cite(1, quote)] },
+    ]);
+    const seeded = reply([
+      {
+        id: null,
+        kind: "action",
+        status,
+        text: "Return the samples.",
+        quotes: [cite(null, quote)],
+      },
     ]);
     expect(
-      readMeetingSummaryUpdate(update, { previous: null, utterances: [{ text: quote }] }).items,
+      readMeetingSummaryUpdate(spoken, { previous: null, utterances: [{ text: quote }] }).items,
     ).toEqual([{ id: 1, kind: "action", status, text: "Return the samples." }]);
     expect(() =>
-      readMeetingSummaryUpdate(update, { previous: quote, utterances: [{ text: "Hello." }] }),
+      readMeetingSummaryUpdate(seeded, { previous: quote, utterances: [{ text: "Hello." }] }),
     ).toThrow();
   },
 );
@@ -98,7 +109,7 @@ test("a repeated unchanged commitment retains its original evidence", () => {
     text: "Asha will order cones by Monday.",
   };
   const out = readMeetingSummaryUpdate(
-    reply([{ ...previous, quotes: ["Asha still has this."] }], [7]),
+    reply([{ ...previous, quotes: [cite(1, "Asha still has this.")] }], [7]),
     {
       ...draft,
       utterances: [{ text: "Asha still has this." }],
@@ -111,7 +122,7 @@ test("a repeated unchanged commitment retains its original evidence", () => {
 test("repeating an identical item needs no new evidence and cannot authorize a changed item", () => {
   const item = draft.items?.[0];
   if (!item) throw new Error("Missing action fixture");
-  const repeated = { ...item, quotes: ["Words absent from the new speech"] };
+  const repeated = { ...item, quotes: [cite(1, "Words absent from the new speech")] };
   const result = readMeetingSummaryUpdate(reply([repeated, decision], [7]), draft);
   expect(result.items[0]).toEqual(item);
   expect(Object.values(result.evidence)).toEqual([decision.quotes]);
@@ -125,12 +136,12 @@ test("a repeated addition never supplies coverage or changes the saved item’s 
   const saved = { id: 2, kind: "action", status: "active", text: "Order the cones." } as const;
   const utterances = [{ text: "Order the cones. Cancel the cones." }];
   const input = { previous: null, items: [saved], utterances };
-  const repeated = { ...saved, id: null, quotes: ["Order the cones."] };
+  const repeated = { ...saved, id: null, quotes: [cite(1, "Order the cones.")] };
   const unchanged = readMeetingSummaryUpdate(reply([repeated], [2]), input);
   expect(unchanged.items).toEqual([saved]);
   expect(unchanged.evidence).toEqual({});
   expect(() =>
-    readMeetingSummaryUpdate(reply([{ ...repeated, quotes: ["missing"] }], [2]), input),
+    readMeetingSummaryUpdate(reply([{ ...repeated, quotes: [cite(1, "missing")] }], [2]), input),
   ).toThrow();
   expect(() =>
     readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }], [2]), input),
@@ -177,7 +188,7 @@ test("any update with active items accounts for every active item and can acknow
   }
 });
 
-test("previous visible prose can seed historical commitments once; empty structured records disable that path", () => {
+test("previous visible prose can seed historical commitments once with null source; empty structured records disable that path", () => {
   const input = { previous: "周六之前由小林订场地。", utterances: [{ text: "先休息一下。" }] };
   const raw = reply([
     {
@@ -185,67 +196,113 @@ test("previous visible prose can seed historical commitments once; empty structu
       kind: "action",
       status: "active",
       text: "小林周六之前订场地。",
-      quotes: ["小林订场地"],
+      quotes: [cite(null, "小林订场地")],
     },
   ]);
-  expect(readMeetingSummaryUpdate(raw, input).items).toEqual([
-    { id: 1, kind: "action", status: "active", text: "小林周六之前订场地。" },
-  ]);
+  expect(readMeetingSummaryUpdate(raw, input)).toEqual({
+    text: "We will meet at the depot.",
+    items: [{ id: 1, kind: "action", status: "active", text: "小林周六之前订场地。" }],
+    evidence: { 1: [cite(null, "小林订场地")] },
+  });
   expect(() => readMeetingSummaryUpdate(raw, { ...input, items: [] })).toThrow();
 });
 
-test("each evidence excerpt must occur within one utterance and a change accepts 1 or 2 excerpts", () => {
-  const apart = {
-    ...draft,
-    utterances: [{ text: "PARK will book" }, { text: "the van." }, { text: "By Friday." }],
-  };
-  expect(() =>
-    readMeetingSummaryUpdate(
-      reply([{ ...added, quotes: ["Park will book the van."] }], [2, 7]),
+test.each([
+  {
+    name: "English",
+    lines: ["PARK will book", "the van.", "PARK will book"],
+    sameSourceDuplicate: "park  will book",
+    stitched: "Park will book the van.",
+    combined: "PARK  will book\nthe van.",
+    combinedQuote: "Park will book the van.",
+    itemText: "Park will book the van on Friday.",
+  },
+  {
+    name: "Chinese",
+    lines: ["各组统计箱子数量", "周五前发给小李。", "各组统计箱子数量"],
+    sameSourceDuplicate: "各组统计箱子数量",
+    stitched: "各组统计箱子数量周五前发给小李。",
+    combined: "各组统计箱子数量\n周五前发给小李。",
+    combinedQuote: "各组统计箱子数量 周五前发给小李。",
+    itemText: "各组周五前统计箱子数量并发给小李。",
+  },
+])(
+  "each $name excerpt must match its exact numbered utterance and a change accepts 1 or 2 excerpts",
+  ({ lines, sameSourceDuplicate, stitched, combined, combinedQuote, itemText }) => {
+    const [first, second, third] = lines;
+    if (!first || !second || !third) throw new Error("Expected three lines");
+    const apart = { ...draft, utterances: lines.map((text) => ({ text })) };
+    const change = (quotes: unknown[]) => ({
+      id: null,
+      kind: "action",
+      status: "active",
+      text: itemText,
+      quotes,
+    });
+
+    expect(() =>
+      readMeetingSummaryUpdate(reply([change([cite(1, stitched)])], [2, 7]), apart),
+    ).toThrow();
+    expect(() =>
+      readMeetingSummaryUpdate(reply([change([cite(2, first)])], [2, 7]), apart),
+    ).toThrow();
+    expect(() =>
+      readMeetingSummaryUpdate(reply([change([cite(4, first)])], [2, 7]), apart),
+    ).toThrow();
+
+    const paired = readMeetingSummaryUpdate(
+      reply([change([cite(1, first), cite(2, second)])], [2, 7]),
       apart,
-    ),
-  ).toThrow();
-  const paired = readMeetingSummaryUpdate(
-    reply([{ ...added, quotes: ["PARK will book", "the van."] }], [2, 7]),
-    apart,
-  );
-  expect(paired.evidence).toEqual({ 8: ["PARK will book", "the van."] });
-  expect(
-    readMeetingSummaryUpdate(
-      reply([{ ...added, quotes: ["PARK will book", "park  will book"] }], [2, 7]),
-      apart,
-    ).evidence,
-  ).toEqual({ 8: ["PARK will book"] });
-  expect(() =>
-    readMeetingSummaryUpdate(
-      reply([{ ...added, quotes: ["PARK will book", "missing second line"] }], [2, 7]),
-      apart,
-    ),
-  ).toThrow();
-  expect(() =>
-    readMeetingSummaryUpdate(
-      reply([{ ...added, quotes: ["PARK will book", "the van.", "By Friday."] }], [2, 7]),
-      apart,
-    ),
-  ).toThrow();
-  const together = { ...draft, utterances: [{ text: "PARK  will book\nthe van." }] };
-  const quote = "Park will book the van.";
-  expect(
-    readMeetingSummaryUpdate(reply([{ ...added, quotes: [quote] }], [2, 7]), together).evidence,
-  ).toEqual({
-    8: [quote],
-  });
-});
+    );
+    expect(paired.evidence).toEqual({ 8: [cite(1, first), cite(2, second)] });
+
+    expect(
+      readMeetingSummaryUpdate(
+        reply([change([cite(1, first), cite(1, sameSourceDuplicate)])], [2, 7]),
+        apart,
+      ).evidence,
+    ).toEqual({ 8: [cite(1, first)] });
+
+    expect(
+      readMeetingSummaryUpdate(reply([change([cite(1, first), cite(3, third)])], [2, 7]), apart)
+        .evidence,
+    ).toEqual({ 8: [cite(1, first), cite(3, third)] });
+
+    expect(() =>
+      readMeetingSummaryUpdate(
+        reply([change([cite(1, first), cite(2, "missing second line")])], [2, 7]),
+        apart,
+      ),
+    ).toThrow();
+    expect(() =>
+      readMeetingSummaryUpdate(
+        reply([change([cite(1, first), cite(2, second), cite(3, third)])], [2, 7]),
+        apart,
+      ),
+    ).toThrow();
+
+    const together = { ...draft, utterances: [{ text: combined }] };
+    expect(
+      readMeetingSummaryUpdate(reply([change([cite(1, combinedQuote)])], [2, 7]), together)
+        .evidence,
+    ).toEqual({ 8: [cite(1, combinedQuote)] });
+  },
+);
+
 test("typographic apostrophes denote the same quote without dropping significant punctuation", () => {
   const input = { ...draft, utterances: [{ text: "Cancel Karim’s booking； budget is 3.6万." }] };
   const quote = "cancel Karim's booking; budget";
   expect(
-    readMeetingSummaryUpdate(reply([{ ...cancelled, quotes: [quote] }], [7]), input).evidence,
+    readMeetingSummaryUpdate(reply([{ ...cancelled, quotes: [cite(1, quote)] }], [7]), input)
+      .evidence,
   ).toEqual({
-    2: [quote],
+    2: [cite(1, quote)],
   });
   expect(() =>
-    readMeetingSummaryUpdate(reply([{ ...cancelled, quotes: ["budget is 36万"] }], [7]), input),
+    readMeetingSummaryUpdate(
+      reply([{ ...cancelled, quotes: [cite(1, "budget is 36万")] }], [7]),
+      input,
+    ),
   ).toThrow();
 });
 
@@ -256,11 +313,18 @@ test.each([
   [added, { ...decision, id: 8 }],
   [{ ...added, id: 0 }],
   [{ ...added, id: 1.5 }],
-  [{ ...cancelled, quotes: ["Asha will order cones"] }],
-  [{ ...cancelled, quotes: ["Asha never bought any cones"] }],
+  [{ ...cancelled, quotes: [cite(null, "Asha will order cones")] }],
+  [{ ...cancelled, quotes: [cite(1, "Asha never bought any cones")] }],
+  [{ ...cancelled, quotes: [cite(2, "Cancel the cones")] }],
+  [{ ...cancelled, quotes: [cite(0, "Cancel the cones")] }],
+  [{ ...cancelled, quotes: [cite(-1, "Cancel the cones")] }],
+  [{ ...cancelled, quotes: [cite(1.5, "Cancel the cones")] }],
+  [{ ...cancelled, quotes: [cite(3, "Cancel the cones")] }],
   [{ ...cancelled, quotes: [] }],
-  [{ ...cancelled, quotes: ["  "] }],
-  [{ ...cancelled, quotes: ["Cancel the cones", "  "] }],
+  [{ ...cancelled, quotes: [cite(1, "  ")] }],
+  [{ ...cancelled, quotes: [cite(1, "Cancel the cones"), cite(1, "  ")] }],
+  [{ ...cancelled, quotes: ["Cancel the cones"] }],
+  [{ ...cancelled, quotes: [{ source: 1, quote: "Cancel the cones", extra: true }] }],
   [
     {
       id: cancelled.id,

@@ -5,7 +5,7 @@ import { InvalidInputError, TranslatableError } from "../errors";
 import {
   type StoredSummaryQuote,
   sameSummaryQuote,
-  storeSummaryQuotes,
+  storeNumberedSummaryQuote,
   summaryEvidenceCue,
   summaryQuoteSurvives,
 } from "./summaryEvidence";
@@ -218,9 +218,11 @@ export function createLiveSummaries(options: Options) {
       // Final speech can arrive out of order or be relabelled. Keep entries whose spoken evidence survives.
       const speech = cues.map(summaryEvidenceCue);
       items = items.filter((item) => {
-        const quotes = evidence[item.id];
-        if (quotes?.length && quotes.every((quote) => summaryQuoteSurvives(quote, speech)))
+        const surviving = evidence[item.id]?.filter((quote) => summaryQuoteSurvives(quote, speech));
+        if (surviving?.length) {
+          evidence[item.id] = surviving;
           return true;
+        }
         delete evidence[item.id];
         return false;
       });
@@ -254,7 +256,8 @@ export function createLiveSummaries(options: Options) {
         const speech = slice.map(summaryEvidenceCue);
         for (const [id, cited] of Object.entries(value.evidence)) {
           const next = [...(evidence[Number(id)] ?? [])];
-          for (const quote of storeSummaryQuotes(cited, speech)) {
+          for (const entry of cited) {
+            const quote = storeNumberedSummaryQuote(entry, speech);
             if (!next.some((old) => sameSummaryQuote(old, quote))) {
               next.push(quote);
             }

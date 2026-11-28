@@ -19,7 +19,9 @@ const cleared: MeetingSummaryContent = { type: "doc", content: [{ type: "paragra
 function reply(quote: string, id: number | null) {
   return JSON.stringify({
     summary: quote,
-    changes: [{ id, kind: "decision", status: "active", text: quote, quotes: [quote] }],
+    changes: [
+      { id, kind: "decision", status: "active", text: quote, quotes: [{ source: 1, quote }] },
+    ],
     ...(id !== null && { unchanged: [] }),
   });
 }

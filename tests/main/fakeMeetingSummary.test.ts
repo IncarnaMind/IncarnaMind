@@ -52,11 +52,12 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       expect(final.text).toBe(words.overview);
       expect(final.items).toEqual(items);
+      const source = together ? 2 : 1;
       expect((together ? warm : final).evidence).toMatchObject({
-        2: [date],
-        3: [owner],
-        4: [cancelled],
-        5: [done],
+        2: [{ source, quote: date }],
+        3: [{ source, quote: owner }],
+        4: [{ source, quote: cancelled }],
+        5: [{ source, quote: done }],
       });
       if (together) expect(final.evidence).toEqual({});
     });

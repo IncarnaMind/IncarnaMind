@@ -17,10 +17,10 @@ import { transcribingCore, until } from "../helpers/transcription";
 const monday = "The launch is on Monday.";
 const friday = "Correction, the launch is on Friday.";
 
-function launchReply(text: string, quote: string, id: number | null) {
+function launchReply(text: string, quote: string, id: number | null, source = 1) {
   return JSON.stringify({
     summary: text,
-    changes: [{ id, kind: "decision", status: "active", text, quotes: [quote] }],
+    changes: [{ id, kind: "decision", status: "active", text, quotes: [{ source, quote }] }],
     ...(id !== null && { unchanged: [] }),
   });
 }
@@ -33,7 +33,7 @@ const setup = (
 
 test("the first summary covers both confirmed lines of a short call in one request", async () => {
   const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
-    launchReply("Launch on Friday.", friday, null),
+    launchReply("Launch on Friday.", friday, null, 2),
   );
   const { core, meeting, push, summary } = await setup(run);
   try {
@@ -179,7 +179,7 @@ test("a closing update can keep a withdrawn action and publish the revised launc
           kind: "decision",
           status: "active",
           text: date,
-          quotes: [closing ? friday : "the launch is on Monday"],
+          quotes: [{ source: 1, quote: closing ? friday : "the launch is on Monday" }],
         },
         ...(closing
           ? []
@@ -189,7 +189,7 @@ test("a closing update can keep a withdrawn action and publish the revised launc
                 kind: "action",
                 status: "cancelled",
                 text: withdrawn,
-                quotes: [withdrawn],
+                quotes: [{ source: 1, quote: withdrawn }],
               },
             ]),
       ],
@@ -223,18 +223,25 @@ test("a closing update can keep a withdrawn action and publish the revised launc
 test("a repeated saved action does not hide the new action beside it after Stop or restart", async () => {
   const quoteAction = "Lee will compare moving quotes.";
   const cartonAction = "Each department will count its cartons.";
-  const action = (text: string) => ({
+  const action = (text: string, source: number) => ({
     id: null,
     kind: "action",
     status: "active",
     text,
-    quotes: [text],
+    quotes: [{ source, quote: text }],
   });
   const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) => {
-    const next = prompt.includes(cartonAction);
+    const { utterances } = JSON.parse(prompt) as {
+      utterances: { line: number; text: string }[];
+    };
+    const quoteLine = utterances.find((entry) => entry.text.includes(quoteAction));
+    const next = utterances.find((entry) => entry.text.includes(cartonAction));
     return JSON.stringify({
       summary: next ? "The departments will prepare carton counts." : "Lee will compare quotes.",
-      changes: next ? [action(quoteAction), action(cartonAction)] : [action(quoteAction)],
+      changes:
+        next && quoteLine
+          ? [action(quoteAction, quoteLine.line), action(cartonAction, next.line)]
+          : [action(quoteAction, quoteLine?.line ?? 1)],
       ...(next && { unchanged: [1] }),
     });
   });
@@ -653,7 +660,7 @@ test("a summary rebuilt for a replaced Transcript cannot assign a locally correc
   let replay = false;
   const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
     replay
-      ? launchReply("Unrelated Friday decision.", friday, null)
+      ? launchReply("Unrelated Friday decision.", friday, null, 2)
       : launchReply("Launch on Monday.", monday, null),
   );
   const { dir, core, adapters, meeting, push, summary } = await setup(run);
@@ -732,11 +739,15 @@ test("a silent call ends with no summary text and no model request", async () =>
 
 // protects=a call's summary finished at Stop goes on with the lines a Resume brings, from where it was, and is ready again once the next Stop's Transcript is saved (#3762); fails_when=it stays as the first Stop left it, or is made again from nothing; no_claim=the summary's wording.
 test("a call resumed after Stop has its summary go on with the new lines", async () => {
-  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) =>
-    prompt.includes(friday)
-      ? launchReply("Launch on Friday.", friday, 1)
-      : launchReply("Launch on Monday.", monday, null),
-  );
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) => {
+    const { utterances } = JSON.parse(prompt) as {
+      utterances: { line: number; text: string }[];
+    };
+    const revised = utterances.find((entry) => entry.text.includes(friday));
+    return revised
+      ? launchReply("Launch on Friday.", friday, 1, revised.line)
+      : launchReply("Launch on Monday.", monday, null);
+  });
   const { core, meeting, push, summary } = await setup(run);
   try {
     push(2500);
@@ -804,21 +815,21 @@ const zhOpeningReply = JSON.stringify({
       kind: "decision",
       status: "active",
       text: "北桥项目的内审定于周二。",
-      quotes: ["北桥项目的内审定于周二。"],
+      quotes: [{ source: 1, quote: "北桥项目的内审定于周二。" }],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "陈琳发出议程。",
-      quotes: ["由陈琳发出议程。"],
+      quotes: [{ source: 1, quote: "由陈琳发出议程。" }],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "唐敏周五清点门卡。",
-      quotes: ["唐敏周五清点门卡。"],
+      quotes: [{ source: 1, quote: "唐敏周五清点门卡。" }],
     },
   ],
 });
@@ -831,21 +842,21 @@ const zhReconciledCancelReply = JSON.stringify({
       kind: "decision",
       status: "active",
       text: "北桥项目内审改到周四，周二不举行。",
-      quotes: ["北桥项目内审最终改到周四，周二不举行。"],
+      quotes: [{ source: 1, quote: "北桥项目内审最终改到周四，周二不举行。" }],
     },
     {
       id: 2,
       kind: "action",
       status: "cancelled",
       text: "陈琳发出原议程（已取消）。",
-      quotes: ["取消周二的北桥项目内审和原议程。"],
+      quotes: [{ source: 1, quote: "取消周二的北桥项目内审和原议程。" }],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "陈琳向所有参会人确认内审改到周四。",
-      quotes: ["由陈琳向所有参会人确认这一改动。"],
+      quotes: [{ source: 1, quote: "由陈琳向所有参会人确认这一改动。" }],
     },
   ],
   unchanged: [3],
@@ -860,14 +871,14 @@ const zhUnreconciledCancelReply = JSON.stringify({
       kind: "decision",
       status: "active",
       text: "北桥项目内审改到周四，周二不举行。",
-      quotes: ["北桥项目内审最终改到周四，周二不举行。"],
+      quotes: [{ source: 1, quote: "北桥项目内审最终改到周四，周二不举行。" }],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "陈琳向所有参会人确认内审改到周四。",
-      quotes: ["由陈琳向所有参会人确认这一改动。"],
+      quotes: [{ source: 1, quote: "由陈琳向所有参会人确认这一改动。" }],
     },
   ],
 });
@@ -1208,7 +1219,7 @@ test("once all prior items are closed, later updates return to the two-key contr
               kind: "action",
               status: "cancelled",
               text: "Agenda cancelled.",
-              quotes: ["Cancel the agenda"],
+              quotes: [{ source: 1, quote: "Cancel the agenda" }],
             },
           ],
           unchanged: [],
@@ -1226,7 +1237,7 @@ test("once all prior items are closed, later updates return to the two-key contr
             kind: "action",
             status: "active",
             text: openAction,
-            quotes: [openAction],
+            quotes: [{ source: 1, quote: openAction }],
           },
         ],
       });
@@ -1255,106 +1266,412 @@ test("once all prior items are closed, later updates return to the two-key contr
   }
 });
 
-test("a multi-turn commitment with two excerpts resolves both turns and disambiguates a repeated confirmation by anchor proximity (#3472)", async () => {
-  const promptLine = "Could every team report how many crates it needs?";
-  const uptake = "We will go back and count them.";
-  const budget = "That will let us finalize the budget.";
-  const repeat = "We will go back and count them.";
-  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
-    JSON.stringify({
-      summary: "Each team will count how many crates it needs.",
-      changes: [
-        {
-          id: null,
-          kind: "action",
-          status: "active",
-          text: "Each team will count and report how many crates it needs.",
-          quotes: [promptLine, uptake],
-        },
-        {
-          id: null,
-          kind: "action",
-          status: "active",
-          text: "Finalize the budget from the counts.",
-          quotes: [budget, repeat],
-        },
-      ],
-    }),
-  );
-  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
-    promptLine,
-    uptake,
-    budget,
-    repeat,
-  ]);
-  try {
-    for (let i = 0; i < 4; i++) await speakTurn(false);
-    await until(core, meeting.id, (state) => state.lines >= 4);
-    await core.stopMeeting(meeting.id);
-    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
-    const crateSources = await core.getMeetingSummaryItemSources(meeting.id, 1);
-    expect(crateSources?.sources.map((source) => source.text)).toEqual([promptLine, uptake]);
-    expect(crateSources?.sources[1]?.startMs).toBeGreaterThan(
-      crateSources?.sources[0]?.startMs ?? 0,
-    );
-    // Equidistant matches around `budget` leave the repeated line unlinked while keeping the anchor.
-    const budgetSources = await core.getMeetingSummaryItemSources(meeting.id, 2);
-    expect(budgetSources?.sources.map((source) => source.text)).toEqual([budget]);
-  } finally {
-    core.close();
-  }
-});
-
-test("a stitched cross-utterance quote is rejected atomically while preserving the warm summary for recovery at Stop (#3472)", async () => {
-  const opening = "Northbridge review is scheduled for Tuesday.";
-  const request = "Can each department report how many crates it needs?";
-  const confirm = "Yes, we will count them back at the office.";
-  let followUpCalls = 0;
-  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) => {
-    if (!prompt.includes(request)) {
-      return JSON.stringify({
-        summary: opening,
+test.each([
+  {
+    name: "English",
+    promptLine: "Could every team report how many crates it needs?",
+    uptake: "We will go back and count them.",
+    budget: "That will let us finalize the budget.",
+    repeat: "We will go back and count them.",
+    summaryText: "Each team will count how many crates it needs.",
+    firstAction: "Each team will count and report how many crates it needs.",
+    secondAction: "Finalize the budget from the counts.",
+  },
+  {
+    name: "Chinese",
+    promptLine: "各组能不能报一下需要多少个箱子？",
+    uptake: "我们回去数一下。",
+    budget: "这样就能定下预算。",
+    repeat: "我们回去数一下。",
+    summaryText: "各组将回去统计所需箱子数量并据此定下预算。",
+    firstAction: "各组回去统计并上报所需箱子数量。",
+    secondAction: "根据各组箱子数量定下预算。",
+  },
+])(
+  "a multi-turn $name commitment with two numbered excerpts resolves repeated confirmations to their exact turns (#3472)",
+  async ({ promptLine, uptake, budget, repeat, summaryText, firstAction, secondAction }) => {
+    const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
+      JSON.stringify({
+        summary: summaryText,
         changes: [
-          { id: null, kind: "decision", status: "active", text: opening, quotes: [opening] },
+          {
+            id: null,
+            kind: "action",
+            status: "active",
+            text: firstAction,
+            quotes: [
+              { source: 1, quote: promptLine },
+              { source: 2, quote: uptake },
+            ],
+          },
+          {
+            id: null,
+            kind: "action",
+            status: "active",
+            text: secondAction,
+            quotes: [
+              { source: 3, quote: budget },
+              { source: 4, quote: repeat },
+            ],
+          },
+        ],
+      }),
+    );
+    const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+      promptLine,
+      uptake,
+      budget,
+      repeat,
+    ]);
+    try {
+      for (let i = 0; i < 4; i++) await speakTurn(false);
+      await until(core, meeting.id, (state) => state.lines >= 4);
+      await core.stopMeeting(meeting.id);
+      await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+      const crateSources = await core.getMeetingSummaryItemSources(meeting.id, 1);
+      expect(crateSources?.sources.map((source) => source.text)).toEqual([promptLine, uptake]);
+      expect(crateSources?.sources[1]?.startMs).toBeGreaterThan(
+        crateSources?.sources[0]?.startMs ?? 0,
+      );
+      const budgetSources = await core.getMeetingSummaryItemSources(meeting.id, 2);
+      expect(budgetSources?.sources.map((source) => source.text)).toEqual([budget, repeat]);
+      expect(budgetSources?.sources[1]?.startMs).toBeGreaterThan(
+        crateSources?.sources[1]?.startMs ?? 0,
+      );
+    } finally {
+      core.close();
+    }
+  },
+);
+
+test.each([
+  {
+    name: "English (stitched)",
+    opening: "Northbridge review is scheduled for Tuesday.",
+    request: "Can each team report how many crates it needs?",
+    confirm: "Yes, we will count them back at the office.",
+    followUpSummary: "Teams will count required crates.",
+    followUpText: "Each team will count required crates.",
+    badQuotes: (request: string, confirm: string) => [
+      { source: 1, quote: `${request} ${confirm}` },
+    ],
+  },
+  {
+    name: "Chinese (stitched)",
+    opening: "北桥项目复盘定在周二。",
+    request: "各组能报一下需要多少个箱子吗？",
+    confirm: "可以，我们回办公室数一下。",
+    followUpSummary: "各组将统计所需箱子数量。",
+    followUpText: "各组回办公室统计所需箱子数量。",
+    badQuotes: (request: string, confirm: string) => [{ source: 1, quote: `${request}${confirm}` }],
+  },
+  {
+    name: "English (wrong source)",
+    opening: "Northbridge review is scheduled for Tuesday.",
+    request: "Can each team report how many crates it needs?",
+    confirm: "Yes, we will count them back at the office.",
+    followUpSummary: "Teams will count required crates.",
+    followUpText: "Each team will count required crates.",
+    badQuotes: (request: string, confirm: string) => [
+      { source: 2, quote: request },
+      { source: 2, quote: confirm },
+    ],
+  },
+  {
+    name: "Chinese (wrong source)",
+    opening: "北桥项目复盘定在周二。",
+    request: "各组能报一下需要多少个箱子吗？",
+    confirm: "可以，我们回办公室数一下。",
+    followUpSummary: "各组将统计所需箱子数量。",
+    followUpText: "各组回办公室统计所需箱子数量。",
+    badQuotes: (request: string, confirm: string) => [
+      { source: 2, quote: request },
+      { source: 2, quote: confirm },
+    ],
+  },
+])(
+  "an invalid numbered excerpt is rejected atomically while preserving the warm summary for recovery at Stop: $name (#3472)",
+  async ({ opening, request, confirm, followUpSummary, followUpText, badQuotes }) => {
+    let followUpCalls = 0;
+    const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+      async ({ prompt }) => {
+        if (!prompt.includes(request)) {
+          return JSON.stringify({
+            summary: opening,
+            changes: [
+              {
+                id: null,
+                kind: "decision",
+                status: "active",
+                text: opening,
+                quotes: [{ source: 1, quote: opening }],
+              },
+            ],
+          });
+        }
+        followUpCalls++;
+        return JSON.stringify({
+          summary: followUpSummary,
+          changes: [
+            {
+              id: null,
+              kind: "action",
+              status: "active",
+              text: followUpText,
+              quotes:
+                followUpCalls === 1
+                  ? badQuotes(request, confirm)
+                  : [
+                      { source: 1, quote: request },
+                      { source: 2, quote: confirm },
+                    ],
+            },
+          ],
+          unchanged: [1],
+        });
+      },
+    );
+    const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+      opening,
+      request,
+      confirm,
+    ]);
+    try {
+      await speakTurn(false);
+      await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(1));
+      await speakTurn(true);
+      await speakTurn(false);
+      await until(core, meeting.id, (state) => state.lines >= 3);
+      await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+      expect((await summary())?.text).toBe(opening);
+
+      await core.stopMeeting(meeting.id);
+      await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+      expect((await summary())?.items).toHaveLength(2);
+      const sources = await core.getMeetingSummaryItemSources(meeting.id, 2);
+      expect(sources?.sources.map((source) => source.text)).toEqual([request, confirm]);
+      expect(followUpCalls).toBe(2);
+    } finally {
+      core.close();
+    }
+  },
+);
+
+test.each([
+  {
+    name: "English to Chinese",
+    firstLine: "We agreed to ship the release on Friday.",
+    firstItem: "Ship the release on Friday.",
+    secondLine: "下面我们改用中文讨论。由陈琳在周四前通知所有客户。",
+    secondOverview: "发布会定在周五，陈琳将在周四前通知所有客户。",
+    secondItem: "陈琳在周四前通知所有客户。",
+    expectedSecondLanguage: "Chinese",
+  },
+  {
+    name: "Chinese to English",
+    firstLine: "大家决定本周五正式发版。",
+    firstItem: "本周五正式发版。",
+    secondLine: "Let us switch to English now. Maya will notify all customers by Thursday.",
+    secondOverview: "The release ships on Friday and Maya will notify all customers by Thursday.",
+    secondItem: "Maya will notify all customers by Thursday.",
+    expectedSecondLanguage: "English",
+  },
+])(
+  "a mid-meeting language switch ($name) updates the overview and new items without rewriting prior items (#3472)",
+  async ({
+    firstLine,
+    firstItem,
+    secondLine,
+    secondOverview,
+    secondItem,
+    expectedSecondLanguage,
+  }) => {
+    const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+      async ({ prompt }) => {
+        if (!prompt.includes(secondLine)) {
+          return JSON.stringify({
+            summary: firstItem,
+            changes: [
+              {
+                id: null,
+                kind: "decision",
+                status: "active",
+                text: firstItem,
+                quotes: [{ source: 1, quote: firstLine }],
+              },
+            ],
+          });
+        }
+        return JSON.stringify({
+          summary: secondOverview,
+          changes: [
+            {
+              id: null,
+              kind: "action",
+              status: "active",
+              text: secondItem,
+              quotes: [{ source: 1, quote: secondLine }],
+            },
+          ],
+          unchanged: [1],
+        });
+      },
+    );
+    const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+      firstLine,
+      secondLine,
+    ]);
+    try {
+      await speakTurn(false);
+      await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(1));
+      await speakTurn(true);
+      await until(core, meeting.id, (state) => state.lines >= 2);
+      await core.stopMeeting(meeting.id);
+      await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+      expect(await summary()).toMatchObject({
+        state: "ready",
+        text: secondOverview,
+        items: [
+          { id: 1, kind: "decision", status: "active", text: firstItem },
+          { id: 2, kind: "action", status: "active", text: secondItem },
         ],
       });
+      const secondCall = run.mock.calls[1]?.[0];
+      expect(JSON.parse(secondCall?.prompt ?? "")).toHaveProperty(
+        "language",
+        expectedSecondLanguage,
+      );
+      expect(secondCall?.instructions).toContain(
+        `Write summary and any newly added items in ${expectedSecondLanguage}`,
+      );
+      expect((await core.getMeetingSummaryItemSources(meeting.id, 1))?.sources[0]?.text).toBe(
+        firstLine,
+      );
+      expect((await core.getMeetingSummaryItemSources(meeting.id, 2))?.sources[0]?.text).toBe(
+        secondLine,
+      );
+    } finally {
+      core.close();
     }
-    followUpCalls++;
-    return JSON.stringify({
-      summary: "Departments will count required crates.",
-      changes: [
-        {
-          id: null,
-          kind: "action",
-          status: "active",
-          text: "Each department will count required crates.",
-          quotes: followUpCalls === 1 ? [`${request} ${confirm}`] : [request, confirm],
-        },
-      ],
-      unchanged: [1],
-    });
-  });
-  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
-    opening,
-    request,
-    confirm,
-  ]);
-  try {
-    await speakTurn(false);
-    await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(1));
-    await speakTurn(true);
-    await speakTurn(false);
-    await until(core, meeting.id, (state) => state.lines >= 3);
-    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
-    expect((await summary())?.text).toBe(opening);
+  },
+);
 
-    await core.stopMeeting(meeting.id);
-    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
-    expect((await summary())?.items).toHaveLength(2);
-    const sources = await core.getMeetingSummaryItemSources(meeting.id, 2);
-    expect(sources?.sources.map((source) => source.text)).toEqual([request, confirm]);
-    expect(followUpCalls).toBe(2);
-  } finally {
-    core.close();
-  }
-});
+test.each([
+  {
+    name: "English",
+    myLine: "I will send the updated contract by Friday.",
+    theirLine: "I will confirm the invoice on Monday.",
+    summaryText:
+      "Me will send the updated contract by Friday and Them will confirm the invoice on Monday.",
+    myAction: "Me will send the updated contract by Friday.",
+    theirAction: "Them will confirm the invoice on Monday.",
+  },
+  {
+    name: "Chinese",
+    myLine: "我周五前把更新后的合同发过去。",
+    theirLine: "我周一确认发票金额。",
+    summaryText: "我将在周五前发送更新后的合同，对方将在周一确认发票金额。",
+    myAction: "我周五前发送更新后的合同。",
+    theirAction: "对方周一确认发票金额。",
+  },
+])(
+  "a call-style $name meeting preserves Me and Them speaker labels and resolves numbered sources (#3472)",
+  async ({ myLine, theirLine, summaryText, myAction, theirAction }) => {
+    const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(
+      async ({ prompt }) => {
+        const { utterances } = JSON.parse(prompt) as {
+          utterances: { line: number; speaker: string | null; text: string }[];
+        };
+        const mine = utterances.find((entry) => entry.text === myLine);
+        const theirs = utterances.find((entry) => entry.text === theirLine);
+        return JSON.stringify({
+          summary: summaryText,
+          changes: [
+            ...(mine
+              ? [
+                  {
+                    id: null,
+                    kind: "action",
+                    status: "active",
+                    text: myAction,
+                    quotes: [{ source: mine.line, quote: myLine }],
+                  },
+                ]
+              : []),
+            ...(theirs
+              ? [
+                  {
+                    id: null,
+                    kind: "action",
+                    status: "active",
+                    text: theirAction,
+                    quotes: [{ source: theirs.line, quote: theirLine }],
+                  },
+                ]
+              : []),
+          ],
+        });
+      },
+    );
+    const dir = await createTempDataFolder();
+    const { core, capture, clock, record } = await transcribingCore(dir, {
+      engine: { lines: [myLine], theirLines: [theirLine], maxSpeechMs: 3000 },
+      adapters: { agents: await agentsAdapter(dir), summarizeWithMeetingAgent: run },
+    });
+    try {
+      const folder = await core.createLibraryGroup({ name: "Call", description: "" });
+      await core.setAgentsEnabled(true);
+      const { pairing } = await core.connectAgent({
+        name: "Codex",
+        client: "codex",
+        folderIds: [folder.id],
+      });
+      await core.updateSettings({
+        device: {
+          meetingNoticeAccepted: true,
+          meetingNotesAgentId: pairing.id,
+          meetingSummaryRoute: pairing.id,
+        },
+      });
+      const meeting = await core.createMeeting({ folderId: folder.id });
+      await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+      record(2_000, ["microphone"]);
+      clock.advance(1_000);
+      capture.push("microphone", 1_000, true);
+      record(2_000, ["system"]);
+      clock.advance(1_000);
+      capture.push("system", 1_000, true);
+      await until(core, meeting.id, (state) => state.lines >= 2);
+      await core.stopMeeting(meeting.id);
+      await vi.waitFor(async () =>
+        expect(
+          (await core.listMeetings()).find((item) => item.id === meeting.id)?.summary?.state,
+        ).toBe("ready"),
+      );
+      const sent = JSON.parse(run.mock.calls[0]?.[0].prompt ?? "") as {
+        utterances: { line: number; speaker: string | null; text: string }[];
+      };
+      expect(sent.utterances).toEqual([
+        { line: 1, text: myLine, speaker: "Me" },
+        { line: 2, text: theirLine, speaker: "Them" },
+      ]);
+      expect(run.mock.calls[0]?.[0].instructions).toContain(
+        "In call transcripts labelled Me and Them, preserve who owns a commitment (Me vs. Them) in the output language.",
+      );
+      expect(
+        (await core.listMeetings()).find((item) => item.id === meeting.id)?.summary?.items,
+      ).toEqual([
+        { id: 1, kind: "action", status: "active", text: myAction },
+        { id: 2, kind: "action", status: "active", text: theirAction },
+      ]);
+      expect((await core.getMeetingSummaryItemSources(meeting.id, 1))?.sources[0]?.text).toBe(
+        myLine,
+      );
+      expect((await core.getMeetingSummaryItemSources(meeting.id, 2))?.sources[0]?.text).toBe(
+        theirLine,
+      );
+    } finally {
+      core.close();
+    }
+  },
+);
