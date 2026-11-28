@@ -47,6 +47,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   supported: 0,
   checkedAt: null,
   unexamined: [],
+  unchecked: [],
   ...parts,
 });
 
@@ -94,6 +95,10 @@ describe("where the card says the Note's check stands", () => {
     expect(wholeCheckStands(run(), WAITING)).toBe(false);
     const undecided = health({ ...CLEAN, toCheck: [12], unexamined: [12] });
     expect(wholeCheckStands(run({ unexamined: ["sentence"] }), undecided)).toBe(false);
+    const uncheckedAi = health({ ...CLEAN, toCheck: [12], unchecked: [12] });
+    expect(wholeCheckStands(run({ unchecked: ["sentence"] }), uncheckedAi)).toBe(false);
+    // Once the AI's unchecked sentence is gone (undone or deleted), the whole check stands again (#3840).
+    expect(wholeCheckStands(run({ unchecked: ["sentence"] }), CLEAN)).toBe(true);
   });
 
   // protects=#3840: before any check the card says Not checked yet and counts the sentences on its line, with no row repeating them; fails_when=the head says done, or the not-checked row counts them a second time
@@ -123,6 +128,11 @@ describe("where the card says the Note's check stands", () => {
       expect(rowShownAt(stage, "toCheck")).toBe(true);
       expect(rowShownAt(stage, "supported")).toBe(true);
     }
+    const aiUnchecked = health({ ...partial, unchecked: [5, 9] });
+    const aiStage = stageOf(aiUnchecked, run({ unchecked: ["s1", "s2"] }));
+    expect(aiStage).toEqual({ kind: "not-checked", sentences: 2, inRow: true });
+    expect(rowShownAt(aiStage, "toCheck")).toBe(true);
+    expect(rowShownAt(aiStage, "supported")).toBe(true);
   });
 
   // protects=#3840: a run going says Checking and how far it has got at the head's end, and no row counts what is being checked or waiting; one not counted yet says only its own words; fails_when=a row repeats the head's count, or a count shows before it is known

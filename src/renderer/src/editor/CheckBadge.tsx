@@ -127,7 +127,20 @@ function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
     () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
     [unexaminedKeys],
   );
-  return { checkedAll, ...useHealth(editor, skipped, unexamined, doc, running) };
+  const uncheckedKeys = checkedAll?.unchecked?.join(" ") ?? "";
+  const unchecked = useMemo(
+    () => new Set(uncheckedKeys.split(" ").filter(Boolean)),
+    [uncheckedKeys],
+  );
+  const uncheckedBlockIds = checkedAll?.uncheckedBlocks?.join("\0") ?? "";
+  const uncheckedBlocks = useMemo(
+    () => new Set(uncheckedBlockIds.split("\0").filter(Boolean)),
+    [uncheckedBlockIds],
+  );
+  return {
+    checkedAll,
+    ...useHealth(editor, skipped, unexamined, unchecked, uncheckedBlocks, doc, running),
+  };
 }
 
 function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId: string }) {

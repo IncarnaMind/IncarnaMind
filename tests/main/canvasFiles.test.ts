@@ -4,7 +4,8 @@
  * all read as "unreadable" so nothing more of the path is told. What it keeps goes under its hash.
  */
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { link, mkdir, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hashBytes } from "../../src/core/documents/files";
@@ -28,6 +29,7 @@ describe("A file an agent names for a Canvas", () => {
       kind: "read",
       bytes: new TextEncoder().encode("picture"),
       path: join(await realpath(named), "chart.png"),
+      file: expect.any(String),
     });
     await writeFile(join(named, "big.png"), new Uint8Array(LIMIT + 1));
     expect(await files.readNamed(join(named, "big.png"), LIMIT)).toEqual({ kind: "too-large" });
@@ -44,7 +46,27 @@ describe("A file an agent names for a Canvas", () => {
       kind: "read",
       bytes: new TextEncoder().encode("slides"),
       path: join(await realpath(project), "deck.pptx"),
+      file: expect.any(String),
     });
+  });
+
+  // protects=a file read by any path to it is told as the one file: a hard link's, and one in other letters where the disk doesn't tell them apart, so two hand-overs of it take turns (#3751); fails_when=the two reads tell two files
+  it("is told as the same file by a hard link and by other letters", async () => {
+    const { files, named } = await setUp();
+    const elsewhere = await createTempDataFolder();
+    await writeFile(join(named, "deck.pptx"), "slides");
+    await link(join(named, "deck.pptx"), join(elsewhere, "copy.pptx"));
+    await writeFile(join(named, "other.pptx"), "slides");
+    const fileOf = async (path: string) => {
+      const read = await files.readNamed(path, LIMIT);
+      return read.kind === "read" ? read.file : read.kind;
+    };
+    const own = await fileOf(join(named, "deck.pptx"));
+    expect(own).toEqual(expect.any(String));
+    expect(await fileOf(join(elsewhere, "copy.pptx"))).toBe(own);
+    expect(await fileOf(join(named, "other.pptx"))).not.toBe(own);
+    if (existsSync(join(named, "DECK.pptx")))
+      expect(await fileOf(join(named, "DECK.pptx"))).toBe(own);
   });
 
   it("reads as unreadable, and nothing more, when it is a link, a folder, a pipe, a device or not there", async () => {

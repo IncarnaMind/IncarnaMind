@@ -19,7 +19,7 @@ import type { ResolvedCitationStyle } from "../../../shared/citationStyles";
 import type { PrintedMarks } from "../../../shared/exportMarks";
 import { proposalRequestOf } from "../../../shared/proposals";
 import type { SourceContext } from "../../../shared/sources";
-import { wordFileOf, wordFingerprint, wordSourceOf } from "../../../shared/wordFiles";
+import { readWordAtom, wordFileOf, wordFingerprint, wordSourceOf } from "../../../shared/wordFiles";
 import { wordLookOf } from "../../../shared/wordLook";
 import {
   CITATION_NODE,
@@ -555,6 +555,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     ],
     unknownParts: await unknownParts(writer),
     keptFurniture: keptFurniture(base.structure.blocks, current),
+    furnitureParts: furnitureParts(base.structure.blocks, current),
   };
   const data = await writer.write(deflateRawSync, checkWellFormed);
   if (
@@ -724,6 +725,14 @@ function keptFurniture(
     (kind): kind is "header" | "footer" =>
       (kind === "header" || kind === "footer") && !now.has(kind),
   );
+}
+
+/** The header and footer parts whose Blocks the Mind no longer has. */
+function furnitureParts(base: readonly NodeJSON[], current: readonly NodeJSON[]): string[] {
+  const sources = (blocks: readonly NodeJSON[]) =>
+    blocks.filter(isFurniture).flatMap((node) => readWordAtom(node.attrs ?? {}).source ?? []);
+  const now = new Set(sources(current));
+  return sources(base).filter((source) => !now.has(source));
 }
 
 /** Parts whose content type IncarnaMind doesn't know: copied as they are, and listed. */
