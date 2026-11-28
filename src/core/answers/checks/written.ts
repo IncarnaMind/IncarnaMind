@@ -1194,13 +1194,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // each check ends all the same.
     const held: { index: number; landing: Landing; outcome: Outcome }[] = [];
     let waitingTurn = begunChecks > 0;
-    begunChecks++;
+    let inTurn = false;
     let turnOver: () => void = () => undefined;
-    const ours = new Promise<void>((resolve) => {
-      turnOver = resolve;
-    });
-    const before = turn;
-    turn = before.then(() => ours);
     const progress = () => {
       const heldOpinions = held.filter(({ outcome }) => outcome === "opinion").length;
       options.progress({
@@ -1256,8 +1251,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       done.failed = done.checkable - done.leftOut - done.checked;
       done.running = false;
       held.length = 0;
-      begunChecks--;
-      turnOver();
+      if (inTurn) {
+        inTurn = false;
+        begunChecks--;
+        turnOver();
+      }
       progress();
       input.ended?.(snapshot());
     };
@@ -1344,6 +1342,53 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           });
     const checkThem = async () => {
       try {
+        let allowed: Awaited<ReturnType<typeof options.prepare>> | null;
+        try {
+          // Prepare before taking the shared turn so a slow keychain/readiness wait never blocks
+          // another Note's ready check from preparing and running.
+          allowed = await whileRunning(options.prepare(input.prepared));
+        } catch (error) {
+          if (closed() || over || signal.aborted) return;
+          console.error(`What the assistant wrote in Mind ${mindId} couldn't be checked:`, error);
+          const owned = sentences.filter((sentence) => !left.has(sentence));
+          if (owned.length > 0) {
+            landAll(
+              owned.map((sentence) => ({
+                landing: failedLanding(sentence, "answer-failed", null),
+                outcome: "failed" as const,
+              })),
+            );
+          }
+          return;
+        }
+        if (closed() || over || signal.aborted) return;
+        if (!allowed) {
+          if (options.widened(input.prepared)) {
+            const owned = sentences.filter((sentence) => !left.has(sentence));
+            if (owned.length > 0) {
+              landAll(
+                owned.map((sentence) => ({
+                  landing: failedLanding(sentence, "consent-widened", null),
+                  outcome: "failed" as const,
+                })),
+              );
+            }
+          } else {
+            for (const sentence of sentences) left.add(sentence);
+            remark((sentence) => markedBefore.get(sentence));
+          }
+          return;
+        }
+        const wasWaiting = waitingTurn;
+        waitingTurn = begunChecks > 0;
+        begunChecks++;
+        inTurn = true;
+        const ours = new Promise<void>((resolve) => {
+          turnOver = resolve;
+        });
+        const before = turn;
+        turn = before.then(() => ours);
+        if (waitingTurn !== wasWaiting) progress();
         // Its turn, or a Stop, an Undo, a reject or quitting first, which ends it with nothing sent.
         if (!signal.aborted) {
           await Promise.race([
@@ -1357,22 +1402,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         if (waitingTurn) {
           waitingTurn = false;
           progress();
-        }
-        const allowed = await whileRunning(options.prepare(input.prepared));
-        if (closed() || over || signal.aborted) return;
-        if (!allowed) {
-          if (options.widened(input.prepared)) {
-            landAll(
-              sentences.map((sentence) => ({
-                landing: failedLanding(sentence, "consent-widened", null),
-                outcome: "failed" as const,
-              })),
-            );
-          } else {
-            for (const sentence of sentences) left.add(sentence);
-            remark((sentence) => markedBefore.get(sentence));
-          }
-          return;
         }
         // An Undo or a reject while the check was readied leaves no words to check. A window
         // writing the Blocks again only looks so for a moment (#2378).
@@ -1651,8 +1680,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           ending.abort();
           live.delete(request);
           tracked.done();
-          begunChecks--;
-          turnOver();
+          if (inTurn) {
+            inTurn = false;
+            begunChecks--;
+            turnOver();
+          }
         };
         if (closed()) {
           abandon();
