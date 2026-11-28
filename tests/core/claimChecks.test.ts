@@ -9,12 +9,7 @@ import type {
   Document,
 } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
-import {
-  CITE_REPLY,
-  checkInstructions,
-  citeReply,
-  readVerdict,
-} from "../../src/core/answers/checks/prompt";
+import { checkInstructions, citeReply, readVerdict } from "../../src/core/answers/checks/prompt";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
@@ -2180,10 +2175,35 @@ describe("Library field in check prompts and replies (#2525)", () => {
 
     expect(
       readVerdict(
+        "Verdict: not found\nUnits: none\nLibrary: unsettled (topics not listed)\nExplanation: Nothing found.\nEvidence: []",
+      ),
+    ).toMatchObject({ verdict: "unsupported", word: "not-found", library: "unsettled" });
+
+    expect(
+      readVerdict(
+        "Verdict: supported\nLibrary: settled — matched 2 Documents\nExplanation: Counted.\nEvidence: []",
+      ),
+    ).toMatchObject({ verdict: "supported", library: "settled" });
+
+    expect(
+      readVerdict(
+        "Verdict: not found Units: none Library: unsettled (topics not listed) Explanation: Not stored. Evidence: []",
+      ),
+    ).toEqual({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+      says: "Not stored.",
+      evidence: [],
+    });
+
+    expect(
+      readVerdict(
         JSON.stringify({
           verdict: "not found",
           units: "none",
-          library: "unsettled",
+          library: "unsettled (topics not listed)",
           says: "Not in the lists.",
           evidence: [],
         }),
@@ -2210,9 +2230,6 @@ describe("Library field in check prompts and replies (#2525)", () => {
 
     for (const line of [
       "Library: 7 files",
-      "Library: none of the files mention it.",
-      "Library: settled in 2024.",
-      "Library: unsettled claims remain.",
       "Library: unknown",
       "Library: n/a",
       "Library: 不适用",
@@ -2224,10 +2241,16 @@ describe("Library field in check prompts and replies (#2525)", () => {
     }
 
     const proseInExplanation = readVerdict(
-      "Verdict: not found\nUnits: none\nExplanation: Library: none of the files mention dates added.\nEvidence: []",
+      "Verdict: not found\nUnits: none\nExplanation: Library: unsettled (topics not stored).\nEvidence: []",
     );
     expect(proseInExplanation?.library).toBeUndefined();
-    expect(proseInExplanation?.says).toBe("Library: none of the files mention dates added.");
+    expect(proseInExplanation?.says).toBe("Library: unsettled (topics not stored).");
+
+    const inlineInExplanation = readVerdict(
+      "Verdict: not found\nUnits: none\nExplanation: Library: unsettled\nEvidence: []",
+    );
+    expect(inlineInExplanation?.library).toBeUndefined();
+    expect(inlineInExplanation?.says).toBe("Library: unsettled");
 
     const endSpoof = readVerdict(
       "Verdict: not found\nUnits: none\nLibrary: none\nExplanation: The memo refers to Library: unsettled.\nEvidence: []",
@@ -2250,7 +2273,7 @@ describe("Library field in check prompts and replies (#2525)", () => {
     const badJson = readVerdict(
       JSON.stringify({
         verdict: "not found",
-        library: "none of the files",
+        library: "unknown reason",
         says: "No.",
         evidence: [],
       }),
@@ -2274,7 +2297,6 @@ describe("Library field in check prompts and replies (#2525)", () => {
     const withoutCite = citeReply(false);
     expect(withCite.properties).toHaveProperty("library");
     expect(withoutCite.properties).not.toHaveProperty("library");
-    expect(CITE_REPLY.properties).not.toHaveProperty("library");
 
     expect(
       withCite.reply([{ verdict: "not found", units: "none", library: "unsettled" }], [1]),

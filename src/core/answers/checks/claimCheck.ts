@@ -462,26 +462,29 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const quotes =
     named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
   const [quoted, ...more] = quotes;
-  if (isLibraryUnsettled(read) && !(read.verdict === "contradicted" && quoted !== undefined)) {
-    recordLibraryVersion();
-    return notChecked("library-unsettled");
-  }
   const recordedQuotes = () =>
     found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1)).map((each) => each.quote);
   // A verdict with no quote of its own rests on the working, where the model worked the figure
   // out over a data file's rows: IncarnaMind confirms that the code finished, on the whole file.
   const runs = workings();
   const worked = runs.findLast((run) => run.end.kind === "done");
+  // A verdict rests on the Library only where the code gave a number: a run that read the lists
+  // and gave none told the model nothing.
+  const counted = worked?.output.results.some((each) => each.kind === "figure") === true;
+  const lists = worked && counted ? libraryRead(worked) : undefined;
+  if (
+    isLibraryUnsettled(read) &&
+    !(read.verdict === "contradicted" && (quoted !== undefined || lists !== undefined))
+  ) {
+    recordLibraryVersion();
+    return notChecked("library-unsettled");
+  }
   if (!quoted && runs.length > 0) {
     const last = worked ?? runs.at(-1);
     const file = last ? (rowsOf(last)[0]?.citation.documentName ?? last.title) : null;
     if (!worked) return notChecked(last ? endedAs(last) : "rows-run-failed", file);
     if (rowsOf(worked).some((rows) => rows.cut)) return notChecked("rows-cut", file);
   }
-  // A verdict rests on the Library only where the code gave a number: a run that read the lists
-  // and gave none told the model nothing.
-  const counted = worked?.output.results.some((each) => each.kind === "figure") === true;
-  const lists = worked && counted ? libraryRead(worked) : undefined;
   const working = worked && { ...workingOf(worked), ...(lists && { library: lists.read }) };
   const evidence =
     quoted ?? (worked ? (rowsOf(worked)[0]?.citation ?? lists?.citation) : undefined);

@@ -1364,6 +1364,7 @@ export function createChecks(options: ChecksOptions) {
     content,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     documentVersions: options.watch.documentVersions,
+    ...(options.libraryLists && { libraryLists: options.libraryLists }),
     searched,
     citedOutside: (documentId) =>
       (options.documents.live([documentId])[0]?.citedBy ?? null) !== null,

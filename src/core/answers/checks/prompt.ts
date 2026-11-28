@@ -364,14 +364,15 @@ const UNITS_LINE = new RegExp(
   "i",
 );
 /**
- * A Library field holds only one of the three words standing alone on its line, so prose such as
- * "Your Library: 7 Documents" or "Library: none of the files" never matches (#2525).
+ * A Library field starts with one of the three enum words, optionally followed by punctuation or
+ * a brief parenthetical note (matching `UNITS_LINE`), while inline splitting stays restricted to
+ * Verdict/Units lines so prose inside Explanation: never spoofs it (#2525).
  */
 const LIBRARY_LINE = new RegExp(
-  `^[\\s>*_#\`"'“”-]*library[\\s*_]*[:：][\\s*_"'“”\`]*(${LIBRARY_WORDS})[\\s*_"'”\`.,;。，；]*$`,
+  `^[\\s>*_#\`"'“”-]*library[\\s*_]*[:：][\\s*_"'“”\`]*(${LIBRARY_WORDS})\\b`,
   "i",
 );
-const LIBRARY_INLINE = `Library[ \\t]*[:：][ \\t*_"'“”\`]*(?:${LIBRARY_WORDS_CI})[ \\t*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|Units[ \\t]*[:：]))`;
+const LIBRARY_INLINE = `Library[ \\t]*[:：][ \\t*_"'“”\`]*(?:${LIBRARY_WORDS_CI})\\b`;
 const UNITS_INLINE = `Units[ \\t]*[:：][ \\t*_"'“”\`]*(?:${UNITS_WORDS_CI})[ \\t*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|Library[ \\t]*[:：]))`;
 /**
  * Where a field's label stands after other words on its line. Only the labels the reply form
@@ -394,7 +395,7 @@ const unitsIn = (words: string | undefined): StatedUnits | undefined => {
 };
 
 const libraryIn = (words: string | undefined): LibrarySettled | undefined => {
-  const said = new RegExp(`^(${LIBRARY_WORDS})$`, "i")
+  const said = new RegExp(`^(${LIBRARY_WORDS})\\b`, "i")
     .exec((words ?? "").trim())?.[1]
     ?.toLowerCase();
   return LIBRARY_SETTLED.find((each) => each === said);
@@ -574,8 +575,6 @@ export function citeReply(library = false): CiteReply {
     },
   };
 }
-
-export const CITE_REPLY: CiteReply = citeReply(false);
 
 /** A reply that declined: it says so and gives no verdict. */
 export const readsAsRefusal = (reply: string): boolean =>

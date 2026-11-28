@@ -879,7 +879,12 @@ export interface AgentAccessDeps {
    * A Note's sentences that hold no result yet, or with `every` all it judges, results or not, when
    * its Check searches none but `documentIds`.
    */
-  checkTask(mindId: string, documentIds: ReadonlySet<string>, every?: boolean): Judged<CheckTask>;
+  checkTask(
+    mindId: string,
+    documentIds: ReadonlySet<string>,
+    every?: boolean,
+    libraryVersion?: string | null,
+  ): Judged<CheckTask>;
   /** Marks a task's sentences with what the agent `agent` judged of them. */
   landJudged(
     mindId: string,
@@ -887,6 +892,7 @@ export interface AgentAccessDeps {
     agent: string,
     task: string,
     judged: readonly JudgedSentence[],
+    libraryVersion?: string | null,
   ): Judged<LandedCheck>;
   /**
    * What a Note's checks found, sentence by sentence, as its check record lists them for an agent
@@ -2580,6 +2586,11 @@ export function createAgentAccess(
   const listsForCheck = (pairing: AdmittedPairing, mindId: string): LibraryLists | undefined =>
     reachedFolders(deps, pairing).size > 0 ? workFor(pairing).lists(mindId).lists : undefined;
 
+  const libraryVersionOf = (pairing: AdmittedPairing, mindId: string): string | null => {
+    const lists = listsForCheck(pairing, mindId);
+    return lists ? libraryVersion(lists) : null;
+  };
+
   const handedFileTool = createHandedFileTool({
     deps,
     t,
@@ -2826,20 +2837,16 @@ export function createAgentAccess(
     // What the agent reaches may have changed while a Check ran, and again while its record is
     // read: a result resting on a Document the agent doesn't reach doesn't stand for it, so the
     // record is read again with what it reaches once it is read, and nothing told goes beyond.
-    const libraryVersionOf = (pairing: AdmittedPairing): string | null => {
-      const lists = listsForCheck(pairing, mindId);
-      return lists ? libraryVersion(lists) : null;
-    };
     let granted = deps.admit(pairingId);
     mindInScope(granted, mindId);
     let inScope = checkReach(granted);
-    let libVersion = libraryVersionOf(granted);
+    let libVersion = libraryVersionOf(granted, mindId);
     let record = await deps.checkRecord(mindId, inScope, libVersion);
     for (let reads = 1; ; reads++) {
       granted = deps.admit(pairingId);
       mindInScope(granted, mindId);
       const now = checkReach(granted);
-      const nowLib = libraryVersionOf(granted);
+      const nowLib = libraryVersionOf(granted, mindId);
       if (
         now.size === inScope.size &&
         [...now].every((id) => inScope.has(id)) &&
@@ -3489,7 +3496,10 @@ export function createAgentAccess(
         const cited: string[] = [];
         const own = wrote(pairing, mind.id);
         // Read in a later chat, its words alone don't say that none of them is checked (#3432).
-        const left = own && isKnownKind(mind.kind) ? deps.checkTask(mind.id, inScope) : null;
+        const left =
+          own && isKnownKind(mind.kind)
+            ? deps.checkTask(mind.id, inScope, false, libraryVersionOf(pairing, mind.id))
+            : null;
         const unchecked = left?.ok ? left.value.sentences.length : 0;
         const next =
           unchecked === 0
@@ -3795,7 +3805,9 @@ export function createAgentAccess(
         }
         const citations = [...tokens.values()].map((each) => each.report);
         const { markdown, nextOffset } = page(mind, written.now.text, 0);
-        const left = own ? deps.checkTask(mind.id, inScope) : null;
+        const left = own
+          ? deps.checkTask(mind.id, inScope, false, libraryVersionOf(pairing, mind.id))
+          : null;
         const unchecked = left?.ok ? left.value.sentences.length : 0;
         return {
           result: {
@@ -3879,7 +3891,7 @@ export function createAgentAccess(
         });
         opened({ kind: "mind", mindId: mind.id });
         const listed = deps.minds().find((each) => each.id === mind.id);
-        const left = deps.checkTask(mind.id, inScope);
+        const left = deps.checkTask(mind.id, inScope, false, libraryVersionOf(pairing, mind.id));
         return {
           result: {
             mindId: mind.id,
@@ -3956,7 +3968,12 @@ export function createAgentAccess(
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
       return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
         const mind = noteToCheck(pairing, input?.mindId);
-        const found = deps.checkTask(mind.id, checkReach(pairing), input?.again === true);
+        const found = deps.checkTask(
+          mind.id,
+          checkReach(pairing),
+          input?.again === true,
+          libraryVersionOf(pairing, mind.id),
+        );
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
         const { task, sentences } = found.value;
@@ -4058,7 +4075,14 @@ export function createAgentAccess(
             },
           ];
         });
-        const landed = deps.landJudged(mind.id, inScope, pairing.name, task, judged);
+        const landed = deps.landJudged(
+          mind.id,
+          inScope,
+          pairing.name,
+          task,
+          judged,
+          libraryVersionOf(pairing, mind.id),
+        );
         // A report on sentences that changed since is refused, and the ask stands, as the refusal
         // tells the agent to take them again: the User may go on writing while their AI checks.
         if (!landed.ok) throw notJudged(landed.reason, mind);

@@ -7271,10 +7271,10 @@ export function createCore(adapters: CoreAdapters): Core {
         inFlow("check-mind", () =>
           checks.checkMindOutside(mindId, new Set(documentIds), outsideLists),
         ),
-      checkTask: (mindId, documentIds, every) =>
-        checks.checkTaskOutside(mindId, documentIds, every),
-      landJudged: (mindId, documentIds, agent, task, judged) =>
-        checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
+      checkTask: (mindId, documentIds, every, libVersion) =>
+        checks.checkTaskOutside(mindId, documentIds, every, libVersion),
+      landJudged: (mindId, documentIds, agent, task, judged, libVersion) =>
+        checks.landJudgedOutside(mindId, documentIds, agent, task, judged, libVersion),
       checkRecord: (mindId, reach, libVersion) =>
         checkRecord.build(mindId, reach, libVersion ?? null),
       show: (place) => events.emit("agents.citationShown", place),

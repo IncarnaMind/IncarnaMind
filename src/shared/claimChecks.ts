@@ -48,7 +48,7 @@ import {
 } from "./claimParts";
 import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
-import { LIBRARY_FACTS, readLibraryVersion } from "./libraryFacts";
+import { GRANT_LIBRARY_FACTS, LIBRARY_FACTS, readLibraryVersion } from "./libraryFacts";
 import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
@@ -721,15 +721,28 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
 function staleVersions(
   versions: ClaimCheckBasis["versions"],
   relied: () => readonly { documentId: string | null }[],
-  now: Pick<ClaimCheckNow, "versions">,
+  now: Pick<ClaimCheckNow, "versions" | "reach">,
   fromAnswer: boolean,
+  grantLibrary = false,
 ): RecheckReason | null {
   if (!now.versions) return null;
   const restsOnIds = new Set(relied().map((each) => each.documentId));
+  const useGrantLibrary =
+    now.reach != null &&
+    grantLibrary &&
+    versions.some((version) => version.documentId === GRANT_LIBRARY_FACTS);
   for (const version of versions) {
+    if (version.documentId === GRANT_LIBRARY_FACTS) {
+      if (useGrantLibrary) {
+        const current = now.versions.get(LIBRARY_FACTS);
+        if (current !== undefined && current !== version.contentHash) return "library";
+      }
+      continue;
+    }
     // The Library's own lists a check counted (#2525) are no Document: they are compared once
     // their version now is known.
     if (version.documentId === LIBRARY_FACTS) {
+      if (useGrantLibrary) continue;
       const current = now.versions.get(LIBRARY_FACTS);
       if (current !== undefined && current !== version.contentHash) return "library";
       continue;
@@ -763,6 +776,7 @@ function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">)
     () => [...restsOn(check), ...(check.readDocuments ?? [])],
     now,
     check.fromAnswer !== undefined,
+    check.outside === true && check.state === "not-checked" && check.reason === "library-unsettled",
   );
   if (stale) return { state: "needs-recheck", why: stale };
   // A landed result searched the Folder it was in: filed elsewhere with Documents never read, a
@@ -913,6 +927,9 @@ function reliedOn(check: ClaimCheckAttributes): string[] {
   );
 }
 
+const isLibraryVersionId = (documentId: string) =>
+  documentId === LIBRARY_FACTS || documentId === GRANT_LIBRARY_FACTS;
+
 /**
  * Whether a stored result rests on the User's own Library lists (whole-Library, walled `left-out`
  * count, or a User Check inside a walled Folder — never an outside agent's scoped grant), so an
@@ -927,9 +944,9 @@ export function isUserLibraryCheck(check: ClaimCheckAttributes): boolean {
   );
   const hasLibraryVersion = [...resultsIn(check)].some(
     (each) =>
-      each.versions.some((version) => version.documentId === LIBRARY_FACTS) ||
+      each.versions.some((version) => isLibraryVersionId(version.documentId)) ||
       (each.parts ?? []).some((part) =>
-        part.versions.some((version) => version.documentId === LIBRARY_FACTS),
+        part.versions.some((version) => isLibraryVersionId(version.documentId)),
       ),
   );
   const isLibraryUnsettled = [...resultsIn(check)].some(
@@ -968,6 +985,21 @@ function libraryInReach(
   const current = now.versions?.get(LIBRARY_FACTS);
   if (current === undefined || check.outside !== true || isUserLibraryCheck(check)) return false;
   const citations = restsOn(check).filter((each) => each.documentId === LIBRARY_FACTS);
+  const grantVersions = [...resultsIn(check)].flatMap((each) => [
+    ...each.versions.filter((version) => version.documentId === GRANT_LIBRARY_FACTS),
+    ...(each.parts ?? []).flatMap((part) =>
+      part.versions.filter((version) => version.documentId === GRANT_LIBRARY_FACTS),
+    ),
+  ]);
+  if (
+    check.state === "not-checked" &&
+    check.reason === "library-unsettled" &&
+    grantVersions.length > 0
+  ) {
+    return (
+      citations.length === 0 && grantVersions.every((version) => version.contentHash === current)
+    );
+  }
   const versions = [...resultsIn(check)].flatMap((each) => [
     ...each.versions.filter((version) => version.documentId === LIBRARY_FACTS),
     ...(each.parts ?? []).flatMap((part) =>
@@ -1006,11 +1038,11 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
       [...resultsIn(check)].some(
         (each) =>
           each.reason === "library-unsettled" ||
-          each.versions.some((version) => version.documentId === LIBRARY_FACTS) ||
+          each.versions.some((version) => isLibraryVersionId(version.documentId)) ||
           (each.parts ?? []).some(
             (part) =>
               part.reason === "library-unsettled" ||
-              part.versions.some((version) => version.documentId === LIBRARY_FACTS),
+              part.versions.some((version) => isLibraryVersionId(version.documentId)),
           ),
       );
     if (

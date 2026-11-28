@@ -8,11 +8,13 @@
 import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
+import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { readNoteState } from "../../src/renderer/src/noteState";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { versionsWithLibrary } from "../../src/shared/libraryFacts";
 import { checkRows } from "../../src/shared/noteHealth";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
@@ -1008,5 +1010,164 @@ describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
     const client = await connectToMind(core, mindId);
     await client.settled();
     for (const span of claimSpans(readMind(client))) expect(span.check.change).toBeUndefined();
+  });
+
+  // protects=an agent's library unsettled mark is settled for check_mind_yourself and read_mind, never becomes Supported, never leaks unshared Folder changes to the agent, re-queues on shared Folder changes, and handles a failed missing-column run_analysis cleanly (#2525); fails_when=check_mind_yourself loops on library unsettled, unshared Folder edits re-queue the agent, or a failed run masks library unsettled.
+  it("holds library unsettled across unshared changes without leaking them, re-queues on shared Library changes, and lands after a failed run", async () => {
+    const calls: ModelCall[] = [];
+    const runtime = createFakeAnalysisRuntime({
+      answer: () => ({ end: { kind: "error", message: "KeyError: 'added_at'", line: 1 } }),
+    });
+    const started = await startAgentsCore(checkingModel({}, calls), { analysisRuntime: runtime });
+    const { core } = started;
+    const sources = await createSourceFolder();
+    const [tides, secret] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Tides.md", TIDES),
+      await writeSourceFile(sources, "Secret.md", "# Secret\n\nPrivate board notes.\n"),
+    ]);
+    if (!tides || !secret) throw new Error("Documents weren't added.");
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
+    const privateFolder = await core.createLibraryGroup({ name: "Private", description: "" });
+    await core.assignDocumentGroup(tides.id, coast.id);
+    await core.assignDocumentGroup(secret.id, privateFolder.id);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    const TOPICS = "Most of your files cover marine tides.";
+    const DATES = "Two of your Documents were added in October.";
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Library summary", markdown: `${TOPICS}\n\n${DATES}` },
+      }),
+    );
+
+    const given = await task(agent, mindId);
+    expect(given.how).toContain("library unsettled");
+    expect(given.sentences).toEqual([
+      { n: 1, text: TOPICS },
+      { n: 2, text: DATES },
+    ]);
+
+    const failedRun = structured<{ id: string | null }>(
+      await agent.callTool({
+        name: "run_analysis",
+        arguments: {
+          title: "Dates",
+          inputs: [{ name: "docs", library: "documents" }],
+          code: 'result("oct", len(inputs["docs"]["added_at"]))',
+        },
+      }),
+    );
+    expect(failedRun.id).not.toBeNull();
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        {
+          n: 1,
+          verdict: "library unsettled",
+          cites: [twice],
+          change: { replace: "Most", with: "All" },
+          explanation: "The lists do not hold topics.",
+        },
+        {
+          n: 2,
+          verdict: "library unsettled",
+          run: failedRun.id ?? undefined,
+          explanation: "The lists do not hold dates added.",
+        },
+      ]),
+    );
+    expect(reported).toEqual({
+      mindId,
+      title: "Library summary",
+      marked: 2,
+      unconfirmed: [],
+      unreported: [],
+      next: null,
+    });
+
+    // Settled for both check_mind_yourself and read_mind; never becomes Supported or keeps change.
+    const done = structured<
+      Task & {
+        checked?: {
+          notChecked: number;
+          needLook: number;
+          supported: number;
+          claims: { sentence: string; result: string; reason: string | null }[];
+        };
+      }
+    >(await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }));
+    expect(done.sentences).toEqual([]);
+    expect(done.checked).toMatchObject({ supported: 0, needLook: 0, notChecked: 2 });
+    expect(done.checked?.claims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sentence: TOPICS,
+          result: "not-checked",
+          reason: "library-unsettled",
+        }),
+        expect.objectContaining({
+          sentence: DATES,
+          result: "not-checked",
+          reason: "library-unsettled",
+        }),
+      ]),
+    );
+    const read = structured<{ next: string | null }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId } }),
+    );
+    expect(read.next).toBeNull();
+
+    const client = await connectToMind(core, mindId);
+    const userShown = async () => {
+      await client.settled();
+      const versions = versionsWithLibrary(
+        new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash])),
+        await core.libraryListsVersion(mindId),
+      );
+      return claimSpans(readMind(client)).map((span) => ({
+        text: span.sentence.text,
+        change: span.check.change,
+        shown: claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions,
+          folderId: coast.id,
+          scope: null,
+        }),
+      }));
+    };
+    expect(await userShown()).toEqual([
+      {
+        text: TOPICS,
+        change: undefined,
+        shown: { state: "not-checked", reason: "library-unsettled" },
+      },
+      {
+        text: DATES,
+        change: undefined,
+        shown: { state: "not-checked", reason: "library-unsettled" },
+      },
+    ]);
+
+    // Adding a Document in unshared Private flips the User's view to Needs re-check without leaking to the agent.
+    const [secret2] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret2.md", "# Secret 2\n\nMore private notes.\n"),
+    ]);
+    if (secret2) await core.assignDocumentGroup(secret2.id, privateFolder.id);
+    expect((await userShown()).every((each) => each.shown.state === "needs-recheck")).toBe(true);
+    expect((await task(agent, mindId)).sentences).toEqual([]);
+
+    // Adding a Document in shared Coast re-queues both sentences for the agent.
+    const [harbour] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Harbour.md", "# Harbour\n\nTwo stone quays.\n"),
+    ]);
+    if (harbour) await core.assignDocumentGroup(harbour.id, coast.id);
+    expect((await task(agent, mindId)).sentences.map((each) => each.text)).toEqual([TOPICS, DATES]);
   });
 });

@@ -10,6 +10,11 @@ import type * as Y from "yjs";
 import { type ChangeProblem, changeProblem, givenChange } from "../../../shared/claimChange";
 import { boundedQuote, partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
+import {
+  GRANT_LIBRARY_FACTS,
+  LIBRARY_FACTS,
+  versionsWithLibrary,
+} from "../../../shared/libraryFacts";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { targetHash } from "../../../shared/proposals";
@@ -26,6 +31,7 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { EvidenceScope } from "../../documents/evidence";
+import { type LibraryLists, libraryVersion } from "../../library/lists";
 import type { MindContent } from "../../mindContent";
 import {
   cellHeadings,
@@ -48,6 +54,8 @@ export type JudgedVerdict =
   | "supported"
   | "contradicted"
   | NonNullable<UnsupportedReason["word"]>
+  /** A sentence about the Library that its facts can't settle: marked Not checked (#2525). */
+  | "library-unsettled"
   /** The sentence says nothing a Document could state: it gets no mark. */
   | "nothing-to-check";
 
@@ -170,6 +178,8 @@ export interface JudgedOutsideOptions {
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
   /** Each live Document's version now. */
   documentVersions(): ReadonlyMap<string, string>;
+  /** The Library's lists as the Note's own Check counts them, for stamping `library-unsettled` (#2525). */
+  libraryLists?(mindId: string | null): LibraryLists;
   searched: Searched;
   /** Whether the Document is a file an agent cited by its path: evidence for what cites it (#3509). */
   citedOutside(documentId: string): boolean;
@@ -192,6 +202,10 @@ const SETTLED: ReadonlySet<ClaimCheckAttributes["state"]> = new Set([
   "unsupported",
   "contradicted",
 ]);
+
+const isSettled = (check: Pick<ClaimCheckAttributes, "state" | "reason">) =>
+  SETTLED.has(check.state) ||
+  (check.state === "not-checked" && check.reason === "library-unsettled");
 
 /** The tasks given most lately, each with its sentences as given: enough for any check under way. */
 const TASKS_KEPT = 200;
@@ -270,7 +284,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             from < sentence.to &&
             to > sentence.from &&
             check.text === sentence.text &&
-            SETTLED.has(check.state) &&
+            isSettled(check) &&
             reading.ofSentence(sentence, check).state !== "needs-recheck",
         ),
     );
@@ -327,7 +341,11 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
   };
 
   /** The Documents the Note's Check searches, when all of them are in `reach`. */
-  const scopeWithin = (mindId: string, reach: ReadonlySet<string>) => {
+  const scopeWithin = (
+    mindId: string,
+    reach: ReadonlySet<string>,
+    agentLibraryVersion?: string | null,
+  ) => {
     const { empty, check, folderId } = options.scopeOf(mindId, false);
     if (empty || check.marked.widened)
       return { ok: false as const, reason: "no-documents" as const };
@@ -335,7 +353,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
     const read = check.marked.chosen ? null : readsWithin(check.scope, reach, options.searched);
     if (read === null) return { ok: false as const, reason: "beyond-reach" as const };
     const reader: Reader = {
-      versions: options.documentVersions(),
+      versions: versionsWithLibrary(options.documentVersions(), agentLibraryVersion),
       folderId,
       scope: content.readSettings(mindId, mindScopeIn),
       reach,
@@ -348,9 +366,14 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
 
   return {
     /** The sentences with no result that stands, or with `every` all it judges, to judge again (#3541). */
-    task(mindId: string, reach: ReadonlySet<string>, every = false): Judged<CheckTask> {
+    task(
+      mindId: string,
+      reach: ReadonlySet<string>,
+      every = false,
+      agentLibraryVersion?: string | null,
+    ): Judged<CheckTask> {
       options.requireMind(mindId);
-      const scope = scopeWithin(mindId, reach);
+      const scope = scopeWithin(mindId, reach, agentLibraryVersion);
       if (!scope.ok) return scope;
       const skipped = skippedOf(mindId);
       return content.read(mindId, (blocks) => {
@@ -383,10 +406,24 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       agent: string,
       task: string,
       judged: readonly JudgedSentence[],
+      agentLibraryVersion?: string | null,
     ): Judged<LandedCheck> {
       options.requireMind(mindId);
-      const scope = scopeWithin(mindId, reach);
+      const scope = scopeWithin(mindId, reach, agentLibraryVersion);
       if (!scope.ok) return scope;
+      const userLibraryVersion = options.libraryLists
+        ? libraryVersion(options.libraryLists(mindId))
+        : null;
+      const libraryVersions: CheckedVersion[] = [
+        ...(userLibraryVersion !== null
+          ? [{ documentId: LIBRARY_FACTS, contentHash: userLibraryVersion }]
+          : agentLibraryVersion != null
+            ? [{ documentId: LIBRARY_FACTS, contentHash: agentLibraryVersion }]
+            : []),
+        ...(agentLibraryVersion != null
+          ? [{ documentId: GRANT_LIBRARY_FACTS, contentHash: agentLibraryVersion }]
+          : []),
+      ];
       const skipped = skippedOf(mindId);
       const at = options.now().toISOString();
       const request = randomUUID();
@@ -435,9 +472,11 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
           );
           const values = sentence.element.nodeName === CHART_NODE ? (sentence.figures ?? []) : null;
           const result = worked
-            ? workedResult(each, worked, evidence, sentence.said.length, values)
-            : reportedResult(each, evidence, sentence.said.length, values);
-          if (result.verdict === "not-checked") unconfirmed.push(each.n);
+            ? workedResult(each, worked, evidence, sentence.said.length, values, libraryVersions)
+            : reportedResult(each, evidence, sentence.said.length, values, libraryVersions);
+          if (result.verdict === "not-checked" && result.reason !== "library-unsettled") {
+            unconfirmed.push(each.n);
+          }
           const mark: ClaimCheckAttributes = {
             id: randomUUID(),
             request,
@@ -528,10 +567,11 @@ function workedResult(
   cited: readonly Citation[],
   length: number,
   values: readonly FigureOccurrence[] | null,
+  libraryVersions: readonly CheckedVersion[],
 ): ClaimCheckResult {
   const { verdict } = judged;
   if (verdict !== "supported" && verdict !== "contradicted") {
-    const result = resultOf(judged, cited);
+    const result = resultOf(judged, cited, libraryVersions);
     return onChartValues(
       worked.ok && result.verdict !== "not-checked"
         ? {
@@ -591,8 +631,9 @@ function reportedResult(
   evidence: readonly Citation[],
   length: number,
   values: readonly FigureOccurrence[] | null,
+  libraryVersions: readonly CheckedVersion[],
 ): ClaimCheckResult {
-  const result = onChartValues(resultOf(judged, evidence), values);
+  const result = onChartValues(resultOf(judged, evidence, libraryVersions), values);
   if (result.verdict === "not-checked" || evidence.length === 0) return result;
   const ownView = judged.verdict === "own-view";
   if (evidence.length === 1 && (result.verdict !== "unsupported" || ownView)) return result;
@@ -636,12 +677,27 @@ function onEachValue(
 function resultOf(
   { verdict, explanation }: JudgedSentence,
   evidence: readonly Citation[],
+  libraryVersions: readonly CheckedVersion[],
 ): ClaimCheckResult {
   const [quoted] = evidence;
   const read = {
     versions: evidence.map(({ documentId, contentHash }) => ({ documentId, contentHash })),
     excluded: [],
   };
+  if (verdict === "library-unsettled") {
+    const versions = [
+      ...new Map(
+        [...read.versions, ...libraryVersions].map((version) => [version.documentId, version]),
+      ).values(),
+    ];
+    return {
+      verdict: "not-checked",
+      reason: "library-unsettled",
+      detail: null,
+      versions,
+      excluded: [],
+    };
+  }
   const judgment = {
     calculation: null,
     citedCaseUnchecked: false,
