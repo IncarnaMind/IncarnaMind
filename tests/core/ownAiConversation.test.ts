@@ -106,7 +106,7 @@ const meanwhileOf = (request: RunRequest) => {
 
 /** What the User typed, as the run's prompt asks it. */
 const askedIn = (request: RunRequest | undefined) =>
-  request?.prompt.match(/the User asks: (.*)/)?.[1] ?? "";
+  request?.prompt.match(/the User's request: (.*)/)?.[1] ?? "";
 
 const idOf = (start: NoteRequestStart) =>
   start.kind === "started" || start.kind === "sent" ? start.turnId : "";
@@ -3195,48 +3195,101 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(handed).toEqual([]);
   });
 
-  // protects=a Note's requests go in the order sent though the first is still being checked when the next is sent, as the input shows the first working at once (#3765); fails_when=the later one's checks end first and it starts a run of its own, the first one held behind it
-  it("asks a Note's requests in the order sent, though the first is still checked", async () => {
-    const checks = gate();
-    const step = gate();
-    let checked = 0;
-    const run = runner(async (_agent, request) => {
-      if (askedIn(request) === "what does the plan add") {
-        step.reached();
-        await step.shut;
-      }
-      return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
-    });
-    const { core, mindId } = await written({
-      ...run.adapter,
-      async status() {
+  // protects=a Note's requests go in the order sent, shown and stored so, though the first is still in its install or sign-in check when the next is sent, as the input shows the first working at once (#3765, #3875); fails_when=the later one's checks end first and its turn is stored, and shown, before the first's
+  it.each([
+    { check: "installed", first: "what does the plan add", later: "and when" },
+    { check: "status", first: "what does the plan add", later: "and when" },
+    { check: "installed", first: "港口计划增加了什么？", later: "什么时候建？" },
+    { check: "status", first: "港口计划增加了什么？", later: "什么时候建？" },
+  ] as const)(
+    "asks a Note's requests in the order sent, though the first is still in its $check check: $first",
+    async ({ check, first, later }) => {
+      const checks = gate();
+      const step = gate();
+      let checked = 0;
+      const holdFirst = async () => {
         checked += 1;
         if (checked === 1) {
           checks.reached();
           await checks.shut;
         }
-        return { kind: "ready" };
-      },
-    });
-    const first = core.askInNote({ mindId, words: "what does the plan add" });
-    await checks.at;
-    const later = core.askInNote({ mindId, words: "and when" });
-    await pause(50);
-    checks.open();
-    expect((await first).kind).toBe("started");
-    expect((await later).kind).toBe("sent");
-    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
-      ["what does the plan add", "", "working", ""],
-      ["and when", "", "held", ""],
-    ]);
-    step.open();
-    await expect
-      .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
-      .toEqual([
-        ["what does the plan add", "", "landed", "Answered: what does the plan add"],
-        ["and when", "", "landed", "Answered: and when"],
+      };
+      const run = runner(async (_agent, request) => {
+        if (askedIn(request) === first) {
+          step.reached();
+          await step.shut;
+        }
+        return { kind: "finished", reply: `Answered: ${askedIn(request)}` };
+      });
+      const { core, mindId } = await written({
+        ...run.adapter,
+        async installed() {
+          if (check === "installed") await holdFirst();
+          return true;
+        },
+        async status() {
+          if (check === "status") await holdFirst();
+          return { kind: "ready" };
+        },
+      });
+      const asked = core.askInNote({ mindId, words: first });
+      await checks.at;
+      const askedLater = core.askInNote({ mindId, words: later });
+      await pause(50);
+      checks.open();
+      expect((await asked).kind).toBe("started");
+      expect((await askedLater).kind).toBe("sent");
+      expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+        [first, "", "working", ""],
+        [later, "", "held", ""],
       ]);
-  });
+      step.open();
+      await expect
+        .poll(async () => (await core.noteConversation(mindId)).map(recordOf))
+        .toEqual([
+          [first, "", "landed", `Answered: ${first}`],
+          [later, "", "landed", `Answered: ${later}`],
+        ]);
+      expect(run.runs.map(askedIn)).toEqual([first, later]);
+    },
+  );
+
+  // protects=a request that can't start leaves no turn, though one sent after it waited for its checks: the later one then starts alone (#3875); fails_when=the first leaves a turn, or the later one is held behind a request that never ran
+  it.each([
+    { first: "what does the plan add", later: "and when" },
+    { first: "港口计划增加了什么？", later: "什么时候建？" },
+  ])(
+    "starts a request sent while the one before is checked, when that one can't start: $first",
+    async ({ first, later }) => {
+      const checks = gate();
+      let checked = 0;
+      const run = runner(async (_agent, request) => ({
+        kind: "finished",
+        reply: `Answered: ${askedIn(request)}`,
+      }));
+      const { core, mindId, ended } = await written({
+        ...run.adapter,
+        async status() {
+          checked += 1;
+          if (checked > 1) return { kind: "ready" };
+          checks.reached();
+          await checks.shut;
+          return { kind: "signed-out" };
+        },
+      });
+      const asked = core.askInNote({ mindId, words: first });
+      await checks.at;
+      const askedLater = core.askInNote({ mindId, words: later });
+      await pause(50);
+      checks.open();
+      await expect(asked).resolves.toMatchObject({ kind: "problem", problem: "signed-out" });
+      await expect(askedLater).resolves.toMatchObject({ kind: "started" });
+      await ended();
+      expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+        [later, "", "landed", `Answered: ${later}`],
+      ]);
+    },
+  );
 
   // protects=Stop stops the reply and sends the oldest message held for it at once, as a request of its own; the others keep waiting for that one's reply; Stop never drops one (#3765); fails_when=the held message is left never sent, lost, or the next one jumps the queue
   it("sends the oldest held request at once on Stop, the others after its reply", async () => {
