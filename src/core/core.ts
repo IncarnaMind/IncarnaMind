@@ -3562,6 +3562,12 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       // A reloaded page keeps its id and its Notes open, so a column change still waits for it.
       { calls: ["watchComparisonMind"], gone: (clientId) => comparisons.forgetWindow(clientId) },
+      // A reloaded page shows no editor open, so its held messages wait for none (#3765).
+      {
+        calls: ["editHeldInNote"],
+        gone: (clientId) => ownAiConversations.windowGone(clientId),
+        reloaded: (clientId) => ownAiConversations.windowGone(clientId),
+      },
     ],
     (error) => console.error("A window that went still holds something:", error),
   );
@@ -10233,6 +10239,29 @@ export function createCore(adapters: CoreAdapters): Core {
       if (typeof mindId !== "string" || typeof turnId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.discard(mindId, turnId);
+    },
+    sendNowInNote: async (mindId, turnId) => {
+      if (typeof mindId !== "string" || typeof turnId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.sendNow(mindId, turnId);
+    },
+    editHeldInNote: async (input) => {
+      const edit: unknown = isRecord(input) ? input.edit : null;
+      if (
+        !isRecord(input) ||
+        typeof input.mindId !== "string" ||
+        typeof input.turnId !== "string" ||
+        typeof input.clientId !== "string" ||
+        input.clientId === "" ||
+        !isRecord(edit) ||
+        !(
+          edit.kind === "open" ||
+          edit.kind === "cancel" ||
+          (edit.kind === "save" && typeof edit.words === "string")
+        )
+      )
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.editHeld(input);
     },
     answerInNote: async (mindId, questionId, answer) => {
       if (

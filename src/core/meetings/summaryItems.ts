@@ -1,12 +1,16 @@
 import { z } from "zod";
 import type { MeetingSummaryItem } from "../api";
 import { TranslatableError } from "../errors";
-import { normalizeSummaryEvidence } from "./summaryEvidence";
+import { type NumberedSummaryQuote, normalizeSummaryEvidence } from "./summaryEvidence";
 import { hasActiveSummaryItems, type MeetingSummaryInput } from "./summaryModel";
 
 export { normalizeSummaryEvidence } from "./summaryEvidence";
 
 const text = z.string().trim().min(1);
+const evidenceQuote = z.strictObject({
+  source: z.int().positive().nullable(),
+  quote: text,
+});
 const update = z.strictObject({
   summary: text,
   unchanged: z.array(z.int().positive()).optional(),
@@ -16,7 +20,7 @@ const update = z.strictObject({
       kind: z.enum(["decision", "action"]),
       status: z.enum(["active", "done", "cancelled"]),
       text,
-      quote: text,
+      quotes: z.array(evidenceQuote).min(1).max(2),
     }),
   ),
 });
@@ -29,7 +33,7 @@ export function readMeetingSummaryUpdate(
   raw: string,
   input: MeetingSummaryInput,
   lastReservedId = 0,
-): { text: string; items: MeetingSummaryItem[]; evidence: Record<number, string> } {
+): { text: string; items: MeetingSummaryItem[]; evidence: Record<number, NumberedSummaryQuote[]> } {
   let json: unknown;
   try {
     json = JSON.parse(raw);
@@ -45,7 +49,7 @@ export function readMeetingSummaryUpdate(
     input.items === undefined && input.previous ? normalizeSummaryEvidence(input.previous) : "";
   const existing = new Map(input.items?.map((item) => [item.id, item]));
   const updated = new Map(existing);
-  const evidence: Record<number, string> = {};
+  const evidence: Record<number, NumberedSummaryQuote[]> = {};
   const touched = new Set<number>();
   const addressed = new Set(reply.data.changes.map((change) => change.id));
   let nextId = lastReservedId + 1;
@@ -57,9 +61,22 @@ export function readMeetingSummaryUpdate(
       touched.add(change.id);
       if (prior.status === change.status && prior.text === change.text) continue;
     }
-    const quote = normalizeSummaryEvidence(change.quote);
-    const heard = speech.some((line) => line.includes(quote));
-    if (!heard && (change.status !== "active" || !historical.includes(quote))) return invalid();
+    const cited: NumberedSummaryQuote[] = [];
+    const seen = new Set<string>();
+    for (const entry of change.quotes) {
+      const quote = normalizeSummaryEvidence(entry.quote);
+      if (entry.source === null) {
+        if (change.status !== "active" || !historical.includes(quote)) return invalid();
+      } else {
+        const line = speech[entry.source - 1];
+        if (line === undefined || !line.includes(quote)) return invalid();
+      }
+      const key = `${entry.source ?? "previous"}:${quote}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        cited.push({ source: entry.source, quote: entry.quote });
+      }
+    }
     if (change.id === null) {
       const repeat = input.items?.find(
         (item) =>
@@ -73,7 +90,7 @@ export function readMeetingSummaryUpdate(
     const id = change.id ?? nextId++;
     if (!Number.isSafeInteger(id)) return invalid();
     updated.set(id, { id, kind: change.kind, status: change.status, text: change.text });
-    evidence[id] = change.quote;
+    evidence[id] = cited;
   }
   if (hasActiveSummaryItems(input.items)) {
     if (!reply.data.unchanged) return invalid();

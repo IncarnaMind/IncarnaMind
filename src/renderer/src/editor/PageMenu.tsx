@@ -5,7 +5,6 @@ import { formatDateTime } from "../../../shared/dates";
 import { mindName } from "../../../shared/naming";
 import { noteWriterOf } from "../../../shared/noteWriter";
 import type { Verification } from "../../../shared/verification";
-import { offersReview, reviewApplied } from "../appliedEdits";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { ExampleChoices } from "../components/ExamplesMenu";
 import {
@@ -14,7 +13,6 @@ import {
   FolderOpenIcon,
   OpenBesideLineIcon,
   QuoteIcon,
-  SparkLineIcon,
   TextIcon,
 } from "../components/icons";
 import { MenuItemParts } from "../components/MenuItemParts";
@@ -169,26 +167,6 @@ export function PageMenu({
                         </button>
                       )}
                       {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
-                      {!readOnly && offersReview(editor) && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          data-testid="page-review-changes"
-                          onClick={() => {
-                            close();
-                            requestAnimationFrame(() => {
-                              revealEditor();
-                              reviewApplied(editor, { focus: true });
-                            });
-                          }}
-                          className={`${menuItemClass} pl-2`}
-                        >
-                          <SparkLineIcon className="shrink-0" />
-                          <span className="min-w-0 flex-1 truncate">
-                            {t("edit.applied.review")}
-                          </span>
-                        </button>
-                      )}
                       {origin && (
                         <>
                           {!readOnly && <div className={menuRuleClass} />}

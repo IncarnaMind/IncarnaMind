@@ -31,6 +31,8 @@ import {
 } from "../icons";
 import { SidebarToggle } from "../SidebarToggle";
 import { ConversationMenu } from "./ConversationMenu";
+import { CopyRequest } from "./CopyRequest";
+import { HeldMessage } from "./HeldMessage";
 import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 import { Reply } from "./Reply";
@@ -229,6 +231,8 @@ export function NoteColumn({
   );
 }
 
+const isHeld = (turn: NoteTurn) => turn.outcome === "held";
+
 /** Marks the turns scrolled past their start, where their top fades out (styles.css). */
 const markScrolled = (element: HTMLElement) =>
   element.toggleAttribute("data-scrolled", element.scrollTop > 0);
@@ -282,7 +286,7 @@ export function NoteConversationBody({
   // The last request that ran: a request sent meanwhile may stand after it, waiting or never sent.
   const ranAt =
     turns
-      ?.map((turn) => turn.outcome !== "waiting" && turn.outcome !== "unsent")
+      ?.map((turn) => !isHeld(turn) && turn.outcome !== "waiting" && turn.outcome !== "unsent")
       .lastIndexOf(true) ?? -1;
   const at = useNoteColumns((state) => state.at[mindId] ?? null);
   const body = useRef<HTMLDivElement>(null);
@@ -301,7 +305,10 @@ export function NoteConversationBody({
     turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
 
   const atEnd = useRef(true);
+  const shown = useRef({ mindId: "", turns: 0, questions: 0, at: null as string | null });
   // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
+  // A step or a reading again doesn't take the User back to the end from where they scrolled, say
+  // to a held message's Send now (#3765); a turn or a question added does.
   // biome-ignore lint/correctness/useExhaustiveDependencies: follows what it shows.
   useLayoutEffect(() => {
     const element = body.current;
@@ -309,10 +316,17 @@ export function NoteConversationBody({
     const turn = at
       ? element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(at)}"]`)
       : null;
-    atEnd.current = !turn;
+    const now = { mindId, turns: turns?.length ?? 0, questions: ask?.questions.length ?? 0, at };
+    const added =
+      now.mindId !== shown.current.mindId ||
+      now.turns > shown.current.turns ||
+      now.questions > shown.current.questions ||
+      now.at !== shown.current.at;
+    shown.current = now;
+    if (turn || added) atEnd.current = !turn;
     roomForNewest(element);
     if (turn) element.scrollTop = turn.offsetTop - 8;
-    else element.scrollTop = element.scrollHeight;
+    else if (atEnd.current) element.scrollTop = element.scrollHeight;
     markScrolled(element);
   }, [turns, trails, waiting, at, ask?.questions]);
 
@@ -369,8 +383,11 @@ export function NoteConversationBody({
           modeLine={turn.id === modeTurn}
           newest={
             index === turns.length - 1 &&
-            (ask?.turnId === turn.id || (ask?.queued.includes(turn.id) ?? false))
+            (ask?.turnId === turn.id ||
+              (ask?.queued.includes(turn.id) ?? false) ||
+              (ask?.held.includes(turn.id) ?? false))
           }
+          oldest={turn.outcome === "held" && turn.id === turns.find(isHeld)?.id}
           // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
           accept={
             index === ranAt && !going && ask && ask.turnId === turn.id ? (
@@ -404,6 +421,7 @@ function Turn({
   first,
   modeLine,
   newest,
+  oldest,
   accept,
   failed,
 }: {
@@ -416,6 +434,8 @@ function Turn({
   modeLine: boolean;
   /** The last turn, and the request sent from this window: it starts under the top row. */
   newest: boolean;
+  /** The oldest message held for the Note, which ⌘↵ in the input sends now. */
+  oldest: boolean;
   accept: ReactNode;
   /** The request, while this turn is its newest and failed: its line has the one thing to do. */
   failed: NoteAsk | null;
@@ -432,6 +452,18 @@ function Turn({
   // what the run had read.
   const stopSaid =
     steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
+  if (state === "held") {
+    return (
+      <div
+        data-testid="note-column-turn"
+        data-turn-id={turn.id}
+        data-newest={newest || undefined}
+        className="note-column-turn"
+      >
+        <HeldMessage mindId={mindId} turn={turn} oldest={oldest} />
+      </div>
+    );
+  }
   return (
     <div
       data-testid="note-column-turn"
@@ -666,37 +698,14 @@ function EditRequest({ mindId, words }: { mindId: string; words: string }) {
   );
 }
 
-function CopyRequest({ words }: { words: string }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      data-testid="note-column-copy-request"
-      aria-label={t("noteColumn.copy")}
-      title={t("noteColumn.copy")}
-      onClick={() =>
-        void navigator.clipboard.writeText(words).catch(useAppStore.getState().reportError)
-      }
-      className="note-column-icon"
-    >
-      <CopyLineIcon />
-    </button>
-  );
-}
-
 /**
- * Under a request sent while another ran, until its AI takes it (#3765). Copy is all it offers:
- * the AI has it already, so it can't be changed or taken back.
+ * Under a message sent at once into the request running, until its AI takes it (#3765). Copy is
+ * all it offers: the AI has it already, so it can't be changed or taken back.
  */
 function Waiting({ words }: { words: string }) {
   const t = useT();
   return (
     <div data-testid="note-column-waiting" className="note-column-sent-state" data-waiting="">
-      <span aria-hidden="true" className="note-ask-dots">
-        <span />
-        <span />
-        <span />
-      </span>
       <span role="status" className="note-column-sent-word">
         {t("noteColumn.waiting")}
       </span>

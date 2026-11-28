@@ -1,14 +1,12 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
 import { type ReactNode, useEffect, useState } from "react";
-import { flushSync } from "react-dom";
 import type { AgentToolName } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
 import { latestReasoning } from "../../answerSteps";
-import { canReviewApplied, reviewApplied } from "../../appliedEdits";
 import { undoAsked, useAskedState } from "../../askedChanges";
 import { openClaudeCodeSignIn } from "../../claudeCodeInstall";
 import { CheckOnLine } from "../../editor/CheckButton";
@@ -17,6 +15,7 @@ import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
 import { showMeetingNoteView, useMeetingNoteView } from "../../meetingViews";
 import { showWaitingChanges } from "../../mindChanges";
+import { useNamedChanges } from "../../namedChanges";
 import {
   allowAndAskAgain,
   askAgainInNote,
@@ -109,14 +108,17 @@ function Naming({
 function Facts({ ask, mindId }: { ask: NoteAsk; mindId: string }) {
   const t = useT();
   const { made, waiting } = elsewhereOf(ask, mindId);
+  const named = useNamedChanges((state) => (ask.turnId ? state.byTurn[ask.turnId] : undefined));
+  const changed =
+    ask.changed === 1 && named
+      ? t(named.added ? "noteAsk.done.added.named" : "noteAsk.done.changed.named", {
+          start: named.start,
+        })
+      : t(ask.changed === 1 ? "noteAsk.done.changed.one" : "noteAsk.done.changed.other", {
+          count: ask.changed,
+        });
   const did: ReactNode[] = [
-    ...(ask.changed > 0
-      ? [
-          t(ask.changed === 1 ? "noteAsk.done.changed.one" : "noteAsk.done.changed.other", {
-            count: ask.changed,
-          }),
-        ]
-      : []),
+    ...(ask.changed > 0 ? [changed] : []),
     ...waiting.map((each) => (
       <Naming
         key={`waiting-${each.mindId}`}
@@ -325,15 +327,6 @@ const RETRIED: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Notes in place of My notes, at what the AI changed, as Review shows it. My notes goes first: with
- * it, the review's cursor would land in lines it hides.
- */
-function showInNotes(editor: Editor, tabId: string, mindId: string): void {
-  flushSync(() => showMeetingNoteView(tabId, mindId, "notes"));
-  if (canReviewApplied(editor)) reviewApplied(editor, { focus: true });
-}
-
-/**
  * Why a request failed, in one line that wraps, with the one thing to do when there is one. In a
  * turn of the conversation, `turn` is that turn's record: the line is part of it, read out only as
  * a status, and what Allow sends again comes from it where this window didn't send the request.
@@ -456,7 +449,7 @@ export function EndAction({
       <button
         type="button"
         data-testid="note-ask-show-in-notes"
-        onClick={() => showInNotes(editor, tabId, mindId)}
+        onClick={() => showMeetingNoteView(tabId, mindId, "notes")}
         className="note-ask-pill-action"
       >
         {t("noteAsk.showInNotes")}
@@ -477,16 +470,6 @@ export function EndAction({
       >
         {t("edit.applied.undo")}
       </button>
-      {canReviewApplied(editor) && (
-        <button
-          type="button"
-          data-testid="note-ask-review"
-          onClick={() => reviewApplied(editor, { focus: true })}
-          className="note-ask-pill-action"
-        >
-          {t("edit.applied.review")}
-        </button>
-      )}
     </>
   );
 }

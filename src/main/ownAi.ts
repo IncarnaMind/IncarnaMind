@@ -23,18 +23,74 @@ import { quotingNow, sayingNow, writingNow } from "./streamedInput";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
 export const LOWEST_CLAUDE_CODE = "2.1.248";
-/** As long as a run may take before it is stopped (ADR-0032). */
+/**
+ * As long as a run may work before it is stopped (ADR-0032); the time a question of the AI's waits
+ * on the User doesn't count (#3677).
+ */
 const RUN_MS = 15 * 60_000;
 const MAX_RUN_BYTES = 8 * 1024 * 1024;
 /** As much of the agent's last reply as the Note's label and its conversation show. */
 const MAX_REPLY_CHARS = 4000;
 /**
- * How long a run may send nothing before it is stopped as stalled. While it works it sends a tick
- * about every second as it thinks, and its words and Tool inputs as it writes them; time it waits
- * on a Tool of IncarnaMind's own doesn't count, nor a compaction (`COMPACT_MS` bounds that). Past
- * Claude Code's own 5 minutes with no data, its own watchdog and retry act first (#3677).
+ * How long a run may send nothing that shows it getting anywhere before it is stopped as stalled
+ * (#3677). While it works it sends a tick about every second as it thinks, and its words and Tool
+ * inputs as it writes them; time it waits on a Tool of IncarnaMind's own, on the User, or on a
+ * command of its own within that command's time doesn't count, nor a compaction (`COMPACT_MS`
+ * bounds that). Its heartbeats, retries and status lines don't count as getting anywhere. The
+ * longest honest silence measured on Claude Code 2.1.332 was 30 s, its own wait for tool servers
+ * before its first line, else 6.3 s; it gives Anthropic's API 3 minutes for a first byte itself.
  */
-const STALL_MS = 6 * 60_000;
+const STALL_MS = 3 * 60_000;
+/** A check on Codex keeps ADR-0035's six minutes: its silences weren't measured (#3677). */
+const CODEX_STALL_MS = 6 * 60_000;
+
+/**
+ * Claude Code's own time for a command of its Bash or PowerShell tool: two minutes unless the call
+ * asks for more, ten at most (2.1.332's defaults). A run waiting on one longer is stuck.
+ */
+const COMMAND_MS = 2 * 60_000;
+const COMMAND_MAX_MS = 10 * 60_000;
+
+/**
+ * Whether a line of Claude Code's stream shows the run getting somewhere: not its liveness
+ * heartbeat (`keep_alive`), a tool's heartbeat or a subagent's retry (`tool_progress`), a retry of
+ * its own or a status line, which it sends on while nothing moves (#3677).
+ */
+const progressed = (message: Record<string, unknown>): boolean =>
+  message.type !== "keep_alive" &&
+  message.type !== "tool_progress" &&
+  !(message.type === "system" && (message.subtype === "api_retry" || message.subtype === "status"));
+
+/** How long a call of Claude Code's own tool may keep the run waiting silently, by its input. */
+function waitOf(name: string, given: unknown): number {
+  const input = object(given);
+  if ((name !== "Bash" && name !== "PowerShell") || input.run_in_background === true) return 0;
+  const asked = typeof input.timeout === "number" && input.timeout > 0 ? input.timeout : COMMAND_MS;
+  return Math.min(asked, COMMAND_MAX_MS);
+}
+
+/**
+ * Aborts once a run has worked for `ms`, left out the time `waiting` says it waits on the User,
+ * on a clock that stands still while the computer sleeps.
+ */
+function workingTime(ms: number, waiting: () => boolean) {
+  const over = new AbortController();
+  let left = ms;
+  let at = performance.now();
+  const watch = setInterval(
+    () => {
+      const now = performance.now();
+      if (!waiting()) left -= now - at;
+      at = now;
+      if (left > 0) return;
+      clearInterval(watch);
+      over.abort();
+    },
+    Math.min(1_000, ms / 4),
+  );
+  watch.unref?.();
+  return { signal: over.signal, end: () => clearInterval(watch) };
+}
 
 /**
  * How long Claude Code may spend compacting a conversation, saying nothing meanwhile, before the
@@ -144,6 +200,7 @@ export function createOwnAi({
   conversations,
   runMs = RUN_MS,
   stallMs = STALL_MS,
+  codexStallMs = CODEX_STALL_MS,
   compactMs = COMPACT_MS,
   initializeMs = INITIALIZE_MS,
 }: {
@@ -154,6 +211,8 @@ export function createOwnAi({
   runMs?: number;
   /** How long a run may send nothing before it is stopped as stalled. */
   stallMs?: number;
+  /** The same for a check on Codex. */
+  codexStallMs?: number;
   /** How long a compaction may last before the run is stopped. */
   compactMs?: number;
   /** How long a Note's conversation waits for Claude Code to take its hook before it stops. */
@@ -328,7 +387,7 @@ export function createOwnAi({
         prompt: request.prompt,
         signal,
         maxBytes: MAX_RUN_BYTES,
-        stallMs,
+        stallMs: codexStallMs,
         ...(request.progress && { progress: request.progress }),
         ...(request.started && { started: request.started }),
       });
@@ -440,11 +499,11 @@ export function createOwnAi({
       if (command === null) return { kind: "failed", reason: "other" };
       request.started?.();
       const compactionOver = new AbortController();
-      const signal = AbortSignal.any([
-        request.signal,
-        AbortSignal.timeout(runMs),
-        compactionOver.signal,
-      ]);
+      // The questions it asked that wait on the User, each stopped by the run's end or its
+      // withdrawal: the time they wait isn't the run's.
+      const asking = new Map<string, AbortController>();
+      const worked = workingTime(runMs, () => asking.size > 0);
+      const signal = AbortSignal.any([request.signal, worked.signal, compactionOver.signal]);
       const { conversation } = request;
       const scratch = await mkdtemp(join(tmpdir(), "incarnamind-check-"));
       const cwd = conversation ? folderOf(conversation.key) : scratch;
@@ -458,10 +517,10 @@ export function createOwnAi({
         typeof part.type === "string" &&
         part.type.endsWith("tool_use") &&
         !(part.type === "tool_use" && ours(part.name));
-      // A run with its own abilities (#3653): its own calls as they go, by their ids, and the
-      // questions it asked that wait on the User, each stopped by the run's end or its withdrawal.
+      // A run with its own abilities (#3653): its own calls as they go, by their ids, and until when
+      // each command of them may run silently, as Claude Code's own time for it.
       const ownCalls = new Map<string, NonNullable<ReturnType<typeof actionOf>>>();
-      const asking = new Map<string, AbortController>();
+      const commands = new Map<string, { wait: number; until: number }>();
       let places: Places = { folders: [cwd], home: process.env.HOME || homedir() };
       const mode = (value: unknown) => {
         if (own && typeof value === "string" && value !== "") {
@@ -502,8 +561,11 @@ export function createOwnAi({
           )
           .then(
             (answer) => {
-              if (asking.get(id) === waiting && !waiting.signal.aborted)
-                reply(question.answer(answer));
+              if (asking.get(id) !== waiting || waiting.signal.aborted) return;
+              reply(question.answer(answer));
+              // A command's own time starts when it may run, not while it waited on the User.
+              const command = commands.get(String(asked.tool_use_id));
+              if (command) command.until = performance.now() + command.wait;
             },
             (error: unknown) => {
               // Taken back, or the run ended: Claude Code waits on nothing.
@@ -702,14 +764,17 @@ export function createOwnAi({
           }),
           partial: true,
           stallMs,
+          progressed,
           // A question waits on the User for as long as they take; a command of its own, as a
-          // long build, runs as long as Claude Code's own limit for it lets it.
+          // long build, as long as Claude Code's own time for it lets it, and no longer.
           busy: () =>
-            running.size > 0 || compacting !== null || asking.size > 0 || ownCalls.size > 0,
+            running.size > 0 ||
+            compacting !== null ||
+            asking.size > 0 ||
+            [...commands.values()].some(({ until }) => until > performance.now()),
           onMessage(message) {
-            // A retry's notice says the AI isn't answering, rather than that it is.
-            const retry = message.type === "system" && message.subtype === "api_retry";
-            if (!retry && performance.now() - toldHeard >= HEARD_EVERY_MS) {
+            // A heartbeat or a retry's notice says the AI isn't getting anywhere, rather than that it is.
+            if (progressed(message) && performance.now() - toldHeard >= HEARD_EVERY_MS) {
               toldHeard = performance.now();
               request.progress?.({ kind: "heard" });
             }
@@ -719,6 +784,7 @@ export function createOwnAi({
                 if (part.type !== "tool_result") continue;
                 const id = String(part.tool_use_id);
                 running.delete(id);
+                commands.delete(id);
                 const action = ownCalls.get(id);
                 if (action) {
                   ownCalls.delete(id);
@@ -815,6 +881,9 @@ export function createOwnAi({
                 running.add(String(part.id));
                 continue;
               }
+              const wait = waitOf(String(part.name ?? ""), part.input);
+              if (wait > 0)
+                commands.set(String(part.id), { wait, until: performance.now() + wait });
               const action = actionOf(String(part.name ?? ""), part.input, places);
               if (action) {
                 ownCalls.set(String(part.id), action);
@@ -834,7 +903,8 @@ export function createOwnAi({
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
         if (error instanceof ClaudeCodeHookError) return { kind: "failed", reason: "update" };
-        if (error instanceof StalledError) return { kind: "failed", reason: "stalled" };
+        // Stuck retrying a limit Claude Code named, the User reads that limit.
+        if (error instanceof StalledError) return { kind: "failed", reason: failure ?? "stalled" };
         if (compactionStuck) return { kind: "failed", reason: failure ?? "compaction" };
         if (signal.aborted) return { kind: "failed", reason: "timeout" };
         console.warn(
@@ -843,6 +913,7 @@ export function createOwnAi({
         );
         return { kind: "failed", reason: failure ?? "other" };
       } finally {
+        worked.end();
         for (const waiting of asking.values()) waiting.abort();
         asking.clear();
         if (compacting !== null) clearTimeout(compacting);
