@@ -197,7 +197,8 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       source: "papers/zh-CN",
       folder: "示例论文",
       title: "从中药里筛选活性成分：一份简短的文献综述",
-      intro: "三篇综述，讲的是怎样从中药和天然产物里找出有活性的成分。它们作为文档链接在这里。",
+      intro:
+        "三篇综述：两篇讲怎样从中药和天然产物里找出有活性的成分，一篇讲分离这些成分用的色谱材料。它们作为文档链接在这里。",
       draft: [
         "## 摘要",
         "",
