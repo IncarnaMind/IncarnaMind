@@ -70,8 +70,8 @@ function MenuItems({
 }
 
 /**
- * What applies to a group, in its strip's ⋯ menu; a group of one Note has it in the page's ⋯
- * instead, so a pane shows one ⋯ (#2868).
+ * What applies to a group, in its strip's ⋯ menu. A group showing a Note has no such ⋯, so a pane
+ * shows one (#2868): there these are in ⌘K and the tab's own menu (#3766).
  */
 export function GroupMenuItems({
   groupId,

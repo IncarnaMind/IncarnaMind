@@ -17,13 +17,16 @@ import * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type ProposalRef,
 } from "../../../core/api";
 import { copyOrigins } from "../../../shared/blockOrigins";
+import { markMindCheckUncheckedBlocks } from "../../../shared/mindCheck";
 import {
+  outsideProposalBlockIds,
   pendingProposals,
   type ResolvedProposal,
   readProposalAttribute,
@@ -182,7 +185,7 @@ export function planChanges(
         const beside = besideStaying(doc, proposal.from, requests, accepted);
         if (beside === undefined) {
           console.warn(
-            `Review changes can't place Block ${proposal.id} of request ${proposal.request}, taken out with everything beside it: it won't show there.`,
+            `The applied line can't place Block ${proposal.id} of request ${proposal.request}, taken out with everything beside it: it won't count there.`,
           );
           return [];
         }
@@ -232,7 +235,7 @@ export function planChanges(
     });
 }
 
-/** The planned changes as `appliedEditLine` keeps them, once applied, for Review changes. */
+/** The planned changes as `appliedEditLine` keeps them, once applied, to count and place its line. */
 export function anchorChanges(state: EditorState, planned: readonly Planned[]): ChangePlace[] {
   const binding = ySyncPluginKey.getState(state)?.binding;
   if (!binding) return [];
@@ -330,7 +333,9 @@ export function writeAccepted(
   schema: Schema,
 ): ResolvedProposal[] {
   const picked = (ref: ProposalRef) => requests.has(ref.request);
-  nameOlderCitations(doc.getXmlFragment(MIND_CONTENT_FIELD));
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  const touched = outsideProposalBlockIds(doc, blocks, picked);
+  nameOlderCitations(blocks);
   const scratch = new Y.Doc();
   try {
     Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
@@ -339,7 +344,6 @@ export function writeAccepted(
     scratch.transact(() => {
       resolved = resolveProposals(accepted, picked, "accept");
     });
-    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
     doc.transact(() => {
       for (let depth = 0; depth < 100; depth++) {
         resolveProposals(blocks, picked, "reject");
@@ -353,6 +357,11 @@ export function writeAccepted(
       writeAs(doc, blocks, accepted, schema);
       copyOrigins(scratch, doc);
     }, tracked);
+    if (touched.size > 0 && resolved.length > 0) {
+      doc.transact(() => {
+        markMindCheckUncheckedBlocks(doc.getMap(MIND_SETTINGS_FIELD), touched);
+      }, aside);
+    }
     return resolved;
   } finally {
     scratch.destroy();

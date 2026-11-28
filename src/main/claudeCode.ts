@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { Writable } from "node:stream";
 import { object, processes, readJsonLines, wholeTree } from "./agentCommand";
 import { STEERING_HOOK, STEERING_HOOKS, steeringAnswer } from "./claudeCodeAsks";
+import type { Places } from "./ownPlaces";
 
 export interface ClaudeCodeTurn {
   /** The command: `claude`, unless a test build gives another. */
@@ -49,6 +50,8 @@ export interface ClaudeCodeTurn {
       reply: (answer: Record<string, unknown>) => void,
     ): void;
     withdrawn(id: string): void;
+    /** The conversation's folder and the User's homes, which IncarnaMind's own hook reads by. */
+    places(): Places;
     /** Where what the turn starts is noted while it runs, for the next start to end after a crash. */
     processes?: string;
     /** How long Claude Code may take to answer `initialize`, before which nothing is sent. */
@@ -90,6 +93,8 @@ export interface ClaudeCodeTurn {
    * its words as it writes them.
    */
   stallMs?: number;
+  /** Whether a message shows the turn getting somewhere, as `stallMs` counts; absent: every one. */
+  progressed?(message: Record<string, unknown>): boolean;
   /**
    * Whether it waits, without a word meanwhile, on a Tool of IncarnaMind's own, on the User, or on
    * a tool of its own at work: that time doesn't count towards `stallMs`.
@@ -207,6 +212,7 @@ function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     // Its words and calls as they came repeat what the whole messages say.
     counted: (message) => message.type !== "stream_event",
     ...(turn.stallMs !== undefined && { stallMs: turn.stallMs }),
+    ...(turn.progressed && { progressed: turn.progressed }),
     ...(turn.busy && { busy: turn.busy }),
     begin(stdin) {
       stdin.write(
@@ -322,6 +328,7 @@ function readOwnTurn(
     rawMaxBytes: turn.partial ? turn.maxResponseBytes * RAW_TIMES : turn.maxResponseBytes,
     counted: (message) => message.type !== "stream_event",
     ...(turn.stallMs !== undefined && { stallMs: turn.stallMs }),
+    ...(turn.progressed && { progressed: turn.progressed }),
     ...(turn.busy && { busy: turn.busy }),
     begin(stdin) {
       input = stdin;
@@ -410,7 +417,7 @@ function readOwnTurn(
             response: {
               subtype: "success",
               request_id: id,
-              response: steeringAnswer(object(request.input)),
+              response: steeringAnswer(object(request.input), own.places()),
             },
           });
         } else if (request.subtype === "can_use_tool" && id !== "") {

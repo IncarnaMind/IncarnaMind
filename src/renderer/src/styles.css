@@ -265,6 +265,16 @@
   initial-value: 0px;
 }
 
+/*
+ * The width the composer's text needs beside its controls: the row wraps below it. A length, so
+ * Composer's measureLayout reads it in pixels whichever layout the row is in.
+ */
+@property --composer-text-least {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
 /* The space a Block keeps above it, which a paragraph's own space before adds to (src/shared/paragraphFormat.ts). Each Block's own. */
 @property --block-gap {
   syntax: "<length>";
@@ -1149,10 +1159,10 @@
       color: var(--color-ink-placeholder);
     }
   }
+  /* An icon button, 28px square around the strip's 18px icon. */
   .tab-strip-button {
-    min-width: 28px;
+    width: 28px;
     margin: 0 2px 4px;
-    padding: 0 6px;
     border-radius: 6px;
   }
   .tab-split {
@@ -1810,36 +1820,12 @@
       outline-offset: 1px;
     }
   }
-  .page-menu-foot {
-    display: flex;
-    flex-direction: column;
-    padding: 2px 0;
-    font-size: var(--text-small);
-    line-height: 20px;
-    color: var(--color-ink-meta);
-  }
   .page-menu-counts {
     margin: 0;
     padding: 2px 8px;
     font-size: var(--text-small);
     line-height: 20px;
     color: var(--color-ink-meta);
-  }
-  .page-menu-switch {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 30px;
-    padding: 0 8px;
-    border-radius: 6px;
-    text-align: start;
-    outline: none;
-
-    &:hover,
-    &:focus-visible {
-      background: var(--color-chip);
-      color: var(--color-ink);
-    }
   }
   /* Over the text, which fades out above them so no line runs under the count or the badge. */
   .mind-foot-slot {
@@ -1892,14 +1878,31 @@
    * the spare room on the strip's empty side: given back when the User types, it moves nothing.
    */
   .note-check {
+    position: relative;
     display: flex;
     flex: none;
     align-items: center;
     gap: 2px;
-    min-width: var(--note-check-held, 0);
+    min-width: max(var(--note-check-held, 0px), var(--note-check-reserve, 0px));
     pointer-events: auto;
     &:not([data-running]) {
       justify-content: flex-end;
+    }
+  }
+  /* The running Check as it will be, never drawn and taking no room, in the Check's own classes so
+     the two can't drift: the tab strip holds its width for the Check while it fits the row
+     (useTabStripFit, #3765). At the Check's end, so it never reaches past the end of the controls. */
+  .note-check-ghost {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    visibility: hidden;
+    pointer-events: none;
+    .note-check-words::after {
+      content: attr(data-words);
     }
   }
   /* First of the Note's own controls at its top right (#3677). */
@@ -2036,14 +2039,14 @@
   }
   /* A run's room held past its end, given back in a strip short of room (useTabStripFit). */
   .tab-strip[data-check-unheld] .note-check {
-    min-width: 0;
+    min-width: var(--note-check-reserve, 0px);
   }
   /* A tight strip still short of room (useTabStripFit): the Check gives up its word before the
      shown tab goes under its least width, and never leaves the row (#3794). Its word is kept for a
      screen reader; its mark and number stay. */
   .tab-strip[data-check-compact] .note-head-badge {
     .note-check {
-      min-width: 0;
+      min-width: var(--note-check-reserve, 0px);
     }
     .note-check-button {
       gap: 4px;
@@ -2735,7 +2738,9 @@
     padding: 8px 8px 8px 11px;
   }
   .composer-input {
-    flex: 1 1 14rem;
+    --composer-text-least: 14rem;
+
+    flex: 1 1 var(--composer-text-least);
     min-width: 8rem;
     min-height: 28px;
     /* Eight lines, then it scrolls. */
@@ -3608,7 +3613,6 @@
     font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
-    .note-ask-dots,
     .note-column-sent-word {
       margin-right: 6px;
     }
@@ -3622,6 +3626,67 @@
   }
   .note-column-sent:is(:hover, :focus-within) .note-column-sent-state .note-column-icon {
     opacity: 1;
+  }
+  .note-column-sent-state .note-column-icon + .note-column-sent-word {
+    margin-left: 6px;
+  }
+  .note-column-send-now {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 6px;
+    background: var(--color-sheet);
+    font-size: var(--text-small);
+    color: var(--color-ink-secondary);
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .note-column-send-now-keys {
+    font-family: inherit;
+    color: var(--color-ink-meta);
+  }
+  .note-column-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 10px;
+    background: var(--color-sheet);
+    &:focus-within {
+      border-color: var(--color-accent);
+    }
+  }
+  .note-column-editor-text {
+    width: 100%;
+    resize: none;
+    border: 0;
+    background: transparent;
+    font-size: var(--text-ui);
+    line-height: 20px;
+    color: var(--color-ink);
+    outline: none;
+  }
+  .note-column-editor-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .note-column-editor-button {
+    height: 28px;
+    &.approval-button--ghost {
+      margin-left: 0;
+    }
+    &:disabled {
+      opacity: 0.4;
+      pointer-events: none;
+    }
   }
   .note-column-bubble-quote {
     margin-bottom: 2px;
@@ -5299,6 +5364,13 @@
     /* A paragraph's own space after is all the space below it. */
     > [data-space-after] + * {
       --block-gap: 0px;
+    }
+    /*
+     * A list keeps no margin of its own (below), but under a table it keeps the Block's gap: the
+     * table's Add row bar sits in that gap, over no one's words.
+     */
+    > .tableWrapper + * {
+      margin-top: var(--block-gap);
     }
 
     :where(sup, sub):not([data-type]) {
@@ -7027,30 +7099,12 @@
   .mind-editor .citation-marker.proposal-node--insert.proposal-applying {
     box-shadow: none;
   }
-  /* Review changes draws an applied edit's changes as proposals are drawn, over text that stays applied. */
-  .mind-editor .applied-new {
-    text-decoration: underline 1px var(--color-accent);
-    text-decoration-skip-ink: none;
-    text-underline-offset: 5px;
-  }
-  .mind-editor .applied-old {
-    color: var(--color-ink-meta);
-    text-decoration: line-through 1px var(--color-ink-meta);
-    user-select: none;
-  }
-  .mind-editor div.applied-old--block {
-    margin-block: 4px;
-  }
-  /* A Block taken out reads as it was, a list or table too, every line of it struck. */
-  .mind-editor .applied-old--block :is(p, h1, h2, h3, h4, h5, h6, li, td, th) {
-    text-decoration: line-through 1px var(--color-ink-meta);
-  }
   /*
    * How a change reads (#1028; DESIGN.md, AI edits): a struck run and its
    * replacement a thin space apart; a paragraph written anew shows its new
    * text alone, until its "Was: …" line, or its section's line, shows the old.
    */
-  .mind-editor :is(del.proposal-delete, del.applied-old) {
+  .mind-editor del.proposal-delete {
     margin-inline-end: 0.2em;
   }
   .mind-editor
@@ -7129,10 +7183,6 @@
   .mind-editor .applied-line {
     margin-bottom: 6px;
     color: var(--color-accent-strong);
-
-    & :is([data-applied-action="review"], [data-applied-action="done"]) {
-      color: var(--color-ink);
-    }
   }
   .mind-editor .applied-line .edit-pending-dot {
     margin-right: 0;
@@ -7153,33 +7203,6 @@
     height: 6px;
     border-radius: 9999px;
     background: var(--color-attention);
-  }
-  .mind-editor .applied-restore-holder {
-    margin-inline-start: 6px;
-    font-family: var(--font-sans);
-    font-size: var(--text-small);
-    line-height: 20px;
-    user-select: none;
-    white-space: nowrap;
-  }
-  /* Struck words take their space with them: the words after them need one. */
-  .mind-editor del.applied-old + .applied-restore-holder {
-    margin-inline-end: 6px;
-  }
-  .mind-editor .applied-restore-holder--block {
-    display: block;
-    margin-block: 4px 0;
-    margin-inline-start: 0;
-  }
-  .mind-editor .applied-restore {
-    color: var(--color-ink-meta);
-
-    &:hover {
-      color: var(--color-ink-secondary);
-    }
-  }
-  .mind-editor .applied-changed {
-    color: var(--color-ink-meta);
   }
   .mind-editor .applied-kept-line {
     margin-block: 4px;
@@ -11226,7 +11249,8 @@
       position: sticky;
       left: 0;
       z-index: 1;
-      min-width: 96px;
+      /* Low enough that a short three-column comparison fits the 320px panel at 14px. */
+      min-width: 88px;
       max-width: 132px;
       padding-left: 0;
       border-right: 1px solid var(--color-rule);
@@ -15259,7 +15283,7 @@ body.assistant-dragging * {
 svg.app-icon {
   width: 16px;
   height: 16px;
-  stroke-width: 1.5;
+  stroke-width: 1.25;
 
   & * {
     vector-effect: non-scaling-stroke;
@@ -15285,6 +15309,11 @@ svg.app-icon.answer-steps-chevron {
 .table-add-row > svg.app-icon {
   width: 12px;
   height: 12px;
+}
+/* A Document's row in the sidebar ends with a small, faint page, as a chat app marks a chat that holds a file. */
+svg.app-icon.row-file-mark {
+  width: 14px;
+  height: 14px;
 }
 
 /* A menu opened with the pointer shows no item in focus until a key is pressed (DESIGN.md, Menus; #3761). */

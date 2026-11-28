@@ -914,7 +914,6 @@ export const en = {
   "page.count.characters.one": "1 character",
   "page.count.selected.words": "{selected} of {count} words",
   "page.count.selected.characters": "{selected} of {count} characters",
-  "page.countShown": "Show word count while writing",
   "page.countShown.command": "Show word count while writing",
   "page.countHidden.command": "Hide word count while writing",
   "page.countShown.keywords": "word count characters length target while writing page bottom",
@@ -2199,6 +2198,8 @@ export const en = {
   "edit.wrote.tables": "Wrote {paragraphs} and {tables}",
   "edit.added": "Added {count} paragraphs",
   "edit.added.one": "Added 1 paragraph",
+  "edit.applied.named": "Changed the paragraph “{start}”",
+  "edit.added.named": "Added the paragraph “{start}”",
   "edit.added.tables": "Added {paragraphs} and {tables}",
   "edit.removed": "Removed {count} paragraphs ({sentences})",
   "edit.removed.one": "Removed the paragraph “{start}” ({sentences})",
@@ -2210,21 +2211,9 @@ export const en = {
   "edit.count.tables": "{count} tables",
   "edit.count.tables.one": "1 table",
   "edit.held.own": "Waiting for you: this rewrites most of your text",
-  "edit.review.assistant": "{count} paragraphs changed by the assistant",
-  "edit.review.assistant.one": "1 paragraph changed by the assistant",
-  "edit.review.assistant.changes": "{changes} changed by the assistant",
   "edit.applied.parts": "{count} parts",
   "edit.applied.undo": "Undo",
-  "edit.applied.review": "Review changes",
-  "edit.review": "{count} paragraphs changed by Edit with AI",
-  "edit.review.one": "1 paragraph changed by Edit with AI",
-  "edit.review.changes": "{changes} changed by Edit with AI",
-  "edit.review.undoAll": "Undo all",
-  "edit.review.done": "Done",
-  "edit.review.restore": "Restore original",
-  "edit.review.restore.count": "Restore {count} changes",
-  "edit.review.changedSince": "You changed this since",
-  "edit.review.restored.one": "Restored the original",
+  "edit.undo.changedSince": "You changed this since",
   "change.was": "Was: {text}",
   "change.rewrote": "Rewrote “{heading}”",
   "change.showOriginal": "Show original",
@@ -4004,6 +3993,10 @@ export const en = {
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
   "consent.data.note-requests":
     "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Claude Code keeps each conversation on this computer until you delete it from History, delete its only note for good, disconnect it or take this back (a conversation shared with another note stays), and deletes one left unused for 30 days",
+  "consent.data.note-requests.codex":
+    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Codex keeps each conversation on this computer until you delete it from History, delete its only note for good, disconnect it or take this back (a conversation shared with another note stays)",
+  "consent.data.own-ai-context.codex":
+    "In a note’s conversation, what Codex adds by its own settings: your AGENTS.md in its own folder, your skills, and what your own servers, apps, commands, files and web pages give it, as its settings allow. Its memories are off here",
   "consent.data.own-ai-context":
     "In a note’s conversation, what Claude Code adds by its own settings: your CLAUDE.md files, its memory, your skills, and what your own servers, connectors, commands, files and web pages give it, as its settings allow",
   "consent.data.source-quotes":
@@ -6737,6 +6730,12 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.noteAsk.heldEditing":
+    "This message is open to edit in another window. Save or cancel it there, then send it.",
+  "error.noteAsk.heldNotSent":
+    "IncarnaMind couldn’t send this message. Press Send now to try again.",
+  "error.noteAsk.heldNotSaved": "IncarnaMind couldn’t save your changes. Press Save to try again.",
+  "error.noteAsk.notDiscarded": "IncarnaMind couldn’t discard this message. Try again.",
   "error.noteAsk.tooLong":
     "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":
@@ -7013,7 +7012,6 @@ export const en = {
   "command.proposal.accept": "Accept change",
   "command.edit.undoApplied": "Undo the AI edit",
   "command.edit.removeKept": "Remove what the edit left out",
-  "command.edit.reviewDone": "Done reviewing changes",
   "command.edit.applyHeld": "Apply the waiting edit",
   "command.edit.discardHeld": "Discard the waiting edit",
   "command.proposal.reject": "Reject change",
@@ -8513,8 +8511,7 @@ export const en = {
   "mindChanges.also": "I also suggested {count} changes in “{mind}”",
   "mindChanges.also.one": "I also suggested 1 change in “{mind}”",
   "mindChanges.undone": "Undone",
-  "mindChanges.undo.changedSince": "“{mind}” changed since. Review changes is in ⋯ and {palette}.",
-  "mindChanges.undo.changedSince.noReview": "“{mind}” changed since, so this can’t be undone here.",
+  "mindChanges.undo.changedSince": "“{mind}” changed since, so this can’t be undone here.",
   "mindChanges.onTop": "· on top of the earlier version, which stays",
   "mindChanges.undo.closed": "“{mind}” was closed since, so this can’t be undone here.",
   "mindChanges.also.review": "Review",
@@ -9274,7 +9271,7 @@ export const en = {
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
-    "Its notes appear at once; its changes to your notes and decks wait for you. IncarnaMind reads only the files it names or hands over.",
+    "Its notes appear at once. A change it proposes to a deck waits until you confirm it. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
     "It can read all your Documents and notes. What it reads goes to its AI model.",
@@ -9413,8 +9410,7 @@ export const en = {
     "{agent} stopped: its account can’t be billed. Check its billing, then try again.",
   "agents.ownCheck.problem.compaction":
     "The check stopped: {agent} spent ten minutes condensing its conversation. Try again.",
-  "agents.ownCheck.problem.stalled":
-    "{agent} stopped answering for six minutes, so the check stopped. Try again.",
+  "agents.ownCheck.problem.stalled": "{agent} stopped answering, so the check stopped. Try again.",
   "agents.ownCheck.problem.timeout":
     "{agent} took longer than 15 minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.no-marks":
@@ -9453,9 +9449,11 @@ export const en = {
   "noteAsk.doing.save_as_word": "Making the Word file “{summary}”",
   "noteAsk.stopped": "Stopped.",
   "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
-  "noteAsk.renewed": "Started a new conversation: this one can use {agent}’s own tools.",
+  "noteAsk.renewed": "Started a new conversation: {agent} starts fresh after an update.",
   "noteAsk.done.changed.one": "Changed 1 paragraph in this note.",
   "noteAsk.done.changed.other": "Changed {count} paragraphs in this note.",
+  "noteAsk.done.changed.named": "Changed the paragraph “{start}” in this note.",
+  "noteAsk.done.added.named": "Added the paragraph “{start}” to this note.",
   "noteAsk.done.waiting.one": "1 change waits for you in “{title}”.",
   "noteAsk.done.waiting.other": "{count} changes wait for you in “{title}”.",
   "noteAsk.done.wrote": "Wrote “{title}”.",
@@ -9548,6 +9546,10 @@ export const en = {
   "noteColumn.waiting": "Waiting",
   "noteColumn.notSent": "Not sent",
   "noteColumn.discard": "Discard",
+  "noteColumn.sendNow": "Send now",
+  "noteColumn.edit.message": "Edit message",
+  "noteColumn.edit.cancel": "Cancel",
+  "noteColumn.edit.save": "Save",
   "noteColumn.citation": "Citation {number}",
   // Conversation follows the User across Notes (#3731): target chip, History list, delete dialog.
   "noteAsk.workingIn": "Working in “{title}”",
@@ -9581,9 +9583,12 @@ export const en = {
   "ownAsk.key.what": "what",
   "ownAsk.key.server": "server",
   "ownAsk.key.runs": "runs",
+  "ownAsk.key.site": "site",
+  "ownAsk.key.says": "{agent} says",
   "ownAsk.runs.background": "in the background",
   "ownAsk.runs.unsandboxed": "outside {agent}’s own sandbox",
   "ownAsk.steers": "This file changes how {agent} behaves from now on.",
+  "ownAsk.endedAtAsk": "{agent} stopped and didn’t run what it asked to.",
   "ownAsk.unsure": "IncarnaMind can’t tell where this file leads.",
   "ownAsk.moreLines.one": "1 more line · Show all",
   "ownAsk.moreLines.other": "{count} more lines · Show all",
@@ -9639,6 +9644,7 @@ export const en = {
   "ownAsk.what.searches": "web searches",
   "ownAsk.what.reads": "reading {folder}",
   "ownAsk.what.changes": "edits in {folder}",
+  "ownAsk.what.file": "edits to the file {file}",
   "ownAsk.answers": "Reply to {agent}",
   "ownAsk.announce": "{agent} asks: {title}. {value}. Answers: {answers}. Shift+Tab to answer.",
   "ownAsk.doing.command": "Running {value}",
@@ -9670,6 +9676,7 @@ export const en = {
   "ownAsk.didnt.other": "Didn’t use {value}",
   "ownAsk.by.once": "allowed once",
   "ownAsk.by.suggested": "allowed, not asked again",
+  "ownAsk.by.request": "allowed for this request",
   "ownAsk.by.deny": "denied",
   "ownAsk.by.stopped": "stopped before you answered",
   "ownAsk.by.closed": "IncarnaMind closed before you answered",
@@ -9680,6 +9687,13 @@ export const en = {
   "ownAsk.mode.auto": "{agent} is set to decide for itself, so here it acts without asking you.",
   "ownAsk.mode.bypassPermissions":
     "{agent} is set to skip every question, so here it acts without asking you.",
+  "ownAsk.mode.never": "{agent} is set never to ask, so here it acts without asking you.",
+  "ownAsk.mode.dangerFullAccess":
+    "{agent} is set to full access, so here it acts without asking you.",
+  "ownAsk.mode.auto_review":
+    "{agent} is set to let its reviewer decide, so here it acts without asking you.",
+  "ownAsk.mode.guardian_subagent":
+    "{agent} is set to let its reviewer decide, so here it acts without asking you.",
   "noteAsk.did.read_mind": "Read “{summary}”",
   "noteAsk.did.list_minds": "Looked through your notes",
   "noteAsk.did.search": "Searched your Documents for “{summary}”",
@@ -9717,7 +9731,7 @@ export const en = {
   "noteAsk.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
   "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped.",
-  "noteAsk.problem.stalled": "{agent} didn’t answer for six minutes, so it stopped.",
+  "noteAsk.problem.stalled": "{agent} didn’t answer for three minutes, so it stopped.",
   "noteAsk.problem.compaction":
     "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",

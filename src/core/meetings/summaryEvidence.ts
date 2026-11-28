@@ -54,6 +54,24 @@ export function storeSummaryQuote(
   return { words, targets: Array.from(matchingSummaryCues(words, cues), ({ target }) => target) };
 }
 
+export interface NumberedSummaryQuote {
+  source: number | null;
+  quote: string;
+}
+
+export function storeNumberedSummaryQuote(
+  { source, quote }: NumberedSummaryQuote,
+  cues: readonly EvidenceCue[],
+): LocatedSummaryQuote {
+  const words = normalizeSummaryEvidence(quote);
+  const cue =
+    source !== null && Number.isSafeInteger(source) && source >= 1 ? cues[source - 1] : undefined;
+  return {
+    words,
+    targets: words && cue?.words.includes(words) ? [cue.target] : [],
+  };
+}
+
 export function sameSummaryQuote(a: StoredSummaryQuote, b: LocatedSummaryQuote): boolean {
   return (
     typeof a !== "string" &&

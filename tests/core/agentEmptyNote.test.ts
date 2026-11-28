@@ -144,6 +144,7 @@ describe("writing into a Note of empty lines (#3759)", () => {
         installed: async () => true,
         status: async () => ({ kind: "ready" }),
         purge: async () => true,
+        choosesModes: (client: string) => client === "claude-code",
         async run(request) {
           request.started?.();
           const agent = await connectLegacyAgent(request.server);

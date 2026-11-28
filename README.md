@@ -70,7 +70,7 @@ npm install && npm run dev
 
 | | |
 |---|---|
-| **Your AI writes here** | Connect [Claude Code](docs/claude-code.md) or [another agent](docs/agents.md) to all your Documents, or the Folders you choose. What it writes opens here as a Note. A Note is a notebook for one topic. The agent's changes to your own Notes wait for you. |
+| **Your AI writes here** | Connect [Claude Code](docs/claude-code.md) or [another agent](docs/agents.md) to all your Documents, or the Folders you choose. What it writes opens here as a Note. A Note is a notebook for one topic. A change you ask for from a Note is written at once, and ⌘Z takes it back. |
 | **Check** | Check a Note, or a PDF, Word file, deck or workbook someone sent you, against your files, sentence by sentence. Only what needs a look is marked, with the page that decides it, and one click hands the sentence to your AI to fix. Figures over a whole sheet are worked out again on your computer, with the working shown. |
 | **Library** | Your files, read where they are: PDF, Word, PowerPoint, Excel and more. Ask them all at once, every page cited. |
 | **Sort** | Link your folders. Organize suggests Folders and Tags for you to accept. |
@@ -123,7 +123,7 @@ You don't need an account. IncarnaMind reads your files where they are and chang
 | Your files, Notes and search index | Your computer |
 | Questions, writing and checks | The model you picked, with only what each needs. With Ollama, nowhere |
 | What an agent you connected reads from IncarnaMind | That agent's own AI model, under its service's terms. IncarnaMind gives it only the Folders you chose, and nothing while **Keep everything on this computer** is on. The agent's other tools stay under its own control |
-| Your own AI in a note's conversation | It can act on this computer with its own tools (commands, files, the web), by its own settings for them. IncarnaMind shows each step and passes on what it asks, with the answers the AI itself suggests, one of which can be kept in its own settings; it can't see or undo what those tools do |
+| Your own AI in a note's conversation (Claude Code or Codex) | It can act on this computer with its own tools (commands, files, the web), by its own settings for them. IncarnaMind shows each step and passes on what it asks, with the answers the AI itself offers, one of which can be kept in its own settings; it can't see or undo what those tools do |
 | Meeting audio | Transcribed on your computer |
 | Finding papers, tagging, scans, cloud transcription | Only after you say yes |
 | Usage data and crash reports | Only if you turn them on, never with your files |

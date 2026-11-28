@@ -565,4 +565,123 @@ describe("A short stretch read on this computer (#1031)", () => {
     expect(JSON.stringify(warned.mock.calls)).not.toMatch(/提纲/);
     warned.mockRestore();
   });
+
+  // protects=a long stretch (>= 3 s) that collapses within its own script ("提纲：", "提出修改意见") or into an invalid UTF-8 replacement character ("\uFFFD") is recovered by retrying in the stream's language (or splitting in two when "\uFFFD" occurs before the stream's language is known), while slow genuine speech and empty stretches stay untouched; fails_when=a Chinese prompt-mode collapse or "\uFFFD" stays in the Transcript, slow real speech is replaced, or spoken words leak into the log; no_claim=the real model's output, which eval/meetings verifies.
+  test("recovers same-script and replacement-character collapses on long stretches without touching slow speech (#1031)", async () => {
+    const engine = await createSherpaEngine(model);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const recoveredOutline = "招聘条件的话，有亲和力，有良好的应变能力，交谈能力，做事认真细心。";
+    const recoveredProbation = "试用期也给他们定一个基本工资吧，试用期就嗯两个月吧。";
+    const recoveredBroken = "我们给他们一个机会嘛，他们要是想来我们这里的话。";
+    answer = (seconds, options) => {
+      if (seconds === 8.4) return options.language === "Chinese" ? recoveredOutline : "提纲：";
+      if (seconds === 6.7)
+        return options.language === "Chinese" ? recoveredProbation : "提出修改意见";
+      if (seconds === 12) return options.language === "Chinese" ? recoveredBroken : "\uFFFD";
+      if (seconds === 5.2) return "";
+      return CHINESE;
+    };
+    await engine.recognizer.decode(audio(5), "collapse:zh-same", []);
+    await engine.recognizer.decode(audio(5), "collapse:zh-same", []);
+
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(8.4), "collapse:zh-same", [])).toBe(
+      recoveredOutline,
+    );
+    expect(READINGS.map((o) => o.language)).toEqual([undefined, "Chinese"]);
+
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(6.7), "collapse:zh-same", [])).toBe(
+      recoveredProbation,
+    );
+    expect(READINGS.map((o) => o.language)).toEqual([undefined, "Chinese"]);
+
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(12), "collapse:zh-same", [])).toBe(recoveredBroken);
+    expect(READINGS.map((o) => o.language)).toEqual([undefined, "Chinese"]);
+
+    // Empty stretches are not retried.
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(5.2), "collapse:zh-same", [])).toBe("");
+    expect(READINGS).toEqual([{}]);
+
+    // Before the stream's language is known, a long pure replacement-character collapse splits in two,
+    // while a short stretch does not.
+    answer = (seconds) => {
+      if (seconds === 12 || seconds === 1) return "\uFFFD";
+      return seconds > 6 ? "讨论会啊，咱们这次讨论会呢。" : "首先呢，咱们讲一下这个需求点。";
+    };
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(12), "collapse:zh-first", [])).toBe(
+      "讨论会啊，咱们这次讨论会呢。首先呢，咱们讲一下这个需求点。",
+    );
+    expect(READINGS).toHaveLength(3);
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(1), "collapse:zh-first", [])).toBe("\uFFFD");
+    expect(READINGS).toHaveLength(1);
+
+    // Slow genuine speech stays untouched when the forced reading does not recover >= 2x units.
+    answer = (seconds) => (seconds === 4.3 ? "Young office people." : ENGLISH);
+    await engine.recognizer.decode(audio(5), "collapse:en-slow", []);
+    await engine.recognizer.decode(audio(5), "collapse:en-slow", []);
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(4.3), "collapse:en-slow", [])).toBe(
+      "Young office people.",
+    );
+    expect(READINGS.map((o) => o.language)).toEqual([undefined, "English"]);
+
+    expect(JSON.stringify(warned.mock.calls)).not.toMatch(/提纲|修改意见|试用期|招聘条件|Young/);
+    warned.mockRestore();
+  });
+
+  // protects=when Qwen3-ASR collapses into a repetition loop and sherpa-onnx truncates it before the 128-token limit, leaving a long verbatim repeated phrase at the tail, the stretch is read again in two parts (at most once) without logging spoken words, while short natural emphasis is never split; fails_when=a truncated repetition loop stays duplicated and cuts off the rest of the stretch, a part splits recursively, or natural speech splits; no_claim=how sherpa-onnx chooses its truncation threshold.
+  test("reads a stretch again in two parts when its reading ends in a verbatim repetition loop below the token limit (#1031)", async () => {
+    const engine = await createSherpaEngine(model);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const zhLoop =
+      "呃，主要是咱们电脑啊，就是那个纸箱，咱们得找个人去买，买一下，从明码标价。这个打包特别重要，就是那个纸箱，咱们得找个人去买，买一下，从明码标价。这个打包特别重要。";
+    answer = (seconds) => {
+      if (seconds === 12) return zhLoop;
+      return seconds > 6
+        ? "呃，主要是咱们电脑啊，这个打包特别重要。"
+        : "那个纸箱，咱们得找个人去买，买一下。这不用，搬家公司应该都有。";
+    };
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(12), "loop:zh", [])).toBe(
+      "呃，主要是咱们电脑啊，这个打包特别重要。那个纸箱，咱们得找个人去买，买一下。这不用，搬家公司应该都有。",
+    );
+    expect(READINGS).toHaveLength(3);
+
+    const enLoop =
+      "We should check the shipping schedule before Friday afternoon and confirm with the team we should check the shipping schedule before Friday afternoon and confirm with the team.";
+    answer = (seconds) => {
+      if (seconds === 12) return enLoop;
+      return seconds > 6
+        ? "We should check the shipping schedule before Friday afternoon."
+        : "And confirm with the team before the deadline.";
+    };
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(12), "loop:en", [])).toBe(
+      "We should check the shipping schedule before Friday afternoon. And confirm with the team before the deadline.",
+    );
+    expect(READINGS).toHaveLength(3);
+
+    // One level only: if a part repeats too, it is not split again.
+    answer = () => zhLoop;
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(12), "loop:once", [])).toBe(`${zhLoop}${zhLoop}`);
+    expect(READINGS).toHaveLength(3);
+
+    // Short natural emphasis is never treated as a repetition loop.
+    const natural = "I think we should go. I think we should go.";
+    answer = () => natural;
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(6), "loop:natural", [])).toBe(natural);
+    expect(READINGS).toHaveLength(1);
+
+    expect(JSON.stringify(warned.mock.calls)).not.toMatch(/纸箱|明码标价|shipping/);
+    warned.mockRestore();
+  });
 });

@@ -8,7 +8,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
+import { actOnAppliedEdit } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/icons";
 import { drawnNoteAskBox, watchDrawnNoteAskBox } from "../components/noteAsk/noteAskBox";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
@@ -16,12 +16,7 @@ import { useLanguage, useT } from "../i18n";
 import { useActiveConversation, useNoteAskShown } from "../ownAiInNote";
 import { useReviewPanes } from "../reviewPane";
 import { useAppStore } from "../store";
-import {
-  appliedLineIn,
-  isAppliedAction,
-  redrawAppliedLine,
-  toggleAppliedOriginal,
-} from "./appliedEditLine";
+import { appliedLineIn, isAppliedAction, redrawAppliedLine } from "./appliedEditLine";
 import { type ChangeBarBox, changeBarPlace, GAP_PX } from "./changeBarPlace";
 import {
   changeReason,
@@ -86,7 +81,7 @@ export function ProposalBars({ editor, mindId }: { editor: Editor; mindId: strin
     const buttonOf = (event: Event) =>
       event.target instanceof Element
         ? event.target.closest<HTMLElement>(
-            "[data-proposal-regenerate], [data-proposal-reject], [data-applied-action], [data-applied-restore], [data-change-original]",
+            "[data-proposal-regenerate], [data-proposal-reject], [data-applied-action], [data-change-original]",
           )
         : null;
     // The text keeps the focus and its selection.
@@ -99,19 +94,12 @@ export function ProposalBars({ editor, mindId }: { editor: Editor; mindId: strin
       event.preventDefault();
       const original = button.dataset.changeOriginal;
       if (original) {
-        if (original.startsWith("applied:")) toggleAppliedOriginal(editor, original);
-        else toggleProposalOriginal(editor, original);
+        toggleProposalOriginal(editor, original);
         return;
       }
       const applied = button.dataset.appliedAction;
       if (applied && isAppliedAction(applied)) {
         actOnAppliedEdit(editor, applied);
-        if (!editor.isDestroyed) editor.commands.focus();
-        return;
-      }
-      const restored = button.dataset.appliedRestore;
-      if (restored !== undefined) {
-        restoreChange(editor, Number(restored));
         if (!editor.isDestroyed) editor.commands.focus();
         return;
       }

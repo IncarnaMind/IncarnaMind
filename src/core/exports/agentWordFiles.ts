@@ -4,7 +4,10 @@
  * saved in the Output location as Export › Word saves its file. It is written from a copy that
  * nothing stores or lists, which holds only what the agent may read: no comment, check comment,
  * "Checked by" line or waiting change goes in, and a file that would name a Document the agent
- * doesn't reach isn't kept. Its dates are the item's, so the same words give the same bytes.
+ * doesn't reach isn't kept. A Note imported from Word is written into the file it came from, as
+ * Export › Word writes it, with only what the agent was given of that file (./wordPatch/forAgent);
+ * when that can't be told for certain, it is written as a new file, as any other Note is. Its
+ * dates are the item's, so the same words give the same bytes.
  */
 import { basename } from "node:path";
 import * as Y from "yjs";
@@ -13,7 +16,8 @@ import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { LIBRARY_FACTS } from "../../shared/libraryFacts";
 import { resolveProposals } from "../../shared/proposals";
 import { saveFailureReason } from "../../shared/systemReasons";
-import { wordImportProgressOf } from "../../shared/wordFiles";
+import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
+import type { Logger } from "../adapters";
 import {
   type AgentSavedFile,
   DEFAULT_MIND_KIND,
@@ -26,6 +30,7 @@ import {
   MIND_WORD_SOURCES_FIELD,
   type Mind,
   type MindExport,
+  WORD_CHANGE_ID,
 } from "../api";
 import {
   FileWriteUnansweredError,
@@ -35,12 +40,16 @@ import {
 import { safeFileName } from "../fileNames";
 import { insertBlocks } from "../noteAdding";
 import type { OutputFiles } from "../outputFiles";
+import { type AgentWordFile, forAgent, textsOfFile } from "./wordPatch/forAgent";
+import { knownIn, vocabularyOf } from "./wordPatch/forAgentWords";
 
 /** A Note as an export and its citation style read it: one stored, or a copy nothing stores. */
 export interface NoteReader {
   mind(mindId: unknown): Mind;
   read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   readSettings<T>(mindId: string, look: (settings: Y.Map<unknown>) => T): T;
+  /** The Word file the Note read was imported from, for a copy that has an id of its own. */
+  wordPackage?(mindId: string): Promise<Uint8Array>;
 }
 
 /** What a Word file is written from: a Note, or an agent's Blocks as a new Note of them. */
@@ -73,6 +82,10 @@ export interface AgentWordFilesDeps {
   mind(mindId: string): Mind;
   /** A stored Note's state, whole, as it is now. */
   noteState(mindId: string): Uint8Array | null;
+  /** The Word file a stored Note was imported from. */
+  wordPackage(mindId: string): Promise<Uint8Array>;
+  /** The Note as read_mind gives it to an agent, its Citations by their Documents' names. */
+  given(mindId: string): string;
   /**
    * What Export › Word writes of the Note `notes` reads, with these choices, its dates `at`, and
    * every Document the file names: in a footnote, a table's note, a figure's sources, the Bibliography.
@@ -92,6 +105,38 @@ export interface AgentWordFilesDeps {
   outputs: Pick<OutputFiles, "alreadySaved" | "save">;
   say(key: MessageKey, params?: MessageParams): string;
   newId(): string;
+  log: Logger;
+}
+
+// A link may hold parentheses in pairs, as in …/Tea_(drink), but not the one that closes Markdown's link.
+const LINK = /\b(?:(?:https?|ftp):\/\/|mailto:|tel:)(?:[^\s<>()[\]"']|\([^\s<>()[\]"']*\))+/gi;
+/** The links a Note holds as the agent reads it: its links' targets, and addresses in its words. */
+const linksIn = (markdown: string): Set<string> =>
+  new Set([...markdown.matchAll(LINK)].map(([link]) => link.replace(/[.,;:!?]+$/, "")));
+
+/** A tracked deletion or move imported from a Word file, by its Proposal's id. */
+const MOVED_OR_DELETED = new RegExp(`^${WORD_CHANGE_ID}w:(?:del|moveFrom|moveTo)#`);
+
+/**
+ * Why the cleaned file isn't the agent's: a part not cleaned, a text the agent wasn't given or a
+ * link the Note doesn't hold, by the part's name only; null when it is.
+ */
+function unconfirmed(
+  file: Extract<AgentWordFile, { kind: "written" }>,
+  given: string,
+  also: readonly string[],
+): { part: string; why: string } | null {
+  const vocabulary = vocabularyOf([given, ...also]);
+  const links = linksIn(given);
+  for (const { part, texts } of file.texts) {
+    if (!texts.every((text) => knownIn(text, vocabulary))) {
+      return { part, why: "a text the agent wasn't given" };
+    }
+  }
+  for (const { part, target } of file.links) {
+    if (!links.has(target)) return { part, why: "a link the Note doesn't hold" };
+  }
+  return null;
 }
 
 const clear = (map: Y.Map<unknown>) => {
@@ -109,19 +154,52 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
     }
     const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
     doc.transact(() => {
+      // Someone's deletion or move from the Word file stands; what anyone else proposed doesn't.
+      resolveProposals(blocks, (proposal) => MOVED_OR_DELETED.test(proposal.id), "accept");
       resolveProposals(blocks, () => true, "reject");
       // The comments and sign-offs are people's own words about the Note, which the agent doesn't
-      // read; the Word file a Note came from would make the export write into that file, its parts
-      // the agent never read with it, so the copy is written as a new file.
-      for (const field of [
-        MIND_COMMENTS_FIELD,
-        MIND_SIGN_OFFS_FIELD,
-        MIND_WORD_FIELD,
-        MIND_WORD_SOURCES_FIELD,
-      ]) {
-        clear(doc.getMap(field));
-      }
+      // read.
+      for (const field of [MIND_COMMENTS_FIELD, MIND_SIGN_OFFS_FIELD]) clear(doc.getMap(field));
     });
+  };
+
+  type Written = { exported: MindExport; named: readonly string[] };
+  /**
+   * The Word file written into the one the Note came from, made fit for the agent; or the copy
+   * written as a new file (`anew`) when that can't be confirmed: an edit the export couldn't write
+   * there, a part that couldn't be cleaned, a text or a link the agent wasn't given.
+   */
+  const forAgentOf = async (
+    mindId: string,
+    exported: MindExport,
+    anew: () => Promise<Written>,
+  ): Promise<{ data: Uint8Array; named: readonly string[] }> => {
+    let written: Written | null = null;
+    const writtenNew = async (part: string, why: string) => {
+      deps.log.info("agentWordFile.writtenNew", { part, why });
+      written ??= await anew();
+      return { data: written.exported.data, named: written.named };
+    };
+    const report = exported.word;
+    if (report?.notKept.some((each) => each.kind === "edit")) {
+      return writtenNew("document", "an edit the export couldn't write");
+    }
+    const file = await forAgent(exported.data, { furniture: report?.furnitureParts ?? [] });
+    if (file.kind === "unkept") {
+      if (file.error !== undefined) {
+        deps.log.warn("agentWordFile.cleaningFailed", {
+          part: file.part,
+          message: file.error instanceof Error ? file.error.message : String(file.error),
+        });
+      }
+      return writtenNew(file.part, file.why);
+    }
+    const given = deps.given(mindId);
+    if (unconfirmed(file, given, []) === null) return { data: file.data, named: [] };
+    // Words IncarnaMind writes of the Note in any Word file, such as a Citation's footnote.
+    written = await anew();
+    const still = unconfirmed(file, given, await textsOfFile(written.exported.data));
+    return still === null ? { data: file.data, named: [] } : writtenNew(still.part, still.why);
   };
 
   /** Why a file naming these Documents isn't kept for an agent reaching `reaches`; null when it is. */
@@ -169,30 +247,74 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
           folderId,
         };
         const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
-        const copy: NoteReader = {
+        const original = source.kind === "note" && wordFileOf(doc) ? source.mindId : null;
+        const reader: NoteReader = {
           mind: () => mind,
           read: (_, look) => look(blocks),
           readSettings: (_, look) => look(mindSettings),
         };
-        const { exported, named } = await deps.wordOf(
-          copy,
-          mind.id,
-          {
-            ...deps.wordChoices(),
-            markAiText: false,
-            commentFailedChecks: false,
-            includeMyComments: false,
-            trackChanges: false,
-          },
-          at,
-        );
-        const why = unreached(named, reaches);
+        const options = {
+          ...deps.wordChoices(),
+          markAiText: false,
+          commentFailedChecks: false,
+          includeMyComments: false,
+          trackChanges: false,
+        };
+        let data: Uint8Array;
+        let names: readonly string[];
+        if (original === null) {
+          const plain = await deps.wordOf(reader, mind.id, options, at);
+          data = plain.exported.data;
+          names = plain.named;
+        } else {
+          /** The copy written as a new file, without the Word file it came from. */
+          const anew = async () => {
+            doc.transact(() => {
+              for (const field of [MIND_WORD_FIELD, MIND_WORD_SOURCES_FIELD]) {
+                clear(doc.getMap(field));
+              }
+            });
+            return deps.wordOf(reader, mind.id, options, at);
+          };
+          let unreadable = false;
+          const copy: NoteReader = {
+            ...reader,
+            wordPackage: async () => {
+              try {
+                return await deps.wordPackage(original);
+              } catch (error) {
+                unreadable = true;
+                throw error;
+              }
+            },
+          };
+          let written: Written | null = null;
+          try {
+            written = await deps.wordOf(copy, mind.id, options, at);
+          } catch (error) {
+            if (!unreadable) throw error;
+            deps.log.info("agentWordFile.writtenNew", {
+              part: "package",
+              why: "the Word file it came from can't be read",
+            });
+          }
+          if (written === null) {
+            const fresh = await anew();
+            data = fresh.exported.data;
+            names = fresh.named;
+          } else {
+            const made = await forAgentOf(original, written.exported, anew);
+            data = made.data;
+            names = [...new Set([...written.named, ...made.named])];
+          }
+        }
+        const why = unreached(names, reaches);
         if (why) return { kind: "unreached", why };
         return {
           kind: "made",
-          data: exported.data,
+          data,
           fileName: `${safeFileName(source.title, "Note")}.docx`,
-          unreached: (now) => unreached(named, now),
+          unreached: (now) => unreached(names, now),
         };
       } finally {
         doc.destroy();

@@ -12,6 +12,7 @@ import type {
   AgentPairing,
   NoteAnswer,
   NoteChangeApplied,
+  NoteHeldEdit,
   NoteMode,
   NoteQuestion,
   NoteSelectionBlock,
@@ -20,6 +21,7 @@ import type {
   NoteTurnProblem,
 } from "../../core/api";
 import { NODE_CHARACTER } from "../../shared/proposals";
+import { runnerName } from "./askedAgent";
 import {
   agentsToAsk,
   askFirstAgent,
@@ -28,6 +30,7 @@ import {
   useOwnAiRunsHere,
 } from "./askYourAi";
 import type { ChangedMind } from "./changedMinds";
+import { clientId } from "./clientId";
 import { core } from "./core";
 import { currentTabOf } from "./layoutSlice";
 import {
@@ -108,6 +111,10 @@ export interface NoteAsk {
   mode: string | null;
   /** The requests sent into its run meanwhile that the AI hasn't taken yet (#3765). */
   queued: string[];
+  /** Its AI ended it at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
+  /** The messages sent meanwhile that IncarnaMind holds until the reply ends, oldest first (#3765). */
+  held: string[];
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -158,7 +165,7 @@ export interface NoteTrail {
   startedAt: string;
   endedAt: string | null;
   fresh: boolean;
-  /** This request began a new conversation that can use the AI's own tools (#3653). */
+  /** This request began a new conversation after an update changed its instructions (#3653, #3847). */
   renewed: boolean;
   documentsFound: number;
   /** The AI's own mode, as it named it (#3653). */
@@ -249,6 +256,17 @@ export function backgroundAgentNow(mindId: string): AgentPairing | null {
   return agentsToAsk(mindId).find((each) => runsInBackground(each, runsHere)) ?? null;
 }
 
+/** What a Note's conversation calls the agent that runs it: Codex on a connection still named as listed. */
+const nameIn = (pairing: AgentPairing) => runnerName({ agent: pairing, background: true });
+
+/** The name of the agent the Note's input runs on, or "" when none can run here. */
+export function useNoteAgentName(mindId: string): string {
+  const agents = useAgentsToAsk(mindId);
+  const runsHere = useOwnAiRunsHere();
+  const agent = agents.find((each) => runsInBackground(each, runsHere));
+  return agent ? nameIn(agent) : "";
+}
+
 /** Whether the Note shows its input: only the User's own AI asks, and one of its agents can run so. */
 export function useNoteAskShown(mindId: string): boolean {
   return useBackgroundAgent(mindId) !== null;
@@ -290,10 +308,14 @@ const putPending = (key: string, ask: NoteAsk | null) =>
     return { pendingByPairing: ask ? { ...rest, [key]: ask } : rest };
   });
 
-const nameOf = (mindId: string, pairingId: string) =>
-  agentsToAsk(mindId).find((each) => each.id === pairingId)?.name ??
-  useNoteConversations.getState().list.find((each) => each.pairingId === pairingId)?.agent ??
-  "Claude Code";
+const nameOf = (mindId: string, pairingId: string) => {
+  const pairing = agentsToAsk(mindId).find((each) => each.id === pairingId);
+  if (pairing) return nameIn(pairing);
+  return (
+    useNoteConversations.getState().list.find((each) => each.pairingId === pairingId)?.agent ??
+    "Claude Code"
+  );
+};
 
 /** One Note's changes of a turn, as the applied-edit line counts them. */
 const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMind => ({
@@ -374,6 +396,8 @@ function heard(event: NoteTurnEvent): void {
     questions: event.state === "working" ? event.questions : [],
     mode: event.state === "working" && event.modeNew ? event.mode : null,
     queued: event.queued,
+    ...(event.endedAtAsk && { endedAtAsk: true }),
+    held: event.held,
     // Another turn's words are never this one's: a request another window sent has none here, and
     // its record gives it again.
     asked:
@@ -448,6 +472,8 @@ export interface AskInNoteOptions {
   mode?: NoteMode;
   /** True when the User explicitly typed into a running conversation from another Note (#3731). */
   intoRunning?: boolean;
+  /** Send into the running request at once instead of holding until its reply ends (#3765). */
+  now?: boolean;
 }
 
 /**
@@ -458,9 +484,10 @@ const startingByPairing = new Map<string, Promise<void>>();
 
 /**
  * Sends a request typed at the Note's foot. "sent": a request of the conversation runs, and this
- * one went into its run, about the whole Note (#3765). "busy": one runs, and this one, about
- * words selected or targeting another Note without joining the locked run, is not sent; a line
- * says so. "link": no agent can run it in the background now, and the caller asks by the link.
+ * one is held until its reply ends, about the whole Note, or with `now` goes into that run at once
+ * (#3765). "busy": one runs, and this one, about words selected or targeting another Note without
+ * joining the locked run, is not sent; a line says so. "link": no agent can run it in the
+ * background now, and the caller asks by the link instead.
  */
 export async function askInNote(
   mindId: string,
@@ -548,7 +575,9 @@ export async function askInNote(
       pendingStart.resolve();
     }
     if (start.kind === "busy") {
-      useNotices.getState().confirm("noteAsk.busy", { agent: start.pairing.name }, { look: true });
+      useNotices
+        .getState()
+        .confirm("noteAsk.busy", { agent: nameIn(start.pairing) }, { look: true });
     }
     return start.kind;
   }
@@ -565,12 +594,13 @@ export async function askInNote(
     sentHere.set(start.turnId, asked);
     // Shown at once, whether or not the core's word of it came first.
     const running = useNoteAsks.getState().byConversation[start.conversationId];
-    if (running && running.turnId !== start.turnId && !running.queued.includes(start.turnId)) {
+    if (running && running.turnId !== start.turnId && !running.held.includes(start.turnId)) {
       putConversation(start.conversationId, {
         ...running,
-        queued: [...running.queued, start.turnId],
+        held: [...running.held, start.turnId],
       });
     }
+    if (opts.now) await sendNowInNote(start.conversationId, start.turnId);
     return "sent";
   }
   if (start.kind === "started") {
@@ -614,7 +644,7 @@ export async function askInNote(
     mindId,
     turnId: start.kind === "started" ? start.turnId : null,
     pairingId: start.pairing.id,
-    agent: start.pairing.name,
+    agent: nameIn(start.pairing),
     state: start.kind === "started" ? "working" : "failed",
     doing: null,
     startedAt: start.kind === "started" ? (sending?.startedAt ?? new Date().toISOString()) : null,
@@ -630,6 +660,7 @@ export async function askInNote(
     questions: [],
     mode: null,
     queued: [],
+    held: [],
     asked,
   };
   // An event can arrive before the reply to the request: it wins.
@@ -663,7 +694,7 @@ function sendingAsk(
     mindId,
     turnId: null,
     pairingId: agent.id,
-    agent: agent.name,
+    agent: nameIn(agent),
     state: "working",
     doing: null,
     startedAt: new Date().toISOString(),
@@ -679,6 +710,7 @@ function sendingAsk(
     questions: [],
     mode: null,
     queued: [],
+    held: [],
     asked,
   };
 }
@@ -686,13 +718,58 @@ function sendingAsk(
 export const stopInNote = (conversationIdOrMindId: string): Promise<void> =>
   core.stopInNote(conversationIdOrMindId);
 
-/** Removes a request of the conversation that was never sent, and reads the conversation again. */
+/** The held messages whose editor is open in this window, which ⌘↵ in the input leaves alone. */
+const editingHere = new Set<string>();
+
+const readAgain = () => useNoteColumns.setState((state) => ({ changed: state.changed + 1 }));
+
+/**
+ * Removes a request of the conversation that was never sent, or a message held for it, and reads
+ * the conversation again.
+ */
 export async function discardInNote(conversationId: string, turnId: string): Promise<void> {
+  editingHere.delete(turnId);
   await core.discardInNote(conversationId, turnId);
   sentHere.delete(turnId);
   askedTab.delete(turnId);
   askedHere.delete(turnId);
-  useNoteColumns.setState((state) => ({ changed: state.changed + 1 }));
+  readAgain();
+}
+
+/** Sends a message held for the conversation at once (#3765), and reads the conversation again. */
+export async function sendNowInNote(conversationId: string, turnId: string): Promise<void> {
+  editingHere.delete(turnId);
+  await core.sendNowInNote(conversationId, turnId);
+  readAgain();
+}
+
+/** ⌘↵ in an empty input: the oldest message held for the conversation goes now, unless its editor is open. */
+export async function sendOldestNow(conversationId: string): Promise<boolean> {
+  const turnId = useNoteAsks
+    .getState()
+    .byConversation[conversationId]?.held.find((each) => !editingHere.has(each));
+  if (turnId === undefined) return false;
+  await sendNowInNote(conversationId, turnId);
+  return true;
+}
+
+/**
+ * Opens or closes a held message's editor in this window (#3765): while it is open the message
+ * isn't sent. Whether the message was still held; if not, it has gone, and the conversation is
+ * read again to show it so, as it is once the editor closes.
+ */
+export async function editHeldInNote(
+  conversationId: string,
+  turnId: string,
+  edit: NoteHeldEdit,
+): Promise<boolean> {
+  const held = await core.editHeldInNote({ conversationId, turnId, clientId, edit });
+  if (edit.kind === "open" && held) editingHere.add(turnId);
+  else {
+    editingHere.delete(turnId);
+    readAgain();
+  }
+  return held;
 }
 
 /**
@@ -849,14 +926,37 @@ export function focusNoteAsk(mindId: string): void {
   field?.focus();
 }
 
-/** Words a sent request's Edit gives back to the Note's input, which takes them once (#3765). */
-export const useEditedRequests = create<{ pending: string | null }>(() => ({
-  pending: null,
-}));
+/**
+ * Words given back to the Note's input, which takes them once (#3765). `after`: they go after what
+ * is typed there, on a line of their own, rather than only into an empty input.
+ */
+export const useEditedRequests = create<{
+  byMind: Readonly<Record<string, { words: string; after: boolean }>>;
+}>(() => ({ byMind: {} }));
 
 /** Puts a sent request's words back in the Note's input, to change and send as a new request. */
-export function editRequest(words: string): void {
-  useEditedRequests.setState({ pending: words });
+export function editRequest(mindId: string, words: string): void {
+  useEditedRequests.setState((state) => ({
+    byMind: { ...state.byMind, [mindId]: { words, after: false } },
+  }));
+}
+
+/**
+ * Keeps words the User wrote for a message that has gone, in the input after what it holds, and
+ * after any kept before that the input hasn't taken yet.
+ */
+export function keepInInput(mindId: string, words: string): void {
+  useEditedRequests.setState((state) => {
+    const waiting = state.byMind[mindId];
+    const kept = waiting?.after ? `${waiting.words}\n${words}` : words;
+    return { byMind: { ...state.byMind, [mindId]: { words: kept, after: true } } };
+  });
+}
+
+/** What the input holds once it takes words given back: `typed`, then those on a line of their own. */
+export function withGivenBack(typed: string, given: { words: string; after: boolean }): string {
+  if (typed.trim() === "") return given.words;
+  return given.after ? `${typed.trimEnd()}\n${given.words}` : typed;
 }
 
 /** The label goes once the User starts the next request, or closes it. */

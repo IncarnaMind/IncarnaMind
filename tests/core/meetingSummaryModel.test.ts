@@ -20,19 +20,131 @@ test("the shared prompt sends only the meeting summary and confirmed speech", ()
     meetingId: "private",
   };
   expect(JSON.parse(meetingSummaryPrompt(payload).prompt)).toEqual({
-    ...input,
+    previous: input.previous,
     items: [item],
+    utterances: [{ line: 1, text: input.utterances[0].text, speaker: "Speaker 2" }],
     language: "English",
   });
 });
 
-test("the language of the meeting is used for a short bilingual update", () => {
+test("the language of the meeting is used for a short bilingual update and stated once", () => {
   const prompt = meetingSummaryPrompt({
     previous: "团队决定周五上线，王敏负责发公告。预算为 12.5 万元，备份方案还没有选定。",
     utterances: [{ text: "Yes, we need to wait." }],
   });
   expect(JSON.parse(prompt.prompt)).toHaveProperty("language", "Chinese");
+  expect(prompt.instructions.match(/in Chinese/g)).toHaveLength(1);
+  expect(prompt.instructions).toContain(
+    "Write summary and any newly added items in Chinese (keep unchanged existing items in their current language; never emit changes solely to translate them), regardless of the language of these instructions or examples.",
+  );
 });
+
+test("instructions name an explicit language directly and fall back when language is absent", () => {
+  const explicit = meetingSummaryPrompt({
+    previous: null,
+    utterances: [{ text: "123 456" }],
+    language: "Japanese",
+  });
+  expect(explicit.instructions.match(/in Japanese/g)).toHaveLength(1);
+  expect(explicit.instructions).toContain(
+    "Write summary and any newly added items in Japanese (keep unchanged existing items in their current language; never emit changes solely to translate them), regardless of the language of these instructions or examples.",
+  );
+
+  const fallback =
+    "Write summary and any newly added items in the meeting's main language (keep unchanged existing items in their current language; never emit changes solely to translate them), regardless of the language of these instructions or examples.";
+  const absent = meetingSummaryPrompt({ previous: null, utterances: [{ text: "123 456" }] });
+  expect(absent.instructions).toContain(fallback);
+  expect(absent.instructions.match(/meeting's main language/g)).toHaveLength(1);
+
+  const blank = meetingSummaryPrompt({
+    previous: null,
+    utterances: [{ text: "123 456" }],
+    language: "   ",
+  });
+  expect(blank.instructions).toContain(fallback);
+  expect(JSON.parse(blank.prompt)).not.toHaveProperty("language");
+});
+
+test("mid-meeting language switches update the target language without forcing translation of existing items", () => {
+  const enToZh = meetingSummaryPrompt({
+    previous: "The warehouse stays open through 18 October. Vera will send the signed extension.",
+    items: [
+      {
+        id: 1,
+        kind: "decision",
+        status: "active",
+        text: "Keep the warehouse open through 18 October.",
+      },
+    ],
+    utterances: [
+      { text: "接下来我们改用中文讨论。大家决定周三开复盘会。" },
+      { text: "由陈琳负责发会议邀请。" },
+    ],
+  });
+  expect(JSON.parse(enToZh.prompt)).toEqual({
+    previous: "The warehouse stays open through 18 October. Vera will send the signed extension.",
+    items: [
+      {
+        id: 1,
+        kind: "decision",
+        status: "active",
+        text: "Keep the warehouse open through 18 October.",
+      },
+    ],
+    utterances: [
+      { line: 1, text: "接下来我们改用中文讨论。大家决定周三开复盘会。" },
+      { line: 2, text: "由陈琳负责发会议邀请。" },
+    ],
+    language: "Chinese",
+  });
+  expect(enToZh.instructions.match(/in Chinese/g)).toHaveLength(1);
+  expect(enToZh.instructions).toContain("never emit changes solely to translate them");
+
+  const zhToEn = meetingSummaryPrompt({
+    previous: "仓库开放至10月18日，王敏负责发延期协议。",
+    items: [{ id: 1, kind: "decision", status: "active", text: "仓库开放至10月18日。" }],
+    utterances: [
+      { text: "Let us switch to English now. We agreed to move the review to Thursday." },
+      { text: "Maya will send the updated agenda to the team." },
+    ],
+  });
+  expect(JSON.parse(zhToEn.prompt)).toHaveProperty("language", "English");
+  expect(zhToEn.instructions.match(/in English/g)).toHaveLength(1);
+  expect(zhToEn.instructions).toContain("never emit changes solely to translate them");
+});
+
+test.each([
+  {
+    name: "English",
+    utterances: [
+      { speaker: "Me", text: "I will send the updated contract by Friday." },
+      { speaker: "Them", text: "I will confirm the invoice on Monday." },
+    ],
+    expectedLanguage: "English",
+  },
+  {
+    name: "Chinese",
+    utterances: [
+      { speaker: "Me", text: "我周五前把更新后的合同发过去。" },
+      { speaker: "Them", text: "我周一确认发票金额。" },
+    ],
+    expectedLanguage: "Chinese",
+  },
+])(
+  "call-style Me and Them speaker labels are preserved in the $name prompt and instructions",
+  ({ utterances, expectedLanguage }) => {
+    const prompt = meetingSummaryPrompt({ previous: null, utterances });
+    expect(JSON.parse(prompt.prompt)).toEqual({
+      previous: null,
+      utterances: utterances.map((line, index) => ({ line: index + 1, ...line })),
+      language: expectedLanguage,
+    });
+    expect(prompt.instructions).toContain("Never use generic or numbered speaker labels");
+    expect(prompt.instructions).toContain(
+      "In call transcripts labelled Me and Them, preserve who owns a commitment (Me vs. Them) in the output language.",
+    );
+  },
+);
 
 test("reconciliation instructions and unchanged accounting turn on whenever active items exist", () => {
   const active = { id: 1, kind: "action", status: "active", text: "Send the agenda." } as const;
@@ -41,6 +153,8 @@ test("reconciliation instructions and unchanged accounting turn on whenever acti
   expect(withActive.instructions).toContain("three keys");
   expect(withActive.instructions).toContain("unchanged");
   expect(withActive.instructions).toContain("When a deliverable is explicitly withdrawn");
+  expect(withActive.instructions).toContain('"quotes":[{"quote":"…","source":1}]');
+  expect(withActive.instructions).toContain("Never use generic or numbered speaker labels");
   expect(withActive.instructions).not.toContain("final confirmed segment");
   for (const withoutActive of [
     meetingSummaryPrompt(input),
@@ -48,6 +162,10 @@ test("reconciliation instructions and unchanged accounting turn on whenever acti
     meetingSummaryPrompt({ ...input, items: [cancelled] }),
   ]) {
     expect(withoutActive.instructions).toContain("two keys");
+    expect(withoutActive.instructions).toContain('"quotes":[{"quote":"…","source":1}]');
+    expect(withoutActive.instructions).toContain(
+      "Finish with the changes array’s closing bracket and the object’s closing brace.",
+    );
     expect(withoutActive.instructions).not.toContain("unchanged (an array of numeric IDs)");
   }
 });

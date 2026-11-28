@@ -15,7 +15,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { mindName } from "../../../../shared/naming";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { clearFieldUndoPending, hasFieldUndoPending } from "../../commands/edit";
-import { pressesShortcut } from "../../commands/keymap";
+import { pressesKeys, pressesShortcut } from "../../commands/keymap";
 import { core } from "../../core";
 import { redoInNote, undoInNote } from "../../editor/noteUndoKeys";
 import { useT } from "../../i18n";
@@ -31,14 +31,17 @@ import {
   seedConversationFor,
   seedRunning,
   selectedForRequest,
+  sendOldestNow,
   setColumnOpen,
   stopInNote,
   useActiveConversation,
   useColumnOpen,
   useEditedRequests,
+  useNoteAgentName,
   useNoteAskShown,
   useNoteColumns,
   useNoteConversations,
+  withGivenBack,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, ConversationLineIcon } from "../icons";
@@ -95,10 +98,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
 
   const { pairing, conversationId, seeded, ask } = useActiveConversation(mindId);
   const pairingId = pairing?.id ?? "";
+  const runsOn = useNoteAgentName(mindId);
   const words = useNoteColumns((state) => state.draft);
-  // What the input holds now, for a send that comes back after the User typed again.
-  const typedNow = useRef(words);
-  typedNow.current = words;
   const carry = useRef<InputCarry | null>(null);
   const [quote, setQuote] = useState(() => selectedForRequest(editor.state)?.quote ?? "");
   const [whole, setWhole] = useState(false);
@@ -138,7 +139,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const turns = useOpenConversation(
     conversationId,
     open,
-    `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${ask?.queued.join(",") ?? ""}:${changed}`,
+    `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${ask?.queued.join(",") ?? ""}:${ask?.held.join(",") ?? ""}:${changed}`,
   );
   // Upward, it opens once its turns are read, whole in one step: an empty box growing a moment
   // later would cover what the User had scrolled into view, and a change's bar docked above it.
@@ -180,12 +181,17 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   // A sent request's Edit: its words come back to change, about the whole Note, for the words it
   // was about may be gone; the keyboard is at their end. Words the User is typing stay: the
   // request's Copy still gives its words.
-  const edited = useEditedRequests((state) => state.pending);
+  const edited = useEditedRequests((state) => state.byMind[mindId]);
   useEffect(() => {
-    if (edited === null) return;
-    useEditedRequests.setState({ pending: null });
-    if (typedNow.current.trim() !== "") return;
-    setDraftWords(edited);
+    if (edited === undefined) return;
+    useEditedRequests.setState((state) => {
+      const { [mindId]: _taken, ...rest } = state.byMind;
+      return { byMind: rest };
+    });
+    const current = useNoteColumns.getState().draft;
+    const next = withGivenBack(current, edited);
+    if (next === current) return;
+    setDraftWords(next);
     setWhole(true);
     requestAnimationFrame(() => {
       focusNoteAsk(mindId);
@@ -195,7 +201,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     });
   }, [edited, mindId]);
 
-  const send = async () => {
+  const send = async (now = false) => {
     const typed = words.trim();
     if (typed === "") return;
     // Sent into a run going, it is about the whole Note: its AI takes no new selection mid-run, so
@@ -204,13 +210,12 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     const targetMindId = going && ask?.mindId ? ask.mindId : mindId;
     const selected = whole || going ? null : selectedForRequest(editor.state);
     setDraftWords("");
-    typedNow.current = "";
     // The quote goes with the words, as they leave the input.
     setWhole(true);
     // A request that didn't go keeps what the User typed for sending again, unless they have typed
-    // another meanwhile: a failed one's line still sends it again.
+    // another meanwhile (including after switching Notes): a failed one's line still sends it again.
     const giveBack = () => {
-      if (typedNow.current.trim() !== "") return;
+      if (useNoteColumns.getState().draft.trim() !== "") return;
       setDraftWords(typed);
       setWhole(whole);
     };
@@ -228,6 +233,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
           ...(seeded && { conversationId }),
           ...(pairingId !== "" && { pairingId }),
           ...(going && { intoRunning: true }),
+          ...(now && { now: true }),
         },
       );
       if (went === "problem" || went === "busy") giveBack();
@@ -287,7 +293,16 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     }
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    void send();
+    // ⌘↵ sends now (#3765): the words typed, into the request running; with none typed, the
+    // oldest message held for it.
+    const now = pressesKeys("CmdOrCtrl+Enter", event.nativeEvent);
+    if (now && words.trim() === "") {
+      if (conversationId) {
+        void sendOldestNow(conversationId).catch(useAppStore.getState().reportError);
+      }
+      return;
+    }
+    void send(now);
   };
 
   // Upward, the box keeps the folded box's height in the Note's foot and grows over the Note, so
@@ -359,7 +374,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   // Open, the conversation shows the line's reply and a failure of its request; a request that
   // failed before it began has no turn there, so its line stays above the input.
   const shownLine = shownOpen && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
-  const agent = ask?.agent || pairing?.name || "Claude Code";
+  // With no request running, as after a restart, the agent the Note's input runs on.
+  const agent = ask?.agent || runsOn || "Claude Code";
   const input = (
     <NoteAskInput
       mindId={mindId}

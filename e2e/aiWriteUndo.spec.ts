@@ -7,6 +7,7 @@ import type { Editor } from "@tiptap/core";
 import type { AgentLaunch, CitationAttributes, CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { translate } from "../src/shared/i18n";
+import { paragraphStart } from "../src/shared/sentenceChanges";
 import {
   acceptPlainTextKeys,
   addDocuments,
@@ -18,6 +19,8 @@ import {
   frontMind,
   launchApp,
   newMind,
+  openPageMenu,
+  paletteOffers,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -493,6 +496,83 @@ test.describe("Note-input and AI-owned Note Cmd+Z (#3839)", () => {
       await app.close();
     }
   });
+
+  for (const language of ["en", "zh-CN"] as const) {
+    // protects=an AI's change is written at once and the line after it says which paragraph changed, with Undo and nothing to review: no Review changes on the line, in the Note's menu or in ⌘K, and Cmd+Z takes the change back; fails_when=the line says only "Changed 1 paragraph", a Review changes control comes back anywhere, or Cmd+Z leaves the change
+    test(`a change with no words of the AI's own is said as the paragraph it changed, with Undo and nothing to review (${language})`, async () => {
+      test.setTimeout(120_000);
+      const copy =
+        language === "en"
+          ? {
+              title: "Harbour notes",
+              paragraphs: [
+                "The harbour handled 1,240 ship calls in 2025.",
+                "The 07:40 crossing from Kestrel Bay leaves late most weekdays.",
+                "Commuters miss the 08:15 train when it does.",
+              ],
+              ask: "Tidy the second paragraph",
+            }
+          : {
+              title: "港口笔记",
+              paragraphs: [
+                "2025 年港口接待了 1,240 次靠港。",
+                "红隼湾的 ferry 班次工作日 07:40 大多晚点。",
+                "晚点时，通勤者会错过 08:15 的火车。",
+              ],
+              ask: "整理第二段",
+            };
+      const second = copy.paragraphs[1] ?? "";
+      const written = second.toUpperCase();
+      const start = paragraphStart(written);
+      expect(start.endsWith("…") && start.length < written.length).toBe(true);
+
+      const { app, window } = await launchApp(dataDir, {
+        home,
+        ownAi: join(bin, "claude"),
+        extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+      });
+      await acceptPlainTextKeys(window);
+      try {
+        await dismissChatSetup(window);
+        await setLanguage(window, language);
+        await setWindowSize(app, window, 1440, 900);
+        const { folderId } = await connectClaude(window);
+        const mindId = await writeNote(
+          window,
+          copy.title,
+          copy.paragraphs.map((text) => ({ text })),
+          { folderId },
+        );
+        await openMind(window, mindId);
+
+        await nextRun("change-quiet");
+        const { box } = await sendNoteAsk(window, copy.ask);
+        await expect(box.getByTestId("note-ask-pill")).toHaveAttribute("data-state", "landed", {
+          timeout: 30_000,
+        });
+        await expect(frontMind(window)).toContainText(written);
+        await expect(box.getByTestId("note-ask-facts")).toHaveText(
+          translate(language, "noteAsk.done.changed.named", { start }),
+        );
+        await expect(box.getByTestId("note-ask-undo")).toBeVisible();
+        await expect(box.getByTestId("note-ask-review")).toHaveCount(0);
+        await expect(window.getByTestId("applied-review")).toHaveCount(0);
+
+        const menu = await openPageMenu(window);
+        await expect(menu.getByTestId("page-style")).toBeVisible();
+        await expect(menu.getByTestId("page-review-changes")).toHaveCount(0);
+        await window.keyboard.press("Escape");
+        expect(await paletteOffers(window, "edit.reviewApplied", "Review changes")).toBe(0);
+
+        await pointAndClick(window, box.getByTestId("note-ask-input"));
+        await undoKey(window);
+        await expect(frontMind(window)).toContainText(second);
+        await expect(frontMind(window)).not.toContainText(written);
+      } finally {
+        await app.close();
+      }
+    });
+  }
 });
 
 test("Check reply fixes (Fix the sentence, Accept change, Change to) save History and isolate adjacent typing in EN and ZH-CN", async () => {

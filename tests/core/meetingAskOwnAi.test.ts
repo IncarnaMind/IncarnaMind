@@ -43,6 +43,7 @@ function ownAi(act: (agent: Agent, request: RunRequest) => Promise<RunEnd>, inst
     installed: async () => installed,
     status: async () => ({ kind: "ready" }),
     purge: async () => true,
+    choosesModes: (client: string) => client === "claude-code",
     async run(request) {
       runs.push(request);
       request.started?.();
@@ -318,7 +319,7 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
     });
   };
 
-  // protects=after Stop with no model set up, Write notes goes to an AI that runs in the background on this Note before one asked in its own app, though that one was used last (#3762); fails_when=Write notes opens Codex's link while the User's Claude Code could write the notes here
+  // protects=after Stop with no model set up, Write notes goes to an AI that runs in the background on this Note before one asked in its own app, though that one was used last (#3762); fails_when=Write notes opens another app's link while the User's Claude Code could write the notes here
   test("Write notes goes to the User's AI that runs here first", async () => {
     const runner = ownAi(answered);
     const started = await startLiveAgentMeeting(
@@ -332,12 +333,13 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
       // No AI chosen for the notes: the route picks one.
       await started.core.updateSettings({ device: { meetingNotesAgentId: null } });
       const [folderId] = started.pairing.folderIds;
-      const { pairing: codex } = await started.core.connectAgent({
-        name: "Codex CLI",
-        client: "codex",
+      // Codex runs here too (#3653): an app of its own is one asked only there.
+      const { pairing: desktop } = await started.core.connectAgent({
+        name: "Claude Desktop",
+        client: "claude-desktop",
         folderIds: [folderId ?? ""],
       });
-      expect((await started.core.listAgentsToAsk(started.meeting.mindId))[0]?.id).toBe(codex.id);
+      expect((await started.core.listAgentsToAsk(started.meeting.mindId))[0]?.id).toBe(desktop.id);
       started.push(2500);
       await until(started.core, started.meeting.id, (state) => state.lines >= 1);
       expect(await stoppedFill(started)).toMatchObject({

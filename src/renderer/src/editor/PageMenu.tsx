@@ -5,23 +5,18 @@ import { formatDateTime } from "../../../shared/dates";
 import { mindName } from "../../../shared/naming";
 import { noteWriterOf } from "../../../shared/noteWriter";
 import type { Verification } from "../../../shared/verification";
-import { offersReview, reviewApplied } from "../appliedEdits";
-import { useCitationStylePicker } from "../citationStylePicker";
 import { ExampleChoices } from "../components/ExamplesMenu";
 import {
   ChevronRightLineIcon,
   CommentLineIcon,
   FolderOpenIcon,
   OpenBesideLineIcon,
-  QuoteIcon,
-  SparkLineIcon,
   TextIcon,
 } from "../components/icons";
 import { MenuItemParts } from "../components/MenuItemParts";
 import { MindStyleChoices, useStyleValue } from "../components/MindStyle";
 import { MoveToPicker } from "../components/MoveToPicker";
 import { ObjectMenu } from "../components/ObjectMenu";
-import { GroupMenuItems } from "../components/tabs/TabMenus";
 import { useTabPlace } from "../components/tabs/tabItems";
 import {
   menuClass,
@@ -36,15 +31,14 @@ import { showFileLabelKey } from "../fileInfo";
 import { moveIntoFolder } from "../folderDrag";
 import { useLanguage, useT } from "../i18n";
 import { fileStatusLabel } from "../linkedFolders";
+import { useMindSource } from "../mindSources";
 import { useMindStylePanel } from "../mindStylePanel";
 import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
-import { useGroupsMerged } from "../useWindowWidth";
 import { openDocumentBeside } from "../verify";
-import { EveryResultSwitch } from "./EveryResultSwitch";
 import { LookMenuItems } from "./LookMenu";
 import { MindSourceFoot } from "./MindSourceFoot";
-import { CountShownSwitch, MindCountsLine } from "./WordCount";
+import { MindCountsLine } from "./WordCount";
 import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin";
 
 /**
@@ -55,8 +49,9 @@ import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin"
  * "Review their changes" for one with someone's changes or comments; Review
  * changes for the last AI edit applied, while it can be restored (#1795); and
  * at its foot which agent wrote a Mind an outside agent wrote, and when
- * (#3306), the counts and the switch that shows the count while writing, and
- * the switch that shows every check result (#3358).
+ * (#3306). It is kept to about ten rows, as a chat app's menu is: Citation
+ * style, the group's items and the switches for the count and every check
+ * result are in ⌘K, and the check card has its own switch.
  */
 export function PageMenu({
   editor,
@@ -78,12 +73,6 @@ export function PageMenu({
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const name = (mind && mindName(mind)) || t("mind.untitled");
   const tabId = useTabPlace()?.tabId;
-  // The Note's ⋯ is its strip's one ⋯, with the group's items too (#2868, #3765).
-  const groupId = useAppStore(
-    (state) =>
-      state.layout?.groups.find((each) => each.tabs.some((tab) => tab.id === tabId))?.id ?? null,
-  );
-  const merged = useGroupsMerged();
   const holder = useRef<HTMLSpanElement>(null);
   const [moving, setMoving] = useState<HTMLElement | null>(null);
   const button = () =>
@@ -106,6 +95,7 @@ export function PageMenu({
   );
   const away = original ? fileStatusLabel(original.fileStatus) : null;
   const writer = noteWriterOf(doc);
+  const snapshotAt = useMindSource(mindId)?.yourNote?.snapshotAt;
   const otherExamples = useAppStore(
     (state) => allExamples(state).find((each) => each.mindId === mindId)?.more,
   );
@@ -129,150 +119,104 @@ export function PageMenu({
         without={["mind.open", "mind.openTab"]}
         // Its counts first, a grey line (#3765).
         first={() => <MindCountsLine editor={editor} />}
+        // Style and what else is the Note's own go with Move to and Rename; a source's rows and the
+        // examples after them each start a group.
+        moreInGroup
         more={
-          readOnly && !origin && !otherExamples && !groupId
+          readOnly && !origin && !otherExamples
             ? undefined
             : (close) => (
                 <>
-                  {(!readOnly || origin || otherExamples) && (
+                  {!readOnly && (
+                    <button
+                      {...style.itemProps}
+                      type="button"
+                      data-testid="page-style"
+                      className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
+                    >
+                      <TextIcon className="shrink-0" />
+                      <span className="flex-1">{t("mindStyle.title")}</span>
+                      <span className="max-w-32 truncate pl-4 text-small text-ink-meta">
+                        {styleValue}
+                      </span>
+                      <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
+                    </button>
+                  )}
+                  {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
+                  {origin && (
                     <>
-                      {!readOnly && (
-                        <button
-                          {...style.itemProps}
-                          type="button"
-                          data-testid="page-style"
-                          className={`${menuItemClass} pl-2 aria-expanded:bg-hover`}
-                        >
-                          <TextIcon className="shrink-0" />
-                          <span className="flex-1">{t("mindStyle.title")}</span>
-                          <span className="max-w-32 truncate pl-4 text-small text-ink-meta">
-                            {styleValue}
-                          </span>
-                          <ChevronRightLineIcon className="shrink-0 text-ink-meta" />
-                        </button>
-                      )}
-                      {!readOnly && (
+                      <div className={menuRuleClass} />
+                      {!readOnly && origin.word && useReviewables.getState()[mindId]?.has() && (
                         <button
                           type="button"
                           role="menuitem"
-                          data-testid="mind.citationStyle"
+                          data-testid="page-review"
                           onClick={() => {
-                            const anchor = button();
                             close();
-                            requestAnimationFrame(() =>
-                              useCitationStylePicker.getState().show(mindId, anchor),
-                            );
+                            revealEditor();
+                            useReviewPanes.getState().open(mindId);
                           }}
                           className={`${menuItemClass} pl-2`}
                         >
-                          <MenuItemParts icon={QuoteIcon} label={t("citationStyle.command")} />
+                          <CommentLineIcon className="shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{t("review.menuItem")}</span>
                         </button>
                       )}
-                      {!readOnly && origin?.word && <LookMenuItems mindId={mindId} close={close} />}
-                      {!readOnly && offersReview(editor) && (
+                      {/* Not in the Library, the original can't be opened: what it says of the file is still true. */}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        data-testid="page-from"
+                        aria-disabled={original ? undefined : true}
+                        title={
+                          origin.word
+                            ? wordFileTooltip(report, t, language)
+                            : t("verify.from.title", { name: origin.name })
+                        }
+                        onClick={() => {
+                          if (!original) return;
+                          close();
+                          if (origin.word) openOriginalAtCaret(original.id, editor, doc);
+                          else openDocumentBeside(original.id);
+                        }}
+                        className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
+                      >
+                        <OpenBesideLineIcon className="shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {t(origin.word ? "wordImport.from" : "verify.from", {
+                            name: origin.name,
+                          })}
+                        </span>
+                      </button>
+                      {original && (
                         <button
                           type="button"
                           role="menuitem"
-                          data-testid="page-review-changes"
+                          data-testid="page-show-original"
+                          aria-disabled={away ? true : undefined}
+                          title={away ? t(away.reason) : undefined}
                           onClick={() => {
+                            if (away) return;
                             close();
-                            requestAnimationFrame(() => {
-                              revealEditor();
-                              reviewApplied(editor, { focus: true });
-                            });
+                            files
+                              .showDocumentInFolder(original.id)
+                              .catch((error) => useAppStore.getState().reportError(error));
                           }}
-                          className={`${menuItemClass} pl-2`}
+                          className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
                         >
-                          <SparkLineIcon className="shrink-0" />
-                          <span className="min-w-0 flex-1 truncate">
-                            {t("edit.applied.review")}
-                          </span>
+                          <MenuItemParts
+                            icon={FolderOpenIcon}
+                            label={t(showFileLabelKey(navigator.platform))}
+                          />
                         </button>
-                      )}
-                      {origin && (
-                        <>
-                          {!readOnly && <div className={menuRuleClass} />}
-                          {!readOnly && origin.word && useReviewables.getState()[mindId]?.has() && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              data-testid="page-review"
-                              onClick={() => {
-                                close();
-                                revealEditor();
-                                useReviewPanes.getState().open(mindId);
-                              }}
-                              className={`${menuItemClass} pl-2`}
-                            >
-                              <CommentLineIcon className="shrink-0" />
-                              <span className="min-w-0 flex-1 truncate">
-                                {t("review.menuItem")}
-                              </span>
-                            </button>
-                          )}
-                          {/* Not in the Library, the original can't be opened: what it says of the file is still true. */}
-                          <button
-                            type="button"
-                            role="menuitem"
-                            data-testid="page-from"
-                            aria-disabled={original ? undefined : true}
-                            title={
-                              origin.word
-                                ? wordFileTooltip(report, t, language)
-                                : t("verify.from.title", { name: origin.name })
-                            }
-                            onClick={() => {
-                              if (!original) return;
-                              close();
-                              if (origin.word) openOriginalAtCaret(original.id, editor, doc);
-                              else openDocumentBeside(original.id);
-                            }}
-                            className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
-                          >
-                            <OpenBesideLineIcon className="shrink-0" />
-                            <span className="min-w-0 flex-1 truncate">
-                              {t(origin.word ? "wordImport.from" : "verify.from", {
-                                name: origin.name,
-                              })}
-                            </span>
-                          </button>
-                          {original && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              data-testid="page-show-original"
-                              aria-disabled={away ? true : undefined}
-                              title={away ? t(away.reason) : undefined}
-                              onClick={() => {
-                                if (away) return;
-                                close();
-                                files
-                                  .showDocumentInFolder(original.id)
-                                  .catch((error) => useAppStore.getState().reportError(error));
-                              }}
-                              className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
-                            >
-                              <MenuItemParts
-                                icon={FolderOpenIcon}
-                                label={t(showFileLabelKey(navigator.platform))}
-                              />
-                            </button>
-                          )}
-                        </>
-                      )}
-                      {otherExamples && (
-                        <>
-                          {(!readOnly || origin) && <div className={menuRuleClass} />}
-                          <p className={menuTitleClass}>{t("examples.banner.more")}</p>
-                          <ExampleChoices more={otherExamples} close={close} />
-                        </>
                       )}
                     </>
                   )}
-                  {groupId && (
+                  {otherExamples && (
                     <>
                       <div className={menuRuleClass} />
-                      <GroupMenuItems groupId={groupId} merged={merged} close={close} />
+                      <p className={menuTitleClass}>{t("examples.banner.more")}</p>
+                      <ExampleChoices more={otherExamples} close={close} />
                     </>
                   )}
                 </>
@@ -313,23 +257,19 @@ export function PageMenu({
               )
         }
         foot={
-          <>
-            <MindSourceFoot mindId={mindId} />
-            {writer && (
-              <p className="page-menu-counts" data-testid="page-written-by">
-                {t("agents.note.writtenBy", {
-                  name: writer.agent,
-                  when: formatDateTime(writer.createdAt, language),
-                })}
-              </p>
-            )}
-            {!readOnly && <CountShownSwitch doc={doc} />}
-            {!readOnly && (
-              <div className="page-menu-foot">
-                <EveryResultSwitch doc={doc} inMenu testId="page-every-result" />
-              </div>
-            )}
-          </>
+          snapshotAt || writer ? (
+            <>
+              <MindSourceFoot mindId={mindId} />
+              {writer && (
+                <p className="page-menu-counts" data-testid="page-written-by">
+                  {t("agents.note.writtenBy", {
+                    name: writer.agent,
+                    when: formatDateTime(writer.createdAt, language),
+                  })}
+                </p>
+              )}
+            </>
+          ) : undefined
         }
       />
       {/* Mounted only while open: closed, it would sit in the page beside the sidebar row's. */}

@@ -9,7 +9,6 @@ import {
   countShownOf,
   observeWordCountSettings,
   setCountBasis,
-  setCountShown,
   setWordTarget,
   wordTargetOf,
 } from "../../../shared/mindWordCount";
@@ -20,7 +19,7 @@ import {
   countFor,
   parseTarget,
 } from "../../../shared/wordCount";
-import { CheckLineIcon, HashLineIcon } from "../components/icons";
+import { CheckLineIcon } from "../components/icons";
 import { ProblemMark } from "../components/ProblemLine";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { useLanguage, useT } from "../i18n";
@@ -339,27 +338,5 @@ export function MindCountsLine({ editor }: { editor: Editor }) {
     <p className="page-menu-counts tabular-nums" data-testid="page-counts">
       {`${part("words")} · ${part("characters")}`}
     </p>
-  );
-}
-
-/** The switch that shows the count while writing, at the foot of a Mind's ⋯ menu. */
-export function CountShownSwitch({ doc }: { doc: Y.Doc }) {
-  const t = useT();
-  const { shown } = useCountSettings(doc);
-  return (
-    <div className="page-menu-foot">
-      <button
-        type="button"
-        role="menuitemcheckbox"
-        aria-checked={shown}
-        data-testid="page-count-shown"
-        className="page-menu-switch"
-        onClick={() => setCountShown(doc, !shown)}
-      >
-        <HashLineIcon className="shrink-0" />
-        <span className="flex-1">{t("page.countShown")}</span>
-        <span className="switch" data-on={shown || undefined} aria-hidden="true" />
-      </button>
-    </div>
   );
 }

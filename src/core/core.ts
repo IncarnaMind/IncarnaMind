@@ -79,6 +79,7 @@ import { createAgentFiles, type StoredHandedFile } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { dropTakenBackCopies } from "./agentFiles/kept";
 import {
+  agentServiceOf,
   agentSocketPath,
   createAgents,
   HOSTED_CHECK_SENDS,
@@ -399,6 +400,7 @@ import {
 } from "./minds";
 import {
   contentWithoutChecks,
+  type Footnote,
   firstLineOf,
   NO_MARKS,
   readBlocks,
@@ -3562,6 +3564,12 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       // A reloaded page keeps its id and its Notes open, so a column change still waits for it.
       { calls: ["watchComparisonMind"], gone: (clientId) => comparisons.forgetWindow(clientId) },
+      // A reloaded page shows no editor open, so its held messages wait for none (#3765).
+      {
+        calls: ["editHeldInNote"],
+        gone: (clientId) => ownAiConversations.windowGone(clientId),
+        reloaded: (clientId) => ownAiConversations.windowGone(clientId),
+      },
     ],
     (error) => console.error("A window that went still holds something:", error),
   );
@@ -3699,7 +3707,7 @@ export function createCore(adapters: CoreAdapters): Core {
     printer: adapters.printer ?? null,
     paper: systemPaper,
     ...(adapters.pictures && { pictures: adapters.pictures }),
-    wordPackage: (mindId) => wordImports.packageOf(mindId),
+    wordPackage: (mindId) => notes.wordPackage?.(mindId) ?? wordImports.packageOf(mindId),
     author: () => settings.get().author,
     log: adapters.log ?? silentLogger,
     now,
@@ -3849,10 +3857,54 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   const exportLedger = createExportLedger({ outputs, folderOf: folderOfNote });
+  /** A Note as read_mind gives it to an agent, its Citations as `footnote` writes them. */
+  const agentMarkdown = (
+    mindId: string,
+    footnote: (attributes: Record<string, unknown>) => Footnote,
+  ): string => {
+    const mind = minds.get(mindId);
+    const { language } = settings.get();
+    // Someone's changes from a Word file read as changes, as the assistant reads them (#734).
+    const { blocks, titled } = content.peek(mind.id, (fragment) => {
+      // A Note's first tab starts at its first Block (#3414): the heading after it opens it.
+      const [start, next] = fragment.toArray();
+      const first =
+        start instanceof Y.XmlElement && start.nodeName === NOTE_TAB_NODE ? next : start;
+      return {
+        blocks: readBlocks(fragment, {
+          includeQuestions: true,
+          footnote,
+          trimBeforeCitation: true,
+          ...(fragment.doc && wordFileOf(fragment.doc)
+            ? { review: theirChangesReading(fragment.doc) }
+            : {}),
+        }),
+        titled: first instanceof Y.XmlElement && first.nodeName === "heading",
+      };
+    });
+    // A heading that opens the Note is its title already: it is read once (#3371).
+    const title = titled ? "" : mind.title || mind.autoTitle;
+    // Each tab starts as the agent writes one (#3414), and the title is in the first tab.
+    const parts = withTabFences(blocks, (n) => translate(language, "noteTabs.defaultTitle", { n }));
+    const inTab = title !== "" && blocks[0]?.kind === "tab";
+    if (inTab) {
+      const text = { kind: "text", text: title, marks: NO_MARKS } as const;
+      parts.splice(1, 0, { kind: "heading", level: 1, content: [text] });
+    }
+    return renderMarkdown(inTab ? "" : title, parts, exportLabels(language), {
+      agent: true,
+    }).text;
+  };
   const agentWordFiles = createAgentWordFiles({
     mind: (mindId) => minds.get(mindId),
     noteState: (mindId) =>
       content.read(mindId, (blocks) => (blocks.doc ? Y.encodeStateAsUpdate(blocks.doc) : null)),
+    wordPackage: (mindId) => wordImports.packageOf(mindId),
+    given: (mindId) =>
+      agentMarkdown(mindId, (attributes) => ({
+        source: typeof attributes.documentName === "string" ? attributes.documentName : "",
+        unverified: false,
+      })),
     wordOf: async (notes, mindId, options, at) => {
       const named = new Set<string>();
       const exported = await createExports({
@@ -3872,6 +3924,7 @@ export function createCore(adapters: CoreAdapters): Core {
     outputs,
     say: (key, params) => translate(settings.get().language, key, params),
     newId: () => crypto.randomUUID(),
+    log: adapters.log ?? silentLogger,
   });
   /** A file IncarnaMind saved, still where it saved it; refused in plain words once moved or deleted. */
   const stillSaved = async (path: string): Promise<void> => {
@@ -6699,7 +6752,7 @@ export function createCore(adapters: CoreAdapters): Core {
       ]);
     },
     signal: lifetime.signal,
-    setNotCited: (documentId) => void documents.setNotCited(documentId, true),
+    setNotCited: (documentId, notCited) => void documents.setNotCited(documentId, notCited),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
@@ -7222,42 +7275,7 @@ export function createCore(adapters: CoreAdapters): Core {
         checkpoints.save(mindId, "accept");
       },
       noteChanged: (change) => events.emit("agents.noteChanged", change),
-      mindMarkdown: (mindId, footnote) => {
-        const mind = minds.get(mindId);
-        const { language } = settings.get();
-        // Someone's changes from a Word file read as changes, as the assistant reads them (#734).
-        const { blocks, titled } = content.peek(mind.id, (fragment) => {
-          // A Note's first tab starts at its first Block (#3414): the heading after it opens it.
-          const [start, next] = fragment.toArray();
-          const first =
-            start instanceof Y.XmlElement && start.nodeName === NOTE_TAB_NODE ? next : start;
-          return {
-            blocks: readBlocks(fragment, {
-              includeQuestions: true,
-              footnote,
-              trimBeforeCitation: true,
-              ...(fragment.doc && wordFileOf(fragment.doc)
-                ? { review: theirChangesReading(fragment.doc) }
-                : {}),
-            }),
-            titled: first instanceof Y.XmlElement && first.nodeName === "heading",
-          };
-        });
-        // A heading that opens the Note is its title already: it is read once (#3371).
-        const title = titled ? "" : mind.title || mind.autoTitle;
-        // Each tab starts as the agent writes one (#3414), and the title is in the first tab.
-        const parts = withTabFences(blocks, (n) =>
-          translate(language, "noteTabs.defaultTitle", { n }),
-        );
-        const inTab = title !== "" && blocks[0]?.kind === "tab";
-        if (inTab) {
-          const text = { kind: "text", text: title, marks: NO_MARKS } as const;
-          parts.splice(1, 0, { kind: "heading", level: 1, content: [text] });
-        }
-        return renderMarkdown(inTab ? "" : title, parts, exportLabels(language), {
-          agent: true,
-        }).text;
-      },
+      mindMarkdown: agentMarkdown,
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
@@ -7610,10 +7628,7 @@ export function createCore(adapters: CoreAdapters): Core {
   liveSummaries.changed(meetings.list());
   /** Whether the User's consent lets IncarnaMind start this agent to send `sends`, asking once if not. */
   const hostedConsent = async (pairing: AgentPairing, sends: readonly DataKind[]) => {
-    const service = {
-      ...serviceOf(pairing),
-      ...(pairing.client && { agentClient: pairing.client }),
-    };
+    const service = agentServiceOf(pairing);
     // Taken back in Settings › Privacy: the job goes by the link until the User allows it again.
     if (consent.takenBack("hosted-agents", service)) return false;
     try {
@@ -7698,6 +7713,7 @@ export function createCore(adapters: CoreAdapters): Core {
       agents.settings().pairings.find((each) => each.id === pairingId)?.name ?? "Claude Code",
     liveMeeting: liveMeetingOf,
     language: () => LANGUAGE_NAMES[settings.get().language],
+    checksWritten: () => settings.get().user.checkAssistantWrites,
     newId: () => crypto.randomUUID(),
     now,
     lifetime: lifetime.signal,
@@ -10252,11 +10268,34 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.discard(conversationId, turnId);
     },
+    sendNowInNote: async (conversationId, turnId) => {
+      if (typeof conversationId !== "string" || typeof turnId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.sendNow(conversationId, turnId);
+    },
+    editHeldInNote: async (input) => {
+      const edit: unknown = isRecord(input) ? input.edit : null;
+      if (
+        !isRecord(input) ||
+        typeof input.conversationId !== "string" ||
+        typeof input.turnId !== "string" ||
+        typeof input.clientId !== "string" ||
+        input.clientId === "" ||
+        !isRecord(edit) ||
+        !(
+          edit.kind === "open" ||
+          edit.kind === "cancel" ||
+          (edit.kind === "save" && typeof edit.words === "string")
+        )
+      )
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.editHeld(input);
+    },
     answerInNote: async (conversationId, questionId, answer) => {
       if (
         typeof conversationId !== "string" ||
         typeof questionId !== "string" ||
-        (answer !== "deny" && answer !== "once" && answer !== "suggested")
+        (answer !== "deny" && answer !== "once" && answer !== "suggested" && answer !== "request")
       )
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.answer(conversationId, questionId, answer);
@@ -10315,7 +10354,13 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       await ownAiConversations.chooseMode(mindId, conversationId, mode);
     },
-    ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
+    ownAiRunsHere: async () => {
+      const runner = adapters.ownAi;
+      if (!runner) return [];
+      const clients = ["claude-code", "codex"] as const;
+      const here = await Promise.all(clients.map((client) => runner.installed(client)));
+      return clients.filter((_, at) => here[at]);
+    },
     frontAgent: (pairingId) => agentAsk.front(pairingId),
     editDeck: (input) => writingDeck(deckSittings.edit(input)),
     undoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.undo(sittingId, stepId)),

@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -10,6 +10,7 @@ import { migrations } from "../src/core/storage/migrations";
 import { ensureWorkspace } from "../src/core/workspace";
 import {
   acceptPlainTextKeys,
+  capture,
   checkCard,
   createDataFolder,
   cutIn,
@@ -38,7 +39,7 @@ import {
  * foot, and the window's column left of the tab groups (#3759), one control moving it between them with the
  * conversation, a run going on, and the input's words and focus; the Note's Check button with its
  * own controls at its top right. With the stand-in for Claude Code (no model, no key). Set
- * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots (Run named specs keeps them).
  */
 
 let dataDir: string;
@@ -73,14 +74,6 @@ const starts = () =>
     () => [],
   );
 const stepTo = (n: number) => writeFile(join(bin, "mode.step"), String(n));
-
-async function shot(window: Page, name: string) {
-  const folder = process.env.INCARNAMIND_SCREENSHOTS;
-  if (!folder) return;
-  await mkdir(folder, { recursive: true });
-  await window.waitForTimeout(300);
-  await window.screenshot({ path: join(folder, `${name}.png`), animations: "disabled" });
-}
 
 const INTERVIEWS: [string, string][] = [
   [
@@ -197,12 +190,12 @@ test("the Note's conversation opens upward in its input's box and moves to the w
       await group.getByTestId("note-ask-conversation-toggle").boundingBox(),
     ];
     expect((buttonBox?.x ?? 0) + (buttonBox?.width ?? 0)).toBeLessThanOrEqual(toggleBox?.x ?? 0);
-    await shot(window, "conversation-badge-rest-en");
+    await capture(window, "conversation-badge-rest-en");
     // Its card opens downward from it, from ⌘K while the button would check instead.
     const card = await checkCard(window, group);
     await expect(card).toBeVisible();
     expect((await card.boundingBox())?.y ?? 0).toBeGreaterThan(buttonBox?.y ?? 0);
-    await shot(window, "conversation-badge-card-en");
+    await capture(window, "conversation-badge-card-en");
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
 
@@ -236,7 +229,7 @@ test("the Note's conversation opens upward in its input's box and moves to the w
       "Hide conversation",
     ]);
     await expectPanelEdges(group);
-    await shot(window, "conversation-upward-en");
+    await capture(window, "conversation-upward-en");
 
     // Moved to the left with words half-typed and the focus in the input: the window's column, the
     // tab area's full height, holds the conversation and the one input, the words and the focus kept.
@@ -258,7 +251,7 @@ test("the Note's conversation opens upward in its input's box and moves to the w
       "Hide conversation",
     ]);
     await pointAndClick(window, inColumn);
-    await shot(window, "conversation-column-en");
+    await capture(window, "conversation-column-en");
 
     // And back: upward and open again, the words and the focus kept.
     await fromConversationMenu(window, column, "conversation-move-down");
@@ -280,11 +273,11 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     await expect(panel.getByTestId("note-column-live")).toContainText("Ferry interview", {
       timeout: 20_000,
     });
-    await shot(window, "conversation-running-upward-en");
+    await capture(window, "conversation-running-upward-en");
     await fromConversationMenu(window, panel, "conversation-move-left");
     await expect(column.getByTestId("note-column-live")).toContainText("Ferry interview");
     await expect(column.getByTestId("note-ask-stop")).toBeVisible();
-    await shot(window, "conversation-running-column-en");
+    await capture(window, "conversation-running-column-en");
     await stepTo(99);
     await ended(window, mindId, before);
     await expect(column.getByTestId("note-column-turn")).toHaveCount(2);
@@ -296,19 +289,19 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     // conversation opens upward in the box, with no move to a column that can't stand there.
     await setLanguage(window, "zh-CN");
     expect(await conversationMenu(window, column)).toEqual(["新对话", "移回笔记下方", "隐藏对话"]);
-    await shot(window, "conversation-column-zh-CN");
+    await capture(window, "conversation-column-zh-CN");
     await setWindowSize(app, window, 900, 760);
     await expect(panel).toBeVisible();
     await expect(window.getByTestId("note-column")).toHaveCount(0);
     expect(await conversationMenu(window, panel)).toEqual(["新对话", "隐藏对话"]);
     await expectPanelEdges(group);
-    await shot(window, "conversation-narrow-zh-CN");
+    await capture(window, "conversation-narrow-zh-CN");
     await setWindowSize(app, window, 1440, 900);
     await fromConversationMenu(window, column, "conversation-move-down");
     expect(await conversationMenu(window, panel)).toEqual(["新对话", "移到左侧", "隐藏对话"]);
     await expectPanelEdges(group);
     await expect(button).toHaveAttribute("title", "3 句未核对");
-    await shot(window, "conversation-upward-zh-CN");
+    await capture(window, "conversation-upward-zh-CN");
 
     // Esc folds it to the line; with no request running it doesn't stop anything.
     await pointAndClick(window, input);
@@ -592,25 +585,25 @@ test("a request that can't start says why where the User typed, whole, with the 
     await shownWhole(tooOld);
     // The words it didn't send stay in the input, to send again.
     await expect(input).toHaveValue("Make it shorter");
-    await shot(window, "conversation-problem-upward-en");
+    await capture(window, "conversation-problem-upward-en");
     // In the window's column, at its foot; in the narrow window, where the column isn't drawn,
     // above the input of the conversation open upward again, in Chinese.
     await fromConversationMenu(window, group, "conversation-move-left");
     await expect(column).toBeVisible();
     await shownWhole(tooOld);
-    await shot(window, "conversation-problem-column-en");
+    await capture(window, "conversation-problem-column-en");
     await setLanguage(window, "zh-CN");
     await setWindowSize(app, window, 900, 760);
     await expect(group.getByTestId("note-ask-panel")).toBeVisible();
     await expect(column).toHaveCount(0);
     await shownWhole("Claude Code 2.0.1 版本过旧，需要 2.1.248 或更高版本。更新后再发送一次。");
-    await shot(window, "conversation-problem-upward-zh-CN");
+    await capture(window, "conversation-problem-upward-zh-CN");
     // Folded, at both widths: it wraps, never cut.
     await setLanguage(window, "en");
     await fromConversationMenu(window, group, "note-ask-fold");
     await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
     await shownWhole(tooOld);
-    await shot(window, "conversation-problem-folded-en");
+    await capture(window, "conversation-problem-folded-en");
     await setWindowSize(app, window, 1440, 900);
     await shownWhole(tooOld);
 
@@ -700,13 +693,13 @@ test("a sent quote leaves the input, a request that can't start keeps the words 
     await expect(input).toHaveValue("Make it shorter");
     await expect(quote).toContainText("weekdays.");
     expect(await cutIn(problem)).toEqual([]);
-    await shot(window, "problem-signed-out-900-en");
+    await capture(window, "problem-signed-out-900-en");
     await setLanguage(window, "zh-CN");
     await expect(problem).toContainText("Claude Code 尚未在这台电脑上登录。");
     await expect(problem).not.toContainText("终端");
     await expect(signIn).toHaveText("登录");
     expect(await cutIn(problem)).toEqual([]);
-    await shot(window, "problem-signed-out-900-zh-CN");
+    await capture(window, "problem-signed-out-900-zh-CN");
     await setLanguage(window, "en");
 
     // A run that stops part way says so in one line, and Try again sends it again.
@@ -835,7 +828,7 @@ test("a sent request shows when it was sent, Send again, Edit and Copy while it 
 /** The requests the conversation shows, in order, by their words. */
 const requestsIn = (scope: Locator) => scope.locator(".note-column-bubble");
 
-test("while a run goes the input's round button is Stop with nothing typed and Send with words; a request sent then goes into the run, shows at once as sent with Waiting and Copy only, and once its AI takes it at its next step it is a sent request with the reply its own, in English and Chinese", async () => {
+test("while a run goes the input's round button is Stop with nothing typed and Send with words; a message sent then is held, shown at once as Waiting with Edit, Copy, Discard and Send now, and left alone it goes once the reply ends, with its own reply, in English and Chinese", async () => {
   const { app, window } = await launched();
   try {
     await setWindowSize(app, window, 1440, 900);
@@ -847,11 +840,15 @@ test("while a run goes the input's round button is Stop with nothing typed and S
     const panel = group.getByTestId("note-ask-panel");
     const first = "Summarise the note";
     const later = "Also list the dates";
+    const last = "And the ramp";
     await stepTo(0);
     await nextRun("queue-step");
     await pointAndClick(window, input);
     await window.keyboard.type(first);
     await window.keyboard.press("Enter");
+    // Its run under way, as its line says: the request sent next is held behind a run, not
+    // behind the first one's checks (#3875).
+    await expect(group.getByTestId("note-ask-pill-text")).toContainText("Looking at your note");
 
     // The input works while it runs: Stop while it is empty, Send once words are typed.
     await expect(stop).toBeVisible();
@@ -866,41 +863,69 @@ test("while a run goes the input's round button is Stop with nothing typed and S
     await expect(stop).toBeVisible();
     await expect(send).toHaveCount(0);
 
-    // Return sends it into the run at once: the conversation opens on it, sent and waiting.
+    // Return holds it: the conversation opens on it under the working line, waiting, and the AI
+    // has nothing of it yet.
     await window.keyboard.type(later);
+    await window.keyboard.press("Enter");
+    await window.keyboard.type(last);
     await window.keyboard.press("Enter");
     await expect(input).toHaveValue("");
     await expect(stop).toBeVisible();
-    await expect(requestsIn(panel)).toHaveText([first, later]);
-    const sent = panel.getByTestId("note-column-turn").last();
-    const waiting = sent.getByTestId("note-column-waiting");
-    await expect(waiting).toHaveText("Waiting");
-    await expect(waiting.locator(".note-ask-dots")).toBeVisible();
-    expect(await outcomesOf(window, mindId)).toEqual(["working", "waiting"]);
-    // Copy is all it offers: its AI has it already.
-    await expect(sent.getByTestId("note-column-edit")).toHaveCount(0);
-    await expect(sent.getByTestId("note-column-send-again")).toHaveCount(0);
-    await pointAndClick(window, sent.getByTestId("note-column-copy-request"));
+    await expect(requestsIn(panel)).toHaveText([first, later, last]);
+    expect(await outcomesOf(window, mindId)).toEqual(["working", "held", "held"]);
+    const [held, after] = [
+      panel.getByTestId("note-column-turn").nth(1),
+      panel.getByTestId("note-column-turn").last(),
+    ];
+    const row = held.getByTestId("note-column-held");
+    await expect(row.locator(".note-column-sent-word")).toHaveText("Waiting");
+    // One thing moves on the screen while it works: the working line, not the waiting word.
+    await expect(row.locator(".note-ask-dots")).toHaveCount(0);
+    const labels = () =>
+      Promise.all(
+        ["edit", "copy-request", "discard"].map((id) =>
+          row.getByTestId(`note-column-${id}`).getAttribute("aria-label"),
+        ),
+      );
+    expect(await labels()).toEqual(["Edit", "Copy", "Discard"]);
+    const sendNow = row.getByTestId("note-column-send-now");
+    await expect(sendNow).toBeVisible();
+    await expect(sendNow).toContainText("Send now");
+    // The shortcut is on the oldest's Send now only: ⌘↵ sends that one.
+    await expect(sendNow.locator("kbd")).toHaveText(
+      process.platform === "darwin" ? "⌘↩" : "Ctrl+Enter",
+    );
+    await expect(after.getByTestId("note-column-send-now")).toBeVisible();
+    await expect(after.getByTestId("note-column-send-now").locator("kbd")).toHaveCount(0);
+    await pointAndClick(window, row.getByTestId("note-column-copy-request"));
     await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(later);
+    await capture(window, "conversation-held-1440-en");
     await setLanguage(window, "zh-CN");
-    await expect(waiting).toHaveText("等待中");
+    await expect(row.locator(".note-column-sent-word")).toHaveText("等待中");
+    await expect(sendNow).toContainText("立即发送");
+    await expect.poll(labels).toEqual(["编辑", "拷贝", "舍弃"]);
+    await capture(window, "conversation-held-1440-zh");
+    await setWindowSize(app, window, 900, 800);
+    await expect(sendNow).toBeVisible();
+    await capture(window, "conversation-held-900-zh");
     await setLanguage(window, "en");
-    await shot(window, "conversation-waiting-en");
+    await capture(window, "conversation-held-900-en");
+    await setWindowSize(app, window, 1440, 900);
 
-    // Taken at the AI's next step: an ordinary sent request, working; the one before ends with
-    // its steps and no reply of its own.
+    // The AI's next step takes nothing: the reply ends as the first request's alone.
     await stepTo(1);
-    await expect(waiting).toHaveCount(0);
-    await expect(sent.getByTestId("note-column-sent-actions")).toBeAttached();
-    const earlier = panel.getByTestId("note-column-turn").first();
-    await expect(earlier.getByTestId("note-column-steps-toggle")).toBeVisible();
-    await expect(earlier.getByTestId("note-column-reply")).toHaveCount(0);
+    await expect(held.getByTestId("note-column-held")).toBeVisible();
+    // Then each goes in the order sent, a request of its own with its own reply.
     await stepTo(2);
     await expect
       .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
-      .toEqual(["landed", "landed"]);
-    await expect(sent.getByTestId("note-column-reply")).toContainText(`Answered: ${later}`);
-    await expect(earlier.getByTestId("note-column-reply")).toHaveCount(0);
+      .toEqual(["landed", "landed", "landed"]);
+    const replies = panel.getByTestId("note-column-reply");
+    await expect(replies).toHaveCount(3);
+    await expect(replies.nth(0)).toContainText(`Answered: ${first}`);
+    await expect(replies.nth(1)).toContainText(`Answered: ${later}`);
+    await expect(replies.nth(2)).toContainText(`Answered: ${last}`);
+    expect((await starts()).filter((each) => each.startsWith("run"))).toHaveLength(3);
     await expect(stop).toHaveCount(0);
     await expect(send).toBeVisible();
   } finally {
@@ -908,7 +933,7 @@ test("while a run goes the input's round button is Stop with nothing typed and S
   }
 });
 
-test("a request sent while the AI writes a plain reply waits through it, the reply staying the one before's, then is answered as the next turn under its own request, in Chinese", async () => {
+test("Send now gives a held message to the AI at once, taken at its next step with the reply its own; ⌘↵ sends the words typed now, and with nothing typed the oldest held; the others keep their order, in Chinese", async () => {
   const { app, window } = await launched();
   try {
     await setWindowSize(app, window, 1440, 900);
@@ -917,48 +942,234 @@ test("a request sent while the AI writes a plain reply waits through it, the rep
     const group = window.locator('[data-testid="tab-group"][data-focused]');
     const input = group.getByTestId("note-ask-input");
     const panel = group.getByTestId("note-ask-panel");
-    const first = "港口计划增加了什么？";
-    const later = "什么时候建？";
+    const turn = (index: number) => panel.getByTestId("note-column-turn").nth(index);
     await stepTo(0);
-    await nextRun("queue-turn");
+    await nextRun("queue-step");
     await pointAndClick(window, input);
-    await window.keyboard.type(first);
+    await window.keyboard.type("总结这份笔记");
     await window.keyboard.press("Enter");
     await expect(group.getByTestId("note-ask-stop")).toBeVisible();
-    await window.keyboard.type(later);
-    await window.keyboard.press("Enter");
-    const [earlier, sent] = [
-      panel.getByTestId("note-column-turn").first(),
-      panel.getByTestId("note-column-turn").last(),
-    ];
-    await expect(requestsIn(panel)).toHaveText([first, later]);
-    await expect(sent.getByTestId("note-column-waiting")).toHaveText("等待中");
+    // Its first words are too few for the line to show, so its start says the run is under way.
+    await expect
+      .poll(async () => (await starts()).filter((each) => each.startsWith("run")))
+      .toHaveLength(1);
 
-    // The reply ends first, and is the earlier request's; the later one still waits, and Stop
-    // still stops the run.
+    // Typed words with ⌘↵ go into the request running at once: Waiting, with Copy only.
+    await window.keyboard.type("列出日期");
+    await window.keyboard.press("ControlOrMeta+Enter");
+    await expect(requestsIn(panel)).toHaveText(["总结这份笔记", "列出日期"]);
+    await expect(turn(1).getByTestId("note-column-waiting")).toHaveText("等待中");
+    await expect(turn(1).getByTestId("note-column-send-now")).toHaveCount(0);
+    await expect(turn(1).getByTestId("note-column-edit")).toHaveCount(0);
+
+    // Two held; Send now on the second, then ⌘↵ with nothing typed sends the oldest left.
+    await window.keyboard.type("坡道呢？");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("几点开？");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("谁来建？");
+    await window.keyboard.press("Enter");
+    await expect
+      .poll(() => outcomesOf(window, mindId))
+      .toEqual(["working", "waiting", "held", "held", "held"]);
+    await pointAndClick(window, turn(3).getByTestId("note-column-send-now"));
+    await expect
+      .poll(() => outcomesOf(window, mindId))
+      .toEqual(["working", "waiting", "held", "waiting", "held"]);
+    await expect(input).toHaveValue("");
+    await pointAndClick(window, input);
+    await window.keyboard.press("ControlOrMeta+Enter");
+    await expect
+      .poll(() => outcomesOf(window, mindId))
+      .toEqual(["working", "waiting", "waiting", "waiting", "held"]);
+    await expect(turn(4).getByTestId("note-column-held")).toBeVisible();
+
+    // The AI takes the three at its next step, in the order they reached it, so the reply is the
+    // last one's; the one still held goes once that reply ends, in a run of its own.
     await stepTo(1);
-    await expect(earlier.getByTestId("note-column-reply")).toContainText(`已回答：${first}`);
-    await expect(sent.getByTestId("note-column-waiting")).toHaveText("等待中");
-    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
-    expect(await outcomesOf(window, mindId)).toEqual(["landed", "waiting"]);
-
-    // Then the AI takes it as the next turn of the same run, and its reply is its own.
+    await expect(turn(1).getByTestId("note-column-waiting")).toHaveCount(0);
     await stepTo(2);
-    await expect(sent.getByTestId("note-column-waiting")).toHaveCount(0);
-    await expect(sent.getByTestId("note-column-live")).toContainText("正在写回答。");
-    await stepTo(3);
     await expect
       .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
-      .toEqual(["landed", "landed"]);
-    await expect(sent.getByTestId("note-column-reply")).toContainText(`已回答：${later}`);
-    await expect(earlier.getByTestId("note-column-reply")).not.toContainText(later);
-    expect((await starts()).filter((each) => each.startsWith("run"))).toHaveLength(1);
+      .toEqual(["landed", "landed", "landed", "landed", "landed"]);
+    await expect(turn(2).getByTestId("note-column-reply")).toContainText("已回答：坡道呢？");
+    for (const index of [0, 1, 3]) {
+      await expect(turn(index).getByTestId("note-column-reply")).toHaveCount(0);
+    }
+    await expect(turn(4).getByTestId("note-column-reply")).toContainText("已回答：谁来建？");
+    expect((await starts()).filter((each) => each.startsWith("run"))).toHaveLength(2);
   } finally {
     await app.close();
   }
 });
 
-test("Stop with a request its AI hasn't taken stops the whole run and leaves that request Not sent, with Send, Edit, Copy and Discard; Esc stops too, in English and Chinese", async () => {
+test("Stop with a message held stops the reply and sends that message at once, with its own reply; Esc too; Discard takes a held message away, never sent, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    const runs = async () => (await starts()).filter((each) => each.startsWith("run")).length;
+    const later = "And add a title";
+    await nextRun("wait");
+    await send("Make it shorter");
+    await expect(group.getByTestId("note-ask-pill-text")).toHaveText("Looking at your note");
+    await send(later);
+    await expect(panel.getByTestId("note-column-held")).toBeVisible();
+    // The held message runs as the next request does: on what the mode file says when it starts.
+    await nextRun("plan");
+    await pointAndClick(window, group.getByTestId("note-ask-stop"));
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["stopped", "landed"]);
+    await expect(panel.getByTestId("note-column-turn").first()).toContainText("Stopped");
+    await expect(requestsIn(panel)).toHaveText(["Make it shorter", later]);
+    await expect(panel.getByTestId("note-column-reply").last()).toContainText(
+      "A second ramp at Kestrel Bay",
+    );
+    await expect(panel.getByTestId("note-column-held")).toHaveCount(0);
+
+    // Esc stops as Stop does, and sends the held one too, in Chinese.
+    await setLanguage(window, "zh-CN");
+    await nextRun("wait");
+    await send("再来一次");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await window.keyboard.type("港口计划增加了什么？");
+    await window.keyboard.press("Enter");
+    await expect(panel.getByTestId("note-column-held")).toBeVisible();
+    await nextRun("plan");
+    await window.keyboard.press("Escape");
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["stopped", "landed", "stopped", "landed"]);
+    await setLanguage(window, "en");
+
+    // Discard takes a held message away: it is never sent, and Stop then sends nothing.
+    await nextRun("wait");
+    const ran = await runs();
+    await send("Once more");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    // Its run under way, so the count of runs below has it.
+    await expect.poll(runs).toBe(ran + 1);
+    await window.keyboard.type("Never mind");
+    await window.keyboard.press("Enter");
+    await pointAndClick(
+      window,
+      panel.getByTestId("note-column-held").getByTestId("note-column-discard"),
+    );
+    await expect(requestsIn(panel)).toHaveText([
+      "Make it shorter",
+      later,
+      "再来一次",
+      "港口计划增加了什么？",
+      "Once more",
+    ]);
+    const before = await runs();
+    await pointAndClick(window, group.getByTestId("note-ask-stop"));
+    await expect
+      .poll(() => outcomesOf(window, mindId))
+      .toEqual(["stopped", "landed", "stopped", "landed", "stopped"]);
+    await window.waitForTimeout(500);
+    expect(await runs()).toBe(before);
+  } finally {
+    await app.close();
+  }
+});
+
+test("Edit opens a held message in place with Cancel and Save, Save greyed until the words change; while it is open the message isn't sent, though the reply ends; Save then sends the new words, Cancel the old, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    const runs = async () => (await starts()).filter((each) => each.startsWith("run")).length;
+    await stepTo(0);
+    await nextRun("queue-turn");
+    await send("What does the plan add?");
+    await expect(group.getByTestId("note-ask-pill-text")).toContainText("Writing the answer");
+    await send("And when");
+    const editor = panel.getByTestId("note-column-editor");
+    await pointAndClick(
+      window,
+      panel.getByTestId("note-column-held").getByTestId("note-column-edit"),
+    );
+    const field = editor.getByRole("textbox", { name: "Edit message" });
+    await expect(field).toHaveValue("And when");
+    await expect(field).toBeFocused();
+    await expect(editor.getByTestId("note-column-edit-cancel")).toHaveText("Cancel");
+    await expect(editor.getByTestId("note-column-edit-save")).toHaveText("Save");
+    await expect(editor.getByTestId("note-column-edit-save")).toBeDisabled();
+    await expect(panel.getByTestId("note-column-held")).toHaveCount(0);
+    await capture(window, "conversation-edit-1440-en");
+    await setLanguage(window, "zh-CN");
+    await expect(editor.getByTestId("note-column-edit-cancel")).toHaveText("取消");
+    await expect(editor.getByTestId("note-column-edit-save")).toHaveText("保存");
+    await capture(window, "conversation-edit-1440-zh");
+    await setLanguage(window, "en");
+
+    // The reply ends with the editor open: the message stays where it is, unsent.
+    await stepTo(1);
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "held"]);
+    await window.waitForTimeout(500);
+    expect(await runs()).toBe(1);
+    await expect(group.getByTestId("note-ask-stop")).toHaveCount(0);
+
+    // Save sends the new words at once.
+    await field.fill("And where");
+    await expect(editor.getByTestId("note-column-edit-save")).toBeEnabled();
+    await pointAndClick(window, editor.getByTestId("note-column-edit-save"));
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "landed"]);
+    await expect(requestsIn(panel)).toHaveText(["What does the plan add?", "And where"]);
+    await expect(panel.getByTestId("note-column-reply").last()).toContainText(
+      "Answered: And where",
+    );
+
+    // Cancel, after words were changed, sends the words as they were.
+    await stepTo(0);
+    await send("Who builds it?");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await send("And the cost");
+    await pointAndClick(
+      window,
+      panel.getByTestId("note-column-held").getByTestId("note-column-edit"),
+    );
+    await field.fill("And the cost in 2027");
+    await stepTo(1);
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "landed", "landed", "held"]);
+    await pointAndClick(window, editor.getByTestId("note-column-edit-cancel"));
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "landed", "landed", "landed"]);
+    await expect(requestsIn(panel).last()).toHaveText("And the cost");
+    await expect(panel.getByTestId("note-column-reply").last()).toContainText(
+      "Answered: And the cost",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("a held message whose run fails is Not sent, with Send, Edit, Copy and Discard; Copy takes its words, Edit gives them back to the input, Send asks it in its place, in English and Chinese", async () => {
   const { app, window } = await launched();
   try {
     await setWindowSize(app, window, 1440, 900);
@@ -972,18 +1183,20 @@ test("Stop with a request its AI hasn't taken stops the whole run and leaves tha
       await window.keyboard.press("Enter");
     };
     const later = "And add a title";
-    await nextRun("wait");
+    await stepTo(0);
+    await nextRun("limit-gated");
     await send("Make it shorter");
-    await expect(group.getByTestId("note-ask-pill-text")).toHaveText("Looking at your note");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
     await send(later);
     const unsent = panel.getByTestId("note-column-turn").last();
-    await expect(unsent.getByTestId("note-column-waiting")).toBeVisible();
-    await pointAndClick(window, group.getByTestId("note-ask-stop"));
-    await expect.poll(() => outcomesOf(window, mindId)).toEqual(["stopped", "unsent"]);
+    await expect(unsent.getByTestId("note-column-held")).toBeVisible();
+    await stepTo(1);
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["failed", "unsent"]);
 
     const notSent = unsent.getByTestId("note-column-not-sent");
     await expect(notSent.locator(".note-column-sent-word")).toHaveText("Not sent");
-    await expect(panel.getByTestId("note-column-turn").first()).toContainText("Stopped");
     const labels = () =>
       Promise.all(
         ["send", "edit", "copy-request", "discard"].map((id) =>
@@ -991,7 +1204,7 @@ test("Stop with a request its AI hasn't taken stops the whole run and leaves tha
         ),
       );
     expect(await labels()).toEqual(["Send", "Edit", "Copy", "Discard"]);
-    await shot(window, "conversation-not-sent-en");
+    await capture(window, "conversation-not-sent-en");
     await setLanguage(window, "zh-CN");
     await expect(notSent.locator(".note-column-sent-word")).toHaveText("未发送");
     await expect.poll(labels).toEqual(["发送", "编辑", "拷贝", "舍弃"]);
@@ -1010,27 +1223,27 @@ test("Stop with a request its AI hasn't taken stops the whole run and leaves tha
     await pointAndClick(window, notSent.getByTestId("note-column-send"));
     await expect
       .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
-      .toEqual(["stopped", "landed"]);
+      .toEqual(["failed", "landed"]);
     await expect(requestsIn(panel)).toHaveText(["Make it shorter", later]);
     await expect(panel.getByTestId("note-column-reply").last()).toContainText(
       "A second ramp at Kestrel Bay",
     );
     await expect(panel.getByTestId("note-column-not-sent")).toHaveCount(0);
 
-    // Esc stops a run with a request waiting in it as Stop does; Discard removes that request.
-    await nextRun("wait");
+    // Discard removes one never sent.
+    await stepTo(0);
+    await nextRun("limit-gated");
     await send("Once more");
     await expect(group.getByTestId("note-ask-stop")).toBeVisible();
-    await window.keyboard.type("Never mind");
-    await window.keyboard.press("Enter");
-    await expect(panel.getByTestId("note-column-waiting")).toBeVisible();
-    await window.keyboard.press("Escape");
+    await send("Never mind");
+    await expect(panel.getByTestId("note-column-held")).toBeVisible();
+    await stepTo(1);
     await expect
-      .poll(() => outcomesOf(window, mindId))
-      .toEqual(["stopped", "landed", "stopped", "unsent"]);
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["failed", "landed", "failed", "unsent"]);
     await pointAndClick(window, panel.getByTestId("note-column-discard"));
     await expect(requestsIn(panel)).toHaveText(["Make it shorter", later, "Once more"]);
-    expect(await outcomesOf(window, mindId)).toEqual(["stopped", "landed", "stopped"]);
+    expect(await outcomesOf(window, mindId)).toEqual(["failed", "landed", "failed"]);
   } finally {
     await app.close();
   }
@@ -1318,13 +1531,13 @@ test("a Citation in a reply shows its quote on hover and opens its Document ther
     const card = window.getByTestId("citation-card");
     await expect(card).toBeVisible();
     await expect(card).toContainText("Ferry interview");
-    await shot(window, "reply-citation-card-1440-en");
+    await capture(window, "reply-citation-card-1440-en");
     await pointAndClick(window, chip);
     await expect(window.getByTestId("viewer-title")).toContainText("Ferry interview");
     await expect(
       window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
     ).toBeVisible();
-    await shot(window, "reply-citation-opened-1440-en");
+    await capture(window, "reply-citation-opened-1440-en");
 
     // At 900 the conversation opens upward, at its end: scrolled, its top fades out.
     await setWindowSize(app, window, 900, 760);
@@ -1334,7 +1547,7 @@ test("a Citation in a reply shows its quote on hover and opens its Document ther
     const masked = () => body.evaluate((element) => getComputedStyle(element).maskImage);
     await expect.poll(() => body.evaluate((element) => element.scrollTop > 0)).toBe(true);
     await expect.poll(masked).not.toBe("none");
-    await shot(window, "upward-scrolled-900-en");
+    await capture(window, "upward-scrolled-900-en");
     await body.evaluate((element) => {
       element.scrollTop = 0;
     });
@@ -2022,7 +2235,7 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
       await expect(bar).toBeVisible();
       await expect(bar).toHaveCSS("visibility", "visible");
       await motionSettled(window);
-      await shot(window, `change-bar-${upward ? "upward" : "folded"}-900-en`);
+      await capture(window, `change-bar-${upward ? "upward" : "folded"}-900-en`);
       const [placed, input, changed] = [await boxOf(bar), await boxOf(box), await boxOf(change)];
       const where = upward ? "open upward" : "folded";
       // Between its change and the box, clear of both, and drawn over the fade the box draws.
@@ -2061,7 +2274,7 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
     await showConversation(window, 0, true);
     await expect(group.getByTestId("note-ask-panel")).toHaveCount(1);
     await dockedAbove("opened upward under the bar");
-    await shot(window, "change-bar-cursor-upward-900-en");
+    await capture(window, "change-bar-cursor-upward-900-en");
     await showConversation(window, 0, false);
     await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
     await dockedAbove("folded under the bar");
@@ -2074,7 +2287,7 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
     const card = group.getByTestId("own-ask-card");
     await expect(card).toBeVisible({ timeout: 20_000 });
     await dockedAbove("a question asked under the bar");
-    await shot(window, "change-bar-question-900-en");
+    await capture(window, "change-bar-question-900-en");
     // While it runs, the line of changes waiting shows, under the tab strip that holds the Note's
     // own controls (#3765), its Reject all pressable.
     const waitingLine = group.getByTestId("proposals-bar");

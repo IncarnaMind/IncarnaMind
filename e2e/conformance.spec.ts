@@ -34,6 +34,7 @@ import {
   removeDataFolder,
   showSourceLocations,
   stubClipboard,
+  tokenColor,
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
@@ -292,6 +293,23 @@ async function menuByButton(window: Page, place: Place): Promise<string[]> {
   return menuCommands(place.menu);
 }
 
+/** The rows a menu draws in red: what takes something away. */
+async function redItems(window: Page, menu: Locator): Promise<Set<string>> {
+  const red = await tokenColor(window, "--color-danger");
+  const ids = await menu.evaluate(
+    (element, colour) =>
+      Array.from(element.children)
+        .filter(
+          (child) =>
+            child.getAttribute("role")?.startsWith("menuitem") &&
+            getComputedStyle(child).color === colour,
+        )
+        .map((child) => child.getAttribute("data-testid") ?? ""),
+    red,
+  );
+  return new Set(ids);
+}
+
 async function closeMenu(window: Page, place: Place): Promise<void> {
   await window.keyboard.press("Escape");
   // With More › open, Esc closes only that.
@@ -302,24 +320,42 @@ async function closeMenu(window: Page, place: Place): Promise<void> {
 /**
  * The menu the registry says these commands make, by rule 5: sections one after the other, in each
  * the groups in order and a rule between them, a command within its group where it was registered.
+ * A row the menu adds of its own that takes something away (`red`, as a check card's Cut the
+ * sentence) is in the danger group, last after a rule (DESIGN.md, Menus).
  */
-function menuOf(shown: readonly string[], registry: Registry, kind: ObjectKind): string[] {
+function menuOf(
+  shown: readonly string[],
+  registry: Registry,
+  kind: ObjectKind,
+  red: ReadonlySet<string> = new Set(),
+): string[] {
   const registered = registry.menus[kind] ?? [];
   const groupOf = (id: string) => registry.groups.indexOf(registry.commands[id]?.group ?? "");
   // The More › row is the last of the main group, in the section of what it holds.
   const moreAt = registered.find((each) => each.more)?.section ?? 0;
+  const lastSection = Math.max(0, ...registered.map((each) => each.section));
   const placed = shown
     .filter((id) => id !== "—")
-    .map((id) =>
-      id.endsWith("-more")
-        ? { id, section: moreAt, group: registry.groups.indexOf("main"), at: registered.length }
-        : {
-            id,
-            section: registered.find((each) => each.id === id)?.section ?? -1,
-            group: groupOf(id),
-            at: registered.findIndex((each) => each.id === id),
-          },
-    )
+    .map((id) => {
+      if (id.endsWith("-more")) {
+        return {
+          id,
+          section: moreAt,
+          group: registry.groups.indexOf("main"),
+          at: registered.length,
+        };
+      }
+      const at = registered.findIndex((each) => each.id === id);
+      if (at === -1 && red.has(id)) {
+        return { id, section: lastSection, group: registry.groups.indexOf("danger"), at };
+      }
+      return {
+        id,
+        section: registered.find((each) => each.id === id)?.section ?? -1,
+        group: registered.find((each) => each.id === id)?.group ?? groupOf(id),
+        at,
+      };
+    })
     .sort((a, b) => a.section - b.section || a.group - b.group || a.at - b.at);
   return placed.flatMap((each, index) => {
     const before = placed[index - 1];
@@ -526,7 +562,8 @@ async function conform(run: Run, kind: ObjectKind, stage: Stage): Promise<void> 
     const byRightClick = await menuByRightClick(window, place);
     expect(byRightClick.length).toBeGreaterThan(0);
     const commandsOnly = byRightClick.at(-1) === "—" ? byRightClick.slice(0, -1) : byRightClick;
-    expect(commandsOnly).toEqual(menuOf(byRightClick, registry, kind));
+    const red = await redItems(window, place.menu);
+    expect(commandsOnly).toEqual(menuOf(byRightClick, registry, kind, red));
     await closeMenu(window, place);
     // A paragraph's right-click starts with Cut, Copy and Paste for the words under the pointer;
     // its ⋯ beside the Block holds the Block's own items (#3765).

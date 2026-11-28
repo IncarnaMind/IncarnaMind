@@ -7,14 +7,12 @@ import { onMiddleClick } from "../middleClick";
 import { useSelectable, useSeveralSelected } from "../selection";
 import { useAppStore } from "../store";
 import { useTreeItem } from "../treeKeys";
-import { DocumentLineIcon } from "./icons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import {
   clearsActions,
   rowActionsClass,
   rowButtonClass,
   rowClass,
-  rowIconClass,
   rowPadding,
 } from "./sidebarRows";
 
@@ -62,7 +60,6 @@ export function CanvasRow({ canvas, depth }: { canvas: Canvas; depth: number }) 
         className={`${rowButtonClass} ${clearsActions.menu}`}
         style={rowPadding(depth)}
       >
-        <DocumentLineIcon kind="html" className={rowIconClass(select.selected)} />
         <span data-testid="row-text" className="min-w-0 flex-1 truncate">
           {title}
         </span>

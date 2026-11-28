@@ -5,9 +5,8 @@ import type { MessageKey, MessageParams } from "../../../shared/i18n";
  * How a change reads (#1028; DESIGN.md, AI edits): a paragraph written anew
  * shows whole, its old text one "Was: …" line above it that opens the old
  * text, struck, in place; a section rewritten as a whole shows one line,
- * "Rewrote “…” · Show original", instead of one per paragraph. Shared by the
- * changes waiting in the Mind (`ProposalRewrites`) and an applied edit's
- * changes shown again (`AppliedEditLine`).
+ * "Rewrote “…” · Show original", instead of one per paragraph. Drawn for the
+ * changes waiting in the Mind (`ProposalRewrites`).
  */
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -48,13 +47,11 @@ const paragraphsBetween = (doc: ProseMirrorNode, from: number, to: number) => {
 /**
  * The sections rewritten as a whole: a top-level heading written anew, and
  * more than half the paragraphs under it, up to the next heading of its
- * level or higher, written anew, added or removed. `removedInDoc`: Blocks a
- * change removes are still in `doc`, as a waiting change's are.
+ * level or higher, written anew, added or removed.
  */
 export function rewrittenSections(
   doc: ProseMirrorNode,
   blocks: readonly ChangedBlock[],
-  removedInDoc: boolean,
 ): RewrittenSection[] {
   const tops: { node: ProseMirrorNode; pos: number }[] = [];
   doc.forEach((node, pos) => {
@@ -71,16 +68,8 @@ export function rewrittenSections(
       .find((each) => each.node.type.name === "heading" && Number(each.node.attrs.level) <= level);
     const from = pos + node.nodeSize;
     const to = next?.pos ?? doc.content.size;
-    // A Block an applied edit removed has no room left in `doc`: one that ended the section sits at its end.
-    const members = blocks.filter(
-      (block) =>
-        block.pos >= from &&
-        (block.pos < to || (block.pos === to && block.how === "removed" && !removedInDoc)),
-    );
-    const removedApart = removedInDoc
-      ? 0
-      : members.filter((block) => block.how === "removed").length;
-    const paragraphs = paragraphsBetween(doc, from, to) + removedApart;
+    const members = blocks.filter((block) => block.pos >= from && block.pos < to);
+    const paragraphs = paragraphsBetween(doc, from, to);
     const anew = members.filter((block) => ANEW.has(block.how)).length;
     if (paragraphs > 0 && anew * 2 > paragraphs) sections.push({ heading, members });
   }
@@ -136,7 +125,7 @@ export function sectionLine(t: Translate, section: RewrittenSection, shown: bool
 export const sectionKey = (section: RewrittenSection) => `${section.heading.key}:section`;
 
 /** The section a Block reads as part of, if it does. */
-export const sectionOf = (
+const sectionOf = (
   block: ChangedBlock,
   sections: readonly RewrittenSection[],
 ): RewrittenSection | null =>

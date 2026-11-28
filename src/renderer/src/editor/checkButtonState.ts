@@ -31,6 +31,12 @@ export interface CheckButtonView {
   mark: NoteStateMark | "check" | "running";
   /** A run is on, or ended since the User last typed: the button holds its room, and the line above the input keeps it. */
   fresh: boolean;
+  /**
+   * The words the button says at the widest a run can make them, with every sentence the run
+   * could cover checked: the tab strip counts the button's room at them before a run begins, so a
+   * press moves nothing beside it (#3765).
+   */
+  widest: string;
 }
 
 export interface CheckButtonInput {
@@ -69,6 +75,11 @@ export function checkButtonOf(
     short: null,
     tone: "neutral" as const,
     fresh: input.justChecked,
+    widest: widestRunningWords(
+      Math.max(input.running?.total ?? 0, state?.checkable ?? 0),
+      t,
+      language,
+    ),
   };
   if (input.running) {
     const { done, total } = input.running;
@@ -158,6 +169,13 @@ export function checkButtonOf(
   };
 }
 
+/** The running words with `sentences` all checked, or the uncounted words when none are counted. */
+function widestRunningWords(sentences: number, t: Translate, language: Language): string {
+  if (sentences === 0) return t("checkButton.checking.uncounted");
+  const count = new Intl.NumberFormat(language).format(sentences);
+  return t("checkButton.checking", { done: count, total: count });
+}
+
 /**
  * What else the Note's state leaves, for the button's tooltip: never its time or what can be cited,
  * which the card says once (#3840).
@@ -197,7 +215,11 @@ export function verifyButtonOf(
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   if (input.running || input.asked)
     return checkButtonOf({ ...input, state: null, wholeCheck: false }, t, language);
-  const base = { short: null, fresh: input.justChecked };
+  const base = {
+    short: null,
+    fresh: input.justChecked,
+    widest: widestRunningWords(input.toCheck + input.marked, t, language),
+  };
   if (input.toCheck > 0) {
     return {
       ...base,

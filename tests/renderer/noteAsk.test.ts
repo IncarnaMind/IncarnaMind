@@ -91,7 +91,9 @@ const {
   askFromSelection,
   askInNote,
   deleteNoteConversation,
+  editRequest,
   firstWordsOf,
+  keepInInput,
   seedConversationFor,
   seedRunning,
   selectConversation,
@@ -99,9 +101,11 @@ const {
   sendUnsent,
   startNewConversation,
   turnApplied,
+  useEditedRequests,
   useNoteAsks,
   useNoteColumns,
   useNoteConversations,
+  withGivenBack,
 } = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
@@ -129,6 +133,7 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   mode: null,
   modeNew: false,
   queued: [],
+  held: [],
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {
@@ -525,6 +530,7 @@ describe("what the User's own AI asks (#3653)", () => {
     action: { kind: "command" as const, value: "python3 late.py" },
     answers: ["deny" as const, "once" as const],
     suggested: [],
+    forRequest: [],
     read: null,
   };
 
@@ -547,5 +553,34 @@ describe("what the User's own AI asks (#3653)", () => {
     expect(ask()?.questions).toEqual([question]);
     tell(event({ state: "landed", questions: [question] }));
     expect(ask()?.questions).toEqual([]);
+  });
+});
+
+describe("words given back to the input", () => {
+  // protects=words a held message's editor kept, its message gone, go after what the input holds, on a line of their own; a sent request's Edit still fills only an empty input (#3765); fails_when=the kept words are dropped because the input holds text, or a sent request's Edit writes over what is typed
+  test("keep what is typed, the kept words on a new line after it", () => {
+    useEditedRequests.setState({ byMind: {} });
+    keepInInput("m1", "and where");
+    const kept = useEditedRequests.getState().byMind.m1;
+    expect(kept).toEqual({ words: "and where", after: true });
+    if (!kept) throw new Error("Nothing kept");
+    expect(withGivenBack("who builds it ", kept)).toBe("who builds it\nand where");
+    expect(withGivenBack("  ", kept)).toBe("and where");
+    editRequest("m1", "what does the plan add");
+    const edited = useEditedRequests.getState().byMind.m1;
+    if (!edited) throw new Error("Nothing given back");
+    expect(withGivenBack("who builds it", edited)).toBe("who builds it");
+    expect(withGivenBack("", edited)).toBe("what does the plan add");
+  });
+
+  // protects=words kept from two editors before the input takes them are both kept, in order (#3765); fails_when=the second replaces the first
+  test("keep both when two editors' words are kept before the input takes them", () => {
+    useEditedRequests.setState({ byMind: {} });
+    keepInInput("m1", "and where");
+    keepInInput("m1", "and who");
+    expect(useEditedRequests.getState().byMind.m1).toEqual({
+      words: "and where\nand who",
+      after: true,
+    });
   });
 });

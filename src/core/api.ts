@@ -2474,6 +2474,8 @@ export interface WordExportReport {
   unknownParts: string[];
   /** The header and the footer, kept in the file though their Blocks were deleted from the Mind. */
   keptFurniture: ("header" | "footer")[];
+  /** The parts, by their names in the package, of the headers and footers `keptFurniture` names. */
+  furnitureParts: string[];
 }
 
 /**
@@ -8906,6 +8908,18 @@ export interface MindCheckRun {
    * the same (#2447).
    */
   unexamined: string[];
+  /**
+   * Sentences an outside check task left unreported (#3862), by `sentenceKey`: they keep the
+   * Check button on the Note until checked, undone, or removed, without marking them as
+   * classifier-undecided (`unexamined`, #1682).
+   */
+  unchecked?: string[];
+  /**
+   * Blocks an outside AI wrote or changed since the last whole check (#3862), by Block id: any
+   * `to-check` sentence inside them keeps the Check button on the Note until checked, undone, or
+   * removed, while User edits in other Blocks stay under `#3840`.
+   */
+  uncheckedBlocks?: string[];
 }
 
 /**
@@ -9295,9 +9309,9 @@ export interface AskedChangeTransition {
 export interface AskedChangeApplication {
   /** Identifies this application's in-session Undo in the core. */
   undoId: string;
-  /** The original text with the turn's Proposals still marked, for Review. */
+  /** The original text with the turn's Proposals still marked, to place what the turn changed. */
   reviewBefore: Uint8Array;
-  /** The version after acceptance; Review is offered only while the editor is still at it. */
+  /** The version after acceptance; the changes are placed only while the editor is still at it. */
   afterVector: Uint8Array;
   /** The content after acceptance, including deletions that advance no clock. */
   afterFingerprint: string;
@@ -13473,7 +13487,7 @@ export type OwnAiCheckProblem =
   | "plan-limit"
   | "billing"
   | "timeout"
-  /** It sent nothing for six minutes, and was stopped. */
+  /** It got nowhere for three minutes, sending nothing or only that it was alive, and was stopped. */
   | "stalled"
   /** Condensing its conversation so far didn't finish in ten minutes. */
   | "compaction"
@@ -13564,8 +13578,9 @@ export type NoteTurnProblem =
 
 /**
  * How a request at a Note's foot went to the User's own AI: "started", in the background; "sent",
- * into the conversation's request running already, whose AI takes it at its next step (#3765);
- * "link", no agent can run it so and it goes by the link; "problem", one can't run now, with why.
+ * while a request of the conversation runs: held by IncarnaMind until that reply ends, then sent
+ * as a request of its own (#3765); "link", no agent can run it so and it goes by the link;
+ * "problem", one can't run now, with why.
  */
 export type NoteRequestStart =
   | { kind: "started"; pairing: AgentPairing; conversationId: string; turnId: string }
@@ -13639,10 +13654,12 @@ export interface NoteTurn {
   /** The agent's last words. */
   reply: string;
   /**
-   * "waiting": sent while another request ran, and not yet taken by its AI (#3765); "unsent": that
-   * run ended before its AI took it, so it never reached the AI.
+   * "held": sent while another request ran, and held by IncarnaMind until that reply ends: the User
+   * may still send it at once, change it or discard it (#3765). "waiting": sent at once into the
+   * request running, and not yet taken by its AI. "unsent": it could never be sent (its run
+   * failed, IncarnaMind quit, the AI went), so it never reached the AI.
    */
-  outcome: "working" | "landed" | "stopped" | "failed" | "waiting" | "unsent";
+  outcome: "working" | "landed" | "stopped" | "failed" | "held" | "waiting" | "unsent";
   problem: NoteTurnProblem | null;
   /** ISO 8601, UTC. */
   at: string;
@@ -13662,6 +13679,8 @@ export interface NoteTurn {
   mode: string | null;
   /** Paragraphs changed at once in `mindId` by this turn (#3731). */
   changedCount: number;
+  /** Its AI ended it at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
 }
 
 /**
@@ -13676,7 +13695,10 @@ export interface NoteAction {
   value: string;
   /** For a file: it is in the conversation's own folder. */
   inFolder?: boolean;
+  /** For a web page, or a command that would reach a site: the site. */
   host?: string;
+  /** For a command: the folder it runs in, where that isn't the conversation's own. */
+  folder?: string;
   /** For a tool: the server it is on, and the input it would send, one row per field. */
   server?: string;
   input?: { name: string; value: string }[];
@@ -13693,8 +13715,12 @@ export interface NoteAction {
   change?: string;
   /** For a file it writes: what it writes, whole. */
   content?: string;
-  /** For a file, or a command that names one: one the AI reads as its own (CLAUDE.md, .claude/, .mcp.json). */
-  steers?: true;
+  /**
+   * For a file, or a command that names one: the command-line AI that reads it as its own, which
+   * may not be the one asking (Claude Code's CLAUDE.md, .claude/ and .mcp.json; Codex's .codex/,
+   * .agents/ and its own home).
+   */
+  steers?: "claude-code" | "codex";
   /** For a file: where it really leads can't be told (a loop of links, say), so it is asked about. */
   unsure?: true;
   /** For a command: it keeps running in the background, or runs outside the AI's own sandbox. */
@@ -13702,6 +13728,8 @@ export interface NoteAction {
   unsandboxed?: true;
   /** For a command: what the AI says it does, in its own words, as its own prompt shows them. */
   description?: string;
+  /** For a command: why the AI says it asks, in its own words. */
+  reason?: string;
 }
 
 /**
@@ -13714,7 +13742,7 @@ export type NoteKept = "request" | "conversation" | "everywhere";
 /**
  * What a rule the AI suggests covers: commands that start with `start`, one exact command, pages
  * on a site, one tool of a server, web searches, reading or changing the files in a folder (`""`:
- * the conversation's own); or a rule the card can't say in plain words, as it is.
+ * the conversation's own), changing one file; or a rule the card can't say in plain words, as it is.
  */
 export type NoteRule =
   | { kind: "commands"; start: string }
@@ -13723,6 +13751,7 @@ export type NoteRule =
   | { kind: "tool"; tool: string; server: string }
   | { kind: "searches" }
   | { kind: "files"; change: boolean; folder: string }
+  | { kind: "file"; path: string }
   | { kind: "rule"; rule: string };
 
 /**
@@ -13737,19 +13766,25 @@ export type NoteSuggested =
   | { kind: "other"; kept: NoteKept; text: string };
 
 /**
- * An answer to a question: "deny"; "once"; or "suggested", Claude Code's own "don't ask again",
- * which applies every answer its question suggests, as it gave them.
+ * An answer to a question: "deny"; "once"; "suggested", the AI's own "don't ask again", which
+ * applies every answer its question suggests, as it gave them; or "request", the AI's own "allow
+ * until this request ends" where its question offers one (Codex's "for this session").
  */
-export type NoteAnswer = "deny" | "once" | "suggested";
+export type NoteAnswer = "deny" | "once" | "suggested" | "request";
 
 /** What the User's own AI asks before it does something with a tool of its own (#3653). */
 export interface NoteQuestion {
   id: string;
   action: NoteAction;
-  /** In the card's order: "deny", "suggested" when it suggests any, "once". */
+  /**
+   * In the card's order: "deny", "suggested" when it suggests any, "request" when it offers it,
+   * "once".
+   */
   answers: NoteAnswer[];
   /** The answers its own question suggests, all applied by "suggested". */
   suggested: NoteSuggested[];
+  /** What "request" allows until the request ends; empty where it isn't offered. */
+  forRequest: NoteSuggested[];
 }
 
 /** How a step of the AI's own went with its question: as answered, or ended before it was. */
@@ -13816,6 +13851,26 @@ export interface NoteTurnEvent {
    * oldest first (#3765): while there are any, the run goes on after this request ends.
    */
   queued: string[];
+  /** Ended at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
+  /** The messages the User sent meanwhile that IncarnaMind holds for the Note, oldest first (#3765). */
+  held: string[];
+}
+
+/**
+ * A held message's editor (#3765): opened, the message isn't sent until it closes; closed with
+ * Cancel, the message stays as it was; with Save, it takes the new words. Closed in every window
+ * while no request of the Note runs, the oldest held is sent at once.
+ */
+export type NoteHeldEdit = { kind: "open" } | { kind: "cancel" } | { kind: "save"; words: string };
+
+/** A held message's editor opened or closed in one window (#3765). */
+export interface NoteHeldEditInput {
+  conversationId: string;
+  turnId: string;
+  /** The window's own id: the message waits for its editor in each window it is open in. */
+  clientId: string;
+  edit: NoteHeldEdit;
 }
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
@@ -16561,14 +16616,32 @@ export interface CoreApi {
    * Sends a request typed at a Note's foot to the User's own command-line AI, in the background, in
    * the Note's one conversation (ADR-0034): on `pairingId`, or the first agent that can run it.
    * Asks once for the consent to send it. Its progress and end are told by "agents.noteTurn".
-   * While a request of the Note's runs, this one goes into that run at once, about the whole Note,
-   * as a turn of its own (#3765).
+   * While a request of the Note's runs, this one is held, about the whole Note, and sent as a
+   * request of its own once that reply ends, each held in the order sent (#3765).
    */
   askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
-  /** Stops the request running in the conversation, if one is: what it applied stays, with its Undo. */
+  /**
+   * Stops the request running in the conversation, if one is: what it applied stays, with its
+   * Undo, and the oldest message held for it is sent at once (#3765).
+   */
   stopInNote(conversationId: string): Promise<void>;
-  /** Removes a request of the conversation that was never sent (#3765); any other stays. */
+  /**
+   * Removes a request of the conversation that was never sent, or a message held for it, which
+   * then is never sent (#3765); any other stays.
+   */
   discardInNote(conversationId: string, turnId: string): Promise<void>;
+  /**
+   * Sends a message held for the conversation at once (#3765): into the request running, whose AI
+   * takes it at its next step, or as a request of its own when none runs. Any other does nothing.
+   * Refused while its editor is open in a window.
+   */
+  sendNowInNote(conversationId: string, turnId: string): Promise<void>;
+  /**
+   * Opens or closes a held message's editor in a window (#3765). Whether the message was still
+   * held: if not, it has gone, the editor isn't opened and its words aren't kept. An editor left
+   * open in a window that closes, crashes or loads again is closed as by Cancel.
+   */
+  editHeldInNote(input: NoteHeldEditInput): Promise<boolean>;
   /**
    * Answers what the User's own AI asks in the conversation (#3653), with one of the answers the
    * question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
@@ -16609,10 +16682,10 @@ export interface CoreApi {
     mode: NoteMode | null,
   ): Promise<void>;
   /**
-   * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
-   * is on this computer's path (ADR-0034). Looking starts nothing.
+   * The command-line AIs a request at a Note's foot can run on here, by their pairing's client: each
+   * one's command is on this computer's path (ADR-0034). Looking starts nothing.
    */
-  ownAiRunsHere(): Promise<boolean>;
+  ownAiRunsHere(): Promise<("claude-code" | "codex")[]>;
   /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
@@ -17525,6 +17598,8 @@ const methods: Record<CoreApiMethod, true> = {
   askInNote: true,
   stopInNote: true,
   discardInNote: true,
+  sendNowInNote: true,
+  editHeldInNote: true,
   answerInNote: true,
   noteTurnNow: true,
   noteRunningTurns: true,

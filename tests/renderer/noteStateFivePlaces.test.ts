@@ -49,6 +49,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   supported: 0,
   checkedAt: null,
   unexamined: [],
+  unchecked: [],
   ...parts,
 });
 
