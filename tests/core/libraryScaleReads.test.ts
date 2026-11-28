@@ -93,7 +93,11 @@ test("an agent lent an example lists 12 Notes with about as many reads as 2", as
     for (let i = 1; i <= count; i++) await core.createMind({ title: `Tides ${i}` });
     // A call reads the record of each Note no older than the pairing, to see whether the pairing
     // wrote it; Notes made in the very millisecond the pairing is would each be read once more.
-    const newest = (await core.listMinds()).map((mind) => mind.createdAt).sort().at(-1) ?? "";
+    const newest =
+      (await core.listMinds())
+        .map((mind) => mind.createdAt)
+        .sort()
+        .at(-1) ?? "";
     await vi.waitFor(() => expect(new Date().toISOString() > newest).toBe(true));
     const { launch, pairing } = await core.connectAgent({
       name: "Claude Code",
