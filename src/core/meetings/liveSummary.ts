@@ -5,7 +5,7 @@ import { InvalidInputError, TranslatableError } from "../errors";
 import {
   type StoredSummaryQuote,
   sameSummaryQuote,
-  storeSummaryQuote,
+  storeSummaryQuotes,
   summaryEvidenceCue,
   summaryQuoteSurvives,
 } from "./summaryEvidence";
@@ -252,12 +252,14 @@ export function createLiveSummaries(options: Options) {
         const lastItemId = Math.max(lastCorrectedId ?? 0, options.saved(m.id)?.lastItemId ?? 0);
         const value = readMeetingSummaryUpdate(reply, input, lastItemId);
         const speech = slice.map(summaryEvidenceCue);
-        for (const [id, words] of Object.entries(value.evidence)) {
-          const quote = storeSummaryQuote(words, speech);
-          const quotes = evidence[Number(id)] ?? [];
-          if (!quotes.some((old) => sameSummaryQuote(old, quote))) {
-            evidence[Number(id)] = [...quotes, quote];
+        for (const [id, cited] of Object.entries(value.evidence)) {
+          const next = [...(evidence[Number(id)] ?? [])];
+          for (const quote of storeSummaryQuotes(cited, speech)) {
+            if (!next.some((old) => sameSummaryQuote(old, quote))) {
+              next.push(quote);
+            }
           }
+          evidence[Number(id)] = next;
         }
         failedAt.delete(m.id);
         const ready = !live(now) && now.transcript?.state === "saved" && currentCues.length === to;

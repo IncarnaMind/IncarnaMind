@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
-import { storeSummaryQuote, summaryEvidenceCue } from "../../src/core/meetings/summaryEvidence";
+import {
+  storeSummaryQuote,
+  storeSummaryQuotes,
+  summaryEvidenceCue,
+} from "../../src/core/meetings/summaryEvidence";
 import { meetingSummarySources } from "../../src/core/meetings/summarySources";
 
 test("locates distinct original turns and leaves an ambiguous quote unlinked", () => {
@@ -38,4 +42,35 @@ test("an ambiguous new quote stays unlocated while old uniquely matched quotes s
   const units = transcriptUnits({ cues: [repeat], gaps: [] });
   expect(meetingSummarySources(units, [quote])).toEqual([]);
   expect(meetingSummarySources(units, [text])).toEqual([{ startMs: 3_000, endMs: 4_000, text }]);
+});
+
+test("a paired excerpt resolves a repeated confirmation to the match strictly closest to its anchor", () => {
+  const cues = [
+    { startMs: 1_000, endMs: 2_000, speaker: "A", text: "Each team can report its counts." },
+    { startMs: 2_000, endMs: 3_000, speaker: "B", text: "We will count them." },
+    { startMs: 3_000, endMs: 4_000, speaker: "C", text: "That helps with the budget." },
+    { startMs: 4_000, endMs: 5_000, speaker: "B", text: "We will count them." },
+  ];
+  const speech = cues.map(summaryEvidenceCue);
+  const units = transcriptUnits({ cues, gaps: [] });
+
+  const anchored = storeSummaryQuotes(
+    ["Each team can report its counts.", "We will count them."],
+    speech,
+  );
+  expect(meetingSummarySources(units, anchored)).toEqual([
+    { startMs: 1_000, endMs: 2_000, text: cues[0]?.text },
+    { startMs: 2_000, endMs: 3_000, text: cues[1]?.text },
+  ]);
+
+  const standalone = storeSummaryQuotes(["We will count them."], speech);
+  expect(meetingSummarySources(units, standalone)).toEqual([]);
+
+  const equidistant = storeSummaryQuotes(
+    ["That helps with the budget.", "We will count them."],
+    speech,
+  );
+  expect(meetingSummarySources(units, equidistant)).toEqual([
+    { startMs: 3_000, endMs: 4_000, text: cues[2]?.text },
+  ]);
 });

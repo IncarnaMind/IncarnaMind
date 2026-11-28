@@ -20,7 +20,7 @@ const friday = "Correction, the launch is on Friday.";
 function launchReply(text: string, quote: string, id: number | null) {
   return JSON.stringify({
     summary: text,
-    changes: [{ id, kind: "decision", status: "active", text, quote }],
+    changes: [{ id, kind: "decision", status: "active", text, quotes: [quote] }],
     ...(id !== null && { unchanged: [] }),
   });
 }
@@ -179,11 +179,19 @@ test("a closing update can keep a withdrawn action and publish the revised launc
           kind: "decision",
           status: "active",
           text: date,
-          quote: closing ? friday : "the launch is on Monday",
+          quotes: [closing ? friday : "the launch is on Monday"],
         },
         ...(closing
           ? []
-          : [{ id: null, kind: "action", status: "cancelled", text: withdrawn, quote: withdrawn }]),
+          : [
+              {
+                id: null,
+                kind: "action",
+                status: "cancelled",
+                text: withdrawn,
+                quotes: [withdrawn],
+              },
+            ]),
       ],
       ...(closing && { unchanged: [2] }),
     });
@@ -220,7 +228,7 @@ test("a repeated saved action does not hide the new action beside it after Stop 
     kind: "action",
     status: "active",
     text,
-    quote: text,
+    quotes: [text],
   });
   const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) => {
     const next = prompt.includes(cartonAction);
@@ -796,21 +804,21 @@ const zhOpeningReply = JSON.stringify({
       kind: "decision",
       status: "active",
       text: "北桥项目的内审定于周二。",
-      quote: "北桥项目的内审定于周二。",
+      quotes: ["北桥项目的内审定于周二。"],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "陈琳发出议程。",
-      quote: "由陈琳发出议程。",
+      quotes: ["由陈琳发出议程。"],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "唐敏周五清点门卡。",
-      quote: "唐敏周五清点门卡。",
+      quotes: ["唐敏周五清点门卡。"],
     },
   ],
 });
@@ -823,21 +831,21 @@ const zhReconciledCancelReply = JSON.stringify({
       kind: "decision",
       status: "active",
       text: "北桥项目内审改到周四，周二不举行。",
-      quote: "北桥项目内审最终改到周四，周二不举行。",
+      quotes: ["北桥项目内审最终改到周四，周二不举行。"],
     },
     {
       id: 2,
       kind: "action",
       status: "cancelled",
       text: "陈琳发出原议程（已取消）。",
-      quote: "取消周二的北桥项目内审和原议程。",
+      quotes: ["取消周二的北桥项目内审和原议程。"],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "陈琳向所有参会人确认内审改到周四。",
-      quote: "由陈琳向所有参会人确认这一改动。",
+      quotes: ["由陈琳向所有参会人确认这一改动。"],
     },
   ],
   unchanged: [3],
@@ -852,14 +860,14 @@ const zhUnreconciledCancelReply = JSON.stringify({
       kind: "decision",
       status: "active",
       text: "北桥项目内审改到周四，周二不举行。",
-      quote: "北桥项目内审最终改到周四，周二不举行。",
+      quotes: ["北桥项目内审最终改到周四，周二不举行。"],
     },
     {
       id: null,
       kind: "action",
       status: "active",
       text: "陈琳向所有参会人确认内审改到周四。",
-      quote: "由陈琳向所有参会人确认这一改动。",
+      quotes: ["由陈琳向所有参会人确认这一改动。"],
     },
   ],
 });
@@ -1200,7 +1208,7 @@ test("once all prior items are closed, later updates return to the two-key contr
               kind: "action",
               status: "cancelled",
               text: "Agenda cancelled.",
-              quote: "Cancel the agenda",
+              quotes: ["Cancel the agenda"],
             },
           ],
           unchanged: [],
@@ -1218,7 +1226,7 @@ test("once all prior items are closed, later updates return to the two-key contr
             kind: "action",
             status: "active",
             text: openAction,
-            quote: openAction,
+            quotes: [openAction],
           },
         ],
       });
@@ -1242,6 +1250,110 @@ test("once all prior items are closed, later updates return to the two-key contr
       { id: 1, kind: "action", status: "cancelled", text: "Agenda cancelled." },
     ]);
     expect(run).toHaveBeenCalledTimes(3);
+  } finally {
+    core.close();
+  }
+});
+
+test("a multi-turn commitment with two excerpts resolves both turns and disambiguates a repeated confirmation by anchor proximity (#3472)", async () => {
+  const promptLine = "Could every team report how many crates it needs?";
+  const uptake = "We will go back and count them.";
+  const budget = "That will let us finalize the budget.";
+  const repeat = "We will go back and count them.";
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
+    JSON.stringify({
+      summary: "Each team will count how many crates it needs.",
+      changes: [
+        {
+          id: null,
+          kind: "action",
+          status: "active",
+          text: "Each team will count and report how many crates it needs.",
+          quotes: [promptLine, uptake],
+        },
+        {
+          id: null,
+          kind: "action",
+          status: "active",
+          text: "Finalize the budget from the counts.",
+          quotes: [budget, repeat],
+        },
+      ],
+    }),
+  );
+  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+    promptLine,
+    uptake,
+    budget,
+    repeat,
+  ]);
+  try {
+    for (let i = 0; i < 4; i++) await speakTurn(false);
+    await until(core, meeting.id, (state) => state.lines >= 4);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    const crateSources = await core.getMeetingSummaryItemSources(meeting.id, 1);
+    expect(crateSources?.sources.map((source) => source.text)).toEqual([promptLine, uptake]);
+    expect(crateSources?.sources[1]?.startMs).toBeGreaterThan(
+      crateSources?.sources[0]?.startMs ?? 0,
+    );
+    // Equidistant matches around `budget` leave the repeated line unlinked while keeping the anchor.
+    const budgetSources = await core.getMeetingSummaryItemSources(meeting.id, 2);
+    expect(budgetSources?.sources.map((source) => source.text)).toEqual([budget]);
+  } finally {
+    core.close();
+  }
+});
+
+test("a stitched cross-utterance quote is rejected atomically while preserving the warm summary for recovery at Stop (#3472)", async () => {
+  const opening = "Northbridge review is scheduled for Tuesday.";
+  const request = "Can each department report how many crates it needs?";
+  const confirm = "Yes, we will count them back at the office.";
+  let followUpCalls = 0;
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) => {
+    if (!prompt.includes(request)) {
+      return JSON.stringify({
+        summary: opening,
+        changes: [
+          { id: null, kind: "decision", status: "active", text: opening, quotes: [opening] },
+        ],
+      });
+    }
+    followUpCalls++;
+    return JSON.stringify({
+      summary: "Departments will count required crates.",
+      changes: [
+        {
+          id: null,
+          kind: "action",
+          status: "active",
+          text: "Each department will count required crates.",
+          quotes: followUpCalls === 1 ? [`${request} ${confirm}`] : [request, confirm],
+        },
+      ],
+      unchanged: [1],
+    });
+  });
+  const { core, meeting, speakTurn, summary } = await startTimedMeeting(run, [
+    opening,
+    request,
+    confirm,
+  ]);
+  try {
+    await speakTurn(false);
+    await vi.waitFor(async () => expect((await summary())?.items).toHaveLength(1));
+    await speakTurn(true);
+    await speakTurn(false);
+    await until(core, meeting.id, (state) => state.lines >= 3);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    expect((await summary())?.text).toBe(opening);
+
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect((await summary())?.items).toHaveLength(2);
+    const sources = await core.getMeetingSummaryItemSources(meeting.id, 2);
+    expect(sources?.sources.map((source) => source.text)).toEqual([request, confirm]);
+    expect(followUpCalls).toBe(2);
   } finally {
     core.close();
   }

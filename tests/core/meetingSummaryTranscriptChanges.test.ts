@@ -174,8 +174,8 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
       JSON.stringify({
         summary: overview,
         changes: [
-          { ...decision, id: null, quote: appointment },
-          { ...action, id: null, quote: assignment },
+          { ...decision, id: null, quotes: [appointment] },
+          { ...action, id: null, quotes: [assignment] },
         ],
       }),
     )

@@ -16,7 +16,7 @@ const update = z.strictObject({
       kind: z.enum(["decision", "action"]),
       status: z.enum(["active", "done", "cancelled"]),
       text,
-      quote: text,
+      quotes: z.array(text).min(1).max(2),
     }),
   ),
 });
@@ -29,7 +29,7 @@ export function readMeetingSummaryUpdate(
   raw: string,
   input: MeetingSummaryInput,
   lastReservedId = 0,
-): { text: string; items: MeetingSummaryItem[]; evidence: Record<number, string> } {
+): { text: string; items: MeetingSummaryItem[]; evidence: Record<number, string[]> } {
   let json: unknown;
   try {
     json = JSON.parse(raw);
@@ -45,7 +45,7 @@ export function readMeetingSummaryUpdate(
     input.items === undefined && input.previous ? normalizeSummaryEvidence(input.previous) : "";
   const existing = new Map(input.items?.map((item) => [item.id, item]));
   const updated = new Map(existing);
-  const evidence: Record<number, string> = {};
+  const evidence: Record<number, string[]> = {};
   const touched = new Set<number>();
   const addressed = new Set(reply.data.changes.map((change) => change.id));
   let nextId = lastReservedId + 1;
@@ -57,9 +57,17 @@ export function readMeetingSummaryUpdate(
       touched.add(change.id);
       if (prior.status === change.status && prior.text === change.text) continue;
     }
-    const quote = normalizeSummaryEvidence(change.quote);
-    const heard = speech.some((line) => line.includes(quote));
-    if (!heard && (change.status !== "active" || !historical.includes(quote))) return invalid();
+    const cited: string[] = [];
+    const seen = new Set<string>();
+    for (const rawQuote of change.quotes) {
+      const quote = normalizeSummaryEvidence(rawQuote);
+      const heard = speech.some((line) => line.includes(quote));
+      if (!heard && (change.status !== "active" || !historical.includes(quote))) return invalid();
+      if (!seen.has(quote)) {
+        seen.add(quote);
+        cited.push(rawQuote);
+      }
+    }
     if (change.id === null) {
       const repeat = input.items?.find(
         (item) =>
@@ -73,7 +81,7 @@ export function readMeetingSummaryUpdate(
     const id = change.id ?? nextId++;
     if (!Number.isSafeInteger(id)) return invalid();
     updated.set(id, { id, kind: change.kind, status: change.status, text: change.text });
-    evidence[id] = change.quote;
+    evidence[id] = cited;
   }
   if (hasActiveSummaryItems(input.items)) {
     if (!reply.data.unchanged) return invalid();

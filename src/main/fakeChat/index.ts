@@ -225,13 +225,13 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
         revision,
       }): (Omit<MeetingSummaryItem, "id"> & {
         id: number | null;
-        quote: string;
+        quotes: string[];
       })[] => {
         const prior = items.find((item) => item.text === text || item.text === revision?.text);
         if (revision && said(revision.text) && prior?.text !== revision.text)
-          return [{ id: prior?.id ?? null, kind, ...revision, quote: revision.text }];
+          return [{ id: prior?.id ?? null, kind, ...revision, quotes: [revision.text] }];
         if (prior || !said(text)) return [];
-        return [{ id: null, kind, status: "active", text, quote: text }];
+        return [{ id: null, kind, status: "active", text, quotes: [text] }];
       },
     ) ?? [];
   return JSON.stringify({

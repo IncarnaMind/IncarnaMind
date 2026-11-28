@@ -53,10 +53,10 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(final.text).toBe(words.overview);
       expect(final.items).toEqual(items);
       expect((together ? warm : final).evidence).toMatchObject({
-        2: date,
-        3: owner,
-        4: cancelled,
-        5: done,
+        2: [date],
+        3: [owner],
+        4: [cancelled],
+        5: [done],
       });
       if (together) expect(final.evidence).toEqual({});
     });

@@ -40,22 +40,22 @@ const completed = {
 };
 
 const openingChanges = [
-  { ...initial[0], id: null, quote: "the warehouse stays open through 18 October" },
-  { ...initial[1], id: null, quote: "Casey Park will lead the supplier handover on 7 October" },
-  { ...initial[2], id: null, quote: "Avery Ross will send the invitations" },
+  { ...initial[0], id: null, quotes: ["the warehouse stays open through 18 October"] },
+  { ...initial[1], id: null, quotes: ["Casey Park will lead the supplier handover on 7 October"] },
+  { ...initial[2], id: null, quotes: ["Avery Ross will send the invitations"] },
 ];
 const sampleReturnsChange = {
   ...sampleReturns,
   id: null,
-  quote: "The service team will bring sample returns to the next review.",
+  quotes: ["The service team will bring sample returns to the next review."],
 };
 const finalChanges = [
   {
     ...corrected,
-    quote: "We are moving it from 7 October to 14 October. Jonah Reed owns it now.",
+    quotes: ["We are moving it from 7 October to 14 October. Jonah Reed owns it now."],
   },
-  { ...cancelled, quote: "Avery Ross should not send any invitations" },
-  { ...completed, quote: "The service team has already sent the sample returns" },
+  { ...cancelled, quotes: ["Avery Ross should not send any invitations"] },
+  { ...completed, quotes: ["The service team has already sent the sample returns"] },
 ];
 
 test.each(["before-stop", "in-flight-at-stop", "after-stop"] as const)(
