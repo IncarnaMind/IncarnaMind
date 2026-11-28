@@ -17,8 +17,10 @@ import {
   nameMind,
   newMind,
   openDocumentMenu,
+  openProviderRow,
   openSettings,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
   showSourceLocations,
   urlsOpened,
@@ -164,8 +166,8 @@ test("a saved ChatGPT plan's Continue with ChatGPT opens OpenAI's sign-in for In
   const { app, window } = await launchApp(dataDir);
   await interceptOpenExternal(app);
 
-  // A plan is no longer added in IncarnaMind (#3767): this one was saved before, and its own page
-  // in Accounts and keys signs in again. Nothing is signed in here: the browser is stood in for.
+  // No plan is added in IncarnaMind (#3767): this one is saved through the bridge, and its own
+  // page in Accounts and keys signs in again. Nothing is signed in here: the browser is stood in for.
   const providerId = await window.evaluate(
     async () =>
       (
@@ -249,7 +251,7 @@ test("first run asks for no model; with no AI, a Note has no assistant and its f
   await connect.press("Enter");
   const settings = window.getByTestId("settings");
   await expect(settings).toHaveAttribute("data-page", "ai");
-  // A model is no longer set up in IncarnaMind: with none, nothing offers to add one.
+  // No model is set up in IncarnaMind (#3767): with none, nothing offers to add one.
   await expect(settings.getByTestId("ai-use-model-open")).toHaveCount(0);
   await expect(settings.getByTestId("models-add-provider")).toHaveCount(0);
   await first.app.close();
@@ -283,6 +285,52 @@ test("first run fits a small window; a long first line wraps, and the line where
   expect(noAiBox.x + noAiBox.width).toBeLessThanOrEqual(footBox.x + footBox.width + 0.5);
   expect(await foot.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await app.close();
+});
+
+test("an API key typed on one provider's page isn't kept for another's, and a saved server's address can't change under a typed key", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    const openai = await saveProvider(window, {
+      kind: "openai",
+      apiKey: `sk-proj-${"aZ3".repeat(20)}`,
+      modelId: "gpt-5.4-mini",
+    });
+    const anthropic = await saveProvider(window, {
+      kind: "anthropic",
+      apiKey: `sk-ant-api03-${"aZ3".repeat(14)}`,
+      modelId: "claude-haiku-5-5",
+    });
+    const server = await saveProvider(window, {
+      kind: "openai-compatible",
+      baseUrl: "https://api.example.com/v1",
+      modelId: "harbour-model",
+    });
+
+    // Typed for OpenAI, the key isn't kept for Anthropic: there is nothing to test or use with it.
+    const settings = await openProviderRow(window, openai);
+    const page = settings.getByTestId("provider-page");
+    const key = () => page.getByTestId("provider-page-key");
+    await key().fill("sk-typed-for-openai");
+    await settings.getByTestId("models-back").click();
+    await settings.locator(`[data-testid="provider-row"][data-provider-id="${anthropic}"]`).click();
+    await expect(page).toHaveAttribute("data-provider-id", anthropic);
+    await expect(key()).toHaveValue("");
+    await expect(page.getByTestId("provider-page-save-key")).toHaveCount(0);
+    await settings.getByTestId("models-back").click();
+
+    // A saved server's address is fixed on its page: a key typed there can only go to that host.
+    await settings.locator(`[data-testid="provider-row"][data-provider-id="${server}"]`).click();
+    await expect(page).toHaveAttribute("data-provider-id", server);
+    await expect(page.getByTestId("provider-page-address")).toHaveText(
+      "https://api.example.com/v1",
+    );
+    await expect(page.getByLabel("Server URL")).toHaveCount(0);
+    await key().fill("sk-typed-for-example");
+    await expect(key()).toHaveValue("sk-typed-for-example");
+  } finally {
+    await app.close();
+  }
 });
 
 test("the window opens at the size and place it was left at", async () => {

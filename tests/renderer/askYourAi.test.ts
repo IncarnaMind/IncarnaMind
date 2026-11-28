@@ -62,6 +62,7 @@ const bridge = {
   // Connecting an agent turns connecting on.
   getAgents: async () => ({ enabled: bridge.agents.length > 0, pairings: bridge.agents }),
   listConversations: async () => [],
+  listChatProviders: async () => [],
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
     if (input.openChat) return { kind: "copy", text: "The request" };

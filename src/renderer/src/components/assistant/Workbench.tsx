@@ -28,6 +28,7 @@ import {
   sideWidth,
 } from "../../assistantPlace";
 import { useAssistantYields } from "../../assistantYields";
+import { useCanTagRead } from "../../canTag";
 import { ComposerDockContext } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { firstGroupLead, useCardWidth } from "../../layoutSlice";
@@ -76,6 +77,7 @@ export function Workbench({
   const placeAssistant = useAppStore((state) => state.placeAssistant);
   const quiet = useQuietAssistant();
   useFoldForOwnAi();
+  useCanTagRead();
   const pill = useAskPillShown();
   const viewport = useWindowSize();
   /** Sizes while the User drags a line or an edge, before they are kept. */

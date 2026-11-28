@@ -16,8 +16,8 @@ import {
 } from "./app";
 
 /*
- * Decision models in Settings › AI's sorting picker (#2615, #1907): no sorting model is set up
- * from the picker any more (#3767), but one a profile set up before stays a choice there, with what
+ * Decision models in Settings › AI's sorting picker (#2615, #1907): the picker sets no sorting
+ * model up (#3767), but one a profile already has stays a choice there, with what
  * choosing it sends, and its key stays in Accounts and keys, where it can be changed or removed.
  * One stand-in plays TypeSafe and every other host here.
  */
@@ -96,7 +96,7 @@ for (const [language, width, height] of [
     const { app, window } = await launch("en", width, height);
     try {
       await setLocalChatModel(window);
-      // A profile from before #3767, with Jev's key kept.
+      // A profile with Jev's key kept.
       await window.evaluate(
         (apiKey) =>
           (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveJevSettings({
@@ -133,7 +133,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launch("en", 900, 800);
     try {
       await setLocalChatModel(window);
-      // A profile from before #3767 that kept Liquid AI's key: the host checks it as it is saved.
+      // A profile that kept Liquid AI's key: the host checks it as it is saved.
       await window.evaluate(
         (apiKey) =>
           (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setDecisionKey({

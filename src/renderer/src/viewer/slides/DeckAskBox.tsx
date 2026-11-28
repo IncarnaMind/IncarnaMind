@@ -27,6 +27,14 @@ export interface SelectedDeckShape {
   text: string;
 }
 
+/** Where "Ask AI to shorten" points: a slide, and the shape on it when there is one. */
+export interface DeckShapeTarget {
+  slide: number;
+  shapeId?: string;
+  shapeName?: string;
+  text?: string;
+}
+
 export interface DeckAskTrigger {
   id: number;
   slide: number;
@@ -60,12 +68,8 @@ export function DeckAskBox({
   canAsk: boolean;
   /** Optional imperative ask request (e.g. "Ask AI to shorten" from an overflowing Proposal). */
   externalTrigger?: DeckAskTrigger | null;
-  onAskShorten(target: {
-    slide: number;
-    shapeId?: string;
-    shapeName?: string;
-    text?: string;
-  }): void;
+  /** Absent with no AI of the User's to ask: the Proposal offers no shorten. */
+  onAskShorten?: (target: DeckShapeTarget) => void;
 }) {
   const t = useT();
   const language = useLanguage();

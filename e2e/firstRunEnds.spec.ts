@@ -17,8 +17,8 @@ import {
 
 /*
  * The first run ends at the first checked Answer (#2867): once a model works and the first Answer
- * is there, the assistant asks nothing more to set up, and nothing offers what to try next. A
- * model is no longer set up in the interface (#3767): the profile has one, as one from before it.
+ * is there, the assistant asks nothing more to set up, and nothing offers what to try next. No
+ * model is set up in the interface (#3767): the profile's is saved through the bridge.
  * Meeting transcription and sorting are set up where they are first used (the record sheet and
  * Organize). In English and Chinese, on a fresh profile.
  */

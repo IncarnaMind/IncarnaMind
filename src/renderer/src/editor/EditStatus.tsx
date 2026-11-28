@@ -14,6 +14,7 @@ import {
 import { providerErrorText } from "../errors";
 import { useLanguage, useT } from "../i18n";
 import { turnOffLocalMode } from "../localMode";
+import { localModelSavedNow } from "../savedProviders";
 import { useAppStore } from "../store";
 
 /**
@@ -150,6 +151,15 @@ export function editProblemParts(
             );
           },
         },
+        ...(localModelSavedNow() && {
+          also: {
+            label: t("edit.problem.chooseAnotherModel"),
+            run: () => {
+              dismissEditProblem(mindId);
+              openSettings("ai", "chat-model");
+            },
+          },
+        }),
         role: "alert",
       };
     case "failed":

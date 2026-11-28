@@ -248,3 +248,129 @@ test("an Answer written into a Note says it is offline, with its own Question's 
     await app.close();
   }
 });
+
+/** A model saved with a key, and the files added, each to be read by the search on this computer. */
+async function seededWith(window: Page, files: string[]): Promise<void> {
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.saveChatProvider({ kind: "openai", modelId: "gpt-6.1-sol", apiKey: "key-not-real" });
+  });
+  await setLanguage(window, "en");
+  await addDocuments(window, files);
+}
+
+/** Puts a Document in a new Folder, walled or not, through the core as the Library does. */
+async function groupDocument(
+  window: Page,
+  document: string,
+  name: string,
+  keepInside: boolean,
+): Promise<string> {
+  const groupId = await window.evaluate(
+    async (wanted) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const found = (await core.listDocuments()).find((each) => each.name === wanted.document);
+      const group = await core.createLibraryGroup({
+        name: wanted.name,
+        description: "",
+        keepInside: wanted.keepInside,
+      });
+      if (found) await core.assignDocumentGroup(found.id, group.id);
+      return group.id;
+    },
+    { document, name, keepInside },
+  );
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const library = await core.getLibrary();
+          return library.assignments.filter((each) => each.groupId !== null).length;
+        }),
+      { timeout: 15_000 },
+    )
+    .toBe(1);
+  return groupId;
+}
+
+/** Asks in the assistant, scoped to a Folder when one is named, and waits for the failed Answer. */
+async function askFailing(window: Page, question: string, scope?: string) {
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect(window.getByTestId("composer-input")).toBeFocused();
+  if (scope !== undefined) {
+    await window.keyboard.type(`@${scope}`);
+    await expect(window.getByTestId("scope-picker")).toBeVisible();
+    await window.keyboard.press("Enter");
+  }
+  await window.keyboard.type(question);
+  await window.keyboard.press("Enter");
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
+  await setOnline(window, false);
+  const error = answer.getByTestId("answer-error");
+  await expect(error.getByRole("alert")).toContainText(translate("en", "answer.offline.line"));
+  return error;
+}
+
+test("offline, a Folder scope narrows the passages to what it holds (#763)", async () => {
+  test.setTimeout(120_000);
+  const tide = join(sources, "Tide.txt");
+  const recipe = join(sources, "Recipe.txt");
+  await writeFile(tide, TIDE);
+  await writeFile(recipe, "The tide tables recipe says to read them every spring.");
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    home: sources,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await setWindowSize(app, window, 900, 700);
+    await seededWith(window, [tide, recipe]);
+    await groupDocument(window, "Tide", "Work", false);
+    await newMind(window);
+    const error = await askFailing(window, QUESTION, "Work");
+    const passages = error.getByTestId("found-passage");
+    await expect(passages).toHaveCount(1);
+    await expect(passages.first().getByTestId("found-passage-document")).toContainText("Tide");
+  } finally {
+    await app.close();
+  }
+});
+
+test("offline, a Note inside a wall reads the work kept inside it, and not the outside (#763, #1934)", async () => {
+  test.setTimeout(120_000);
+  const tide = join(sources, "Tide.txt");
+  const lease = join(sources, "Lease.txt");
+  await writeFile(tide, TIDE);
+  await writeFile(lease, "The lease tables are read every spring.");
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    home: sources,
+    ollama: "http://127.0.0.1:9",
+  });
+  try {
+    await setWindowSize(app, window, 900, 700);
+    await seededWith(window, [tide, lease]);
+    const groupId = await groupDocument(window, "Lease", "Client work", true);
+    await window.evaluate(async (folderId) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.createMind({ title: "Inside work", folderId });
+    }, groupId);
+    // A Folder made through the core starts folded: unfold it to reach the Note inside.
+    const folder = window.getByTestId("library-folder").filter({ hasText: "Client work" });
+    await folder.click();
+    await expect(folder).toHaveAttribute("data-expanded", "true");
+    await window.getByTestId("mind-list-item").filter({ hasText: "Inside work" }).click();
+    await expect(window.getByTestId("mind-editor")).toBeVisible();
+    await window.getByTestId("mind-editor").focus();
+    const error = await askFailing(window, "Do the tide tables and the lease say no connection?");
+    // The Note is in the walled Folder: only the lease is read, not the tide outside it.
+    const passages = error.getByTestId("found-passage");
+    await expect(passages).toHaveCount(1);
+    await expect(passages.first().getByTestId("found-passage-document")).toContainText("Lease");
+  } finally {
+    await app.close();
+  }
+});

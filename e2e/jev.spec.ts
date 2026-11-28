@@ -79,9 +79,8 @@ test("with a Jev key, Jev tags Documents instead of the chat model, and its Tag 
   await dismissChatSetup(window);
   await useLocalChatModel(window);
 
-  // A profile that set Jev up before #3767, with a key and a Jev-compatible server: it is no
-  // longer set up from the picker, but stays a choice there, chosen in Settings › AI › Organize
-  // and Tags.
+  // A profile with Jev's key and a Jev-compatible server kept: the picker sets nothing up
+  // (#3767), but Jev stays a choice there, chosen in Settings › AI › Organize and Tags.
   await acceptPlainTextKeys(window);
   await window.evaluate(
     (input) =>

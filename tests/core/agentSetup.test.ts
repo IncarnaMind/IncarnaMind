@@ -112,7 +112,7 @@ describe("setting an agent up", () => {
     // The agents in wide use, and "Other agent" for the rest (ADR-0019, #3374).
     expect(clients.map((each) => each.id).sort()).toEqual([...AGENT_CLIENT_IDS].sort());
     expect(clients.find((each) => each.id === "devin")?.otherNames).toContain("Windsurf");
-    expect(clients.find((each) => each.id === "codex")?.name).toBe("ChatGPT app and Codex");
+    expect(clients.find((each) => each.id === "codex")?.name).toBe("ChatGPT");
   });
 
   it("names a new Codex pairing as the list does, in either language, and keeps the name it had", async () => {

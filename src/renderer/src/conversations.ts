@@ -306,7 +306,7 @@ export async function askInAssistant(
       clientId,
     });
     // With no model, the composer offers the User's own AI for the words, which come back to the
-    // box (#3373), or says what asking needs: a model is no longer set up here (#3767).
+    // box (#3373), or says what asking needs, as no model is set up here (#3767).
     settleAsk(key, result);
     sayLeftOut(result);
     if (!result.asked) return false;

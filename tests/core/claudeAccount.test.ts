@@ -824,9 +824,9 @@ describe("Failures", () => {
       "sign-in-cancelled": ["sign-in"],
       "signed-out": ["sign-in"],
       "sign-in-expired": ["sign-in-again"],
-      refused: ["sign-in-again", "paste-api-key"],
+      refused: ["sign-in-again"],
       "plan-limit": ["use-another-model"],
-      "unexpected-response": ["try-again", "paste-api-key"],
+      "unexpected-response": ["try-again"],
     });
     for (const language of ["en", "zh-CN"] as const) {
       const lines = Object.values(problems).map(({ line }) => translate(language, line));

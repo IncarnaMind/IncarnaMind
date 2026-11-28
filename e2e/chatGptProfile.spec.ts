@@ -22,8 +22,8 @@ import {
 /*
  * A chat-plan profile whose sign-in this app can't read: trying to sign in says so and
  * writes nothing, abandoning the sign-in writes nothing either, and only a sign-in the
- * User finishes replaces the record (#2294). A plan is no longer added in IncarnaMind (#3767): the
- * profile's plan was saved before, and its own page in Accounts and keys signs in again.
+ * User finishes replaces the record (#2294). No plan is added in IncarnaMind (#3767): the
+ * profile's plan is saved through the bridge, and its own page in Accounts and keys signs in again.
  */
 
 let dataDir: string;
@@ -76,7 +76,7 @@ async function launchWithProfile(language: "en" | "zh-CN", width: number, height
   return { openai, app, window };
 }
 
-/** The profile's saved ChatGPT plan, as it was before #3767: its page from Accounts and keys. */
+/** The profile's saved ChatGPT plan: its page from Accounts and keys. */
 async function savedPlanPage(window: Page, language: "en" | "zh-CN"): Promise<Locator> {
   const providerId = await saveProvider(window, { kind: "chatgpt", modelId: "gpt-5.5" });
   // Settings is opened by its English name; the page then follows the User's language.

@@ -30,6 +30,7 @@ import { useLanguage, useT } from "../i18n";
 import { turnOffLocalMode } from "../localMode";
 import { useModelInUse } from "../modelInUse";
 import { enter } from "../motion";
+import { useLocalModelSaved } from "../savedProviders";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
@@ -285,6 +286,7 @@ export function VerifyCard({
   const t = useT();
   const language = useLanguage();
   const openSettings = useAppStore((app) => app.openSettings);
+  const localModel = useLocalModelSaved();
   const readiness = useAppStore((app) => app.chatReadiness);
   const noModel = useNoModel();
   const asked = useAskedAgent({ kind: "check", mindId });
@@ -628,6 +630,15 @@ export function VerifyCard({
               );
             },
           }}
+          {...(localModel && {
+            also: {
+              label: t("answer.error.chooseModel"),
+              onClick: () => {
+                dismissVerifyOutcome(mindId);
+                openSettings("ai", "chat-model");
+              },
+            },
+          })}
         >
           {t("checks.problem.local-mode")}
         </ProblemLine>

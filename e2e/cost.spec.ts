@@ -309,7 +309,7 @@ test("Settings › AI shows what a key spent this month, and the ChatGPT plan ke
     await settings.getByTestId("models-back").click();
 
     // Signed in with ChatGPT and using the plan: its line names the plan, never a price. The plan
-    // is no longer added in IncarnaMind (#3767): a profile from before has it.
+    // is saved through the bridge, as none is added in IncarnaMind (#3767).
     await signInWithChatGpt(app, window, openai);
     await settings.getByTestId("provider-row").filter({ hasText: "ChatGPT plan" }).click();
     await expect(settings.getByTestId("provider-page-title")).toHaveText("ChatGPT plan");

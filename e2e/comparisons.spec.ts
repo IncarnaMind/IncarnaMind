@@ -3202,8 +3202,8 @@ test("with no model, Compare Documents is offered nowhere; a model removed with 
   await acceptPlainTextKeys(window);
   await addSuppliers(window);
 
-  // A table fills by a model in IncarnaMind, which is no longer set up here (#3767): "/", the +
-  // menu's More and ⌘K don't offer Compare Documents.
+  // Only a model in IncarnaMind fills a table, and none is set up (#3767): "/", the + menu's More
+  // and ⌘K don't offer Compare Documents.
   await newMind(window);
   await window.keyboard.type("/");
   await expect(window.getByTestId("slash-item-heading-1")).toBeVisible();

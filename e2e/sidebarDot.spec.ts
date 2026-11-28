@@ -10,6 +10,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  taggingWaitsForAModel,
 } from "./app";
 
 let dataDir: string;
@@ -131,6 +132,7 @@ test("a hidden sidebar's dot holds at 900 px in Chinese when Tagging waits for a
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 900, 700);
   await setLanguage(window, "zh-CN");
+  await taggingWaitsForAModel(window);
   const toggle = window.getByTestId("sidebar-toggle");
   await addNote(window, "Harbour notes", "Harbour notes. The tide tables.");
   await expect.poll(() => taggingOf(window, "Harbour notes")).toBe("waiting-for-provider");

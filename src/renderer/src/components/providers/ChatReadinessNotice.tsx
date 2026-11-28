@@ -10,6 +10,7 @@ import { useClaudeCodeInstallAvailability } from "../../claudeCodeInstall";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { wayBackRun } from "../../routeSignIn";
+import { useLocalModelSaved } from "../../savedProviders";
 import type { SettingsPage, SettingsTarget } from "../../settingsPages";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
@@ -58,7 +59,7 @@ export function readinessAction(
 ): { label: string; onClick(): void } {
   const route = routeWayBack(readiness, 0, t, openSettings, before);
   if (route) return route;
-  // No model is set up in IncarnaMind any more: the User's own AI is the way (#3767).
+  // No model is set up in IncarnaMind: the User's own AI is the way (#3767).
   if (readiness.reason === "no-provider") {
     return {
       label: t("agents.install.connectYourAi"),
@@ -117,7 +118,7 @@ export function ReadinessExplanation({
 /**
  * Why Questions can't be asked, as one line with the one thing that fixes it.
  * Local mode refusing a cloud model is fixed by turning it off (which can be
- * undone): a model on this computer is no longer set up here (#3767).
+ * undone), or by a model on this computer already saved, as none is set up here (#3767).
  */
 export function ReadinessLine({
   readiness,
@@ -133,6 +134,7 @@ export function ReadinessLine({
   const t = useT();
   const openSettings = useAppStore((state) => state.openSettings);
   const installAvailability = useClaudeCodeInstallAvailability();
+  const localModel = useLocalModelSaved();
   if (readiness.reason === "no-provider") {
     const offerInstall =
       installAvailability?.supported === true && !installAvailability.cliAgentPresent;
@@ -173,6 +175,13 @@ export function ReadinessLine({
           onClick: () =>
             turnOffLocalMode().catch((error: unknown) => useAppStore.getState().reportError(error)),
         }}
+        {...(localModel && {
+          also: {
+            label: t("answer.error.chooseModel"),
+            testId: "local-mode-choose-model",
+            onClick: () => openSettings("ai", "chat-model"),
+          },
+        })}
       >
         <ReadinessExplanation readiness={readiness} inLine />
       </ProblemLine>

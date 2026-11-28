@@ -60,7 +60,7 @@ async function signInToCopilot(window: Page): Promise<void> {
   });
 }
 
-test("an organization's policy stops a Copilot Answer: GitHub's line, an API key or another model", async () => {
+test("an organization's policy stops a Copilot Answer: GitHub's line and another model", async () => {
   const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 1100, 800);
@@ -84,21 +84,16 @@ test("an organization's policy stops a Copilot Answer: GitHub's line, an API key
   await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
 
   const line = answer.getByTestId("answer-error");
-  await expect(line).toHaveText(
-    "Your organization doesn’t allow this app · Use an API key instead · Use another model",
-  );
+  await expect(line).toHaveText("Your organization doesn’t allow this app · Use another model");
   await expect(line).not.toContainText("ChatGPT");
   await screenshot(answer, "copilot-policy-line");
-  await pointAndClick(window, line.getByTestId("answer-error-also"));
+  await pointAndClick(window, line.getByRole("button", { name: "Use another model" }));
   await expect(window.getByTestId("composer-model-menu")).toBeVisible();
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "zh-CN");
-  await expect(line).toHaveText("你所在的组织不允许使用此应用 · 改用 API 密钥 · 换一个模型");
+  await expect(line).toHaveText("你所在的组织不允许使用此应用 · 换一个模型");
   await screenshot(answer, "copilot-policy-line-zh");
-
-  await pointAndClick(window, line.getByTestId("answer-error-action"));
-  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   await app.close();
 });
 
@@ -114,16 +109,14 @@ test("signed out of Copilot, the lines name GitHub Copilot with its ways back, a
 
   const readiness = window.getByTestId("chat-readiness");
   await expect(readiness).toHaveText(
-    "You’re not signed in to GitHub Copilot · Sign in with GitHub · Use an API key instead",
+    "You’re not signed in to GitHub Copilot · Sign in with GitHub",
   );
   await window.getByTestId("mind-editor").click();
   await window.keyboard.press("ControlOrMeta+j");
   await window.keyboard.type("What does my plan cover?");
   await window.keyboard.press("Enter");
   const refused = window.getByTestId(/^(composer|answer)-not-ready$/);
-  await expect(refused).toHaveText(
-    "You’re not signed in to GitHub Copilot · Sign in with GitHub · Use an API key instead",
-  );
+  await expect(refused).toHaveText("You’re not signed in to GitHub Copilot · Sign in with GitHub");
   await screenshot(window, "copilot-readiness-lines");
 
   await pointAndClick(window, refused.getByRole("button", { name: "Sign in with GitHub" }));

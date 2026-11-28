@@ -18,8 +18,8 @@ import {
  * "Continue with ChatGPT" opened the browser, but the browser can't come back to IncarnaMind:
  * the User pastes the address it ended on. A local stand-in for OpenAI signs in, and the
  * browser is stood in for, so OpenAI's page never loads and the loopback port is never reached.
- * A plan is no longer added in IncarnaMind (#3767): the plan here was saved before, and its
- * sign-in ended since, so its own page in Accounts and keys signs in again.
+ * No plan is added in IncarnaMind (#3767): the plan here is saved through the bridge with its
+ * sign-in ended, so its own page in Accounts and keys signs in again.
  */
 
 let dataDir: string;

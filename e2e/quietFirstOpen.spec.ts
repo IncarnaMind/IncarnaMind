@@ -19,6 +19,7 @@ import {
   savedPath,
   setLanguage,
   setWindowSize,
+  taggingWaitsForAModel,
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
@@ -197,6 +198,8 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(window);
   await setWindowSize(app, window, 1440, 900);
+  // With no model and no AI nothing asks for one (#3767): Tags wait for a model Local mode refuses.
+  await taggingWaitsForAModel(window);
   const sidebar = window.getByTestId("sidebar");
   const line = sidebar.getByTestId("tagging-waiting");
   const assistant = window.getByTestId("assistant");
@@ -207,7 +210,8 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
     .poll(async () => {
       const documents = await taggingOf(window);
       return (
-        documents.length > 0 && documents.every((each) => each.tagging === "waiting-for-provider")
+        documents.length > 0 &&
+        documents.every((each) => each.tagging === "waiting-for-provider" || each.tagging === "off")
       );
     })
     .toBe(true);

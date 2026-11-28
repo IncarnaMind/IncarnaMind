@@ -22,8 +22,8 @@ import {
 /*
  * The newcomer path runs unaided (#763): a first run, a first Answer, files added, an Answer, a
  * draft checked against the Documents and an export, each with a way on and none of the
- * glossary's left-column words. The example's own Documents are in place, as on a first run. A
- * model is no longer set up in the interface (#3767): the profile has one, as one from before it.
+ * glossary's left-column words. The example's own Documents are in place, as on a first run. No
+ * model is set up in the interface (#3767): the profile's is saved through the bridge.
  */
 
 let dataDir: string;

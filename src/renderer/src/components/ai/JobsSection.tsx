@@ -230,6 +230,7 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
           localOnly={localOnly}
           read={services}
           setUp={setUp.rows}
+          onAddKey={() => useAppStore.getState().openSettings("ai", "add-provider")}
           onChosen={setUp.onChosen}
         />
       }

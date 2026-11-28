@@ -48,8 +48,6 @@ const EXCEPTIONS: readonly Exception[] = [
       "answer.error.window-too-small.question",
       "answer.error.window-too-small.assistant",
       "tagging.problem.data-retention",
-      "error.library.cantPropose",
-      "meetings.brief.chooseModel",
       "error.meeting.briefTooLong",
       "ai.jobs.checks.tip",
       "error.research.plan.thoughtOnly",

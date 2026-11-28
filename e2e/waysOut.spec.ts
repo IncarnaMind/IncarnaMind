@@ -308,7 +308,7 @@ test("signing in again to a plan clears its failure line before anything is aske
     await interceptOpenExternal(app);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    // A plan is no longer added in IncarnaMind (#3767): this one was saved before.
+    // No plan is added in IncarnaMind (#3767): this one is saved through the bridge.
     const copilot = await saveProvider(window, { kind: "copilot", modelId: "gpt-5.5" });
     await openProviderPage(await openSettings(window, "ai"), copilot);
     const row = window.getByTestId("settings").getByTestId("plans-copilot");
@@ -336,7 +336,7 @@ test("signing in again to a plan clears its failure line before anything is aske
 
     const settings = await openSettings(window, "ai");
     const health = settings.getByTestId("model-health");
-    // A key is no longer added in IncarnaMind (#3767): Sign in again is the line's one way back.
+    // No key is added in IncarnaMind (#3767): Sign in again is the line's one way back.
     await expect(health).toHaveText(
       "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again",
     );

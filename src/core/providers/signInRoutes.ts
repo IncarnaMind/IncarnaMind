@@ -29,12 +29,7 @@ export const isSignInRouteProblem = (value: unknown): value is SignInRouteProble
   typeof value === "string" && Object.hasOwn(PROBLEMS, value);
 
 /** A way back; "sign-in" signs in with the route's provider, which its label names. */
-export type RouteWayBack =
-  | "sign-in"
-  | "try-again"
-  | "sign-in-again"
-  | "use-another-model"
-  | "paste-api-key";
+export type RouteWayBack = "sign-in" | "try-again" | "sign-in-again" | "use-another-model";
 
 export interface RouteProblemWords {
   line: MessageKey;
@@ -53,7 +48,6 @@ const WAYS_BACK: Record<Exclude<RouteWayBack, "sign-in">, MessageKey> = {
   "try-again": "signInRoute.wayBack.tryAgain",
   "sign-in-again": "signInRoute.wayBack.signInAgain",
   "use-another-model": "signInRoute.wayBack.useAnotherModel",
-  "paste-api-key": "signInRoute.wayBack.pasteApiKey",
 };
 
 export const SIGN_IN_ROUTES: Record<SignInRoute, SignInRouteWords> = {
@@ -68,7 +62,7 @@ export const SIGN_IN_ROUTES: Record<SignInRoute, SignInRouteWords> = {
       },
       refused: {
         line: "claudeAccount.problem.refused",
-        waysBack: ["sign-in-again", "paste-api-key"],
+        waysBack: ["sign-in-again"],
       },
       "plan-limit": {
         line: "claudeAccount.problem.planLimit",
@@ -77,7 +71,7 @@ export const SIGN_IN_ROUTES: Record<SignInRoute, SignInRouteWords> = {
       },
       "unexpected-response": {
         line: "claudeAccount.problem.unexpectedResponse",
-        waysBack: ["try-again", "paste-api-key"],
+        waysBack: ["try-again"],
       },
     },
   },
@@ -86,37 +80,37 @@ export const SIGN_IN_ROUTES: Record<SignInRoute, SignInRouteWords> = {
     problems: {
       "sign-in-cancelled": {
         line: "copilot.problem.signInCancelled",
-        waysBack: ["sign-in", "paste-api-key"],
+        waysBack: ["sign-in"],
       },
-      "signed-out": { line: "copilot.problem.signedOut", waysBack: ["sign-in", "paste-api-key"] },
+      "signed-out": { line: "copilot.problem.signedOut", waysBack: ["sign-in"] },
       "sign-in-expired": {
         line: "copilot.problem.signInExpired",
-        waysBack: ["sign-in-again", "paste-api-key"],
+        waysBack: ["sign-in-again"],
       },
-      refused: { line: "copilot.problem.refused", waysBack: ["sign-in-again", "paste-api-key"] },
+      refused: { line: "copilot.problem.refused", waysBack: ["sign-in-again"] },
       "no-plan": {
         line: "copilot.problem.noPlan",
-        waysBack: ["paste-api-key", "use-another-model"],
+        waysBack: ["use-another-model"],
       },
       "policy-blocked": {
         line: "copilot.problem.policyBlocked",
-        waysBack: ["paste-api-key", "use-another-model"],
+        waysBack: ["use-another-model"],
       },
       "model-unavailable": {
         line: "copilot.problem.modelUnavailable",
-        waysBack: ["use-another-model", "paste-api-key"],
+        waysBack: ["use-another-model"],
       },
       "plan-limit": {
         line: "copilot.problem.planLimit",
-        waysBack: ["use-another-model", "paste-api-key"],
+        waysBack: ["use-another-model"],
       },
       "rate-limited": {
         line: "copilot.problem.rateLimited",
-        waysBack: ["use-another-model", "paste-api-key"],
+        waysBack: ["use-another-model"],
       },
       "unexpected-response": {
         line: "copilot.problem.unexpectedResponse",
-        waysBack: ["paste-api-key", "use-another-model"],
+        waysBack: ["use-another-model"],
       },
     },
   },
@@ -129,26 +123,26 @@ export const wayBackLabel = (route: SignInRoute, wayBack: RouteWayBack): Message
 export const COPILOT_SIGN_IN_PROBLEMS: Record<CopilotSignInErrorKind, RouteProblemWords> = {
   "sign-in-cancelled": {
     line: "copilot.problem.signInCancelled",
-    waysBack: ["try-again", "paste-api-key"],
+    waysBack: ["try-again"],
   },
-  "code-expired": { line: "copilot.signIn.codeExpired", waysBack: ["try-again", "paste-api-key"] },
-  declined: { line: "copilot.signIn.declined", waysBack: ["try-again", "paste-api-key"] },
-  unreachable: { line: "copilot.signIn.unreachable", waysBack: ["try-again", "paste-api-key"] },
+  "code-expired": { line: "copilot.signIn.codeExpired", waysBack: ["try-again"] },
+  declined: { line: "copilot.signIn.declined", waysBack: ["try-again"] },
+  unreachable: { line: "copilot.signIn.unreachable", waysBack: ["try-again"] },
   "service-error": {
     line: "copilot.signIn.serviceError",
-    waysBack: ["try-again", "paste-api-key"],
+    waysBack: ["try-again"],
   },
-  refused: { line: "copilot.problem.refused", waysBack: ["try-again", "paste-api-key"] },
-  "no-plan": { line: "copilot.problem.noPlan", waysBack: ["paste-api-key", "use-another-model"] },
+  refused: { line: "copilot.problem.refused", waysBack: ["try-again"] },
+  "no-plan": { line: "copilot.problem.noPlan", waysBack: ["use-another-model"] },
   "policy-blocked": {
     line: "copilot.problem.policyBlocked",
-    waysBack: ["paste-api-key", "use-another-model"],
+    waysBack: ["use-another-model"],
   },
   "unexpected-response": {
     line: "copilot.problem.unexpectedResponse",
-    waysBack: ["try-again", "paste-api-key"],
+    waysBack: ["try-again"],
   },
-  unavailable: { line: "copilot.signIn.unavailable", waysBack: ["paste-api-key"] },
-  "secret-storage": { line: "copilot.signIn.secretStorage", waysBack: ["paste-api-key"] },
-  failed: { line: "copilot.signIn.failed", waysBack: ["try-again", "paste-api-key"] },
+  unavailable: { line: "copilot.signIn.unavailable", waysBack: [] },
+  "secret-storage": { line: "copilot.signIn.secretStorage", waysBack: [] },
+  failed: { line: "copilot.signIn.failed", waysBack: ["try-again"] },
 };

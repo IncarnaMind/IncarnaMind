@@ -12,8 +12,8 @@ import {
 } from "./app";
 
 /*
- * Presets: a hosted service that speaks OpenAI's API has its own name and key page. A provider is
- * no longer added in IncarnaMind (#3767), so only a saved one's page is left to see.
+ * Presets: a hosted service that speaks OpenAI's API has its own name and key page. No chat
+ * provider is added in IncarnaMind (#3767), so the page seen is a saved one's.
  */
 
 let dataDir: string;
@@ -24,14 +24,14 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-test("a Groq key from before has its own page, with its key link and what goes to Groq, in English and Chinese", async () => {
+test("a saved Groq key has its own page, with its key link and what goes to Groq, in English and Chinese", async () => {
   // Nothing answers where Ollama would be, so this computer's own Ollama isn't asked.
   const { app, window } = await launchApp(dataDir, { ollama: "http://127.0.0.1:9" });
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    // A provider is no longer added in IncarnaMind (#3767): a profile from before has it.
+    // No chat provider is added in IncarnaMind (#3767): the profile's is saved through the bridge.
     const provider = await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
         kind: "openai-compatible",

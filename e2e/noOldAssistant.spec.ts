@@ -4,14 +4,17 @@ import { type ElectronApplication, expect, type Page, test } from "@playwright/t
 import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   createDataFolder,
   frontMind,
   launchApp,
   newMind,
+  openProviderRow,
   openSettings,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -22,7 +25,7 @@ test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION
 
 /*
  * A User who never connected an AI meets no old assistant (#3767): no model is set up inside
- * IncarnaMind any more. With no model and no AI, there is no assistant column, no Ask anything
+ * IncarnaMind. With no model and no AI, there is no assistant column, no Ask anything
  * pill and no line at a Note's top; where asking would be, one line says what it needs, with
  * Connect your AI, which opens Settings › AI. A profile that already has a model keeps it and can
  * remove it, but nothing new is added there.
@@ -164,19 +167,24 @@ test("a profile with a model keeps it and can remove it, and nothing new is adde
   const window = launched.window;
   await useLocalChatModel(window);
   await newMind(window);
-  // With a model, the assistant works as before.
+  // With a model, the assistant answers in its panel.
   await expect(window.getByTestId("assistant")).toBeVisible();
   await expect(noteFoot(window)).toHaveCount(0);
 
   const settings = await openSettings(window, "ai");
   const row = settings.getByTestId("provider-row").first();
   await expect(row).toBeVisible();
-  // Add a key… lists only keys for other jobs: no chat service, plan or model on this computer.
+  // Add a key… lists only keys for meetings and search: no plan, no model on this computer, and
+  // no company whose key would only answer Questions.
   await settings.getByTestId("models-add-provider").click();
   const sheet = settings.getByTestId("ai-add-sheet");
   await expect(sheet).toBeVisible();
-  await expect(sheet.locator("[data-catalog-id]")).toHaveCount(0);
   await expect(sheet.locator('[data-entry^="plan:"]')).toHaveCount(0);
+  await expect(sheet.locator('[data-catalog-id="anthropic"]')).toHaveCount(0);
+  await expect(sheet.locator('[data-catalog-id="ollama"]')).toHaveCount(0);
+  await expect(
+    sheet.getByTestId("provider-directory-job").filter({ hasText: "Answers" }),
+  ).toHaveCount(0);
   await window.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
 
@@ -191,4 +199,88 @@ test("a profile with a model keeps it and can remove it, and nothing new is adde
   // Removed, the profile is one that never set a model up.
   await noOldAssistant(window);
   await expect(noteFoot(window)).toBeVisible();
+});
+
+test("a saved Qwen lists only the regions saved: picking the other opens its own page, and no key form opens", async () => {
+  const launched = await launchApp(dataDir, { fakeChat: true });
+  app = launched.app;
+  const window = launched.window;
+  const china = await saveProvider(window, {
+    kind: "qwen",
+    endpoint: "cn",
+    modelId: "qwen3.7-plus",
+    apiKey: "sk-qwen-cn-test",
+  });
+  // Saved on one region, the page offers no other: a second region would be a new key.
+  const settings = await openProviderRow(window, china);
+  await expect(settings.getByTestId("provider-page")).toBeVisible();
+  await expect(settings.getByTestId("provider-page-region")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+
+  const international = await saveProvider(window, {
+    kind: "qwen",
+    endpoint: "intl",
+    modelId: "qwen3.7-plus",
+    apiKey: "sk-qwen-intl-test",
+  });
+  await openProviderRow(window, china);
+  await settings.getByTestId("provider-page-region").click();
+  await settings.getByTestId("provider-page-region-menu").locator('[data-value="intl"]').click();
+  await expect(settings.getByTestId("provider-page")).toHaveAttribute(
+    "data-provider-id",
+    international,
+  );
+  await expect(settings.getByTestId("provider-add")).toHaveCount(0);
+});
+
+test("with no model, a key for meetings and search is added from the transcription picker, and never answers Questions", async () => {
+  const launched = await launchApp(dataDir, { fakeChat: true });
+  app = launched.app;
+  const window = launched.window;
+  await setWindowSize(launched.app, window, 1440, 900);
+  const settings = await openSettings(window, "ai");
+  await settings.getByTestId("meetings-route").selectOption({ label: "Add a key…" });
+  const sheet = settings.getByTestId("ai-add-sheet");
+  await expect(sheet).toBeVisible();
+  // Keys for meetings and search only: no plan, no company whose key only answers Questions.
+  await expect(sheet.locator('[data-entry^="plan:"]')).toHaveCount(0);
+  await expect(sheet.locator('[data-catalog-id="anthropic"]')).toHaveCount(0);
+  await expect(sheet.locator('[data-catalog-id="ollama"]')).toHaveCount(0);
+  const jobs = await sheet.getByTestId("provider-directory-job").allTextContents();
+  expect(new Set(jobs)).toEqual(new Set(["Transcription", "Search"]));
+  const openai = sheet.locator('[data-catalog-id="openai"]');
+  await expect(openai.getByTestId("provider-directory-job")).toHaveText([
+    "Transcription",
+    "Search",
+  ]);
+  await openai.click();
+  await expect(sheet).toBeHidden();
+
+  const form = settings.getByTestId("provider-add");
+  await expect(form).toHaveAttribute("data-catalog-id", "openai");
+  await acceptPlainTextKeys(window, form);
+  // A key saved for these jobs asks for no model.
+  await expect(form.getByTestId("provider-model")).toHaveCount(0);
+  await expect(form.getByTestId("provider-model-line")).toHaveCount(0);
+  await form.getByLabel(/^API key/).fill("sk-openai-for-meetings");
+  await form.getByTestId("provider-use-key").click();
+  await expect(settings.getByTestId("provider-page")).toBeVisible();
+  await settings.getByTestId("models-back").click();
+  await expect(
+    settings.getByTestId("meetings-route").locator('option[value="openai"]'),
+  ).toHaveCount(1);
+  await window.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+
+  // Questions still have no model: no assistant, and the Note says what asking needs.
+  await newMind(window);
+  await noOldAssistant(window);
+  await expect(noteFoot(window)).toBeVisible();
+  expect(
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (await bridge.getSettings()).user.chatModel;
+    }),
+  ).toBeNull();
 });

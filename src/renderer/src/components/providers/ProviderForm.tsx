@@ -245,8 +245,11 @@ export function ProviderForm({
   refused?: KeyRefusal | null;
   /** The setup card's key step: the form is titled with the company picked, and opens on the key. */
   standalone?: boolean;
-  /** The default model stays as it is, so while there is one the form asks for no model. */
-  keepDefault?: boolean;
+  /**
+   * The default model stays as it is, so while there is one the form asks for no model. "always":
+   * a key saved for other jobs, which never becomes the model Questions use and asks for none.
+   */
+  keepDefault?: boolean | "always";
   initialEndpoint?: string | null;
   /** The key the User typed where the service wasn't named, kept as the service is picked. */
   initialKey?: string;
@@ -691,7 +694,8 @@ export function ProviderForm({
       <span data-testid="provider-model-reason">{t("providers.untested")}</span>
     );
     const modelRow =
-      keepDefault && hasDefault && choices.length > 0 ? null : choices.length === 0 ? (
+      (keepDefault === "always" || (keepDefault && hasDefault)) &&
+      choices.length > 0 ? null : choices.length === 0 ? (
         <SettingsRow label={t("providers.form.model")} htmlFor={`${id}-model-id`}>
           {modelIdInput(wide)}
         </SettingsRow>
@@ -1107,7 +1111,8 @@ export function ProviderForm({
             <SecretStorageNotice status={secretStorage} onAccept={() => void acceptPlainText()} />
           )}
 
-          {keepDefault && hasDefault && choices.length > 0 ? null : choices.length === 0 ? (
+          {(keepDefault === "always" || (keepDefault && hasDefault)) &&
+          choices.length > 0 ? null : choices.length === 0 ? (
             <div>
               <label htmlFor={`${id}-model-id`} className={fieldLabelClass}>
                 {t("providers.form.model")}

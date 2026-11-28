@@ -45,7 +45,7 @@ test.afterEach(async () => {
 });
 
 /**
- * A sorting model a profile chose before #3767 with "Other model…", which is no longer offered:
+ * A sorting model a profile chose with "Other model…", which the picker doesn't offer (#3767):
  * saved as that form saved it, the switch for new Documents left as it was.
  */
 async function sortWith(window: Page, classifier: unknown): Promise<void> {

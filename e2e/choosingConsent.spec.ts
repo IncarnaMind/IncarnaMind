@@ -1,8 +1,8 @@
 /**
  * Choosing a service is the consent for what it sends (ADR-0022, #718): the
  * provider's page says what goes to it, and no dialog follows, neither before
- * the first Answer nor for Tags. A provider is no longer chosen in IncarnaMind
- * (#3767): a profile from before has it, saved by the bridge as it was chosen. Tagging,
+ * the first Answer nor for Tags. No provider is added in IncarnaMind (#3767): the
+ * profile's provider is saved through the bridge. Tagging,
  * background work, never asks: it waits and says so where its status shows.
  * Set INCARNAMIND_SCREENSHOTS to a folder to keep screenshots of each step.
  */
@@ -96,7 +96,7 @@ async function recordConsentRequests(window: Page): Promise<() => Promise<string
     window.evaluate(() => (globalThis as unknown as { consentAsked: string[] }).consentAsked);
 }
 
-/** Saves an OpenAI key as a profile from before #3767 has it, and opens its page in Settings › AI. */
+/** Saves an OpenAI key through the bridge (#3767), and opens its page in Settings › AI. */
 async function openSavedOpenAi(window: Page): Promise<Locator> {
   const providerId = await saveProvider(window, {
     kind: "openai",
@@ -240,10 +240,29 @@ test("before a model is chosen, a new Document's tagging waits, no line asks for
   const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 43" });
   await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
   await makeTagOnDocument(window, "Invoice 43");
-  // With no model and no AI, the sidebar has no Tags line: a model is no longer set up here (#3767).
+  // With no model and no AI, the sidebar has no Tags line (#3767).
   await expect(window.getByTestId("tagging-waiting")).toHaveCount(0);
   await expect(window.getByTestId("consent-dialog")).toBeHidden();
   expect(await consentAsked()).toEqual([]);
+  await app.close();
+});
+
+test("Settings › AI says in one line what a saved ChatGPT plan sends, with the full list behind Details", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  const providerId = await saveProvider(window, { kind: "chatgpt", modelId: "gpt-5.5" });
+  const settings = await openProviderRow(window, providerId);
+  const plan = settings.getByTestId("chatgpt-settings");
+  await expect(plan).toContainText("No key needed. Counts toward your plan’s limits.");
+  const sends = plan.getByTestId("provider-sends");
+  await expect(sends.locator("p")).toHaveText(
+    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to OpenAI. · Details",
+  );
+  await sends.getByTestId("provider-sends-details").click();
+  await expect(sends.getByRole("listitem")).toHaveText(SENDS_EN.items);
+  await expect(sends.getByText(SENDS_EN.onRequest)).toBeVisible();
+  await plan.scrollIntoViewIfNeeded();
+  await screenshot(window, "choosing-line-chatgpt-en");
   await app.close();
 });
 

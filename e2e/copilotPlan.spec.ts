@@ -68,8 +68,8 @@ const copilotAccount = (window: Page) =>
   });
 
 /**
- * A Copilot plan saved before #3767, which no longer adds one in IncarnaMind, its sign-in not
- * there: its own page, from Settings › AI's Accounts and keys, and the plan's row on it.
+ * A Copilot plan saved through the bridge, as none is added in IncarnaMind (#3767), its sign-in
+ * not there: its own page, from Settings › AI's Accounts and keys, and the plan's row on it.
  */
 async function openSavedCopilot(window: Page): Promise<Locator> {
   const providerId = await saveProvider(window, {
@@ -315,7 +315,7 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
   const line = answer.getByTestId("answer-error");
-  // A key is no longer added in IncarnaMind (#3767): Sign in again is the line's one way back.
+  // No key is added in IncarnaMind (#3767): Sign in again is the line's one way back.
   await expect(line).toHaveText(
     "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again",
   );

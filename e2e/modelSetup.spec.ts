@@ -29,8 +29,8 @@ import {
 } from "./app";
 
 /*
- * A model set up in IncarnaMind (#1922), as a profile from before #3767 has it: no model is set up
- * in the interface any more, so each spec sets one up through the core. Settings › AI says what
+ * A model set up in IncarnaMind (#1922): the interface sets none up (#3767), so each spec saves
+ * one through the core. Settings › AI says what
  * each choice sends (ADR-0022). Meeting transcription and sorting are chosen where they are used.
  */
 
@@ -64,7 +64,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, 1280, 800);
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
-      // A model is no longer set up in the interface (#3767): the profile has one.
+      // The interface sets no model up (#3767): the profile's is saved through the core.
       await setCloudChatModel(window, { cap: false });
       await newMind(window);
       const composer = window.getByTestId("composer-input");

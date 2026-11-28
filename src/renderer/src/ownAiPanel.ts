@@ -1,6 +1,6 @@
 /**
  * The assistant for a User who set up no model in IncarnaMind (#3373, #3612, #3767): their own AI
- * is the way to ask, connected or not yet, so its panel is never shown, whatever it was before,
+ * is the way to ask, connected or not yet, so its panel is never shown, whatever place was kept,
  * and a Note asks their own AI from its foot, or says there how to connect one (#3764). The one
  * exception is a Conversation they already have, opened to be read: the panel shows it until they
  * fold it. Folded for their AI, it opens as it was once a model is set up.

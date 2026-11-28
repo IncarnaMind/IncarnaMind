@@ -1391,7 +1391,7 @@ export async function useLocalChatModel(window: Page, modelId = "fake-model"): P
 }
 
 /**
- * A model set up before #3767, when IncarnaMind still added them, saved through the core (a key
+ * A chat model saved through the core, as no chat model is added in the interface (#3767) (a key
  * kept in plain text where this computer has no keychain); its provider's id.
  */
 export async function saveProvider(window: Page, input: SaveChatProviderInput): Promise<string> {
@@ -1466,6 +1466,30 @@ export async function useCloudChatModel(
     },
     { modelId, cap },
   );
+}
+
+/**
+ * Tags that wait for a model they can use, which the sidebar's footer says: a cloud model, its
+ * tagging allowed and switched on, refused by Local mode. With no model there is no such line
+ * (#3767).
+ */
+export async function taggingWaitsForAModel(window: Page): Promise<void> {
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (provider.service) await core.allowDataFlow("tagging", provider.service.id);
+    await core.setLocalOnly(true);
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
+  });
 }
 
 /**
@@ -1558,7 +1582,7 @@ export async function agentsToConnect(settings: Locator): Promise<Locator> {
 
 /**
  * From Settings › AI's list, opens "Add a key…" under Accounts and keys and returns its sheet: the
- * keys for jobs other than a chat model, which is no longer added in IncarnaMind (#3767).
+ * keys for jobs other than a chat model, which is not added in IncarnaMind (#3767).
  */
 export async function openAddSheet(settings: Locator): Promise<Locator> {
   await expect(settings.getByTestId("ai-limits")).toBeVisible();
@@ -2010,8 +2034,8 @@ export function ollamaAppOpened(app: ElectronApplication) {
 
 /**
  * Signs in with ChatGPT through the core's bridge, against the local stand-in for OpenAI the app
- * was launched with (`chatGpt`), and saves the plan with its first model, as a profile from before
- * #3767 has it: ChatGPT is no longer added in the interface.
+ * was launched with (`chatGpt`), and saves the plan with its first model: the interface adds no
+ * plan (#3767).
  */
 export async function signInWithChatGpt(
   app: ElectronApplication,

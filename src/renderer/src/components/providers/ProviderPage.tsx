@@ -82,6 +82,7 @@ export function ProviderPage({
   group,
   refused,
   onBack,
+  savedEndpoints,
   onRegion,
   onRemoved,
 }: {
@@ -92,6 +93,8 @@ export function ProviderPage({
   /** From "Check the key": said by the key field, which takes the focus. */
   refused: KeyRefusal | null;
   onBack(): void;
+  /** The regions of this company saved as providers of their own: the region pop-up's choices. */
+  savedEndpoints: readonly string[];
   onRegion(endpoint: string): void;
   onRemoved(removed: RemovedProvider): void;
 }) {
@@ -207,7 +210,8 @@ export function ProviderPage({
     changed();
   };
 
-  const regions = catalog && catalog.endpoints.length > 1 ? catalog.endpoints : [];
+  const saved = catalog?.endpoints.filter((each) => savedEndpoints.includes(each.id)) ?? [];
+  const regions = saved.length > 1 ? saved : [];
   // A hosted provider is named by its region; a server the User runs, by its address.
   const address = fieldValue ?? (catalog?.endpoints.length ? null : provider.baseUrl);
   const keyLabel =

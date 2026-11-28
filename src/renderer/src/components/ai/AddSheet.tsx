@@ -50,6 +50,10 @@ const PLAN_LOGOS: Record<PlanId, string> = {
   copilot: "copilot",
 };
 
+/** The jobs other than Answers a key is added for here. */
+const otherJobsOf = (entry: ServiceEntry): ServiceJob[] =>
+  jobsOf(entry).filter((job) => job === "transcription" || job === "search");
+
 /** The plans this copy can sign in to. */
 export function usePlansOffered(): (plan: PlanId) => boolean {
   const claude = useClaudeAccount();
@@ -200,7 +204,7 @@ function Entry({
         {line && <span className="truncate text-small leading-[18px] text-ink-meta">{line}</span>}
       </span>
       <span className="flex shrink-0 flex-wrap justify-end gap-1">
-        {jobsOf(entry).map((job) => (
+        {otherJobsOf(entry).map((job) => (
           <span
             key={job}
             data-testid="provider-directory-job"
@@ -215,11 +219,14 @@ function Entry({
 }
 
 /**
- * A key for a job that is no chat model: meeting transcription, or putting the best search results
- * first. Chat models are no longer added in IncarnaMind (#3767).
+ * A key for meeting transcription or Document search: a service's own key, or a company's key
+ * that those jobs use, which is saved for them and never made the model Questions use. Ollama is
+ * a model on this computer, not a key.
  */
 const otherJobs = (entry: ServiceEntry) =>
-  entry.kind === "transcription" || entry.kind === "rerank";
+  entry.kind === "transcription" ||
+  entry.kind === "rerank" ||
+  (entry.kind === "provider" && entry.provider.id !== "ollama" && otherJobsOf(entry).length > 0);
 
 /**
  * "Add an account or key": the directory over Settings, as a sheet, of the keys for other jobs. Choosing an entry closes it

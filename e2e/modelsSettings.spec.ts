@@ -16,7 +16,7 @@ import {
 
 /*
  * Settings › AI (#179, #2835): what each job uses, the User's accounts and keys as rows, and a
- * provider's page with Test and its models. A provider is no longer added in IncarnaMind (#3767),
+ * provider's page with Test and its models. No chat provider is added in IncarnaMind (#3767),
  * so a profile's providers are saved by the bridge. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
@@ -62,7 +62,7 @@ test.afterEach(async () => {
   }
 });
 
-test("a second provider kept from before has its own page: it tests, its models go in and out of the menu, its model is picked for Answers, and removed it leaves no default", async () => {
+test("a second saved provider has its own page: it tests, its models go in and out of the menu, its model is picked for Answers, and removed it leaves no default", async () => {
   const first = await modelServer(["first-model"]);
   const second = await modelServer(["b-fast", "b-strong"]);
   servers.push(first.server, second.server);
@@ -95,8 +95,8 @@ test("a second provider kept from before has its own page: it tests, its models 
     await expect(settings.getByTestId("model-default-row-sorting")).toBeVisible();
     await screenshot(window, "models-1100-en");
 
-    // A provider is no longer added in IncarnaMind (#3767): a second one kept from before is a
-    // row of its own, and the default stays.
+    // A second provider saved through the bridge (#3767) is a row of its own, and the default
+    // stays.
     const added = await window.evaluate(async (baseUrl) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       return (

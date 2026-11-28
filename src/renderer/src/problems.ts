@@ -66,8 +66,8 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   },
   // Turned off on purpose: nothing to fix, and asking again asks for consent as usual.
   "consent-revoked": { line: "answer.error.consent-revoked", fix: { kind: "none" } },
-  // Stopped by local mode: allowing cloud models again lets it answer; a model on this computer is
-  // no longer set up here (#3767).
+  // Stopped by local mode: allowing cloud models again lets it answer, as no model on this
+  // computer is set up here (#3767).
   "local-mode": {
     line: "answer.error.local-mode",
     fix: { kind: "local-mode", label: "localMode.turnOff" },

@@ -296,7 +296,7 @@ test("A2 first run without examples: the line to connect an AI, the empty Mind, 
     app = await launch(dataDir);
     const { window } = app;
     await sealShell(app.app);
-    // No model is set up in the interface any more (#3767): a first own Note says asking needs
+    // No chat model is set up in the interface (#3767): a first own Note says asking needs
     // the User's AI, and ⌘J goes to its Connect your AI.
     await step(T, "the line to connect an AI at the first own Note", async () => {
       await click(window, window.getByTestId("plus-menu"));

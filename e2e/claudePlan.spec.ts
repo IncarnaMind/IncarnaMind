@@ -24,8 +24,8 @@ import {
 } from "./app";
 
 /*
- * "Use my Claude plan" (#872): a row in Settings › AI. A plan is no longer added in IncarnaMind
- * (#3767): the plan here was saved before, and its own page in Accounts and keys signs in again.
+ * "Use my Claude plan" (#872): a row in Settings › AI. No plan is added in IncarnaMind (#3767):
+ * the plan here is saved through the bridge, and its own page in Accounts and keys signs in again.
  * A local stand-in for Anthropic signs in and answers; the browser is stood in for, and the User
  * pastes the code Anthropic's page shows, as they do.
  */
@@ -48,7 +48,7 @@ const account = (window: Page): Promise<ClaudeAccountStatus> =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getClaudeAccount(),
   );
 
-/** A Claude plan saved before #3767, its sign-in not there (yet, or any more). */
+/** A Claude plan saved through the bridge (#3767), with no sign-in kept. */
 const saveClaudePlan = (window: Page): Promise<string> =>
   saveProvider(window, { kind: "claude-account", modelId: "claude-sonnet-5-5" });
 
@@ -313,7 +313,6 @@ test("an Answer the Claude plan stopped says why in Claude's words, in English a
 
     fake.replies = [refusal(403), refusal(403), refusal(403)];
     const refused = await askAndFail(window, "When does the lease end?");
-    // A key is no longer added in IncarnaMind (#3767): the way back is signing in again.
     await expect(refused).toHaveText("Claude refused this sign-in · Sign in again");
 
     fake.replies = [];
@@ -329,21 +328,28 @@ test("an Answer the Claude plan stopped says why in Claude's words, in English a
 
     fake.refuseRefresh = null;
     fake.expiresIn = 3600;
-    await pointAndClick(window, expired.getByTestId("answer-error-action"));
     const settings = window.getByTestId("settings");
-    await expect(settings).toHaveAttribute("data-page", "ai");
-    const row = settings.getByTestId("plans-claude-account");
-    await expect(row.getByTestId("claude-plan-waiting")).toBeInViewport();
-    const field = row.getByLabel("Claude 页面上的代码");
-    await expect(field).toBeFocused();
-    await field.fill(await codeAfterApproving(app, 2));
-    await row.getByTestId("claude-paste-continue").click();
-    await expect(row.getByTestId("claude-plan-sign-out")).toBeVisible();
-
-    // Signed in again, that Answer is asked again.
-    await pointAndClick(window, settings.getByRole("button", { name: "关闭设置" }));
-    await expect(settings).toBeHidden();
-    await expect(assistantAnswers(window).last()).toContainText(ANSWER, { timeout: 15_000 });
+    const answered = assistantAnswers(window).filter({ hasText: ANSWER });
+    // Refused, the account still reads signed in: Sign in again opens Anthropic's page all the
+    // same, and each line's Answer is asked again once signed in.
+    for (const [line, opened] of [
+      [refused, 2],
+      [expired, 3],
+    ] as const) {
+      await pointAndClick(window, line.getByTestId("answer-error-action"));
+      await expect.poll(() => urlsOpened(app)).toHaveLength(opened);
+      await expect(settings).toHaveAttribute("data-page", "ai");
+      const row = settings.getByTestId("plans-claude-account");
+      await expect(row.getByTestId("claude-plan-waiting")).toBeInViewport();
+      const field = row.getByLabel("Claude 页面上的代码");
+      await expect(field).toBeFocused();
+      await field.fill(await codeAfterApproving(app, opened));
+      await row.getByTestId("claude-paste-continue").click();
+      await expect(row.getByTestId("claude-plan-sign-out")).toBeVisible();
+      await pointAndClick(window, settings.getByRole("button", { name: "关闭设置" }));
+      await expect(settings).toBeHidden();
+      await expect(answered).toHaveCount(opened - 1, { timeout: 15_000 });
+    }
   } finally {
     await app.close();
   }

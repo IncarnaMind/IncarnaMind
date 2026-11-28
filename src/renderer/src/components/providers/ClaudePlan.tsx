@@ -44,8 +44,8 @@ function useRowOpen(): [boolean, (open: boolean) => void] {
     if (waiting) setOpen(true);
   }, [waiting]);
   useEffect(() => {
-    if (signedIn) setOpen(false);
-  }, [signedIn]);
+    if (signedIn && !waiting) setOpen(false);
+  }, [signedIn, waiting]);
   return [open, setOpen];
 }
 
@@ -60,9 +60,11 @@ export function ClaudePlanRow() {
   }, [signedIn, setOpen]);
   const row = useSettingsTarget<HTMLDivElement>(TARGET, offered, reached);
 
+  // A fresh sign-in waits for its code even while the tokens kept still read signed in.
+  const waiting = useClaudeSignIn((state) => state.waiting);
   if (!status || !offered) return null;
   const { account } = status;
-  const steps = !signedIn && open;
+  const steps = open && (!signedIn || waiting);
   return (
     <SettingsRow
       ref={row}
@@ -71,7 +73,7 @@ export function ClaudePlanRow() {
       label={t("plans.claude.title")}
       detail={steps ? undefined : <AccountLines account={account} />}
       control={
-        signedIn ? (
+        steps ? undefined : signedIn ? (
           <button
             type="button"
             data-testid="claude-plan-sign-out"
@@ -80,7 +82,7 @@ export function ClaudePlanRow() {
           >
             {t("claudePlan.signOut")}
           </button>
-        ) : steps ? undefined : (
+        ) : (
           <button
             type="button"
             data-testid="plans-claude-sign-in"

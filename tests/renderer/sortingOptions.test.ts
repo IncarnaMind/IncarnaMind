@@ -16,7 +16,7 @@ import {
 
 /*
  * The sorting picker's list (#2615): with a Jev key Jev comes first; in Local mode only a Jev
- * server on this computer is offered. Nothing is set up from the picker any more (#3767).
+ * server on this computer is offered. The picker sets nothing up (#3767).
  */
 
 const TYPESAFE = { id: "https://api.typesafe.ai", name: "TypeSafe Jev" };

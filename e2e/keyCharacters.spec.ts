@@ -14,8 +14,8 @@ import {
 /*
  * A key with a character keys don't use, such as a Chinese word pasted by mistake, is said in
  * place in plain words before anything is sent, and a key with spaces and invisible characters
- * around it is cleaned and tested. A key is no longer added in IncarnaMind (#3767): a profile's
- * provider is saved by the bridge, and its key is replaced on its own page.
+ * around it is cleaned and tested. No chat model's key is added in IncarnaMind (#3767): a
+ * profile's provider is saved by the bridge, and its key is replaced on its own page.
  */
 
 let dataDir: string;
@@ -76,7 +76,7 @@ async function recordingServer(): Promise<{
   };
 }
 
-/** Saves a provider as a profile from before #3767 has it, and opens its page in Settings › AI. */
+/** Saves a provider through the bridge (#3767), and opens its page in Settings › AI. */
 async function providerPage(
   window: Page,
   input: { kind: "openai-compatible"; baseUrl: string } | { kind: "kimi" },

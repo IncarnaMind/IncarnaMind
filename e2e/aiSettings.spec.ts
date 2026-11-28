@@ -460,7 +460,7 @@ test("a plan and a key for the same model: the key's row says the plan is the on
   const openai = await createFakeOpenAI();
   try {
     const window = await launch({ chatGpt: openai.endpoints.issuer });
-    // The plan is no longer signed into from IncarnaMind (#3767): a profile from before has it.
+    // No plan is added in IncarnaMind (#3767): the profile has one saved through the bridge.
     await signInWithChatGpt(app as ElectronApplication, window, openai);
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -528,8 +528,11 @@ test("Esc closes the add sheet and leaves Settings open", async () => {
   for (const entry of await entries.evaluateAll((each) =>
     each.map((element) => element.getAttribute("data-entry") ?? ""),
   )) {
-    expect(entry, entry).toMatch(/^(transcription|rerank):/);
+    expect(entry, entry).toMatch(/^(transcription|rerank|provider):/);
   }
+  await expect(
+    entries.getByTestId("provider-directory-job").filter({ hasText: "Answers" }),
+  ).toHaveCount(0);
   await window.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
   await expect(settings).toBeVisible();

@@ -222,7 +222,7 @@ test("Organize in the Library, with no AI yet, says it needs your AI; Dismiss pu
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
     await library.getByTestId("library-organize").click();
-    // A model is no longer chosen in IncarnaMind (#3767): the way on is connecting the User's AI.
+    // No model is chosen in IncarnaMind (#3767): the way on is connecting the User's AI.
     const needs = library.getByTestId("library-organize-needs-ai");
     await expect(needs).toContainText("Organizing needs your AI");
     const connect = needs.getByTestId("library-organize-connect-ai");
@@ -294,7 +294,7 @@ test("signed in with ChatGPT, the plan's model is chosen in one place: the Answe
   const { app, window } = await launchApp(dataDir, { chatGpt: openai.endpoints.issuer });
   try {
     await dismissChatSetup(window);
-    // A plan is no longer added in IncarnaMind (#3767): this one was saved and signed in before.
+    // No plan is added in IncarnaMind (#3767): this one is saved and signed in through the bridge.
     await signInWithChatGpt(app, window, openai);
     const settings = await openSettings(window, "ai");
     await settings.getByTestId("provider-row").click();

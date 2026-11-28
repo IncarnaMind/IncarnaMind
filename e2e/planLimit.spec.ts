@@ -30,7 +30,7 @@ import {
  * with it, and the model chip says which model answers, until when. The
  * limits last the session: reopened, the app says "for now". Tagging or
  * Organize that meets the plan's limit waits: one line in the sidebar says
- * until when, with no way to a key, which is no longer added in IncarnaMind
+ * until when, with no way to a key, which isn't added in IncarnaMind
  * (#3767), and the work goes on by itself at the reset. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots,
  * narrow and wide, in English and Chinese.
  */
@@ -286,7 +286,7 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
       /\. Tagging and Organize wait for it to reset, then go on by themselves\.$/,
     );
     await expect(footer.getByTestId("status-more")).toHaveCount(0);
-    // A key is no longer added in IncarnaMind (#3767): the line offers no way to one.
+    // No key is added in IncarnaMind (#3767): the line offers no way to one.
     await expect(paused.getByTestId("tagging-paused-use-key")).toHaveCount(0);
     // At the narrowest window it wraps inside the sidebar, its words whole.
     const row = await footer.boundingBox();

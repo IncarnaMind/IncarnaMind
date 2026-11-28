@@ -434,7 +434,7 @@ export const zhCN = {
   "meetings.brief.disclosure":
     "将会议标题、与相同参会人上次会议的相关摘录，以及与笔记关联、位于当前文件夹或所选搜索范围内的文档摘录发送给 {service}。",
   "meetings.brief.localDisclosure": "在这台电脑上使用会议标题、与相同参会人的过往会议和相关文档。",
-  "meetings.brief.chooseModel": "要生成问题，请为这篇笔记选择模型，或连接有权读取会议资料的 AI。",
+  "meetings.brief.needsAi": "准备问题需要能读取会议资料的 AI",
   "meetings.brief.nothing": "没有可用于准备简报的会议资料。",
   "meetings.brief.lastTime": "上次与这些人开会",
   "meetings.brief.keep": "保留到笔记",
@@ -3098,7 +3098,7 @@ export const zhCN = {
     "没有可重新打标签的文档：打标签已关闭，或所有文档所在的位置都已停止打标签",
   "tags.dialog.done": "完成",
 
-  "jev.waiting.notice": "选择 AI 模型后会自动打标签。",
+  "jev.waiting.notice": "“整理和标签”有可用的模型后，会自动打标签。",
   "jev.waiting.permission": "允许把文档文字发送给 {service} 后再打标签。",
   "jev.settings.title": "TypeSafe Jev",
   "decisions.usesKey": "使用你已连接的{provider}",
@@ -3600,7 +3600,6 @@ export const zhCN = {
   "signInRoute.wayBack.tryAgain": "重试",
   "signInRoute.wayBack.signInAgain": "重新登录",
   "signInRoute.wayBack.useAnotherModel": "换一个模型",
-  "signInRoute.wayBack.pasteApiKey": "改用 API 密钥",
   "chatgpt.welcome.title": "你正在使用 ChatGPT 订阅",
   "chatgpt.welcome.body": "用 ChatGPT 模型提问，现在会使用你的 ChatGPT 订阅。",
   "chatgpt.welcome.ok": "知道了",
@@ -6273,8 +6272,7 @@ export const zhCN = {
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
   "error.library.noFolders": "先新建或选择文件夹。",
-  "error.library.cantPropose":
-    "整理所用的模型只能把文档放进已有的文件夹，无法为文件夹命名。先新建文件夹，或为整理选择 AI 模型。",
+  "error.library.cantPropose": "整理所用的模型无法为文件夹命名。先新建文件夹，或连接你的 AI。",
   "error.library.scanImagesOff":
     "这份扫描件没有文字，页面图片不会发送给 {service}。允许后才能整理。",
   "scan.images.allow": "允许发送页面图片",
@@ -6413,7 +6411,8 @@ export const zhCN = {
   "error.recordCite.spanInvalid": "引用的位置无效，请重新核对这句话。",
   "error.recordCite.notFound": "这次核对中找不到该记录引用，请重新核对这句话。",
   "error.recordCite.documentGone": "所选文档已不可用。请重新核对引用，再选择当前文档。",
-  "error.recordCite.modelNotReady": "无法使用当前模型核对此引用，请选择模型后重试。",
+  "error.recordCite.modelNotReady": "核对此引用的模型尚未就绪。请在“设置 › AI”中处理后重试。",
+  "error.recordCite.needsAi": "核对此引用需要你的 AI。连接你的 AI 后，再核对一次笔记。",
   "error.recordCite.unresolved": "无法确定引用来源，请选择其他文档或检查该引用。",
   "error.tagging.noModel": "先选择分类模型。",
   "error.tagging.place": "选择要用 AI 打标签的位置：一个文件夹，或“不在文件夹中”。",

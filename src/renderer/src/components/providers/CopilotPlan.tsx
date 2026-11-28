@@ -41,7 +41,7 @@ const PLAN_NAMES: Record<CopilotPlan, MessageKey> = {
 
 const NO_MODELS: RouteProblemWords = {
   line: "copilot.signIn.noModels",
-  waysBack: ["try-again", "paste-api-key"],
+  waysBack: ["try-again"],
 };
 
 const failureWords = (failure: CopilotFailure): RouteProblemWords =>
@@ -303,8 +303,7 @@ function Failure({ failure }: { failure: CopilotFailure }) {
     first.current?.focus();
   }, []);
   const words = failureWords(failure);
-  const keepDefault = true;
-  const signIn = () => void signInWithCopilot({ keepDefault });
+  const signIn = () => void signInWithCopilot({ keepDefault: true });
   const anotherModel = () => {
     closeCopilotNotice();
     openSettings("ai", "chat-model");
@@ -314,10 +313,8 @@ function Failure({ failure }: { failure: CopilotFailure }) {
     "sign-in-again": signIn,
     // Signed in already, a plan that listed no model needs only its list read again.
     "try-again":
-      failure.kind === "no-models" ? () => void chooseCopilotPlan({ keepDefault }) : signIn,
+      failure.kind === "no-models" ? () => void chooseCopilotPlan({ keepDefault: true }) : signIn,
     "use-another-model": anotherModel,
-    // No new model is set up in IncarnaMind (#3767).
-    "paste-api-key": undefined,
   };
   const label = (wayBack: RouteWayBack) => t(wayBackLabel("copilot", wayBack));
   const actions = words.waysBack.flatMap((wayBack) => {

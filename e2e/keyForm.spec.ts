@@ -10,9 +10,9 @@ import {
 } from "./app";
 
 /*
- * A saved provider's key (#719). A key is no longer added in IncarnaMind (#3767): the key form, the
- * service list and the ChatGPT sign-in left with it, and a profile's provider changes its key on
- * its own page, where a key that is another service's goes nowhere.
+ * A saved provider's key (#719). No chat model's key is added in IncarnaMind (#3767): a
+ * profile's provider changes its key on its own page, where a key that is another service's goes
+ * nowhere.
  */
 
 let dataDir: string;

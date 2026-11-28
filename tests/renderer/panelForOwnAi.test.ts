@@ -333,7 +333,7 @@ afterEach(async () => {
 });
 
 describe("the panel itself", () => {
-  // protects=rows 1 and 2: with no model the panel is out of sight whatever place was kept, open by the User or folded, their AI connected, disconnected or never connected (#3767), so no rail, header or menu of it shows and a window that had it open shows the Note alone; with a model it shows as before; fails_when=any kept place shows it to a User with no model, or hides it from one with a model
+  // protects=rows 1 and 2: with no model the panel is out of sight whatever place was kept, open by the User or folded, their AI connected, disconnected or never connected (#3767), so no rail, header or menu of it shows and a window that had it open shows the Note alone; with a model it shows; fails_when=any kept place shows it to a User with no model, or hides it from one with a model
   test.each([
     ["kept as it starts", DEFAULT_ASSISTANT],
     ["opened by the User before", { ...DEFAULT_ASSISTANT, folded: false, foldedBy: "user" }],
@@ -700,7 +700,7 @@ describe("a Note's Ask", () => {
 });
 
 describe("asking from elsewhere", () => {
-  // protects=row 11, #3764, #3767: with no model, an AI of theirs connected, disconnected or never connected, ⌘K has no Ask row: the Note's foot is the one place to ask; with a model, the row asks in the panel as before; fails_when=⌘K offers a way to ask that can't answer, or loses the row where the panel is
+  // protects=row 11, #3764, #3767: with no model, an AI of theirs connected, disconnected or never connected, ⌘K has no Ask row: the Note's foot is the one place to ask; with a model, the row asks in the panel; fails_when=⌘K offers a way to ask that can't answer, or loses the row where the panel is
   test("⌘K's typed Ask", async () => {
     const rows = () =>
       askGroup("What did fuel cost?", "New chat", (key, params) => translate("en", key, params));

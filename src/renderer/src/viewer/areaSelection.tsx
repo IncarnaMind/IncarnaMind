@@ -18,6 +18,7 @@ import { type AreaSelection, highlightArea } from "../annotationActions";
 import { useAnnotations } from "../annotations";
 import { core, files } from "../core";
 import { translateNow, useT } from "../i18n";
+import { useNoAiConnected } from "../ownAiPanel";
 import { preparePicture } from "../pictureFile";
 import { useAppStore } from "../store";
 import { visiblePartOf } from "./captureRect";
@@ -229,6 +230,8 @@ export function AreaOverlay({
 }) {
   const mode = useContext(AreaModeContext);
   const t = useT();
+  // As over words, no Ask with no AI of the User's to take it (#3764): ⌥-drag picks nothing.
+  const noAi = useNoAiConnected();
   const [drawn, setDrawn] = useState<DOMRect | null>(null);
   const [reading, setReading] = useState<DOMRect | null>(null);
   const [taking, setTaking] = useState(false);
@@ -370,12 +373,13 @@ export function AreaOverlay({
         void highlight(picked);
         return;
       }
+      if (noAi) return;
       // The pick shows it is being read at once: a cursor is never in the picture, so it can start
       // before the capture (#118).
       setTaking(true);
       requestAnimationFrame(() => requestAnimationFrame(() => void take(picked)));
     },
-    [take, highlight, mode?.purpose],
+    [take, highlight, mode?.purpose, noAi],
   );
 
   useEffect(() => {
@@ -388,7 +392,7 @@ export function AreaOverlay({
     if (!section) return;
     const onDown = (event: PointerEvent) => {
       if (event.button !== 0 || busy.current) return;
-      if (!mode?.active && !event.altKey) return;
+      if (!mode?.active && (!event.altKey || noAi)) return;
       if ((event.target as Element | null)?.closest("header")) return;
       const unit = unitAt(section, event.clientX, event.clientY);
       if (!unit) return;
@@ -522,7 +526,7 @@ export function AreaOverlay({
       section.removeEventListener("pointercancel", onUp, { capture: true });
       section.removeEventListener("keydown", onKey);
     };
-  }, [section, mode, finish, visibleRegion]);
+  }, [section, mode, finish, visibleRegion, noAi]);
 
   if (!section) return null;
   const origin = section.getBoundingClientRect();

@@ -270,7 +270,7 @@ test("with no model and no AI connected, the footer never asks for a model to ta
       }),
     )
     .toBe(true);
-  // Choosing a model to tag can't be done here any more, so nothing asks for one (#3767).
+  // No model to tag is chosen here, so nothing asks for one (#3767).
   const footer = window.getByTestId("sidebar-footer");
   await expect(footer).toBeVisible();
   await expect(notice).toHaveCount(0);
@@ -413,7 +413,7 @@ test("with a model set up, a first checked Citation from the User's own file tak
   try {
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    // A model is no longer set up in the interface (#3767): the profile has one, as one from before it.
+    // The interface sets no model up (#3767): the profile's is saved through the bridge.
     await saveCloudChatModel(window, { cap: false });
     await expectHomeInFront(window);
     const taken: string[] = [];

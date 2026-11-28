@@ -13,8 +13,8 @@ const TARGET = ["check-decision"] as const;
  * Checking sentences (#3118): a switch for the one measured decision model that reads each
  * sentence of a check first. Its line says what goes to its host, before it is turned on:
  * turning it on there is the User allowing it. On by default, the line says which checks it
- * reads. Without the host's key, or in Local mode, a line says why it stays off: no key is added
- * here (#3767). The tip names
+ * reads. Without the host's key, or in Local mode, a line says why it stays off, as no key is
+ * added here (#3767). The tip names
  * the company whose model it is, where the host passes its requests on.
  */
 export function CheckDecisionRow({ id, status }: { id: string; status: CheckDecisionStatus }) {

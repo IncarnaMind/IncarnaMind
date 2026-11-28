@@ -68,7 +68,7 @@ test("a secret the synchronous safeStorage API wrote opens with the asynchronous
 test("a saved key that can't be opened says so where it is entered", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1280, 800);
-  // A key is no longer added in IncarnaMind (#3767): a profile's provider is saved by the bridge.
+  // No chat model's key is added in IncarnaMind (#3767): a profile's provider is saved by the bridge.
   await acceptPlainTextKeys(window);
   const provider = await (await coreOf(window)).evaluate((bridge) =>
     bridge.saveChatProvider({

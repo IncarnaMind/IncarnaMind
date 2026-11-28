@@ -27,6 +27,7 @@ import { useLanguage, useT } from "../i18n";
 import { turnOffLocalMode } from "../localMode";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
+import { useLocalModelSaved } from "../savedProviders";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
@@ -225,6 +226,7 @@ export function HealthCard({
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
   const openSettings = useAppStore((state) => state.openSettings);
+  const localModel = useLocalModelSaved();
   const folderName = useAppStore((state) => {
     const folderId =
       problem?.kind === "no-documents" || problem?.kind === "only-cited" ? problem.folderId : null;
@@ -432,6 +434,15 @@ export function HealthCard({
               );
             },
           }}
+          {...(localModel && {
+            also: {
+              label: t("answer.error.chooseModel"),
+              onClick: () => {
+                dismissCheckProblem(mindId);
+                openSettings("ai", "chat-model");
+              },
+            },
+          })}
         >
           {t("checks.problem.local-mode")}
         </ProblemLine>

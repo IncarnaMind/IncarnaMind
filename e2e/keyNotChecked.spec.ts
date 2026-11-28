@@ -38,8 +38,8 @@ const setLanguage = (window: Page, value: "en" | "zh-CN") =>
     value,
   );
 
-// A key is no longer added in IncarnaMind (#3767): a profile's provider is saved by the bridge, and
-// its key is replaced on its own page.
+// No chat model's key is added in IncarnaMind (#3767): a profile's provider is saved by the
+// bridge, and its key is replaced on its own page.
 async function openSavedProvider(window: Page) {
   const providerId = await saveProvider(window, {
     kind: "openai",

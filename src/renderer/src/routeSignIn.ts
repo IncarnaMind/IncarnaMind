@@ -38,9 +38,6 @@ export function wayBackRun(
       return line.onRetry;
     case "use-another-model":
       return requestModelMenu;
-    // A key is no longer added in IncarnaMind (#3767).
-    case "paste-api-key":
-      return undefined;
   }
 }
 

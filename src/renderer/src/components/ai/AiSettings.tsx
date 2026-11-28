@@ -72,8 +72,8 @@ const NONE: readonly SettingsTarget[] = [];
 
 /**
  * Settings › AI: the User's own AI first, then what each job uses, on one page. Its sections are
- * Your AI, What each job uses, Accounts and keys, and Limits. A model in IncarnaMind is no longer
- * set up here (#3767): a profile that has one keeps it, can choose among its models and remove it.
+ * Your AI, What each job uses, Accounts and keys, and Limits. No chat model is set up here
+ * (#3767): a profile that has one keeps it, can choose among its models and remove it.
  * With none, only the jobs that run without one are listed, and Accounts and keys shows once a key
  * for another job is kept. A provider's page, and the page that sets up an entry of "Add an account
  * or key", open in its place.
@@ -140,7 +140,8 @@ export function AiSettings() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again whenever a key may have changed.
   useEffect(readOlderKeys, [readOlderKeys, providers, embedding?.provider, rerank]);
 
-  // "Check the key" on a refused Answer: that provider's page, its key field focused.
+  // "Check the key" on a refused Answer: that provider's page, its key field focused; the page's
+  // top for a provider removed since.
   useEffect(() => {
     if (!refused || !providers) return;
     const saved = providers.find(
@@ -148,11 +149,7 @@ export function AiSettings() {
         catalogIdOf(each) === refused.catalogId &&
         (each.endpoint ?? null) === (refused.endpoint ?? each.endpoint ?? null),
     );
-    setView(
-      saved
-        ? { page: "provider", providerId: saved.id }
-        : { page: "add", catalogId: refused.catalogId, endpoint: refused.endpoint },
-    );
+    setView(saved ? { page: "provider", providerId: saved.id } : { page: "list" });
   }, [refused, providers]);
 
   useSettingsTarget<HTMLDivElement>(DIRECTORY_TARGET, laidOut, () => {
@@ -160,12 +157,16 @@ export function AiSettings() {
     setAdding(true);
   });
   // A plan's sign-in asked for elsewhere: its page, whose card then takes the target as its own.
+  // A plan removed since is not signed in to again: the page's top.
   const at = useAppStore((state) => state.settingsAt);
   useEffect(() => {
-    if (laidOut && (at === "claude-account" || at === "copilot")) {
-      setView({ page: "entry", entry: { kind: "plan", plan: at } });
-    }
-  }, [at, laidOut]);
+    if (!laidOut || !providers || (at !== "claude-account" && at !== "copilot")) return;
+    setView(
+      providers.some((each) => each.kind === at)
+        ? { page: "entry", entry: { kind: "plan", plan: at } }
+        : { page: "list" },
+    );
+  }, [at, laidOut, providers]);
 
   // Each page starts at its top; back on the list, the focus is where it was.
   useLayoutEffect(() => {
@@ -287,7 +288,15 @@ export function AiSettings() {
         group={groupOf(provider.id)}
         refused={refused && refused.catalogId === catalogIdOf(provider) ? refused : null}
         onBack={back}
-        onRegion={(endpoint) => setView(pageFor(catalogIdOf(provider), endpoint))}
+        savedEndpoints={providers.flatMap((each) =>
+          catalogIdOf(each) === catalogIdOf(provider) && each.endpoint ? [each.endpoint] : [],
+        )}
+        onRegion={(endpoint) => {
+          const other = providers.find(
+            (each) => catalogIdOf(each) === catalogIdOf(provider) && each.endpoint === endpoint,
+          );
+          if (other) setView({ page: "provider", providerId: other.id });
+        }}
         onRemoved={(what) => {
           refresh();
           setRemoved(what);

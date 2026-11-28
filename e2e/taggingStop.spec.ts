@@ -80,7 +80,7 @@ async function openFolder(window: Page, name: string): Promise<void> {
 const documentItem = (window: Page, name: string) =>
   window.getByTestId("document-list-item").filter({ hasText: name });
 
-/** A cloud key kept from before #3767, when one was added in IncarnaMind. */
+/** A cloud key saved through the bridge, as none is added in IncarnaMind (#3767). */
 async function pasteKey(window: Page): Promise<void> {
   await acceptPlainTextKeys(window);
   // A cloud model starts with tagging off: the User turns it on.

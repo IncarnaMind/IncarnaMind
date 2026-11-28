@@ -71,8 +71,8 @@ test("a refused key and a variable with no name read in ink after the amber mark
       };
     });
 
-    // A key is no longer added in IncarnaMind (#3767): the profile's key is saved by the bridge
-    // and refused when its own page tests it.
+    // No chat model's key is added in IncarnaMind (#3767): the profile's key is saved by the
+    // bridge and refused when its own page tests it.
     const provider = await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
         kind: "openai",

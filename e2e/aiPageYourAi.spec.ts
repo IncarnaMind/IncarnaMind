@@ -20,8 +20,8 @@ import {
 
 /*
  * Settings › AI is one page that starts with the User's own AI (#3645): Your AI, then the jobs, the
- * accounts and the limits. A model in IncarnaMind is no longer set up here (#3767): only a profile
- * that has one shows its jobs and accounts. Each setup a User can be in, with no model set up unless the test says so. The home
+ * accounts and the limits. No chat model is set up in IncarnaMind (#3767): only a profile that
+ * has one shows its jobs and accounts. Each setup a User can be in, with no model set up unless the test says so. The home
  * folder is a temporary one with Claude Code's settings in it, so no agent of the User's is
  * touched. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */

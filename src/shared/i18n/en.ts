@@ -453,8 +453,7 @@ export const en = {
     "Sends the meeting title and excerpts from earlier meetings with the same people and from documents linked to this note, in its folder, or in its selected search scope to {service}.",
   "meetings.brief.localDisclosure":
     "Uses the meeting title, earlier meetings with the same people and related documents on this computer.",
-  "meetings.brief.chooseModel":
-    "To prepare questions, choose a model for this note or connect your AI with access to the meeting sources.",
+  "meetings.brief.needsAi": "Preparing questions needs your AI with access to the meeting sources",
   "meetings.brief.nothing": "No meeting sources to prepare from.",
   "meetings.brief.lastTime": "Last time with these people",
   "meetings.brief.keep": "Keep in notes",
@@ -3279,7 +3278,7 @@ export const en = {
   "tags.dialog.retag.none": "Nothing to re-tag: Tagging is off, or stopped where every Document is",
   "tags.dialog.done": "Done",
 
-  "jev.waiting.notice": "Tags come once you choose an AI model.",
+  "jev.waiting.notice": "Tags come once Organize and Tags has a model it can use.",
   "jev.waiting.permission": "Tags wait until you allow Document text to go to {service}.",
   "jev.settings.title": "TypeSafe Jev",
   "decisions.usesKey": "Uses your connection to {provider}",
@@ -3806,7 +3805,6 @@ export const en = {
   "signInRoute.wayBack.tryAgain": "Try again",
   "signInRoute.wayBack.signInAgain": "Sign in again",
   "signInRoute.wayBack.useAnotherModel": "Use another model",
-  "signInRoute.wayBack.pasteApiKey": "Use an API key instead",
   "chatgpt.welcome.title": "You’re using your ChatGPT plan",
   "chatgpt.welcome.body": "Questions with ChatGPT models now use your ChatGPT plan.",
   "chatgpt.welcome.ok": "Got it",
@@ -6659,7 +6657,7 @@ export const en = {
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
   "error.library.noFolders": "Create or choose Folders first.",
   "error.library.cantPropose":
-    "The model Organize uses can sort into Folders but can’t name them. Make a Folder first, or choose an AI model for Organize.",
+    "The model Organize uses can’t name Folders. Make a Folder first, or connect your AI.",
   "error.library.scanImagesOff":
     "No text in this scan, and its page images aren’t sent to {service}. Allow them to sort it.",
   "scan.images.allow": "Allow page images",
@@ -6823,7 +6821,9 @@ export const en = {
   "error.recordCite.documentGone":
     "That Document is no longer available. Check the cite again to choose a current Document.",
   "error.recordCite.modelNotReady":
-    "The model needed to check this cite is not ready. Choose a model and try again.",
+    "The model that checks this cite isn’t ready. Fix it in Settings › AI, then try again.",
+  "error.recordCite.needsAi":
+    "Checking this cite needs your AI. Connect your AI, then check the note again.",
   "error.recordCite.unresolved":
     "The source could not be resolved. Choose another Document or check the cite.",
   "error.tagging.noModel": "Choose a classification model.",
