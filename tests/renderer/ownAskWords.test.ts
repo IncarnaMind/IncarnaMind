@@ -1,12 +1,17 @@
 /**
  * The words of the lasting answer on the card for a question of the User's own AI (#3653): one
  * thing it grants is the button's words; several are a short button and every one of them, whole,
- * under it. And the plain words the line above the input says while it acts (#3762).
+ * under it; the AI a file on it steers. And the plain words the line above the input says while it
+ * acts (#3762).
  */
 import { describe, expect, test } from "vitest";
 import type { NoteAction, NoteSuggested } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
-import { lastingWords, ownDoingWords } from "../../src/renderer/src/components/noteAsk/ownAskWords";
+import {
+  lastingWords,
+  ownDoingWords,
+  steersWords,
+} from "../../src/renderer/src/components/noteAsk/ownAskWords";
 import { translate } from "../../src/shared/i18n";
 
 const said = (language: Language, suggested: NoteSuggested[]) =>
@@ -63,6 +68,18 @@ describe("the lasting answer's words", () => {
     ],
   ] as const)("several grants, %s", (language, suggested, label, grants) => {
     expect(said(language, [...suggested])).toEqual({ label, grants });
+  });
+  // protects=Codex's answer for this request on one file names it as a file, not as a folder whose edits it allows (#3653); fails_when=a file reads as "edits in" a folder
+  test.each([
+    ["en", "Don’t ask again for edits to the file notes.md for this request"],
+    ["zh-CN", "本次请求内不再询问：修改文件 notes.md"],
+  ] as const)("a file's answer for this request, %s", (language, label) => {
+    const file: NoteSuggested = {
+      kind: "rules",
+      kept: "request",
+      rules: [{ kind: "file", path: "notes.md" }],
+    };
+    expect(said(language, [file])).toEqual({ label, grants: null });
   });
 });
 
@@ -121,5 +138,17 @@ describe("the line above the input while the User's AI uses a tool of its own", 
             "正在调用工具",
           ],
     );
+  });
+});
+
+describe("the AI a file on the card steers", () => {
+  // protects=the card names the AI whose own file it is, in both languages, whichever AI asks; fails_when=a Claude Code card about Codex's file says it changes Claude Code, or the other way round
+  test.each([
+    ["en", "codex", "This file changes how Codex behaves from now on."],
+    ["en", "claude-code", "This file changes how Claude Code behaves from now on."],
+    ["zh-CN", "codex", "这个文件会改变 Codex 以后的行为。"],
+    ["zh-CN", "claude-code", "这个文件会改变 Claude Code 以后的行为。"],
+  ] as const)("%s, %s's file", (language, agent, words) => {
+    expect(steersWords((key, params) => translate(language, key, params), agent)).toBe(words);
   });
 });

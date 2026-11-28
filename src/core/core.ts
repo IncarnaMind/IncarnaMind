@@ -79,6 +79,7 @@ import { createAgentFiles, type StoredHandedFile } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { dropTakenBackCopies } from "./agentFiles/kept";
 import {
+  agentServiceOf,
   agentSocketPath,
   createAgents,
   HOSTED_CHECK_SENDS,
@@ -7627,10 +7628,7 @@ export function createCore(adapters: CoreAdapters): Core {
   liveSummaries.changed(meetings.list());
   /** Whether the User's consent lets IncarnaMind start this agent to send `sends`, asking once if not. */
   const hostedConsent = async (pairing: AgentPairing, sends: readonly DataKind[]) => {
-    const service = {
-      ...serviceOf(pairing),
-      ...(pairing.client && { agentClient: pairing.client }),
-    };
+    const service = agentServiceOf(pairing);
     // Taken back in Settings › Privacy: the job goes by the link until the User allows it again.
     if (consent.takenBack("hosted-agents", service)) return false;
     try {
@@ -10279,7 +10277,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (
         typeof mindId !== "string" ||
         typeof questionId !== "string" ||
-        (answer !== "deny" && answer !== "once" && answer !== "suggested")
+        (answer !== "deny" && answer !== "once" && answer !== "suggested" && answer !== "request")
       )
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.answer(mindId, questionId, answer);
@@ -10318,7 +10316,13 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       await ownAiConversations.chooseMode(mindId, mode);
     },
-    ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
+    ownAiRunsHere: async () => {
+      const runner = adapters.ownAi;
+      if (!runner) return [];
+      const clients = ["claude-code", "codex"] as const;
+      const here = await Promise.all(clients.map((client) => runner.installed(client)));
+      return clients.filter((_, at) => here[at]);
+    },
     frontAgent: (pairingId) => agentAsk.front(pairingId),
     editDeck: (input) => writingDeck(deckSittings.edit(input)),
     undoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.undo(sittingId, stepId)),

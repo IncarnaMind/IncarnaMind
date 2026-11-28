@@ -19,6 +19,7 @@ import {
   type AgentLaunch,
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
+  type ConsentRequest,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   type NoteAction,
@@ -166,6 +167,7 @@ function runner(
     installed: async () => true,
     status: async () => status,
     ...(folders && { folder: async (key: string) => join(folders, key) }),
+    choosesModes: (client: string) => client === "claude-code",
     async purge(key) {
       purged.push(key);
       return true;
@@ -243,6 +245,14 @@ const MODELS = [
   { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "" },
 ];
 
+/** A model Codex lists in its `model/list` answer, as the run hears it. */
+const CODEX_MODEL = {
+  value: "gpt-6.2-sol",
+  resolvedModel: "gpt-6.2-sol",
+  displayName: "GPT-6.2 Sol",
+  description: "",
+};
+
 /**
  * A User with no model set up, a Document in "Harbour", a Note they wrote there and another, and
  * Claude Code connected, allowed to propose changes unless `readOnly`. `cited`: the Note's first
@@ -255,7 +265,14 @@ async function written(
     cited = false,
     quietMs,
     held,
-  }: { readOnly?: boolean; cited?: boolean; quietMs?: number; held?: Gate } = {},
+    client: agentClient = "claude-code",
+  }: {
+    readOnly?: boolean;
+    cited?: boolean;
+    quietMs?: number;
+    held?: Gate;
+    client?: "claude-code" | "codex";
+  } = {},
 ) {
   const files = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
   // `held`: a page's files are written only once it opens, so its call runs until then.
@@ -284,10 +301,17 @@ async function written(
   await core.assignDocumentGroup(report.id, harbour.id);
   await core.setAgentsEnabled(true);
   const claude = await core.connectAgent({
-    name: "Claude Code",
-    client: "claude-code",
+    name: agentClient === "codex" ? "Codex" : "Claude Code",
+    client: agentClient,
     folderIds: [harbour.id],
     propose: !readOnly,
+  });
+  // Connecting Codex agrees to its checks alone: its first request asks for the rest, accepted here.
+  const consents: ConsentRequest[] = [];
+  core.on("consent.requested", (request) => {
+    if (agentClient !== "codex") return;
+    consents.push(request);
+    void core.respondToConsent(request.requestId, true);
   });
   const mind = await core.createMind({ title: "Ferry notes", folderId: harbour.id });
   const client = await connectToMind(core, mind.id);
@@ -351,6 +375,7 @@ async function written(
     turns,
     ended,
     selectionOf,
+    consents,
   };
 }
 
@@ -403,9 +428,9 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   it("says whether the command line can run here", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "" }));
     const here = await written(run.adapter);
-    expect(await here.core.ownAiRunsHere()).toBe(true);
+    expect(await here.core.ownAiRunsHere()).toEqual(["claude-code", "codex"]);
     const away = await written({ ...run.adapter, installed: async () => false });
-    expect(await away.core.ownAiRunsHere()).toBe(false);
+    expect(await away.core.ownAiRunsHere()).toEqual([]);
     expect(await away.core.askInNote({ mindId: away.mindId, words: "shorter" })).toEqual({
       kind: "link",
     });
@@ -1983,6 +2008,32 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=a request its AI ended at a question told no ends finished, its last words kept, and says so in the window and in the conversation read again; a later one that finished says nothing of it (#3653); fails_when=the conversation shows only the AI's words of what it would do, as if it ran, or the request reads as failed
+  it("says a request ended at a question told no ran none of it", async () => {
+    let ask = true;
+    const run = runner(async () =>
+      ask
+        ? { kind: "finished", reply: "I’ll run touch denied.txt.", endedAtAsk: true }
+        : { kind: "finished", reply: "Done." },
+    );
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "make a file" });
+    expect(await ended(1)).toMatchObject({ state: "landed", endedAtAsk: true });
+    ask = false;
+    await core.askInNote({ mindId, words: "say hello" });
+    expect((await ended(2))?.endedAtAsk).toBeUndefined();
+    expect(
+      (await core.noteConversation(mindId)).map(({ outcome, reply, endedAtAsk }) => [
+        outcome,
+        reply,
+        endedAtAsk ?? false,
+      ]),
+    ).toEqual([
+      ["landed", "I’ll run touch denied.txt.", true],
+      ["landed", "Done.", false],
+    ]);
+  });
+
   // protects=Stop ends the run and leaves the Note as it was; fails_when=a stopped request changes the Note or keeps running
   it("stops on Stop, and leaves the Note as it was", async () => {
     const { core, mindId, client, ended } = await written(runner(untilStopped).adapter);
@@ -2831,6 +2882,138 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     } finally {
       await again.close();
     }
+  });
+
+  // protects=a Note's request runs on the User's own Codex as on Claude Code (#3653): with its own abilities, every Tool of IncarnaMind's server and the conversation's own folder; its first request asks the consent in Codex's own words; its models are listed for its picker, and its approval policy is kept, never offered as a mode the input chooses; fails_when=a Codex connection's request goes by the link, runs without its abilities, skips the consent, or shows Claude Code's modes
+  it("runs a Note's request on Codex with its own abilities, in the User's own approval policy", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: [CODEX_MODEL] });
+      request.progress?.({ kind: "mode", mode: "on-request" });
+      return { kind: "finished", reply: "Counted." };
+    });
+    const { core, mindId, ended, consents } = await written(run.adapter, { client: "codex" });
+    expect(await core.ownAiRunsHere()).toEqual(["claude-code", "codex"]);
+    expect((await core.askInNote({ mindId, words: "count the late crossings" })).kind).toBe(
+      "started",
+    );
+    expect(await ended()).toMatchObject({ state: "landed", reply: "Counted.", mode: "on-request" });
+    const [request] = run.runs;
+    expect(request).toMatchObject({ client: "codex", tools: "all" });
+    expect(request?.own).toBeDefined();
+    expect(request?.conversation?.key).toEqual(expect.any(String));
+    expect(request?.modes).toBeUndefined();
+    expect(consents.map((each) => [each.flow.service.agentClient, each.newKinds])).toEqual([
+      ["codex", ["note-requests", "selection", "own-ai-context"]],
+    ]);
+    expect(await core.noteModels(mindId)).toMatchObject({
+      models: [CODEX_MODEL],
+      mode: null,
+      chosen: false,
+    });
+    await core.chooseNoteMode(mindId, "auto");
+    expect((await core.noteModels(mindId)).mode).toBeNull();
+    await core.askInNote({ mindId, words: "and the early ones", model: CODEX_MODEL.value });
+    await ended(2);
+    expect(run.runs[1]).toMatchObject({
+      client: "codex",
+      model: CODEX_MODEL.value,
+      conversation: { resume: true },
+    });
+    expect(run.runs[1]?.modes).toBeUndefined();
+  });
+
+  // protects=Codex's "for this session" answer is offered beside its lasting one, in Codex's order, and goes back to it as the User chose it; fails_when=the card offers fewer answers than Codex's request, or "for this request" reaches Codex as another answer
+  it("offers Codex's answer for this request beside its lasting one, and gives it back", async () => {
+    const FOR_REQUEST: NoteSuggested[] = [
+      { kind: "rules", kept: "request", rules: [{ kind: "command", value: COMMAND.value }] },
+    ];
+    const run = asking({ ...asked("exec-1"), forRequest: FOR_REQUEST });
+    const { core, mindId, turns, ended } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "count the late crossings" });
+    const [question] = await waitingIn(turns);
+    expect(question).toMatchObject({
+      action: COMMAND,
+      answers: ["deny", "suggested", "request", "once"],
+      suggested: SUGGESTED,
+      forRequest: FOR_REQUEST,
+    });
+    await core.answerInNote(mindId, question?.id ?? "", "request");
+    const end = await ended();
+    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "request" });
+    expect(run.answered).toEqual(["request"]);
+  });
+
+  // protects=on Codex, Stop with a question open ends the run at once and the question goes, said stopped; a question open when IncarnaMind closes reads as asked and not run after the next start, so neither hangs the conversation; fails_when=Stop waits on Codex's question, or a question open across a restart reads as still waiting
+  it("stops with Codex's question open, and closes one open across a restart", async () => {
+    let signal: AbortSignal | undefined;
+    const run = asking(asked("exec-1"), (request) => {
+      signal = request.signal;
+    });
+    const { core, mindId, turns, ended, dataDir } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "count the late crossings" });
+    const [question] = await waitingIn(turns);
+    await core.stopInNote(mindId);
+    expect(await ended()).toMatchObject({ state: "stopped" });
+    expect(signal?.aborted).toBe(true);
+    await core.answerInNote(mindId, question?.id ?? "", "once");
+    expect(run.answered).toEqual([]);
+    await core.askInNote({ mindId, words: "count them again" });
+    await expect.poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(1);
+    await core.close();
+    const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    try {
+      expect((await again.noteConversation(mindId)).at(-1)).toMatchObject({
+        request: "count them again",
+        outcome: "stopped",
+        questions: [],
+        closed: [{ kind: "command", value: COMMAND.value }],
+      });
+    } finally {
+      await again.close();
+    }
+  });
+
+  // protects=a deck Codex made in the conversation's own folder reaches the Library by hand_over_file, as Claude Code's does; fails_when=a Codex conversation's folder isn't the one hand_over_file reads from
+  it("hands over a file Codex made in the conversation's folder", async () => {
+    const folders = await realpath(await mkdtemp(join(tmpdir(), "own-ai-folders-")));
+    let handed: unknown;
+    const run = runner(
+      async (agent, request) => {
+        const folder = join(folders, request.conversation?.key ?? "");
+        await mkdir(folder, { recursive: true });
+        const deck = join(folder, "Ferry delays.pptx");
+        await writeFile(deck, plainDeck([{ title: "Ferry delays" }, { lines: [FERRY] }]));
+        const result = (await agent.callTool({
+          name: "hand_over_file",
+          arguments: { path: deck },
+        })) as { structuredContent?: unknown };
+        handed = result.structuredContent;
+        return { kind: "finished", reply: "Handed over." };
+      },
+      { kind: "ready" },
+      connectLegacyAgent,
+      folders,
+    );
+    const { core, mindId, ended } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "make a deck of the delays" });
+    await ended();
+    expect(handed).toMatchObject({ title: "Ferry delays" });
+    expect((await core.listDocuments()).map((each) => each.name)).toContain("Ferry delays");
+  });
+
+  // protects=Codex's own no-ask setting is kept with the request as it names it, so the conversation says it once in plain words; fails_when=Codex set never to ask runs unasked with nothing said
+  it("keeps Codex's never-ask policy with the request", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "mode", mode: "never" });
+      request.progress?.({ kind: "own", id: "exec-1", action: COMMAND, state: "going" });
+      request.progress?.({ kind: "own", id: "exec-1", action: COMMAND, state: "done" });
+      return { kind: "finished", reply: "Counted." };
+    });
+    const { core, mindId, ended } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "count the late crossings" });
+    const end = await ended();
+    expect(end).toMatchObject({ mode: "never", modeNew: true });
+    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND });
   });
 
   // protects=the AI's own mode is heard and kept with the request, so the conversation can say once that it asks nothing; fails_when=a mode that asks nothing goes unsaid

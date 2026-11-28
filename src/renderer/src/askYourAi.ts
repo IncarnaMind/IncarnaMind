@@ -19,22 +19,23 @@ import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 
 const NONE: readonly AgentPairing[] = [];
+const NO_CLIENTS: readonly string[] = [];
 /** The key of the agents for no Note: a question in the assistant with none in focus. */
 const keyOf = (mindId: string | null, documentId?: string) =>
   documentId ? `${mindId}/${documentId}` : (mindId ?? "");
 
 const useAskable = create<{
   byMind: Readonly<Record<string, readonly AgentPairing[]>>;
-  /** Whether the User's own command-line AI can run here in the background, as last read. */
-  runsHere: boolean;
+  /** The User's own command-line AIs that can run here in the background, as last read. */
+  runsHere: readonly string[];
 }>()(() => ({
   byMind: {},
-  runsHere: false,
+  runsHere: NO_CLIENTS,
 }));
 
-/** Whether a Note's own input can run the User's command-line AI here (ADR-0034), as last read. */
-export const ownAiRunsHereNow = (): boolean => useAskable.getState().runsHere;
-export const useOwnAiRunsHere = (): boolean => useAskable((state) => state.runsHere);
+/** The clients a Note's own input can run here (ADR-0034), as last read. */
+export const ownAiRunsHereNow = (): readonly string[] => useAskable.getState().runsHere;
+export const useOwnAiRunsHere = (): readonly string[] => useAskable((state) => state.runsHere);
 
 /** The agents the User can ask about `mindId` now, as last read, the one connected or used last first. */
 export const agentsToAsk = (mindId: string | null, documentId?: string): readonly AgentPairing[] =>

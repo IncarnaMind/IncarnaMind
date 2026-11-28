@@ -5,6 +5,7 @@ import { createInterface } from "node:readline";
 import { TranslatableError } from "../core/errors";
 import { stopProcessTree } from "../core/execution";
 import { runClaudeCodeTurn } from "./claudeCode";
+import { APP_SERVER_ARGS, appServerLine, initializeParams } from "./codexAppServer";
 import { createLoginShellProcesses } from "./processes";
 
 const processes = createLoginShellProcesses();
@@ -116,9 +117,7 @@ async function runCodex(
   trusted: string,
 ): Promise<string> {
   const args = [
-    "app-server",
-    "--listen",
-    "stdio://",
+    ...APP_SERVER_ARGS,
     "--disable",
     "hooks",
     "--disable",
@@ -181,7 +180,7 @@ async function runCodex(
   const notices = new Map<string, Record<string, unknown>>();
   let requestId = 0;
   const send = (method: string, params: object, id?: number) =>
-    stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+    stdin.write(appServerLine({ id, method, params }));
   const next = async () => {
     const line = await reader.next();
     if (line.done) throw new Error("Codex stopped before finishing the meeting summary.");
@@ -238,10 +237,7 @@ async function runCodex(
   };
   signal.addEventListener("abort", abort, { once: true });
   try {
-    await call("initialize", {
-      clientInfo: { name: "incarnamind_meeting", version: "1" },
-      capabilities: { experimentalApi: true },
-    });
+    await call("initialize", initializeParams("incarnamind_meeting"));
     send("initialized", {});
     const { config } = await call("config/read", { cwd });
     const mcp = Object.keys(object(object(config).mcp_servers));

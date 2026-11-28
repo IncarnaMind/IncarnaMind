@@ -94,7 +94,7 @@ export function ConsentDialog() {
             <ul className={ruledListClass}>
               {request.newKinds.map((kind) => (
                 <li key={kind} className="py-2 text-ui text-ink">
-                  {t(dataKindKey(request.flow.id, kind))}
+                  {t(dataKindKey(request.flow.id, kind, request.flow.service.agentClient))}
                 </li>
               ))}
             </ul>
