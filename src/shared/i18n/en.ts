@@ -6737,6 +6737,12 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.noteAsk.heldEditing":
+    "This message is open to edit in another window. Save or cancel it there, then send it.",
+  "error.noteAsk.heldNotSent":
+    "IncarnaMind couldn’t send this message. Press Send now to try again.",
+  "error.noteAsk.heldNotSaved": "IncarnaMind couldn’t save your changes. Press Save to try again.",
+  "error.noteAsk.notDiscarded": "IncarnaMind couldn’t discard this message. Try again.",
   "error.noteAsk.tooLong":
     "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":
@@ -9548,6 +9554,10 @@ export const en = {
   "noteColumn.waiting": "Waiting",
   "noteColumn.notSent": "Not sent",
   "noteColumn.discard": "Discard",
+  "noteColumn.sendNow": "Send now",
+  "noteColumn.edit.message": "Edit message",
+  "noteColumn.edit.cancel": "Cancel",
+  "noteColumn.edit.save": "Save",
   "noteColumn.citation": "Citation {number}",
   // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
   // steps with them (#3653).

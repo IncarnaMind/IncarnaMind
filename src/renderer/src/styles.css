@@ -3567,7 +3567,6 @@
     font-size: var(--text-small);
     line-height: 16px;
     color: var(--color-ink-meta);
-    .note-ask-dots,
     .note-column-sent-word {
       margin-right: 6px;
     }
@@ -3581,6 +3580,67 @@
   }
   .note-column-sent:is(:hover, :focus-within) .note-column-sent-state .note-column-icon {
     opacity: 1;
+  }
+  .note-column-sent-state .note-column-icon + .note-column-sent-word {
+    margin-left: 6px;
+  }
+  .note-column-send-now {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 6px;
+    background: var(--color-sheet);
+    font-size: var(--text-small);
+    color: var(--color-ink-secondary);
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .note-column-send-now-keys {
+    font-family: inherit;
+    color: var(--color-ink-meta);
+  }
+  .note-column-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 10px;
+    background: var(--color-sheet);
+    &:focus-within {
+      border-color: var(--color-accent);
+    }
+  }
+  .note-column-editor-text {
+    width: 100%;
+    resize: none;
+    border: 0;
+    background: transparent;
+    font-size: var(--text-ui);
+    line-height: 20px;
+    color: var(--color-ink);
+    outline: none;
+  }
+  .note-column-editor-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .note-column-editor-button {
+    height: 28px;
+    &.approval-button--ghost {
+      margin-left: 0;
+    }
+    &:disabled {
+      opacity: 0.4;
+      pointer-events: none;
+    }
   }
   .note-column-bubble-quote {
     margin-bottom: 2px;

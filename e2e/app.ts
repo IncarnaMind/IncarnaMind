@@ -4915,10 +4915,12 @@ export function controlReads(
 
 /**
  * A window picture for the pull request's before and after, where `INCARNAMIND_SCREENSHOTS`
- * names a folder: motion settled first, so nothing is caught moving.
+ * names a folder, or with the test's results where they are kept (Run named specs): motion
+ * settled first, so nothing is caught moving.
  */
 export async function capture(window: Page, name: string): Promise<void> {
-  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  const kept = KEEP_ARTIFACTS ? test.info().outputPath("shots") : undefined;
+  const folder = process.env.INCARNAMIND_SCREENSHOTS ?? kept;
   if (!folder) return;
   await motionSettled(window);
   await window.screenshot({ path: join(folder, `${name}.png`) });
