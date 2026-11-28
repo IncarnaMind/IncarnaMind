@@ -2199,6 +2199,8 @@ export const en = {
   "edit.wrote.tables": "Wrote {paragraphs} and {tables}",
   "edit.added": "Added {count} paragraphs",
   "edit.added.one": "Added 1 paragraph",
+  "edit.applied.named": "Changed the paragraph “{start}”",
+  "edit.added.named": "Added the paragraph “{start}”",
   "edit.added.tables": "Added {paragraphs} and {tables}",
   "edit.removed": "Removed {count} paragraphs ({sentences})",
   "edit.removed.one": "Removed the paragraph “{start}” ({sentences})",
@@ -2210,21 +2212,9 @@ export const en = {
   "edit.count.tables": "{count} tables",
   "edit.count.tables.one": "1 table",
   "edit.held.own": "Waiting for you: this rewrites most of your text",
-  "edit.review.assistant": "{count} paragraphs changed by the assistant",
-  "edit.review.assistant.one": "1 paragraph changed by the assistant",
-  "edit.review.assistant.changes": "{changes} changed by the assistant",
   "edit.applied.parts": "{count} parts",
   "edit.applied.undo": "Undo",
-  "edit.applied.review": "Review changes",
-  "edit.review": "{count} paragraphs changed by Edit with AI",
-  "edit.review.one": "1 paragraph changed by Edit with AI",
-  "edit.review.changes": "{changes} changed by Edit with AI",
-  "edit.review.undoAll": "Undo all",
-  "edit.review.done": "Done",
-  "edit.review.restore": "Restore original",
-  "edit.review.restore.count": "Restore {count} changes",
-  "edit.review.changedSince": "You changed this since",
-  "edit.review.restored.one": "Restored the original",
+  "edit.undo.changedSince": "You changed this since",
   "change.was": "Was: {text}",
   "change.rewrote": "Rewrote “{heading}”",
   "change.showOriginal": "Show original",
@@ -6737,6 +6727,12 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.noteAsk.heldEditing":
+    "This message is open to edit in another window. Save or cancel it there, then send it.",
+  "error.noteAsk.heldNotSent":
+    "IncarnaMind couldn’t send this message. Press Send now to try again.",
+  "error.noteAsk.heldNotSaved": "IncarnaMind couldn’t save your changes. Press Save to try again.",
+  "error.noteAsk.notDiscarded": "IncarnaMind couldn’t discard this message. Try again.",
   "error.noteAsk.tooLong":
     "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":
@@ -7013,7 +7009,6 @@ export const en = {
   "command.proposal.accept": "Accept change",
   "command.edit.undoApplied": "Undo the AI edit",
   "command.edit.removeKept": "Remove what the edit left out",
-  "command.edit.reviewDone": "Done reviewing changes",
   "command.edit.applyHeld": "Apply the waiting edit",
   "command.edit.discardHeld": "Discard the waiting edit",
   "command.proposal.reject": "Reject change",
@@ -8513,8 +8508,7 @@ export const en = {
   "mindChanges.also": "I also suggested {count} changes in “{mind}”",
   "mindChanges.also.one": "I also suggested 1 change in “{mind}”",
   "mindChanges.undone": "Undone",
-  "mindChanges.undo.changedSince": "“{mind}” changed since. Review changes is in ⋯ and {palette}.",
-  "mindChanges.undo.changedSince.noReview": "“{mind}” changed since, so this can’t be undone here.",
+  "mindChanges.undo.changedSince": "“{mind}” changed since, so this can’t be undone here.",
   "mindChanges.onTop": "· on top of the earlier version, which stays",
   "mindChanges.undo.closed": "“{mind}” was closed since, so this can’t be undone here.",
   "mindChanges.also.review": "Review",
@@ -9274,7 +9268,7 @@ export const en = {
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
-    "Its notes appear at once; its changes to your notes and decks wait for you. IncarnaMind reads only the files it names or hands over.",
+    "Its notes appear at once. A change it proposes to a deck waits until you confirm it. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
     "It can read all your Documents and notes. What it reads goes to its AI model.",
@@ -9413,8 +9407,7 @@ export const en = {
     "{agent} stopped: its account can’t be billed. Check its billing, then try again.",
   "agents.ownCheck.problem.compaction":
     "The check stopped: {agent} spent ten minutes condensing its conversation. Try again.",
-  "agents.ownCheck.problem.stalled":
-    "{agent} stopped answering for six minutes, so the check stopped. Try again.",
+  "agents.ownCheck.problem.stalled": "{agent} stopped answering, so the check stopped. Try again.",
   "agents.ownCheck.problem.timeout":
     "{agent} took longer than 15 minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.no-marks":
@@ -9456,6 +9449,8 @@ export const en = {
   "noteAsk.renewed": "Started a new conversation: {agent} starts fresh after an update.",
   "noteAsk.done.changed.one": "Changed 1 paragraph in this note.",
   "noteAsk.done.changed.other": "Changed {count} paragraphs in this note.",
+  "noteAsk.done.changed.named": "Changed the paragraph “{start}” in this note.",
+  "noteAsk.done.added.named": "Added the paragraph “{start}” to this note.",
   "noteAsk.done.waiting.one": "1 change waits for you in “{title}”.",
   "noteAsk.done.waiting.other": "{count} changes wait for you in “{title}”.",
   "noteAsk.done.wrote": "Wrote “{title}”.",
@@ -9548,6 +9543,10 @@ export const en = {
   "noteColumn.waiting": "Waiting",
   "noteColumn.notSent": "Not sent",
   "noteColumn.discard": "Discard",
+  "noteColumn.sendNow": "Send now",
+  "noteColumn.edit.message": "Edit message",
+  "noteColumn.edit.cancel": "Cancel",
+  "noteColumn.edit.save": "Save",
   "noteColumn.citation": "Citation {number}",
   // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
   // steps with them (#3653).
@@ -9699,7 +9698,7 @@ export const en = {
   "noteAsk.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
   "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped.",
-  "noteAsk.problem.stalled": "{agent} didn’t answer for six minutes, so it stopped.",
+  "noteAsk.problem.stalled": "{agent} didn’t answer for three minutes, so it stopped.",
   "noteAsk.problem.compaction":
     "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",

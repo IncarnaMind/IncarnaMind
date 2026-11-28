@@ -3,7 +3,7 @@ import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, MIND_PROPOSAL_REQUESTS_FIELD } from "../../src/core/api";
-import { ownWaiting } from "../../src/renderer/src/changeFacts";
+import { changeFact, ownWaiting } from "../../src/renderer/src/changeFacts";
 import { appliedText } from "../../src/renderer/src/editor/appliedEditLine";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { proposalsIn } from "../../src/renderer/src/editor/proposalReview";
@@ -362,7 +362,7 @@ describe("The count an applied row draws (#1358)", () => {
 describe("A change that only adds paragraphs or tables says it added them (#2356)", () => {
   const onlyAdds = (content: JSONContent[]) => addsOnly(changeKinds(mind(content).blocks, ours));
 
-  // protects=a change whose every paragraph and table is added whole, the User's kept beside, only adds, so the applied line, its Undo notice and Review say it added them, never changed: "Added 1 paragraph" (添加了 1 个段落), "Added 3 paragraphs and a table" (添加了 3 个段落和 1 个表格), "Added a table" (添加了 1 个表格); one that also rewords or removes one of the User's words or tables changes them, and a mix still says so; fails_when=an added line or table reads as changed, or a change of the User's words reads as added; no_claim=the assistant's own reply.
+  // protects=a change whose every paragraph and table is added whole, the User's kept beside, only adds, so the applied line and its Undo notice say it added them, never changed: "Added 1 paragraph" (添加了 1 个段落), "Added 3 paragraphs and a table" (添加了 3 个段落和 1 个表格), "Added a table" (添加了 1 个表格); one that also rewords or removes one of the User's words or tables changes them, and a mix still says so; fails_when=an added line or table reads as changed, or a change of the User's words reads as added; no_claim=the assistant's own reply.
   test("a line added beside the User's only adds, and is said to be added", () => {
     expect(
       onlyAdds([
@@ -416,7 +416,7 @@ describe("A change that only removes whole paragraphs says what went (#2356)", (
   const zh = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate("zh-CN", key, params);
 
-  // protects=a change whose every paragraph goes whole, the rest kept, only removes, and the applied line, its Undo notice and Review say exactly what went, by the paragraph's label or first words and its sentences, in English and Chinese, one paragraph or several, one sentence or more; a change that also rewords, adds or takes a table still says it changed; fails_when=a removal reads as "Changed", or a rewrite as "Removed"; no_claim=the assistant's own reply.
+  // protects=a change whose every paragraph goes whole, the rest kept, only removes, and the applied line and its Undo notice say exactly what went, by the paragraph's label or first words and its sentences, in English and Chinese, one paragraph or several, one sentence or more; a change that also rewords, adds or takes a table still says it changed; fails_when=a removal reads as "Changed", or a rewrite as "Removed"; no_claim=the assistant's own reply.
   test("a paragraph removed whole is said as removed, by its name and sentences", () => {
     expect(removesOnly([plain("Kept."), removed("Parking: six spaces. Each 800.")])).toBe(true);
     expect(removesOnly([removed("停车位：六个。"), added("停车位：六个车位。")])).toBe(false);
@@ -453,5 +453,54 @@ describe("A change that only removes whole paragraphs says what went (#2356)", (
     expect(appliedText(en, several)).toBe("Removed 2 paragraphs (5 sentences)");
     expect(appliedText(zh, several)).toBe("删除了 2 个段落（5 句）");
     expect(appliedText(en, { paragraphs: 2, tables: 0 })).toBe("Changed 2 paragraphs");
+  });
+});
+
+describe("A change to one paragraph says which paragraph, in one short line", () => {
+  const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+    translate("en", key, params);
+  const zh = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+    translate("zh-CN", key, params);
+
+  // protects=the line after an AI changed or added one paragraph names it by its opening words, the same on the page's line, its Undo notice and the Note's input, in English and Chinese; fails_when=the line says only a count, "Changed 1 paragraph", so the User must look for what changed
+  test("the applied line names the paragraph changed or added", () => {
+    const changed = {
+      paragraphs: 1,
+      tables: 0,
+      named: { start: "The 07:40 crossing…", added: false },
+    };
+    expect(appliedText(en, changed)).toBe("Changed the paragraph “The 07:40 crossing…”");
+    expect(appliedText(zh, { ...changed, named: { start: "红隼湾的班次…", added: false } })).toBe(
+      "修改了“红隼湾的班次…”一段",
+    );
+    const added = {
+      paragraphs: 1,
+      tables: 0,
+      added: true as const,
+      named: { start: "Parking", added: true },
+    };
+    expect(appliedText(en, added)).toBe("Added the paragraph “Parking”");
+    expect(appliedText(zh, { ...added, named: { start: "停车位", added: true } })).toBe(
+      "添加了“停车位”一段",
+    );
+  });
+
+  test("the Undo notice and the line from an Answer's counts name it too, and more than one is counted", () => {
+    const row = {
+      created: false,
+      changed: 1,
+      wrote: 0,
+      tables: 0,
+      named: { start: "Parking", added: false },
+    };
+    expect(changeFact(en, row, null)).toBe("Changed the paragraph “Parking”");
+    expect(changeFact(zh, row, null)).toBe("修改了“Parking”一段");
+    expect(changeFact(en, { ...row, changed: 3, named: undefined }, null)).toBe(
+      "Changed 3 paragraphs",
+    );
+    // A whole Note written is counted, not named.
+    expect(changeFact(en, { ...row, changed: 0, wrote: 1, created: true }, null)).toBe(
+      "Wrote 1 paragraph",
+    );
   });
 });

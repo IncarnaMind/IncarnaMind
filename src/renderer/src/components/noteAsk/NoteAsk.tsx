@@ -14,7 +14,7 @@ import type { NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { clearFieldUndoPending, hasFieldUndoPending } from "../../commands/edit";
-import { pressesShortcut } from "../../commands/keymap";
+import { pressesKeys, pressesShortcut } from "../../commands/keymap";
 import { core } from "../../core";
 import { redoInNote, undoInNote } from "../../editor/noteUndoKeys";
 import { useT } from "../../i18n";
@@ -28,6 +28,7 @@ import {
   openColumnAt,
   seedRunning,
   selectedForRequest,
+  sendOldestNow,
   setColumnOpen,
   stopInNote,
   useColumnOpen,
@@ -35,6 +36,7 @@ import {
   useNoteAskShown,
   useNoteAsks,
   useNoteColumns,
+  withGivenBack,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, ConversationLineIcon } from "../icons";
@@ -115,7 +117,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const turns = useOpenConversation(
     mindId,
     open,
-    `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${ask?.queued.join(",") ?? ""}:${changed}:${reads}`,
+    `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${ask?.queued.join(",") ?? ""}:${ask?.held.join(",") ?? ""}:${changed}:${reads}`,
   );
   // Upward, it opens once its turns are read, whole in one step: an empty box growing a moment
   // later would cover what the User had scrolled into view, and a change's bar docked above it.
@@ -153,8 +155,9 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       const { [mindId]: _taken, ...rest } = state.byMind;
       return { byMind: rest };
     });
-    if (typedNow.current.trim() !== "") return;
-    setWords(edited);
+    const next = withGivenBack(typedNow.current, edited);
+    if (next === typedNow.current) return;
+    setWords(next);
     setWhole(true);
     requestAnimationFrame(() => {
       focusNoteAsk(mindId);
@@ -164,7 +167,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     });
   }, [edited, mindId]);
 
-  const send = async () => {
+  const send = async (now = false) => {
     const typed = words.trim();
     if (typed === "") return;
     // Sent into a run going, it is about the whole Note: its AI takes no new selection mid-run, so
@@ -191,6 +194,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
           caret: selected || going ? "" : caretOf(editor.state),
         },
         tabId,
+        now,
       );
       if (went === "problem" || went === "busy") giveBack();
       if (
@@ -247,7 +251,14 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     }
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    void send();
+    // ⌘↵ sends now (#3765): the words typed, into the request running; with none typed, the
+    // oldest message held for it.
+    const now = pressesKeys("CmdOrCtrl+Enter", event.nativeEvent);
+    if (now && words.trim() === "") {
+      void sendOldestNow(mindId).catch(useAppStore.getState().reportError);
+      return;
+    }
+    void send(now);
   };
 
   // Upward, the box keeps the folded box's height in the Note's foot and grows over the Note, so
