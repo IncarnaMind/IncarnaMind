@@ -3559,6 +3559,8 @@ export const migrations: readonly Migration[] = [
         ON own_ai_conversations (pairing_id, updated_at) WHERE deleted_at IS NULL;
       -- User-chosen name; NULL displays the first request's text.
       ALTER TABLE own_ai_conversations ADD COLUMN title TEXT;
+      -- Legacy split conversations whose shared working folder must be purged once at start-up.
+      ALTER TABLE own_ai_conversations ADD COLUMN purge_pending INTEGER NOT NULL DEFAULT 0;
       -- The Note each request was asked from, its title snapshot, and its immediate change count.
       ALTER TABLE own_ai_turns ADD COLUMN mind_id TEXT NOT NULL DEFAULT '';
       ALTER TABLE own_ai_turns ADD COLUMN mind_title TEXT NOT NULL DEFAULT '';
@@ -3576,10 +3578,11 @@ export const migrations: readonly Migration[] = [
       )
       WHERE mind_title = '' AND mind_id != '' AND deleted_at IS NULL;
       -- Split conversations restarted with #3765's inline New conversation (new_after / anew) so
-      -- each earlier segment becomes its own History entry with a new id, new session_id and
-      -- anew = 1 (it never resumes the legacy folder and has no transcript of its own until asked
-      -- again). The newest segment keeps the legacy id and live session_id; the legacy working
-      -- folder (whose older pre-restart session is never resumed) belongs to it alone (#3731).
+      -- every segment (including the newest) becomes its own History entry with a fresh id, fresh
+      -- session_id and anew = 1. The shared legacy row is tombstoned with purge_pending = 1 so its
+      -- shared folder on disk is purged once at start-up, leaving every split entry with isolated
+      -- transcript storage and deletion; conversations with no inline restart keep their id and
+      -- resume unchanged (#3731).
       CREATE TEMP TABLE _own_ai_turn_split AS
       SELECT
         t.id AS turn_id,
@@ -3611,12 +3614,12 @@ export const migrations: readonly Migration[] = [
       FROM _own_ai_turn_split s
       JOIN bounds b ON b.old_id = s.old_id
       JOIN own_ai_turns t ON t.id = s.turn_id
-      WHERE s.seg < b.max_seg
+      WHERE b.max_seg > 0
       GROUP BY s.old_id, s.seg;
       INSERT INTO own_ai_conversations
-        (id, mind_id, pairing_id, session_id, title, renewed, anew, created_at, updated_at)
+        (id, mind_id, pairing_id, session_id, title, renewed, anew, purge_pending, created_at, updated_at)
       SELECT
-        m.new_id, c.mind_id, c.pairing_id, m.new_session_id, NULL, 0, 1,
+        m.new_id, c.mind_id, c.pairing_id, m.new_session_id, NULL, 0, 1, 0,
         m.min_created_at, m.max_updated_at
       FROM _own_ai_seg_map m
       JOIN own_ai_conversations c ON c.id = m.old_id;
@@ -3634,16 +3637,9 @@ export const migrations: readonly Migration[] = [
       );
       UPDATE own_ai_conversations
       SET
-        created_at = COALESCE(
-          (SELECT MIN(t.created_at) FROM own_ai_turns t
-           WHERE t.conversation_id = own_ai_conversations.id AND t.deleted_at IS NULL),
-          created_at
-        ),
-        updated_at = COALESCE(
-          (SELECT MAX(t.updated_at) FROM own_ai_turns t
-           WHERE t.conversation_id = own_ai_conversations.id AND t.deleted_at IS NULL),
-          updated_at
-        )
+        title = NULL,
+        deleted_at = updated_at,
+        purge_pending = 1
       WHERE id IN (SELECT DISTINCT old_id FROM _own_ai_seg_map);
       UPDATE own_ai_conversations
       SET anew = 0

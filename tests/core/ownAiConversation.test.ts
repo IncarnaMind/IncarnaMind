@@ -6622,7 +6622,8 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
           { id: "t-auto-scrubbed", mind_id: "", mind_title: "" },
           { id: "t-del-conv", mind_id: "", mind_title: "" },
         ]);
-        // Earlier split segment has a fresh session_id and anew=1; latest segment keeps sess-auto-new & anew=0.
+        // Every split segment gets a fresh id, fresh session_id, and anew=1; the shared legacy row
+        // is tombstoned and queued for one-time purge (`purge_pending = 1`, cleared once purged).
         const autoConvs = checkDb.all<{
           id: string;
           session_id: string;
@@ -6637,13 +6638,16 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
         expect(autoConvs[0]?.session_id).not.toBe("sess-auto-new");
         expect(autoConvs[0]?.anew).toBe(1);
         expect(autoConvs[0]?.created_at).toBe(t0);
-        expect(autoConvs[1]).toEqual({
-          id: "conv-auto",
-          session_id: "sess-auto-new",
-          anew: 0,
-          created_at: t3,
-          updated_at: t3,
-        });
+        expect(autoConvs[1]?.id).not.toBe("conv-auto");
+        expect(autoConvs[1]?.id).not.toBe(autoConvs[0]?.id);
+        expect(autoConvs[1]?.session_id).not.toBe("sess-auto-new");
+        expect(autoConvs[1]?.anew).toBe(1);
+        expect(autoConvs[1]?.created_at).toBe(t3);
+        expect(autoConvs[1]?.updated_at).toBe(t3);
+        const tombstonedAuto = checkDb.get<{ deleted_at: string | null }>(
+          "SELECT deleted_at FROM own_ai_conversations WHERE id = 'conv-auto'",
+        );
+        expect(tombstonedAuto?.deleted_at).not.toBeNull();
         // conv-anew had only a trailing new_after=1 turn: kept resumable on sess-anew (anew=0).
         expect(
           checkDb.get<{ anew: number }>(
@@ -6653,6 +6657,8 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
       } finally {
         checkDb.close();
       }
+      // The shared legacy folder of conv-auto is purged once at start-up; unsplit conv-pier is untouched.
+      await expect.poll(() => run.purged).toEqual(["conv-auto"]);
 
       // History lists all 4 live conversations (split conv-auto gives 2), untitled uses auto_title,
       // and soft-deleted conv-deleted is absent.
@@ -6663,8 +6669,9 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
         ["Before restart", [["m-anew", "Anew note"]]],
         ["Old question", [["m-auto", "Auto ferry notes"]]],
       ]);
+      const newestAuto = list.find((c) => c.firstRequest === "Fresh question");
       expect(await core.latestNoteConversation("m-pier", "p-legacy")).toBe("conv-pier");
-      expect(await core.latestNoteConversation("m-auto", "p-legacy")).toBe("conv-auto");
+      expect(await core.latestNoteConversation("m-auto", "p-legacy")).toBe(newestAuto?.id);
       const pierTurns = await core.noteConversation("conv-pier");
       expect(pierTurns).toHaveLength(1);
       expect(pierTurns[0]).toMatchObject({
@@ -6768,14 +6775,21 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
     ]);
   });
 
-  // protects=splitting a legacy #3765 restarted conversation in migration 170 isolates deletion in both orders: deleting the older split segment purges only its own id without touching the legacy folder and leaves the newest segment resuming only its newest session, while deleting the newest segment first purges the legacy folder without breaking or purging the older segment (#3731); fails_when=deleting one entry purges the other's transcript or breaks continuing the remaining entry
-  it("isolates deletion of migration-170 split legacy segments in both deletion orders", async () => {
+  // protects=migration 170 gives every split legacy segment a new id with anew=1, purges the shared legacy folder once at start-up (retrying on failure and never repeating once done), keeps unsplit legacy conversations on their original id and session, and isolates per-folder deletion on disk in both deletion orders (#3731); fails_when=the shared legacy folder stays on disk, the one-time purge repeats or skips retries, an unsplit conversation loses its id, or deleting one split entry removes the other's folder
+  it("purges the shared legacy folder once on split, retries on failure, and isolates split deletion on disk in both orders", async () => {
+    const { existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
     const { migrations, migrate } = await import("../../src/core/storage/migrations");
     const { ensureWorkspace } = await import("../../src/core/workspace");
     const { AGENT_FLOW_SENDS, HOSTED_FLOW_SENDS } = await import("../../src/core/agents");
 
     const seedLegacySplit = async () => {
       const dataDir = await createTempDataFolder();
+      const convDir = join(dataDir, "own-ai-folders");
+      mkdirSync(join(convDir, "conv-legacy"), { recursive: true });
+      mkdirSync(join(convDir, "conv-unsplit"), { recursive: true });
+      writeFileSync(join(convDir, "conv-legacy", "legacy.jsonl"), "shared-legacy-turns");
+      writeFileSync(join(convDir, "conv-unsplit", "keep.jsonl"), "unsplit-turns");
+
       const db = openDatabase(join(dataDir, DATABASE_FILE));
       migrate(
         db,
@@ -6810,77 +6824,113 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
         );
         db.run(
           `INSERT INTO minds (id, title, auto_title, folder_id, created_at, updated_at)
-           VALUES ('m-split', 'Split note', '', 'f-split', ?, ?)`,
-          [t0, t1],
+           VALUES
+             ('m-split', 'Split note', '', 'f-split', ?, ?),
+             ('m-unsplit', 'Unsplit note', '', 'f-split', ?, ?)`,
+          [t0, t1, t0, t1],
         );
         db.run(
           `INSERT INTO own_ai_conversations
              (id, mind_id, pairing_id, session_id, anew, created_at, updated_at, deleted_at)
-           VALUES ('conv-legacy', 'm-split', 'p-split', 'sess-newest', 0, ?, ?, NULL)`,
-          [t0, t1],
+           VALUES
+             ('conv-legacy', 'm-split', 'p-split', 'sess-newest', 0, ?, ?, NULL),
+             ('conv-unsplit', 'm-unsplit', 'p-split', 'sess-unsplit', 0, ?, ?, NULL)`,
+          [t0, t1, t0, t1],
         );
         db.run(
           `INSERT INTO own_ai_turns
              (id, conversation_id, request, selection, reply, outcome, new_after, created_at, updated_at, deleted_at)
            VALUES
              ('t-old', 'conv-legacy', 'Older segment turn', '', 'Older reply', 'landed', 1, ?, ?, NULL),
-             ('t-new', 'conv-legacy', 'Newest segment turn', '', 'Newest reply', 'landed', 0, ?, ?, NULL)`,
-          [t0, t0, t1, t1],
+             ('t-new', 'conv-legacy', 'Newest segment turn', '', 'Newest reply', 'landed', 0, ?, ?, NULL),
+             ('t-keep', 'conv-unsplit', 'Unsplit turn', '', 'Unsplit reply', 'landed', 0, ?, ?, NULL)`,
+          [t0, t0, t1, t1, t0, t0],
         );
       });
       db.close();
-      return dataDir;
+      return { dataDir, convDir };
     };
 
-    // Order A: delete older split segment first, continue newest (resumes sess-newest only), then delete newest.
+    const diskRunner = (convDir: string, opts: { failPurge?: boolean } = {}) => {
+      const run = runner(async (_agent, request) => {
+        const key = request.conversation?.key;
+        if (key) {
+          mkdirSync(join(convDir, key), { recursive: true });
+          writeFileSync(join(convDir, key, "transcript.jsonl"), `${key}:${askedIn(request)}`);
+        }
+        return { kind: "finished", reply: `Reply: ${askedIn(request)}` };
+      });
+      run.adapter.purge = async (key) => {
+        run.purged.push(key);
+        if (opts.failPurge) return false;
+        rmSync(join(convDir, key), { recursive: true, force: true });
+        return true;
+      };
+      return run;
+    };
+
+    // 1. One-time purge retries after failure, removes legacy folder once, never repeats, and unsplit keeps id & resumes.
     {
-      const dataDir = await seedLegacySplit();
-      const run = runner(async () => ({ kind: "finished", reply: "After deleting older." }));
-      const core = startCore(dataDir, {
-        ownAi: run.adapter,
+      const { dataDir, convDir } = await seedLegacySplit();
+      // Start 1: purge fails -> purge_pending stays 1, folder remains on disk.
+      const rFail = diskRunner(convDir, { failPurge: true });
+      const core1 = startCore(dataDir, {
+        ownAi: rFail.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      try {
+        await expect.poll(() => rFail.purged).toEqual(["conv-legacy"]);
+        expect(existsSync(join(convDir, "conv-legacy"))).toBe(true);
+      } finally {
+        await core1.close();
+      }
+      // Start 2: purge retries and succeeds -> legacy folder gone, unsplit untouched and resumes.
+      const rOk = diskRunner(convDir);
+      const core2 = startCore(dataDir, {
+        ownAi: rOk.adapter,
         agents: await agentsAdapter(dataDir),
       });
       const ends: NoteTurnEvent[] = [];
-      core.on("agents.noteTurn", (e) => {
+      core2.on("agents.noteTurn", (e) => {
         if (e.state !== "working") ends.push(e);
       });
       try {
-        const list = await core.noteConversations();
-        const older = list.find((c) => c.firstRequest === "Older segment turn");
-        const newer = list.find((c) => c.id === "conv-legacy");
-        expect(older).toBeDefined();
-        expect(newer).toBeDefined();
-        const olderId = older?.id ?? "";
+        await expect.poll(() => rOk.purged).toEqual(["conv-legacy"]);
+        await expect.poll(() => existsSync(join(convDir, "conv-legacy"))).toBe(false);
+        expect(existsSync(join(convDir, "conv-unsplit", "keep.jsonl"))).toBe(true);
 
-        await core.deleteNoteConversation(olderId);
-        expect(run.purged).toEqual([olderId]);
-        expect((await core.noteConversations()).map((c) => c.id)).toEqual(["conv-legacy"]);
-
-        // Newest still resumes its own legacy folder and newest session id only.
-        await core.askInNote({
-          mindId: "m-split",
-          conversationId: "conv-legacy",
-          words: "Follow up on newest",
+        await core2.askInNote({
+          mindId: "m-unsplit",
+          conversationId: "conv-unsplit",
+          words: "Continue unsplit",
         });
         await vi.waitFor(() => expect(ends.length).toBe(1));
-        expect(run.runs[0]?.conversation).toEqual({
-          key: "conv-legacy",
-          sessionId: "sess-newest",
+        expect(rOk.runs[0]?.conversation).toEqual({
+          key: "conv-unsplit",
+          sessionId: "sess-unsplit",
           resume: true,
         });
-
-        await core.deleteNoteConversation("conv-legacy");
-        expect(run.purged).toEqual([olderId, "conv-legacy"]);
-        expect(await core.noteConversations()).toEqual([]);
       } finally {
-        await core.close();
+        await core2.close();
+      }
+      // Start 3: purge_pending is now 0 -> startup never purges conv-legacy again.
+      const rAgain = diskRunner(convDir);
+      const core3 = startCore(dataDir, {
+        ownAi: rAgain.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      try {
+        await core3.noteConversations();
+        expect(rAgain.purged).toEqual([]);
+      } finally {
+        await core3.close();
       }
     }
 
-    // Order B: delete newest (legacy) segment first, continue older (starts fresh in its own folder), then delete older.
-    {
-      const dataDir = await seedLegacySplit();
-      const run = runner(async () => ({ kind: "finished", reply: "Fresh on older." }));
+    // 2. Both deletion orders on disk: older-then-newer and newer-then-older.
+    for (const order of ["older-first", "newer-first"] as const) {
+      const { dataDir, convDir } = await seedLegacySplit();
+      const run = diskRunner(convDir);
       const core = startCore(dataDir, {
         ownAi: run.adapter,
         agents: await agentsAdapter(dataDir),
@@ -6890,29 +6940,48 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
         if (e.state !== "working") ends.push(e);
       });
       try {
+        await expect.poll(() => run.purged).toEqual(["conv-legacy"]);
+        expect(existsSync(join(convDir, "conv-legacy"))).toBe(false);
         const list = await core.noteConversations();
-        const older = list.find((c) => c.firstRequest === "Older segment turn");
-        expect(older).toBeDefined();
-        const olderId = older?.id ?? "";
+        const olderId = list.find((c) => c.firstRequest === "Older segment turn")?.id ?? "";
+        const newerId = list.find((c) => c.firstRequest === "Newest segment turn")?.id ?? "";
+        expect(olderId).not.toBe("");
+        expect(newerId).not.toBe("");
+        expect(olderId).not.toBe("conv-legacy");
+        expect(newerId).not.toBe("conv-legacy");
+        expect(olderId).not.toBe(newerId);
 
-        await core.deleteNoteConversation("conv-legacy");
-        expect(run.purged).toEqual(["conv-legacy"]);
-        expect((await core.noteConversations()).map((c) => c.id)).toEqual([olderId]);
+        // Give each split segment its own fresh transcript folder on disk (both start with resume: false).
+        await core.askInNote({ mindId: "m-split", conversationId: olderId, words: "Ask older" });
+        await vi.waitFor(() => expect(ends.length).toBe(1));
+        await core.askInNote({ mindId: "m-split", conversationId: newerId, words: "Ask newer" });
+        await vi.waitFor(() => expect(ends.length).toBe(2));
+        expect(run.runs[0]?.conversation?.resume).toBe(false);
+        expect(run.runs[1]?.conversation?.resume).toBe(false);
+        expect(existsSync(join(convDir, olderId, "transcript.jsonl"))).toBe(true);
+        expect(existsSync(join(convDir, newerId, "transcript.jsonl"))).toBe(true);
 
-        // Continuing the older split segment starts a fresh session in olderId's own folder (never resumes legacy).
+        const [firstDel, secondDel] =
+          order === "older-first" ? [olderId, newerId] : [newerId, olderId];
+        await core.deleteNoteConversation(firstDel);
+        expect(run.purged).toEqual(["conv-legacy", firstDel]);
+        expect(existsSync(join(convDir, firstDel))).toBe(false);
+        expect(existsSync(join(convDir, secondDel, "transcript.jsonl"))).toBe(true);
+
+        // The surviving segment still resumes cleanly in its own folder.
         await core.askInNote({
           mindId: "m-split",
-          conversationId: olderId,
-          words: "Continue older segment",
+          conversationId: secondDel,
+          words: "Follow up surviving",
         });
-        await vi.waitFor(() => expect(ends.length).toBe(1));
-        expect(run.runs[0]?.conversation?.key).toBe(olderId);
-        expect(run.runs[0]?.conversation?.resume).toBe(false);
-        expect(run.runs[0]?.conversation?.sessionId).not.toBe("sess-newest");
+        await vi.waitFor(() => expect(ends.length).toBe(3));
+        expect(run.runs[2]?.conversation?.key).toBe(secondDel);
+        expect(run.runs[2]?.conversation?.resume).toBe(true);
 
-        await core.deleteNoteConversation(olderId);
-        expect(run.purged).toEqual(["conv-legacy", olderId]);
-        expect(await core.noteConversations()).toEqual([]);
+        await core.deleteNoteConversation(secondDel);
+        expect(run.purged).toEqual(["conv-legacy", firstDel, secondDel]);
+        expect(existsSync(join(convDir, secondDel))).toBe(false);
+        expect(existsSync(join(convDir, "conv-unsplit", "keep.jsonl"))).toBe(true);
       } finally {
         await core.close();
       }

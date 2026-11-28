@@ -623,6 +623,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   /** Conversations currently inside `forget()`: stopped runs never hand on to queued/held turns. */
   const deleting = new Map<string, number>();
   const isDeleting = (conversationId: string) => (deleting.get(conversationId) ?? 0) > 0;
+  /** Legacy split conversation ids whose one-time shared-folder purge is currently in flight. */
+  const purgingPending = new Set<string>();
 
   /**
    * Deletes conversations, IncarnaMind's record and the agent's transcript alike: the agent is
@@ -2369,6 +2371,36 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      * transcript included (#3731, ADR-0034).
      */
     async dropPurged(): Promise<void> {
+      const { runner } = options;
+      if (runner) {
+        const pending = db.all<{ id: string }>(
+          "SELECT id FROM own_ai_conversations WHERE purge_pending = 1",
+        );
+        for (const { id } of pending) {
+          if (options.lifetime.aborted) break;
+          if (purgingPending.has(id)) continue;
+          purgingPending.add(id);
+          try {
+            const ok = await runner.purge(id);
+            if (options.lifetime.aborted) break;
+            if (ok) {
+              db.run(
+                "UPDATE own_ai_conversations SET purge_pending = 0, updated_at = ? WHERE id = ?",
+                [options.now(), id],
+              );
+            } else {
+              options.log.warn("agents.ownAiConversation.notPurged", {});
+            }
+          } catch (error) {
+            options.log.warn("agents.ownAiConversation.purgeFailed", {
+              error: error instanceof Error ? error.name : "unknown",
+            });
+          } finally {
+            purgingPending.delete(id);
+          }
+        }
+      }
+      if (options.lifetime.aborted) return;
       const purgedOnlyClause = `
         c.deleted_at IS NULL
         AND (
