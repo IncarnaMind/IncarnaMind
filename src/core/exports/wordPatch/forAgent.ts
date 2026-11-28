@@ -10,7 +10,7 @@
  */
 import { deflateRawSync } from "node:zlib";
 import { relationshipsPartOf } from "../../documents/formats/officePackage";
-import { elements, local, parseXml, type XmlElement } from "../../documents/formats/xml";
+import { elements, local, parseXml, textOf, type XmlElement } from "../../documents/formats/xml";
 import { openPackage, resolvePart } from "../../documents/formats/zip";
 import { checkWellFormed, PackageWriter } from "../packagePatch/package";
 import { applySplices, endOf, type Splice, startOf } from "../packagePatch/text";
@@ -95,24 +95,35 @@ const kindOf = (type: string) => type.slice(type.lastIndexOf("/") + 1);
 const ROOT_KEPT = new Set(["officeDocument", "core-properties", "extended-properties"]);
 const MAIN = "officeDocument";
 
-/** The core properties kept: when the file was made and saved, and how often. */
-const CORE_KEPT = new Set(["created", "modified", "revision"]);
-/** The extended properties kept: counts and the program, nothing anyone wrote. */
-const APP_KEPT = new Set([
-  "TotalTime",
-  "Pages",
-  "Words",
-  "Characters",
-  "CharactersWithSpaces",
-  "Lines",
-  "Paragraphs",
-  "AppVersion",
-  "DocSecurity",
-  "ScaleCrop",
-  "LinksUpToDate",
-  "SharedDoc",
-  "HyperlinksChanged",
-]);
+const COUNT = /^\d+$/;
+const SWITCH = /^(?:true|false|0|1)$/i;
+const DATE = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+/** The core properties kept: when the file was made and saved, and how often, by what their values may be. */
+const CORE_KEPT: Readonly<Record<string, RegExp>> = {
+  created: DATE,
+  modified: DATE,
+  revision: COUNT,
+};
+/** The extended properties kept: counts and the program's version, nothing anyone wrote. */
+const APP_KEPT: Readonly<Record<string, RegExp>> = {
+  TotalTime: COUNT,
+  Pages: COUNT,
+  Words: COUNT,
+  Characters: COUNT,
+  CharactersWithSpaces: COUNT,
+  Lines: COUNT,
+  Paragraphs: COUNT,
+  AppVersion: /^\d+(?:\.\d+)*$/,
+  DocSecurity: COUNT,
+  ScaleCrop: SWITCH,
+  LinksUpToDate: SWITCH,
+  SharedDoc: SWITCH,
+  HyperlinksChanged: SWITCH,
+};
+/** Whether a property is one of `kept` and its value is what that may be: words in it are no one's to keep. */
+const keeps = (kept: Readonly<Record<string, RegExp>>, property: XmlElement): boolean =>
+  elements(property).length === 0 &&
+  (kept[local(property.name)]?.test(textOf(property).trim()) ?? false);
 /** The settings kept: what makes the layout and how Word behaves with it, nobody's data. */
 const SETTINGS_KEPT = new Set([
   "w:view",
@@ -218,6 +229,31 @@ const parsedOrUnkept = (text: string): XmlElement => {
     throw new UnkeptPart("it isn't XML");
   }
 };
+
+/**
+ * A part's text without the XML comments and instructions a parser skips, so that no check reads
+ * them and nothing else takes them out; unkept when text sits outside the part's root element.
+ */
+function withoutSkipped(text: string): string {
+  const skipped: { from: number; to: number }[] = [];
+  try {
+    parseXml(text, skipped);
+  } catch {
+    throw new UnkeptPart("it isn't XML");
+  }
+  const bare = applySplices(
+    text,
+    skipped.map(({ from, to }) => ({ from, to, text: "" })),
+  );
+  const root = parsedOrUnkept(bare);
+  if (
+    !/^\uFEFF?(?:<\?xml\s[^>]*\?>)?\s*$/.test(bare.slice(0, startOf(root))) ||
+    bare.slice(endOf(root)).trim() !== ""
+  ) {
+    throw new UnkeptPart("text outside its root element");
+  }
+  return bare;
+}
 
 /**
  * The Word file `data`, written by Export › Word into the file a Note came from, with only what
@@ -328,7 +364,7 @@ async function cleaned(
   );
 
   // The parts to clean, by the kinds that reach them and their content types, whatever their names.
-  const texts = new Map<string, { text: string; root: XmlElement }>();
+  const texts = new Map<string, { text: string; root: XmlElement; raw: string }>();
   for (const name of reachable()) {
     if (name === "" || properties.has(name)) continue;
     at(name);
@@ -341,11 +377,12 @@ async function cleaned(
       continue;
     }
     if (!/[+/]xml$/.test(type)) throw new UnkeptPart(`a part of the type ${type || "none"}`);
-    const text = await writer.text(name);
-    if (text === null) throw new UnkeptPart("it isn't in the package");
+    const raw = await writer.text(name);
+    if (raw === null) throw new UnkeptPart("it isn't in the package");
+    const text = withoutSkipped(raw);
     const root = parsedOrUnkept(text);
     checkNamespaces(root);
-    texts.set(name, { text, root });
+    texts.set(name, { text, root, raw });
   }
 
   const settings = listed
@@ -401,7 +438,7 @@ async function cleaned(
   const reached = reachable();
 
   for (const [name, { text }] of finals) {
-    if (reached.has(name) && text !== texts.get(name)?.text) writer.set(name, text);
+    if (reached.has(name) && text !== texts.get(name)?.raw) writer.set(name, text);
   }
 
   const splice = async (
@@ -446,7 +483,7 @@ async function cleaned(
   if (core && reached.has(core)) {
     await splice(core, ({ root }) =>
       elements(root)
-        .filter((each) => !CORE_KEPT.has(local(each.name)))
+        .filter((each) => !keeps(CORE_KEPT, each))
         .map(removal),
     );
   }
@@ -454,9 +491,18 @@ async function cleaned(
   if (extended && reached.has(extended)) {
     await splice(extended, ({ root }) =>
       elements(root)
-        .filter((each) => !APP_KEPT.has(local(each.name)))
+        .filter((each) => !keeps(APP_KEPT, each))
         .map(removal),
     );
+  }
+  // What the cleaning above never reads: the relationships, the content types and the properties.
+  const unread = [core, extended].flatMap((name) => (name && reached.has(name) ? [name] : []));
+  for (const name of [...keptRelationships, "[Content_Types].xml", ...unread]) {
+    at(name);
+    const part = await writer.part(name);
+    if (!part) continue;
+    const bare = withoutSkipped(part.text);
+    if (bare !== part.text) writer.set(name, bare);
   }
   for (const name of removed) writer.remove(name);
   at("");

@@ -138,19 +138,17 @@ const EMBEDDED = new Set(["o:OLEObject", "w:objectEmbed", "w:objectLink", "w:con
 
 /**
  * A field written as its result, by its instruction: one that reads another file or program, the
- * file's properties or variables (which the agent's file doesn't keep), or a legacy form field,
- * whose name, help and list are no one's words the agent was given.
+ * file's properties or variables (which the agent's file doesn't keep), a legacy form field, whose
+ * name, help and list are no one's words the agent was given, or a link to an address, which the
+ * Note holds no link for.
  */
 const OUTSIDE_FIELD =
   /^\s*(?:LINK|INCLUDETEXT|INCLUDEPICTURE|INCLUDE|IMPORT|DDE|DDEAUTO|DOCPROPERTY|DOCVARIABLE|AUTHOR|TITLE|SUBJECT|KEYWORDS|COMMENTS|LASTSAVEDBY|FILENAME|TEMPLATE|USERNAME|USERINITIALS|USERADDRESS|INFO|FORMTEXT|FORMCHECKBOX|FORMDROPDOWN)\b/i;
 const HYPERLINK_FIELD = /^\s*HYPERLINK\s+(?!\\l)"?([^"\s]+)/i;
 /** A link's target that is a place on the web or an address, not a file on someone's computer. */
 export const isWebLink = (target: string): boolean => /^(?:https?|mailto|ftp|tel):/i.test(target);
-const readsOutside = (instruction: string): boolean => {
-  if (OUTSIDE_FIELD.test(instruction)) return true;
-  const link = HYPERLINK_FIELD.exec(instruction)?.[1];
-  return link !== undefined && !isWebLink(link);
-};
+const readsOutside = (instruction: string): boolean =>
+  OUTSIDE_FIELD.test(instruction) || HYPERLINK_FIELD.test(instruction);
 
 /** Where an element's closing tag starts; its end for one that closes itself. */
 function closingAt(element: XmlElement, text: string): number {
@@ -322,18 +320,15 @@ function shownChoice(list: XmlElement, parents: Map<XmlElement, XmlElement>): st
   return `<${list.name}>${item}</${list.name}>`;
 }
 
-/** A legacy check box as what it shows: ☒ when ticked, ☐ when not, in the field's first run. */
-function checkBox(begin: XmlElement, run: XmlElement, text: string): string {
+/** What a legacy check box shows: ☒ when ticked, ☐ when not. */
+function checkBox(begin: XmlElement): string {
   const box = [...walk(begin)].find((each) => each.name === "w:checkBox");
   const state = (name: string) => {
     const element = box && elements(box).find((each) => each.name === name);
     if (!element) return undefined;
     return !/^(?:0|false|off)$/i.test(element.attrs["w:val"] ?? "true");
   };
-  const ticked = state("w:checked") ?? state("w:default") ?? false;
-  const look = elements(run).find((each) => each.name === "w:rPr");
-  const rPr = look ? text.slice(startOf(look), endOf(look)) : "";
-  return `<w:r>${rPr}<w:t>${ticked ? "☒" : "☐"}</w:t></w:r>`;
+  return (state("w:checked") ?? state("w:default") ?? false) ? "☒" : "☐";
 }
 
 /**
@@ -375,10 +370,14 @@ export function partSplices(
     const parent = parents.get(element);
     return parent?.name === "w:r" ? parent : element;
   };
+  // Each field's own marks: its begin, instruction, separator and end; and the runs that start
+  // before its separator, which hold its instruction and any field written inside it.
   const fields: {
     begin: XmlElement;
     instruction: string;
+    marks: XmlElement[];
     runs: XmlElement[];
+    separator?: XmlElement;
     separated: boolean;
   }[] = [];
   const chart = root.name === "c:chartSpace";
@@ -417,22 +416,59 @@ export function partSplices(
       for (const field of fields) if (!field.separated) field.runs.push(element);
     } else if (element.name === "w:instrText") {
       const top = fields.at(-1);
-      if (top && !top.separated) top.instruction += textOf(element);
+      if (top && !top.separated) {
+        top.instruction += textOf(element);
+        top.marks.push(element);
+      }
     } else if (element.name === "w:fldChar") {
       const type = element.attrs["w:fldCharType"];
       const top = fields.at(-1);
       if (type === "begin") {
-        fields.push({ begin: element, instruction: "", runs: [], separated: false });
-      } else if (type === "separate" && top) top.separated = true;
-      else if (type === "end" && top) {
+        fields.push({
+          begin: element,
+          instruction: "",
+          marks: [element],
+          runs: [],
+          separated: false,
+        });
+      } else if (type === "separate" && top) {
+        top.separated = true;
+        top.separator = element;
+        top.marks.push(element);
+      } else if (type === "end" && top) {
         fields.pop();
+        top.marks.push(element);
         // The field's result stays as plain runs: what it showed, without what it read from.
         if (readsOutside(top.instruction)) {
-          const first = runOf(top.begin);
-          if (/^\s*FORMCHECKBOX\b/i.test(top.instruction) && first !== top.begin) {
-            replaced.set(first, checkBox(top.begin, first, text));
-          } else removed.add(first);
-          for (const run of [...top.runs, runOf(element)]) removed.add(run);
+          const marked = new Set(top.marks);
+          // A run goes whole when it holds only the field's marks; otherwise only the marks go.
+          const unit = (mark: XmlElement) => {
+            const run = runOf(mark);
+            const only = elements(run).every((each) => each.name === "w:rPr" || marked.has(each));
+            return run !== mark && only ? run : mark;
+          };
+          const gone = new Set(top.marks.map(unit));
+          // What is written in its instruction goes whole; the run of its separator may hold its result too.
+          for (const run of top.runs) {
+            if (!top.separator || !elements(run).includes(top.separator)) gone.add(run);
+          }
+          if (/^\s*FORMCHECKBOX\b/i.test(top.instruction)) {
+            // What the box shows takes its begin mark's place: a run of its own, or in the mark's run.
+            const place = unit(top.begin);
+            gone.delete(place);
+            const shown = `<w:t>${checkBox(top.begin)}</w:t>`;
+            const look = elements(place).find((each) => each.name === "w:rPr");
+            const rPr = look ? text.slice(startOf(look), endOf(look)) : "";
+            replaced.set(
+              place,
+              place.name === "w:r"
+                ? `<w:r>${rPr}${shown}</w:r>`
+                : runOf(place) === place
+                  ? `<w:r>${shown}</w:r>`
+                  : shown,
+            );
+          }
+          for (const each of gone) removed.add(each);
         }
       }
     }

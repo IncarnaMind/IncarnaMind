@@ -5,14 +5,18 @@
  * in it is one read_mind gave the agent, and every link one the Note holds.
  */
 import { readFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
+import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
+import { wordFileOf } from "../../src/shared/wordFiles";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createSourceFolder } from "../helpers/documents";
 import { part, unzip } from "../helpers/docx";
 import { started, structured } from "../helpers/handedFiles";
-import { editMind } from "../helpers/minds";
+import { editMind, readMind } from "../helpers/minds";
 import {
   CHART,
   DECLARATION,
@@ -30,13 +34,25 @@ import {
   without,
   withParts,
 } from "../helpers/plantedWordFile";
-import { escapeXml, field, PNG, paragraph, run, STYLES, tracked, wordFile } from "../helpers/word";
+import {
+  escapeXml,
+  field,
+  PNG,
+  paragraph,
+  picture,
+  run,
+  STYLES,
+  tracked,
+  wordFile,
+} from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
 interface Saved {
   files: Map<string, Buffer>;
   original: Map<string, Buffer>;
   all: string;
+  /** The Note as the agent's file was written from it. */
+  note: JSONContent[];
 }
 
 /**
@@ -48,8 +64,10 @@ async function savedFor(
   language: Language,
   bytes: Buffer,
   edit?: (blocks: JSONContent[]) => JSONContent[],
+  /** What happens to the stored Word file, by its path, once the Note is imported. */
+  stored?: (path: string) => Promise<void>,
 ): Promise<Saved> {
-  const { core, coast, writer } = await started([], { asItLands: false });
+  const { core, coast, writer, dataDir } = await started([], { asItLands: false });
   await core.updateSettings({ user: { language } });
   await core.setOutputLocation(await createSourceFolder());
   const { mindId, client } = await importWordBytes(core, await createSourceFolder(), bytes, {
@@ -61,6 +79,8 @@ async function savedFor(
     editMind(client, edit);
     await client.settled();
   }
+  const sha256 = wordFileOf(client.doc)?.sha256;
+  if (stored) await stored(join(dataDir, WORD_PACKAGES_FOLDER, `${sha256}.docx`));
   const agent = await connectLegacyAgent(writer.launch);
   const { markdown } = structured<{ markdown: string }>(
     await agent.callTool({ name: "read_mind", arguments: { mindId } }),
@@ -77,6 +97,7 @@ async function savedFor(
     files,
     original: unzip(bytes),
     all: [...files.values()].map((each) => each.toString("utf8")).join("\n"),
+    note: readMind(client).toJSON().content ?? [],
   };
 }
 
@@ -374,6 +395,102 @@ function pictureBulleted(words: Words): Buffer {
       { name: "word/media/orphanbullet.png", data: BULLET_PICTURES.orphan },
       { name: "word/media/overridebullet.png", data: BULLET_PICTURES.override },
     ],
+  });
+}
+
+/** Words left where a parser reading text and elements never looks: an XML comment, an instruction. */
+const MARKUP_WORDS = { comment: "XMLCOMMENTWORDS", instruction: "XMLINSTRUCTIONWORDS" };
+
+/** A file with an XML comment in its body, styles, header, relationships and content types, and an instruction in its body. */
+function markupHeld(words: Words): Buffer {
+  const comment = (where: string) => `<!-- ${where} ${MARKUP_WORDS.comment} -->`;
+  const file = wordFile({
+    body: `${comment("body")}${paragraph(`${run(words.kept)}${comment("paragraph")}<?note ${MARKUP_WORDS.instruction}?>`)}`,
+    styles: `${comment("styles")}${STYLES}`,
+    headers: { rIdH1: `${comment("header")}${paragraph(run(words.header))}` },
+    sectPr: HEADED,
+    rels: comment("rels"),
+  });
+  return withParts(file, {}, comment("types"));
+}
+
+/**
+ * A table whose second row someone's change deleted and whose third row someone's change inserted,
+ * as Word writes them: the row's mark, and its words in tracked runs.
+ */
+function rowsRevised(words: Words): Buffer {
+  const date = 'w:author="' + escapeXml(words.deletedBy) + '" w:date="2026-10-02T09:00:00Z"';
+  const row = (revision: string, cell: string) =>
+    `<w:tr>${revision ? `<w:trPr>${revision}</w:trPr>` : ""}<w:tc>${paragraph(cell)}</w:tc></w:tr>`;
+  return wordFile({
+    body: `<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid>${row("", run(words.kept))}${row(`<w:del w:id="90" ${date}/>`, tracked("del", 92, words.deletedBy, words.deleted))}${row(`<w:ins w:id="91" ${date}/>`, tracked("ins", 93, words.deletedBy, words.headerAdded))}</w:tbl>${paragraph(run(words.street))}`,
+  });
+}
+
+const begin = '<w:fldChar w:fldCharType="begin"/>';
+const separate = '<w:fldChar w:fldCharType="separate"/>';
+const end = '<w:fldChar w:fldCharType="end"/>';
+
+/** A field that reads another file whose markers share runs with the words around it. */
+function fieldInRuns(words: Words): Buffer {
+  const instruction = `<w:instrText xml:space="preserve"> LINK Excel.Sheet.12 "${words.path}" "Sheet1!R1C1" \\a \\f 4 \\h </w:instrText>`;
+  const text = (said: string) => `<w:t xml:space="preserve">${escapeXml(said)}</w:t>`;
+  return wordFile({
+    body: paragraph(
+      `<w:r>${text(words.link)}${begin}</w:r><w:r>${instruction}</w:r><w:r>${separate}</w:r>${run(words.linked)}<w:r>${end}${text(` ${words.noteText}`)}</w:r>`,
+    ),
+  });
+}
+
+/** A field that reads another file with a field written inside its instruction, whose result is a secret. */
+function fieldNested(words: Words): Buffer {
+  const code = (instruction: string) =>
+    `<w:r><w:instrText xml:space="preserve">${escapeXml(instruction)}</w:instrText></w:r>`;
+  return wordFile({
+    body: paragraph(
+      `${run(words.kept)}<w:r>${begin}</w:r>${code(` LINK Excel.Sheet.12 "`)}<w:r>${begin}</w:r>${code(" DOCPROPERTY Client ")}<w:r>${separate}</w:r>${run(words.protection)}<w:r>${end}</w:r>${code(`" "Sheet1!R1C1" \\a \\f 4 \\h `)}<w:r>${separate}</w:r>${run(words.linked)}<w:r>${end}</w:r>`,
+    ),
+  });
+}
+
+/**
+ * A link the Note holds, and a link written as a field to an address of words the Note has but
+ * which is none of its links.
+ */
+function linkAsField(words: Words, address: string): Buffer {
+  return wordFile({
+    body: [
+      paragraph(`<w:hyperlink r:id="rIdWeb">${run(words.webText)}</w:hyperlink>`),
+      paragraph(
+        `${run(words.kept)}<w:r>${begin}</w:r><w:r><w:instrText xml:space="preserve"> HYPERLINK "${escapeXml(address)}" </w:instrText></w:r><w:r>${separate}</w:r>${run(words.street)}<w:r>${end}</w:r>`,
+      ),
+    ].join(""),
+    rels: `<Relationship Id="rIdWeb" Type="${REL}/hyperlink" Target="${words.web}" TargetMode="External"/>`,
+  });
+}
+
+/** A file whose properties hold values nobody gave the agent in the elements the cleaning keeps. */
+function propertiesWorded(words: Words): Buffer {
+  return withParts(
+    wordFile({ body: paragraph(run(words.kept)) }),
+    {
+      "_rels/.rels": `${DECLARATION}<Relationships xmlns="${PACKAGE}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="${PACKAGE}/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="${REL}/extended-properties" Target="docProps/app.xml"/></Relationships>`,
+      "docProps/core.xml": `${DECLARATION}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><cp:revision>${escapeXml(words.formHelp)}</cp:revision><dcterms:created xsi:type="dcterms:W3CDTF">${escapeXml(words.formStatus)}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">2026-10-02T09:00:00Z</dcterms:modified></cp:coreProperties>`,
+      "docProps/app.xml": `${DECLARATION}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Pages>1</Pages><Words>${escapeXml(words.formName)}</Words><AppVersion>${escapeXml(words.formDefault)}</AppVersion><Characters>4827</Characters></Properties>`,
+    },
+    `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>`,
+  );
+}
+
+const CROPPED_PNG = Buffer.concat([PNG, Buffer.from("CROPPEDOUTPIXELS")]);
+
+/** A picture Word shows cropped to its right 40%: the crop is a rectangle beside the picture's whole image. */
+function pictureCropped(words: Words): Buffer {
+  return wordFile({
+    body: paragraph(
+      `${run(words.kept)}${picture("rIdCrop", words.alt).replace("</pic:blipFill>", '<a:srcRect l="60000"/></pic:blipFill>')}`,
+    ),
+    media: { rIdCrop: { name: "media/crop.png", data: CROPPED_PNG } },
   });
 }
 
@@ -702,6 +819,97 @@ describe.each(LANGUAGES)(
       expect(relationships).toContain("media/keptbullet.png");
       expect(relationships).toContain("media/overridebullet.png");
       expect(relationships).not.toMatch(/unusedbullet|orphanbullet/);
+    });
+
+    // protects=an XML comment or instruction a file carries, which a reader of text and elements never shows, is not in the agent's file, in any part (#3751); fails_when=the comment's or the instruction's words are in any part's bytes, or the file is written new
+    it("leaves out an XML comment and an instruction in every part", async () => {
+      const saved = await savedFor(language, markupHeld(words));
+      expect(part(saved.files, "word/styles.xml")).toBe(
+        part(saved.original, "word/styles.xml").replace(/<!--.*?-->/gs, ""),
+      );
+      expect(part(saved.files, "word/document.xml")).toContain(run(words.kept));
+      expectNoneOf(saved.files, [MARKUP_WORDS.comment, MARKUP_WORDS.instruction]);
+    });
+
+    // protects=the words of a table row someone's change deleted, or one it inserted, are not in the agent's file, as with any other deletion or insertion (#3751); fails_when=the words of either row, or a mark of the change, are in the agent's file
+    it("takes out the words of a row someone deleted and of one someone inserted", async () => {
+      const saved = await savedFor(language, rowsRevised(words));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      const document = part(saved.files, "word/document.xml");
+      expect(document).toContain(run(words.kept));
+      expect(document).not.toMatch(/<w:del |<w:ins |w:author/);
+      expectNoneOf(saved.files, [words.deleted, words.headerAdded, words.deletedBy]);
+    });
+
+    // protects=the words a run holds beside a field's marker stay when the field is written as its result (#3751); fails_when=the words before the field's start, or after its end, in the marker's own run, are lost
+    it("keeps the words that share a run with a field's marker", async () => {
+      const saved = await savedFor(language, fieldInRuns(words));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      const document = part(saved.files, "word/document.xml");
+      expect(document).not.toMatch(/LINK|fldChar/);
+      for (const shown of [words.link, words.linked, words.noteText]) {
+        expect(document).toContain(escapeXml(shown));
+      }
+      expectNoneOf(saved.files, [words.path]);
+    });
+
+    // protects=a field written inside another field's instruction goes with that instruction, its result too (#3751); fails_when=the inner field's result, or the outer field, is in the agent's file, or the outer field's own result is not
+    it("takes out a field written inside a field's instruction with its result", async () => {
+      const saved = await savedFor(language, fieldNested(words));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      const document = part(saved.files, "word/document.xml");
+      expect(document).not.toMatch(/LINK|DOCPROPERTY|fldChar/);
+      expect(document).toContain(run(words.linked));
+      expectNoneOf(saved.files, [words.protection]);
+    });
+
+    // protects=a link written as a field shows its words and no address, as the Note holds none for it: an address of words the Note has, though none of its links, is not in the agent's file (#3751); fails_when=the field's address is in the agent's file, the link the Note holds is lost, or the file is written new
+    it("writes a link written as a field as its words, without its address", async () => {
+      const other = `${words.web}/harbour/plan`;
+      const saved = await savedFor(language, linkAsField(words, other));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      const document = part(saved.files, "word/document.xml");
+      expect(document).not.toContain("HYPERLINK");
+      expect(document).toContain(escapeXml(words.street));
+      expect(part(saved.files, "word/_rels/document.xml.rels")).toContain(words.web);
+      expectNoneOf(saved.files, [other]);
+    });
+
+    // protects=a property is kept only as the number or the date it is: a value that is anyone's words goes (#3751); fails_when=a revision, a count, a version or a date that is words is in the agent's file
+    it("keeps a property only when its value is a number or a date", async () => {
+      const saved = await savedFor(language, propertiesWorded(words));
+      const core = part(saved.files, "docProps/core.xml");
+      expect(core).toContain("2026-10-02T09:00:00Z");
+      const app = part(saved.files, "docProps/app.xml");
+      expect(app).toContain("<Pages>1</Pages>");
+      expect(app).toContain("<Characters>4827</Characters>");
+      expectNoneOf(saved.files, [
+        words.formHelp,
+        words.formStatus,
+        words.formName,
+        words.formDefault,
+      ]);
+    });
+
+    // protects=a Note whose imported Word file is gone from the computer still gets its Word file, written new from the Note, as before the original was kept (#3751); fails_when=save_as_word fails, or the file keeps the original's styles it can't have read
+    it("writes the file new when the Word file the Note came from can't be read", async () => {
+      const bytes = wordFile({ body: paragraph(run(words.kept)) });
+      const saved = await savedFor(language, bytes, undefined, (path) => rm(path));
+      expect(part(saved.files, "word/styles.xml")).not.toBe(
+        part(saved.original, "word/styles.xml"),
+      );
+      expect(part(saved.files, "word/document.xml")).toContain(escapeXml(words.kept));
+    });
+
+    // protects=a picture Word shows cropped is the whole image in the Note and the whole image in the agent's file, so no pixel is in the file that the Note doesn't hold (#3751); fails_when=the Note's picture is cut to the crop but the file's isn't, or the file's picture is not the Note's
+    it("holds a cropped picture as the Note holds it, the whole image", async () => {
+      const saved = await savedFor(language, pictureCropped(words));
+      expect(part(saved.files, "word/styles.xml")).toBe(part(saved.original, "word/styles.xml"));
+      expect(saved.files.get("word/media/crop.png")).toEqual(CROPPED_PNG);
+      const held = [
+        ...JSON.stringify(saved.note).matchAll(/data:image\/png;base64,([A-Za-z0-9+/=]+)/g),
+      ];
+      expect(held.map(([, data]) => Buffer.from(data ?? "", "base64"))).toEqual([CROPPED_PNG]);
     });
 
     // protects=the check reads the words a date control's picture shows, so ones the Note doesn't hold make the agent's file be written new (#3751); fails_when=the picture's words are in the agent's file

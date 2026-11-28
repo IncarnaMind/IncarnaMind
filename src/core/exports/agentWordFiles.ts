@@ -253,8 +253,6 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
           read: (_, look) => look(blocks),
           readSettings: (_, look) => look(mindSettings),
         };
-        const copy: NoteReader =
-          original === null ? reader : { ...reader, wordPackage: () => deps.wordPackage(original) };
         const options = {
           ...deps.wordChoices(),
           markAiText: false,
@@ -262,10 +260,13 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
           includeMyComments: false,
           trackChanges: false,
         };
-        const { exported, named } = await deps.wordOf(copy, mind.id, options, at);
-        let data = exported.data;
-        let names = named;
-        if (original !== null) {
+        let data: Uint8Array;
+        let names: readonly string[];
+        if (original === null) {
+          const plain = await deps.wordOf(reader, mind.id, options, at);
+          data = plain.exported.data;
+          names = plain.named;
+        } else {
           /** The copy written as a new file, without the Word file it came from. */
           const anew = async () => {
             doc.transact(() => {
@@ -275,9 +276,37 @@ export function createAgentWordFiles(deps: AgentWordFilesDeps) {
             });
             return deps.wordOf(reader, mind.id, options, at);
           };
-          const made = await forAgentOf(original, exported, anew);
-          data = made.data;
-          names = [...new Set([...named, ...made.named])];
+          let unreadable = false;
+          const copy: NoteReader = {
+            ...reader,
+            wordPackage: async () => {
+              try {
+                return await deps.wordPackage(original);
+              } catch (error) {
+                unreadable = true;
+                throw error;
+              }
+            },
+          };
+          let written: Written | null = null;
+          try {
+            written = await deps.wordOf(copy, mind.id, options, at);
+          } catch (error) {
+            if (!unreadable) throw error;
+            deps.log.info("agentWordFile.writtenNew", {
+              part: "package",
+              why: "the Word file it came from can't be read",
+            });
+          }
+          if (written === null) {
+            const fresh = await anew();
+            data = fresh.exported.data;
+            names = fresh.named;
+          } else {
+            const made = await forAgentOf(original, written.exported, anew);
+            data = made.data;
+            names = [...new Set([...written.named, ...made.named])];
+          }
         }
         const why = unreached(names, reaches);
         if (why) return { kind: "unreached", why };
