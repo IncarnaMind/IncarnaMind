@@ -121,7 +121,7 @@ const meanwhileOf = (request: RunRequest) => {
 
 /** What the User typed, as the run's prompt asks it. */
 const askedIn = (request: RunRequest | undefined) =>
-  request?.prompt.match(/the User asks: (.*)/)?.[1] ?? "";
+  request?.prompt.match(/the User's request: (.*)/)?.[1] ?? "";
 
 const idOf = (start: NoteRequestStart) =>
   start.kind === "started" || start.kind === "sent" ? start.turnId : "";
@@ -3838,11 +3838,12 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(run.runs[0]?.instructions).not.toContain("check_mind_yourself");
     expect(run.runs[0]?.prompt).not.toContain("checking as it lands");
 
-    // Turn on mid-conversation: initial resumed turn AND queued turn both carry the per-turn directive.
+    // Turn on mid-conversation: initial resumed turn AND Send-now follow-up both carry the per-turn directive.
     await core.updateSettings({ user: { checkAssistantWrites: true } });
     await core.askInNote({ mindId, words: "first request" });
     await waiting.at;
-    await core.askInNote({ mindId, words: "queued follow-up" });
+    const queued = idOf(await core.askInNote({ mindId, words: "queued follow-up" }));
+    await core.sendNowInNote(mindId, queued);
     waiting.open();
     // The fake runner didn't take the queued turn inline, so the next run carries it automatically.
     await ended(3);
