@@ -28,6 +28,7 @@ const OFF = "off";
 const BUILT_IN = "built-in";
 const SERVER = "server";
 const CURRENT = "current";
+const ADD_KEY = "add-key";
 
 /** A search model the picker offers: the built-in one, a company's own API on its account's key, Ollama's. */
 interface SearchChoice {
@@ -201,6 +202,8 @@ export function DocumentSearchRows({
                 onChange={(event) => {
                   const next = event.target.value;
                   if (next === SERVER) setServer(true);
+                  else if (next === ADD_KEY)
+                    useAppStore.getState().openSettings("ai", "add-provider");
                   else if (next === OFF) setAsking("off");
                   else {
                     const choice = offered.find((each) => each.value === next);
@@ -236,6 +239,7 @@ export function DocumentSearchRows({
                   ))}
                 </optgroup>
                 <option value={SERVER}>{t("ai.jobs.search.server")}</option>
+                {!localOnly && <option value={ADD_KEY}>{t("ai.accounts.add")}</option>}
               </PopUpSelect>
             )}
           </>

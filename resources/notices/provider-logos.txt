@@ -1,7 +1,8 @@
-The model providers' logos in IncarnaMind's Settings (src/renderer/src/components/providers/providerLogos.ts)
-are the monochrome drawings of Lobe Icons, under this licence. The logos themselves are
-trademarks of their companies, shown to name each provider; their use doesn't mean that any
-of them sponsors or endorses IncarnaMind. The rest of IncarnaMind is under its own licence
+The logos of the model providers and AI apps in IncarnaMind's Settings and setup
+(src/renderer/src/components/providers/providerLogos.ts) are the monochrome drawings of Lobe
+Icons (@lobehub/icons-static-svg 1.106.0 for the AI apps), under this licence. The logos
+themselves are trademarks of their companies, shown to name each provider or app; their use
+doesn't mean that any of them sponsors or endorses IncarnaMind. The rest of IncarnaMind is under its own licence
 (Apache-2.0).
 
 Lobe Icons: https://github.com/lobehub/lobe-icons

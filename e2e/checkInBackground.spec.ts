@@ -12,6 +12,7 @@ import {
   catchCopies,
   checkCard,
   checkNote,
+  claudeCodeInHome,
   copied,
   createDataFolder,
   dismissChatSetup,
@@ -146,6 +147,7 @@ function madeBefore() {
 }
 
 test("with no model, one press checks a Note the User wrote on their own Claude Code in the background, with nothing opened; Stop stops it; a run that can't start or fails says why; a take-back keeps the link; a connection made before asks once", async () => {
+  await claudeCodeInHome(home);
   const { app, window } = await launchApp(dataDir, {
     home,
     ownAi: join(bin, "claude"),

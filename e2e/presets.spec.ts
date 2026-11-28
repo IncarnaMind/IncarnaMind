@@ -1,15 +1,10 @@
 import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { KEY_PROVIDERS } from "../src/core/providers/catalog/providers";
 import {
   acceptPlainTextKeys,
-  addProviderForm,
   createDataFolder,
   dismissChatSetup,
   launchApp,
-  newMind,
-  openAddSheet,
-  openServiceList,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -17,8 +12,8 @@ import {
 } from "./app";
 
 /*
- * Presets: a hosted service that speaks OpenAI's API is one chip under More…, with its own name
- * and key page, and until its model passes the citing evaluation it says so.
+ * Presets: a hosted service that speaks OpenAI's API has its own name and key page. No chat
+ * provider is added in IncarnaMind (#3767), so the page seen is a saved one's.
  */
 
 let dataDir: string;
@@ -29,34 +24,31 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-test("each preset is a tile in Add a provider; Groq's page has its key page and its model marked not yet tested for checked Citations, in English and Chinese", async () => {
+test("a saved Groq key has its own page, with its key link and what goes to Groq, in English and Chinese", async () => {
   // Nothing answers where Ollama would be, so this computer's own Ollama isn't asked.
   const { app, window } = await launchApp(dataDir, { ollama: "http://127.0.0.1:9" });
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
+    // No chat provider is added in IncarnaMind (#3767): the profile's is saved through the bridge.
+    const provider = await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
+        kind: "openai-compatible",
+        catalogId: "groq",
+        apiKey: "groq-a-made-up-key",
+        modelId: "openai/gpt-oss-120b",
+      }),
+    );
     const settings = await openSettings(window, "ai");
-    await openAddSheet(settings);
-    const more = settings.locator('[data-group="more"]');
-    for (const id of ["groq", "together", "fireworks", "cerebras", "cohere", "venice"]) {
-      await expect(more.locator(`[data-catalog-id="${id}"]`)).toHaveCount(1);
-    }
-    await settings.getByTestId("ai-add-sheet-cancel").click();
-    const form = await addProviderForm(settings, "groq");
-    await expect(settings.getByTestId("provider-page-title")).toHaveText("Groq");
-    // Under the model's line, and under its list once Change opens it.
-    const reason = form.getByTestId("provider-model-reason");
-    await expect(form.getByTestId("provider-model-line")).toBeVisible();
-    await expect(reason).toHaveText("Not yet tested for checked Citations");
-    await form.getByTestId("provider-model-change").click();
-    await expect(form.getByTestId("provider-model")).toHaveValue("openai/gpt-oss-120b");
-    await expect(reason).toHaveText("Not yet tested for checked Citations");
-    await expect(form.getByTestId("provider-key-link")).toHaveAttribute(
+    await settings.locator(`[data-provider-id="${provider.id}"]`).click();
+    const page = settings.getByTestId("provider-page");
+    await expect(page.getByTestId("provider-page-title")).toHaveText("Groq");
+    await expect(page.getByTestId("provider-page-get-key")).toHaveAttribute(
       "href",
       "https://console.groq.com/keys",
     );
-    await expect(form.getByTestId("provider-sends")).toContainText(
+    await expect(page.getByTestId("provider-sends")).toContainText(
       "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to Groq.",
     );
     if (process.env.INCARNAMIND_SCREENSHOTS) {
@@ -66,192 +58,8 @@ test("each preset is a tile in Add a provider; Groq's page has its key page and 
     }
 
     await setLanguage(window, "zh-CN");
-    await expect(reason).toHaveText("尚未测试引用核对");
-  } finally {
-    await app.close();
-  }
-});
-
-test("the setup card's More… lists every provider that takes a key, in English and Chinese, and the card stays inside a 900px window", async () => {
-  const { app, window } = await launchApp(dataDir, { ollama: "http://127.0.0.1:9" });
-  try {
-    await setWindowSize(app, window, 1100, 900);
-    await newMind(window);
-    await window.getByTestId("mind-editor").click();
-    await window.keyboard.press("ControlOrMeta+j");
-    await window.keyboard.type("What is in my Documents?");
-    await window.keyboard.press("Enter");
-    const card = window.getByTestId("model-setup");
-    await openServiceList(window, card);
-    const form = card.getByTestId("provider-form");
-    const chips = form.locator('input[name$="-kind"]');
-    const shown = await chips.count();
-    await form.getByTestId("provider-more-toggle").click();
-    await expect(form.getByTestId("provider-more-toggle")).toHaveCount(0);
-    await expect(chips).toHaveCount(KEY_PROVIDERS.length);
-    expect(shown).toBeLessThan(KEY_PROVIDERS.length);
-    for (const id of KEY_PROVIDERS)
-      await expect(form.locator(`input[value="${id}"]`)).toHaveCount(1);
-    for (const name of ["Groq", "Mistral", "xAI", "OpenAI-compatible server", "OpenRouter"]) {
-      await expect(form.getByRole("radio", { name, exact: true })).toHaveCount(1);
-    }
-    for (const name of [/^Kimi/, /^GLM/]) {
-      await expect(form.getByRole("radio", { name })).toHaveCount(1);
-    }
-
-    // A provider found there is set up with the same form: its own key line and button.
-    await form.locator("label", { has: window.locator('input[value="mistral"]') }).click();
-    await expect(form.getByTestId("provider-form-title")).toHaveText("Paste your Mistral key");
-    await expect(form.getByTestId("provider-use-key")).toBeVisible();
-
-    for (const [language, height] of [
-      ["en", 900],
-      ["zh-CN", 900],
-      ["zh-CN", 700],
-    ] as const) {
-      await setLanguage(window, language);
-      await setWindowSize(app, window, 900, height);
-      const box = await card.boundingBox();
-      expect(box, `${language}, ${height}`).not.toBeNull();
-      expect(
-        (box?.y ?? 0) + (box?.height ?? 0),
-        `${language}, ${height}: inside the window`,
-      ).toBeLessThanOrEqual(height);
-      await expect(chips).toHaveCount(KEY_PROVIDERS.length);
-    }
-  } finally {
-    await app.close();
-  }
-});
-
-test("Amazon Bedrock asks for its region from a list, and Cloudflare for its account ID, before Use this key; in English and Chinese", async () => {
-  const { app, window } = await launchApp(dataDir, { ollama: "http://127.0.0.1:9" });
-  try {
-    await dismissChatSetup(window);
-    await setWindowSize(app, window, 1440, 900);
-    await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "ai");
-    let form = await addProviderForm(settings, "bedrock");
-    const region = form.getByRole("combobox", { name: /^Region/ });
-    await expect(region).toHaveValue("us-east-1");
-    await expect(form.getByTestId("provider-field-hint")).toContainText("long-term API key");
-    await region.selectOption("eu-west-1");
-    await expect(region.locator("option:checked")).toHaveText("Europe (Ireland) · eu-west-1");
-    await form.getByLabel(/^API key/).fill("bedrock-key");
-    await expect(form.getByTestId("provider-use-key")).toBeEnabled();
-    await expect(form.getByTestId("provider-sends")).toContainText(
-      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to Amazon Bedrock.",
-    );
-
-    await settings.getByTestId("models-back").click();
-    form = await addProviderForm(settings, "cloudflare");
-    const account = form.getByTestId("provider-field");
-    await expect(account).toHaveAccessibleName(/^Account ID/);
-    await expect(form.getByTestId("provider-field-hint")).toContainText("Use REST API");
-    await form.getByLabel(/^API key/).fill("cloudflare-token");
-    await expect(form.getByTestId("provider-use-key-why")).toHaveText("Fill in Account ID first.");
-    await account.fill("0123456789abcdef0123456789abcdef");
-    await expect(form.getByTestId("provider-use-key-why")).toHaveCount(0);
-    if (process.env.INCARNAMIND_SCREENSHOTS) {
-      await settings.screenshot({
-        path: `${process.env.INCARNAMIND_SCREENSHOTS}/preset-cloudflare-en.png`,
-      });
-    }
-
-    await setLanguage(window, "zh-CN");
-    await expect(account).toHaveAccessibleName(/^账户 ID/);
-    await account.fill("");
-    await expect(form.getByTestId("provider-use-key-why")).toHaveText("请先填写账户 ID。");
-    await settings.getByTestId("models-back").click();
-    form = await addProviderForm(settings, "bedrock");
-    await expect(form.getByRole("combobox", { name: /^区域/ })).toBeVisible();
-    await expect(form.getByTestId("provider-field-hint")).toContainText("长期 API 密钥");
-  } finally {
-    await app.close();
-  }
-});
-
-test("LM Studio and Unsloth Studio are On this computer in Add a provider, beside Ollama, each at its own address; in English and Chinese", async () => {
-  // The app is told what runs: no LM Studio or Unsloth Studio on this computer is asked.
-  const { app, window } = await launchApp(dataDir, {
-    ollama: "http://127.0.0.1:9",
-    localServers: { unsloth: ["qwen3.5-4b", "gemma-4-12b"] },
-  });
-  try {
-    await dismissChatSetup(window);
-    await setWindowSize(app, window, 1440, 900);
-    await acceptPlainTextKeys(window);
-    const settings = await openSettings(window, "ai");
-    await openAddSheet(settings);
-    const local = settings.locator('[data-group="local"]');
-    await expect(local.getByTestId("provider-directory-entry")).toHaveText([
-      /^Ollama/,
-      /^LM Studio/,
-      /^Unsloth Studio/,
-    ]);
-    await setLanguage(window, "zh-CN");
-    await expect(local.locator("h3")).toHaveText("在这台电脑上 · 免费，数据不会离开");
-    await setLanguage(window, "en");
-    await settings.getByTestId("ai-add-sheet-cancel").click();
-
-    let form = await addProviderForm(settings, "unsloth");
-    const saveButton = () => form.getByTestId("provider-use-key");
-    await expect(form.getByTestId("provider-field")).toHaveValue("127.0.0.1:8888");
-    await expect(form.getByTestId("local-server")).toContainText("Unsloth Studio is running");
-    // The first model the server lists, named on one line; Change opens the server's list.
-    await expect(form.getByTestId("provider-model-line")).toHaveText("Model: qwen3.5-4b · Change");
-    await form.getByTestId("provider-model-change").click();
-    const model = form.getByTestId("provider-model");
-    await expect(model.locator("option")).toHaveText([
-      "qwen3.5-4b",
-      "gemma-4-12b",
-      "Another model…",
-    ]);
-    await expect(form.getByTestId("provider-model-reason")).toHaveText(
-      "Not yet tested for checked Citations",
-    );
-    await expect(saveButton()).toBeDisabled();
-    await form.getByLabel(/^API key/).fill("sk-unsloth-test");
-    await expect(saveButton()).toBeEnabled();
-    await expect(form.getByTestId("provider-sends")).toHaveCount(0);
-    // An address on another computer is a service like any other, and says what goes to it.
-    await form.getByTestId("provider-field").fill("192.168.1.20:8888");
-    await form.getByLabel(/^API key/).focus();
-    await expect(form.getByTestId("local-server")).toContainText("answers at 192.168.1.20:8888");
-    await expect(form.getByTestId("provider-sends")).toContainText(
-      "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to Unsloth Studio.",
-    );
-    // The app's own line holds only while its server runs here; at another computer it is any server's.
-    const dataUse = form.getByTestId("provider-data-use");
-    await expect(dataUse).toContainText("Depends on the server: check its terms.");
-    await expect(dataUse).not.toContainText("Runs on this computer");
-    await expect(dataUse.getByRole("link")).toHaveCount(0);
-    await setLanguage(window, "zh-CN");
-    await expect(dataUse).toContainText("取决于服务器，请查看其条款");
-    await setLanguage(window, "en");
-    await form.getByTestId("provider-field").fill("127.0.0.1:8888");
-    await form.getByLabel(/^API key/).focus();
-    await expect(form.getByTestId("provider-sends")).toHaveCount(0);
-    await expect(dataUse).toHaveCount(0);
-    if (process.env.INCARNAMIND_SCREENSHOTS) {
-      await settings.screenshot({
-        path: `${process.env.INCARNAMIND_SCREENSHOTS}/preset-local-en.png`,
-      });
-    }
-
-    await settings.getByTestId("models-back").click();
-    form = await addProviderForm(settings, "lmstudio");
-    await expect(form.getByTestId("provider-field")).toHaveValue("127.0.0.1:1234");
-    await expect(form.getByTestId("local-server")).toContainText(
-      "Nothing answers at 127.0.0.1:1234",
-    );
-    await expect(saveButton()).toBeDisabled();
-    await expect(form.getByTestId("provider-use-key-why")).toHaveText("Start LM Studio first.");
-    await expect(form.getByTestId("local-server-check")).toBeVisible();
-
-    await setLanguage(window, "zh-CN");
-    await expect(form.getByTestId("local-server")).toContainText("127.0.0.1:1234 没有响应");
-    await expect(form.getByTestId("provider-use-key-why")).toHaveText("请先启动 LM Studio。");
+    await expect(page.getByTestId("provider-sends")).toContainText("Groq");
+    await expect(page.getByTestId("provider-page-title")).toHaveText("Groq");
   } finally {
     await app.close();
   }

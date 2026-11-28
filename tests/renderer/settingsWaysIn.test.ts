@@ -33,7 +33,6 @@ vi.stubGlobal("navigator", { userAgent: "node" });
 const { useAppStore } = await import("../../src/renderer/src/store");
 const { fixAction } = await import("../../src/renderer/src/fixAction");
 const { ANSWER_PROBLEMS } = await import("../../src/renderer/src/problems");
-const { wayBackRun } = await import("../../src/renderer/src/routeSignIn");
 const { yoursWordsOf } = await import("../../src/shared/commands");
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
 const readinessPath = "../../src/renderer/src/components/providers/ChatReadinessNotice.tsx";
@@ -98,19 +97,14 @@ describe("a way that sets up or fixes a model", () => {
     ]);
   });
 
-  test("a plan's way back by a key, the assistant's “your keys” and a readiness to fix open it too", () => {
-    const opened: unknown[][] = [];
-    wayBackRun("claude-account", "paste-api-key", {
-      onOpenSettings: (...args) => opened.push(args),
-    })?.();
-    expect(opened).toEqual([["ai", "model"]]);
+  test("the assistant's “your keys” and a readiness to fix open it; with none set up, the page's top, where the User's AI connects (#3767)", () => {
     expect(yoursWordsOf("keys").opens).toEqual({ settings: "ai", at: "model" });
     expect(yoursWordsOf("spending").opens).toEqual({ settings: "ai", at: "spending-cap" });
 
     const readiness = (reason: string) =>
       ({ ready: false, reason }) as Extract<ChatReadiness, { ready: false }>;
     for (const [reason, landing] of [
-      ["no-provider", ["ai", "model"]],
+      ["no-provider", ["ai"]],
       ["missing-api-key", ["ai", "model"]],
       ["consent-declined", ["privacy", undefined]],
     ] as const) {
@@ -154,6 +148,8 @@ describe("every place that opens Settings › AI with no spot named", () => {
       // Organize, a meeting's notes and its summary, when the agent can't read what they need.
       "components/library/OrganizeAsk.tsx",
       "components/meetings/MeetingAgentNotes.tsx",
+      // A meeting's brief with no model and no AI: Connect your AI (#3767).
+      "components/meetings/MeetingBrief.tsx",
       "components/meetings/MeetingSummaryProblem.tsx",
       // Empty-state "Connect your AI" beside Install Claude Code (#3638).
       "components/providers/ChatReadinessNotice.tsx",

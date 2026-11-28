@@ -9,9 +9,8 @@ import { signInAgain } from "../../chatGptSignIn";
 import { useClaudeCodeInstallAvailability } from "../../claudeCodeInstall";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
-import { useSettingUp } from "../../modelSetup";
-import { useRequests } from "../../requests";
 import { wayBackRun } from "../../routeSignIn";
+import { useLocalModelSaved } from "../../savedProviders";
 import type { SettingsPage, SettingsTarget } from "../../settingsPages";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
@@ -60,6 +59,16 @@ export function readinessAction(
 ): { label: string; onClick(): void } {
   const route = routeWayBack(readiness, 0, t, openSettings, before);
   if (route) return route;
+  // No model is set up in IncarnaMind: the User's own AI is the way (#3767).
+  if (readiness.reason === "no-provider") {
+    return {
+      label: t("agents.install.connectYourAi"),
+      onClick: () => {
+        before?.();
+        openSettings("ai");
+      },
+    };
+  }
   if (readiness.reason === "sign-in-required") {
     return {
       label: t("chatgpt.signInAgain"),
@@ -108,8 +117,8 @@ export function ReadinessExplanation({
 
 /**
  * Why Questions can't be asked, as one line with the one thing that fixes it.
- * Local mode refusing a cloud model has two ways out, so it offers both: a
- * local model, or turning local mode off (which can be undone).
+ * Local mode refusing a cloud model is fixed by turning it off (which can be
+ * undone), or by a model on this computer already saved, as none is set up here (#3767).
  */
 export function ReadinessLine({
   readiness,
@@ -125,6 +134,7 @@ export function ReadinessLine({
   const t = useT();
   const openSettings = useAppStore((state) => state.openSettings);
   const installAvailability = useClaudeCodeInstallAvailability();
+  const localModel = useLocalModelSaved();
   if (readiness.reason === "no-provider") {
     const offerInstall =
       installAvailability?.supported === true && !installAvailability.cliAgentPresent;
@@ -160,16 +170,18 @@ export function ReadinessLine({
         testId={testId}
         {...(className && { className })}
         action={{
-          label: t("localMode.useLocal"),
-          testId: "local-mode-use-local",
-          onClick: () => useRequests.getState().ask({ chooseLocalModel: true }),
-        }}
-        also={{
           label: t("localMode.turnOff"),
           testId: "local-mode-turn-off",
           onClick: () =>
             turnOffLocalMode().catch((error: unknown) => useAppStore.getState().reportError(error)),
         }}
+        {...(localModel && {
+          also: {
+            label: t("answer.error.chooseModel"),
+            testId: "local-mode-choose-model",
+            onClick: () => openSettings("ai", "chat-model"),
+          },
+        })}
       >
         <ReadinessExplanation readiness={readiness} inLine />
       </ProblemLine>
@@ -200,9 +212,7 @@ export function ChatReadinessNotice({ mindId }: { mindId: string }) {
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAskRead(mindId);
   const installAvailability = useClaudeCodeInstallAvailability();
-  // The setup card already says it.
-  const settingUp = useSettingUp();
-  if (!readiness || readiness.ready || settingUp) return null;
+  if (!readiness || readiness.ready) return null;
   // Local mode's refusal is said once, in the composer where the Question was asked (#1511): a
   // second line above the page would move the page.
   if (readiness.reason === "local-mode") return null;

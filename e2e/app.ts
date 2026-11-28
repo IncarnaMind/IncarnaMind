@@ -18,6 +18,7 @@ import {
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
 import type { EmbeddingModelSource, SystemCalendarEvent } from "../src/core/adapters";
+import { AGENT_CLIENT_DEFINITIONS } from "../src/core/agents/clients";
 import {
   type AssistantPlace,
   CHOSEN_PROVIDER_FLOWS,
@@ -1376,66 +1377,8 @@ export async function busyOllama() {
   };
 }
 
-/**
- * Asks a Question in a new Mind with no model set, which brings the setup card in the composer's
- * place (#1922). It waits for the card and gives it back.
- */
-export async function askFirstQuestion(window: Page): Promise<Locator> {
-  await newMind(window);
-  const input = window.getByTestId("composer-input");
-  if (!(await input.isVisible())) await window.keyboard.press("ControlOrMeta+Shift+O");
-  await input.click();
-  await window.keyboard.type("What is in my Documents?");
-  await window.keyboard.press("Enter");
-  const card = window.getByTestId("model-setup");
-  await expect(card).toBeVisible();
-  return card;
-}
-
 /** A key as a real one is shaped, for a stand-in provider: never a real key. */
 export const ANTHROPIC_KEY = "sk-ant-api03-a-test-key-for-first-run";
-
-/**
- * Opens the key form where a key's own form names no service we list (#1922): the field says so,
- * and its way on picks the service. The key has no sk-, which DeepSeek's and others' share and
- * would be asked about instead (#2865).
- */
-export async function openServiceList(
-  window: Page,
-  card: Locator,
-  key = "a-key-no-service-issues",
-): Promise<void> {
-  const field = card.getByTestId("setup-key");
-  await field.fill(key);
-  await field.press("Enter");
-  await pointAndClick(window, card.getByTestId("setup-key-choose-service"));
-  const form = card.getByTestId("provider-form");
-  await expect(form).toBeVisible();
-  // The key only reached the list: the form starts as it would from Settings.
-  await form.locator('input[type="password"]').fill("");
-}
-
-/**
- * In the setup's Your AI step, a model in IncarnaMind is one quiet line until it is pressed
- * (#3537): opens it, as a person who wants a key or a model of their own here does.
- */
-export async function openInAppModel(step: Locator): Promise<void> {
-  await step.getByTestId("setup-in-app-open").click();
-  await expect(step.getByTestId("setup-in-app-open")).toHaveCount(0);
-}
-
-/**
- * The setup card's way in with this test id, in view: in Chinese the ChatGPT and Claude plans
- * sit under Other ways (#2865), which a person opens first.
- */
-export async function setupWay(window: Page, card: Locator, testId: string): Promise<Locator> {
-  const way = card.getByTestId(testId);
-  if (await way.evaluate((element) => element.closest("details")?.open === false)) {
-    await pointAndClick(window, card.getByTestId("setup-other"));
-  }
-  await expect(way).toBeVisible();
-  return way;
-}
 
 /**
  * Sets up a local chat model (Ollama's, so nothing needs consent), through the
@@ -1446,6 +1389,30 @@ export async function useLocalChatModel(window: Page, modelId = "fake-model"): P
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.saveChatProvider({ kind: "ollama", modelId: model });
   }, modelId);
+}
+
+/**
+ * A chat model saved through the core, as no chat model is added in the interface (#3767) (a key
+ * kept in plain text where this computer has no keychain); its provider's id.
+ */
+export async function saveProvider(window: Page, input: SaveChatProviderInput): Promise<string> {
+  if (input.apiKey !== undefined) await acceptPlainTextKeys(window);
+  return window.evaluate(
+    async (saved) =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider(
+          saved,
+        )
+      ).id,
+    input,
+  );
+}
+
+/** Settings › AI with the row of the saved provider `providerId` pressed. The dialog. */
+export async function openProviderRow(window: Page, providerId: string): Promise<Locator> {
+  const settings = await openSettings(window, "ai");
+  await settings.locator(`[data-testid="provider-row"][data-provider-id="${providerId}"]`).click();
+  return settings;
 }
 
 /** Organize plans with the first chat model set up, the scripted one with `fakeChat`, and sorts nothing by itself. */
@@ -1503,6 +1470,30 @@ export async function useCloudChatModel(
 }
 
 /**
+ * Tags that wait for a model they can use, which the sidebar's footer says: a cloud model, its
+ * tagging allowed and switched on, refused by Local mode. With no model there is no such line
+ * (#3767).
+ */
+export async function taggingWaitsForAModel(window: Page): Promise<void> {
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (provider.service) await core.allowDataFlow("tagging", provider.service.id);
+    await core.setLocalOnly(true);
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
+  });
+}
+
+/**
  * Keys are kept with the system's keyring. On Linux with none running, as on
  * CI's Linux runner, the User first accepts storing them in plain text, once
  * on this computer. With `form`, accepts it as the User does, in the notice a
@@ -1551,6 +1542,36 @@ export async function showSettingsPage(window: Page, page: SettingsPage): Promis
  * In Settings › AI, the agents to connect: unfolded with "Connect an agent…" or "Connect another
  * agent…" when anything is set up already, open as it is when nothing is.
  */
+/**
+ * Puts Claude Code on the computer in `home`, where its native installer puts it, so Settings › AI
+ * lists it to connect rather than offering to install it.
+ */
+export async function claudeCodeInHome(home: string): Promise<void> {
+  const folder = join(home, ".local", "bin");
+  await mkdir(folder, { recursive: true });
+  await writeFile(
+    join(folder, "claude"),
+    `#!/bin/sh\nexec "${process.execPath}" "${join(__dirname, "fixtures", "fakeClaudeCode.mjs")}" "$@"\n`,
+    { mode: 0o755 },
+  );
+}
+
+/**
+ * The agents Settings › AI lists to connect: every agent and Other agent, Claude Code aside while
+ * it stands as its own install row (#3767).
+ */
+export async function expectEveryAgentListed(settings: Locator, list: Locator): Promise<void> {
+  await expect(settings.getByTestId("claude-code-install-offer")).toBeVisible();
+  const listed = await list
+    .getByTestId("agent-client")
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-client")));
+  expect([...listed].sort()).toEqual(
+    AGENT_CLIENT_DEFINITIONS.map((each) => each.id)
+      .filter((id) => id !== "claude-code")
+      .sort(),
+  );
+}
+
 export async function agentsToConnect(settings: Locator): Promise<Locator> {
   const list = settings.getByTestId("agents-list");
   const unfold = settings.getByTestId("agents-connect-another");
@@ -1561,33 +1582,20 @@ export async function agentsToConnect(settings: Locator): Promise<Locator> {
 }
 
 /**
- * From Settings › AI's list, opens "Add an account or key…" and returns its sheet: the button under
- * Accounts and keys, or, with no model set up, where there is no Accounts and keys (#3645), the
- * same entry in ⌘K, which opens Settings › AI with the sheet.
+ * From Settings › AI's list, opens "Add a key…" under Accounts and keys and returns its sheet: the
+ * keys for jobs other than a chat model, which is not added in IncarnaMind (#3767).
  */
 export async function openAddSheet(settings: Locator): Promise<Locator> {
-  const add = settings.getByTestId("models-add-provider");
   await expect(settings.getByTestId("ai-limits")).toBeVisible();
-  if ((await add.count()) > 0) await add.click();
-  else {
-    const window = settings.page();
-    await window.keyboard.press("Escape");
-    await expect(settings).toBeHidden();
-    const language = await window.evaluate(() => document.documentElement.lang);
-    await runCommand(
-      window,
-      "settings.addProvider",
-      translate(language === "zh-CN" ? "zh-CN" : "en", "command.settings.addProvider"),
-    );
-  }
+  await settings.getByTestId("models-add-provider").click();
   const sheet = settings.getByTestId("ai-add-sheet");
   await expect(sheet).toBeVisible();
   return sheet;
 }
 
 /**
- * In Settings › AI, opens "Add an account or key…" and chooses `entry` (#2835): a catalog id, or
- * a directory key such as "plan:chatgpt" or "transcription:soniox". The sheet closes on the choice.
+ * In Settings › AI, opens "Add a key…" and chooses `entry` (#2835): a directory key such as
+ * "transcription:soniox". The sheet closes on the choice.
  */
 export async function openDirectoryEntry(settings: Locator, entry: string): Promise<void> {
   const sheet = await openAddSheet(settings);
@@ -1598,32 +1606,6 @@ export async function openDirectoryEntry(settings: Locator, entry: string): Prom
   await expect(sheet).toBeHidden();
 }
 
-/** In Settings › AI, opens Add an account or key and the page that adds `catalogId` (#179). */
-export async function addProviderPage(settings: Locator, catalogId: string): Promise<Locator> {
-  await openDirectoryEntry(settings, catalogId);
-  const page = settings.getByTestId("provider-add");
-  await expect(page).toHaveAttribute("data-catalog-id", catalogId);
-  return page;
-}
-
-/**
- * In Settings › AI, the page of a plan the User signs in to (#2835), from Add an account or key:
- * returns the plan's own card (`chatgpt-settings`, `plans-claude-account`, `plans-copilot`).
- */
-export async function openPlanPage(
-  window: Page,
-  plan: "chatgpt" | "claude-account" | "copilot",
-): Promise<Locator> {
-  const settings = await openSettings(window, "ai");
-  await openDirectoryEntry(settings, `plan:${plan}`);
-  const card = {
-    chatgpt: "chatgpt-settings",
-    "claude-account": "plans-claude-account",
-    copilot: "plans-copilot",
-  }[plan];
-  return settings.getByTestId("ai-entry-page").getByTestId(card);
-}
-
 /** Settings › AI's Organize and Tags row and its options under it (#2835). */
 export function organizeRow(settings: Locator): { picker: Locator; automatic: Locator } {
   const jobs = settings.getByTestId("ai-jobs");
@@ -1632,10 +1614,6 @@ export function organizeRow(settings: Locator): { picker: Locator; automatic: Lo
     automatic: jobs.getByTestId("tagging-automatic-organize"),
   };
 }
-
-/** As `addProviderPage`, returning that page's key form. */
-export const addProviderForm = async (settings: Locator, catalogId: string): Promise<Locator> =>
-  (await addProviderPage(settings, catalogId)).getByTestId("provider-form");
 
 /** Closes Settings with its close button. */
 export async function closeSettings(window: Page): Promise<void> {
@@ -2056,9 +2034,9 @@ export function ollamaAppOpened(app: ElectronApplication) {
 }
 
 /**
- * Continue with ChatGPT in Settings → Models, as the User does, against the
- * local stand-in for OpenAI the app was launched with (`chatGpt`); then closes
- * Settings. With no chat model before, the plan's first model becomes the default.
+ * Signs in with ChatGPT through the core's bridge, against the local stand-in for OpenAI the app
+ * was launched with (`chatGpt`), and saves the plan with its first model: the interface adds no
+ * plan (#3767).
  */
 export async function signInWithChatGpt(
   app: ElectronApplication,
@@ -2066,15 +2044,19 @@ export async function signInWithChatGpt(
   openai: FakeOpenAIServer,
 ): Promise<void> {
   await interceptOpenExternal(app);
-  const plan = await openPlanPage(window, "chatgpt");
-  await acceptPlainTextKeys(window, plan);
-  await plan.getByTestId("chatgpt-continue").click();
+  await acceptPlainTextKeys(window);
+  const signedIn = window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const result = await core.signInToChatGpt();
+    if (!result.ok) throw new Error(result.error.message);
+    const modelId = result.status.models[0]?.id;
+    if (!modelId) throw new Error("The stand-in offered no models.");
+    await core.saveChatProvider({ kind: "chatgpt", modelId });
+  });
   await expect.poll(() => urlsOpened(app)).toHaveLength(1);
   const [authorize] = await urlsOpened(app);
   expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
-  await window.getByTestId("chatgpt-welcome-ok").click();
-  await expect(plan.getByTestId("chatgpt-in-use")).toBeVisible();
-  await closeSettings(window);
+  await signedIn;
 }
 
 /**
@@ -3089,9 +3071,20 @@ export async function pointAndClick(
   }).toPass();
   if (!box) throw new Error("The element isn't visible.");
   const { x: left, y: top, width, height } = box;
-  const x = left + width / 2;
-  const y = top + height / 2;
+  let x = left + width / 2;
+  let y = top + height / 2;
   await window.mouse.move(x, y, { steps: 8 });
+  // A line that arrives at a Note's foot while the pointer travels moves what is above it: the
+  // person looks again, and aims where the element now is.
+  const now = await target.boundingBox();
+  if (
+    now &&
+    (Math.abs(now.x + now.width / 2 - x) > 1 || Math.abs(now.y + now.height / 2 - y) > 1)
+  ) {
+    x = now.x + now.width / 2;
+    y = now.y + now.height / 2;
+    await window.mouse.move(x, y, { steps: 4 });
+  }
   for (const key of modifiers) await window.keyboard.down(key);
   try {
     await window.mouse.click(x, y, { button });

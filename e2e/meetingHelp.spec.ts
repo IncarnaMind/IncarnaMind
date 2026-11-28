@@ -116,22 +116,16 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await setMeetingKeys(window);
   await recordingMeeting(window);
 
-  // With no AI model yet, the assistant offers first run's key field in place, with one line
-  // naming what help sends (#1922): no step through Settings. The panel never takes the focus,
-  // so it keeps its one line and the way to the app's Settings.
+  // With no AI model and no AI of the User's, no model is set up in IncarnaMind (#3767): no key
+  // field and no starters in an assistant that isn't shown. The panel never takes the focus, so
+  // it keeps its one line and the way to the User's own AI in the app's Settings.
   await window.getByTestId("mind-editor").click();
-  const needs = window.getByTestId("meeting-needs-model");
-  await expect(needs).toContainText(
-    "Call help needs an AI model. It sends the meeting’s transcript to the model you set up.",
-  );
-  await expect(needs.getByTestId("meeting-needs-model-key")).toBeVisible();
-  await expect(needs.getByTestId("meeting-needs-model-key-sends")).toHaveText(
-    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
-  );
+  await expect(window.getByTestId("meeting-needs-model")).toHaveCount(0);
+  await expect(window.getByTestId("meeting-starter")).toBeHidden();
   const panel = await panelOf(app);
   await pressHelpPrompt(panel, "Say no politely");
   await expect(panel.getByTestId("help-set-up")).toHaveText(
-    "Choose an AI model to get help during the call · Set up",
+    "Help during the call needs your AI · Connect your AI",
   );
   await useLocalChatModel(window);
   await expect(window.getByTestId("meeting-starter")).toHaveText([

@@ -6,6 +6,7 @@ import {
   launchApp,
   newMind,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
   widthOf,
 } from "./app";
@@ -75,6 +76,8 @@ for (const { name, shift, held, presses, step } of PRESSES) {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1600, 660);
     await newMind(window);
     const rod = window.getByTestId("assistant-resize");

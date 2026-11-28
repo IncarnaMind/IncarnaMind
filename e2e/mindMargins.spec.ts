@@ -19,6 +19,7 @@ import {
   noteCheck,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setGroupBeside,
   setLanguage,
   setWindowSize,
@@ -515,6 +516,8 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(180_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    // The narrow page this tests is the one an assistant beside it leaves; with no model and no AI there is none (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setLanguage(window, language);
     await importWordFile(
       app,

@@ -101,7 +101,8 @@ export function SettingsDialog() {
           aria-labelledby="settings-page-title"
           className="flex min-w-0 flex-1 flex-col bg-frame"
         >
-          <header className="flex h-[60px] shrink-0 items-center justify-between gap-3 pt-2 pr-4 pl-8">
+          {/* The title starts where its page's words do: the sections' labels and the rows' text, 16px in from the cards (#3767). */}
+          <header className="flex h-[60px] shrink-0 items-center justify-between gap-3 pt-2 pr-4 pl-12">
             <h3
               id="settings-page-title"
               data-testid="settings-page-title"

@@ -18,6 +18,7 @@ import {
   removeDataFolder,
   setWindowSize,
   showSourceLocations,
+  taggingWaitsForAModel,
 } from "./app";
 
 /*
@@ -141,6 +142,7 @@ test("the footer shows the most pressing status, keeps the others a click away, 
   await writeFile(join(sources, "Archive.zip"), "not a document");
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  await taggingWaitsForAModel(window);
   const status = window.getByTestId("sidebar-status");
   const before = await status.boundingBox();
 

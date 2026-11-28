@@ -13,6 +13,7 @@ import {
   leaveText,
   pointAt,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -608,9 +609,9 @@ const NEW_MENU_ROWS: readonly MessageKey[] = [
   "memos.record.menu",
   "sidebar.plus.more",
 ];
+/** What is under More with no model in IncarnaMind: Compare Documents… is offered only with one (#3767). */
 const MORE_ROWS: readonly MessageKey[] = [
   "wordImport.command",
-  "command.compareDocuments",
   "verify.command",
   "folder.fromStarters",
   "sidebar.plus.addWebPage",
@@ -624,7 +625,6 @@ const IN_PALETTE: readonly MessageKey[] = [
   "wordImport.command",
   "meetings.record",
   "memos.record",
-  "command.compareDocuments",
   "verify.command",
   "library.chooseStarters",
   "sidebar.plus.addWebPage",
@@ -691,6 +691,23 @@ for (const [language, width] of [
         await window.keyboard.press("Escape");
         await expect(search).toHaveCount(0);
       }
+
+      // With a model set up, Compare Documents… is the second row under More and in ⌘K.
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
+      await pointAt(window, plus);
+      await window.mouse.down();
+      await window.mouse.up();
+      await pointAt(window, window.getByTestId("plus-more"));
+      await expect(more).toHaveCount(MORE_ROWS.length + 1);
+      await expect(more.nth(1)).toContainText(t("command.compareDocuments"));
+      await window.keyboard.press("Escape");
+      await window.keyboard.press("Escape");
+      await window.keyboard.press("ControlOrMeta+k");
+      const compare = t("command.compareDocuments").replace(/…$/, "");
+      await window.keyboard.type(`>${compare}`);
+      await expect(
+        window.getByTestId("palette-item").filter({ hasText: compare }).first(),
+      ).toBeVisible();
     } finally {
       await app.close();
     }

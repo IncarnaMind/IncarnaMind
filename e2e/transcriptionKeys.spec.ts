@@ -123,7 +123,8 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   const row = settings.getByTestId("model-default-row-transcription");
   const picker = row.getByTestId("meetings-route");
 
-  // Nothing set up: this computer, and the services with a key of their own at the picker's foot.
+  // Nothing set up: this computer, and the services with a key of their own at the picker's foot,
+  // then Add a key… for a company's key the others use.
   await expect(routesOf(picker)).toHaveText(["On this computer"]);
   await expect(picker.locator("optgroup").last()).toHaveAttribute(
     "label",
@@ -136,6 +137,7 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
     "Use ElevenLabs…",
     "Use Speechmatics…",
     "Use Gladia…",
+    "Add a key…",
   ]);
   await expect(settings.getByTestId("transcription-key-row")).toHaveCount(0);
 

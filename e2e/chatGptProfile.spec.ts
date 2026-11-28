@@ -1,21 +1,20 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
-  askFirstQuestion,
   createDataFolder,
   interceptOpenExternal,
   launchApp,
-  openPlanPage,
+  openProviderRow,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
-  setupWay,
   setWindowSize,
   urlsOpened,
 } from "./app";
@@ -23,7 +22,8 @@ import {
 /*
  * A chat-plan profile whose sign-in this app can't read: trying to sign in says so and
  * writes nothing, abandoning the sign-in writes nothing either, and only a sign-in the
- * User finishes replaces the record (#2294).
+ * User finishes replaces the record (#2294). No plan is added in IncarnaMind (#3767): the
+ * profile's plan is saved through the bridge, and its own page in Accounts and keys signs in again.
  */
 
 let dataDir: string;
@@ -76,6 +76,18 @@ async function launchWithProfile(language: "en" | "zh-CN", width: number, height
   return { openai, app, window };
 }
 
+/** The profile's saved ChatGPT plan: its page from Accounts and keys. */
+async function savedPlanPage(window: Page, language: "en" | "zh-CN"): Promise<Locator> {
+  const providerId = await saveProvider(window, { kind: "chatgpt", modelId: "gpt-5.5" });
+  // Settings is opened by its English name; the page then follows the User's language.
+  await setLanguage(window, "en");
+  const settings = await openProviderRow(window, providerId);
+  const plan = settings.getByTestId("chatgpt-settings");
+  await expect(plan).toBeVisible();
+  await setLanguage(window, language);
+  return plan;
+}
+
 for (const { language, width, height } of [
   { language: "en", width: 1600, height: 900 },
   { language: "zh-CN", width: 900, height: 700 },
@@ -85,42 +97,41 @@ for (const { language, width, height } of [
     const before = await readFile(secretsFile);
     const { openai, app, window } = await launchWithProfile(language, width, height);
     try {
-      const card = await askFirstQuestion(window);
+      const plan = await savedPlanPage(window, language);
 
-      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
-
-      const line = card.getByTestId("chatgpt-error");
-      await expect(line).toContainText(
-        translate(language, "chatgpt.signIn.error.record-unreadable"),
+      // The row already says the record can't be read, so Continue is the User's answer: it
+      // opens the browser at once, with no second question.
+      await expect(plan.getByTestId("chatgpt-account")).toContainText(
+        translate(language, "chatgpt.account.unreadable"),
       );
+      await expect(plan.getByTestId("chatgpt-error")).toHaveCount(0);
       expect(await urlsOpened(app)).toEqual([]);
       expect((await readFile(secretsFile)).equals(before)).toBe(true);
 
-      // The User chooses to sign in again, then walks away: still nothing is written.
-      await pointAndClick(window, line.getByTestId("chatgpt-replace-sign-in"));
+      // The User walks away from the sign-in: still nothing is written.
+      await pointAndClick(window, plan.getByTestId("chatgpt-continue"));
       await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-      await pointAndClick(window, window.getByTestId("chatgpt-cancel"));
-      await expect(window.getByTestId("chatgpt-error")).toHaveCount(0);
+      await expect(plan.getByTestId("chatgpt-error")).toHaveCount(0);
+      expect((await readFile(secretsFile)).equals(before)).toBe(true);
+      await pointAndClick(window, plan.getByTestId("chatgpt-cancel"));
+      await expect(plan.getByTestId("chatgpt-account")).toContainText(
+        translate(language, "chatgpt.account.unreadable"),
+      );
       expect((await readFile(secretsFile)).equals(before)).toBe(true);
 
       // The same choice, this time finished: only now does the record change.
-      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
-      await expect(window.getByTestId("chatgpt-error")).toContainText(
-        translate(language, "chatgpt.signIn.error.record-unreadable"),
-      );
-      await pointAndClick(window, window.getByTestId("chatgpt-replace-sign-in"));
+      await pointAndClick(window, plan.getByTestId("chatgpt-continue"));
       await expect.poll(() => urlsOpened(app)).toHaveLength(2);
       const [authorize] = (await urlsOpened(app)).slice(-1);
       expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
       await window.getByTestId("chatgpt-welcome-ok").click();
-      // A model works: the composer is back.
-      await expect(window.getByTestId("composer-input")).toBeVisible({ timeout: 15_000 });
+      await expect(plan.getByTestId("chatgpt-sign-out")).toBeVisible({ timeout: 15_000 });
 
       expect((await readFile(secretsFile)).equals(before)).toBe(false);
-      const plan = await window.evaluate(() =>
+      const status = await window.evaluate(() =>
         (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getChatGptPlan(),
       );
-      expect(plan.account).toMatchObject({ state: "signed-in" });
+      expect(status.account).toMatchObject({ state: "signed-in" });
     } finally {
       await app.close();
       await openai.close();
@@ -137,11 +148,11 @@ for (const { language, width, height } of [
     const before = await readFile(secretsFile);
     const { openai, app, window } = await launchWithProfile(language, width, height);
     try {
-      const card = await askFirstQuestion(window);
+      const plan = await savedPlanPage(window, language);
 
-      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
+      await pointAndClick(window, plan.getByTestId("chatgpt-continue"));
 
-      const line = card.getByTestId("chatgpt-error");
+      const line = plan.getByTestId("chatgpt-error");
       await expect(line).toContainText(
         translate(language, "chatgpt.signIn.error.store-unreadable"),
       );
@@ -150,7 +161,7 @@ for (const { language, width, height } of [
       expect((await readFile(secretsFile)).equals(before)).toBe(true);
 
       // Asking again still cannot fix the file, and still opens nothing.
-      await pointAndClick(window, await setupWay(window, card, "setup-chatgpt"));
+      await pointAndClick(window, plan.getByTestId("chatgpt-continue"));
       await expect(line).toContainText(
         translate(language, "chatgpt.signIn.error.store-unreadable"),
       );
@@ -162,32 +173,3 @@ for (const { language, width, height } of [
     }
   });
 }
-
-test("in Settings, a record that can't be read is one line and the first Continue replaces it", async () => {
-  await writeUnreadableProfile();
-  const before = await readFile(secretsFile);
-  const { openai, app, window } = await launchWithProfile("en", 1600, 900);
-  try {
-    const plan = await openPlanPage(window, "chatgpt");
-
-    await expect(plan.getByTestId("chatgpt-account")).toContainText(
-      translate("en", "chatgpt.account.unreadable"),
-    );
-    await expect(plan.getByTestId("chatgpt-error")).toHaveCount(0);
-
-    // The line was already read: this click is the User's answer, so it opens the browser at once.
-    await pointAndClick(window, plan.getByTestId("chatgpt-continue"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-    await expect(plan.getByTestId("chatgpt-error")).toHaveCount(0);
-    expect((await readFile(secretsFile)).equals(before)).toBe(true);
-
-    await pointAndClick(window, plan.getByTestId("chatgpt-cancel"));
-    await expect(plan.getByTestId("chatgpt-account")).toContainText(
-      translate("en", "chatgpt.account.unreadable"),
-    );
-    expect((await readFile(secretsFile)).equals(before)).toBe(true);
-  } finally {
-    await app.close();
-    await openai.close();
-  }
-});

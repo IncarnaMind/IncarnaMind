@@ -5,6 +5,7 @@ import { useAnnotations, useDocumentAnnotations } from "../../annotations";
 import { useViewerHandle, ViewerTabContext } from "../../commands/handles";
 import { AnnotationsPanel } from "../../components/AnnotationsPanel";
 import { useT } from "../../i18n";
+import { useNoAiConnected } from "../../ownAiPanel";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { AnnotationAreas } from "../../viewer/AnnotationAreas";
 import { AnnotationExportLine } from "../../viewer/AnnotationExportLine";
@@ -255,11 +256,14 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   // Sheets pick cells, not areas (#118).
   const areaAvailable =
     document !== undefined && document.kind !== "xlsx" && document.kind !== "csv";
+  // An area picked to ask about needs an AI of the User's to take it (#3764); highlighting doesn't.
+  const noAi = useNoAiConnected();
+  const areaShown = areaAvailable && (!noAi || areaPurpose === "highlight");
   const areaCommand = useMemo(
     () =>
       areaAvailable
         ? {
-            select: () => areaMode.setActive(!areaMode.active),
+            ...(!noAi && { select: () => areaMode.setActive(!areaMode.active) }),
             highlight: () => {
               setAreaPurpose("highlight");
               setAreaActive(true);
@@ -267,7 +271,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
             },
           }
         : {},
-    [areaAvailable, areaMode, section],
+    [areaAvailable, areaMode, section, noAi],
   );
   useViewerHandle("area", areaCommand, tab.id);
   const inPlace = panelOpen && viewerWidth > 0 && viewerWidth < LIST_BESIDE_FROM;
@@ -301,7 +305,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
       className="viewer-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet"
     >
       <ViewerTabContext.Provider value={tab.id}>
-        <AreaModeContext.Provider value={areaAvailable ? areaMode : null}>
+        <AreaModeContext.Provider value={areaShown ? areaMode : null}>
           <ViewerFrameContext.Provider value={frame}>
             <PlaceMemoryContext.Provider value={places}>
               <div className={inPlace ? "flex min-w-0 shrink-0" : "flex min-h-0 min-w-0 flex-1"}>

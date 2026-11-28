@@ -62,6 +62,7 @@ const bridge = {
   // Connecting an agent turns connecting on.
   getAgents: async () => ({ enabled: bridge.agents.length > 0, pairings: bridge.agents }),
   listConversations: async () => [],
+  listChatProviders: async () => [],
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
     if (input.openChat) return { kind: "copy", text: "The request" };
@@ -123,7 +124,6 @@ const { createRoot } = await import("react-dom/client");
 const { useAppStore } = await import("../../src/renderer/src/store");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { useAnswers } = await import("../../src/renderer/src/answers");
-const { useModelSetup } = await import("../../src/renderer/src/modelSetup");
 const { askInAssistant } = await import("../../src/renderer/src/conversations");
 const { askAgent, askedAbout, askToCheck } = await import("../../src/renderer/src/askYourAi");
 const { composerKey } = await import("../../src/renderer/src/composer");
@@ -279,7 +279,6 @@ beforeEach(() => {
   useAgentAsked.setState({ byKey: {} });
   copied.length = 0;
   useNotices.setState({ confirmation: null });
-  useModelSetup.setState({ waiting: null, wanted: false, ready: false });
   useAnswers.setState({ blocked: {} } as never);
 });
 afterEach(async () => {
@@ -358,16 +357,19 @@ describe("the assistant and its pill", () => {
     });
   });
 
-  // protects=a User with a model, or with neither, keeps the assistant as it was: open, or folded to its rail, with no agent's pill; fails_when=either is folded, loses the rail or gets the agent's pill
-  test("with a model, or with neither: as before", async () => {
+  // protects=a User with a model keeps the assistant as it was: open, or folded to its rail, with no agent's pill; fails_when=it is folded, loses the rail or gets the agent's pill
+  test("with a model: as before", async () => {
     user(MODEL, agents);
-    expect(await windowShown()).toEqual({ folded: false, rail: false, quiet: false, pill: null });
-    await unmount?.();
-    user(NO_MODEL, []);
     expect(await windowShown()).toEqual({ folded: false, rail: false, quiet: false, pill: null });
     await unmount?.();
     user(MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "user" });
     expect(await windowShown()).toEqual({ folded: true, rail: true, quiet: false, pill: null });
+  });
+
+  // protects=a User with neither a model nor an AI meets no assistant: no column, no rail, no pill (#3767); fails_when=the assistant opens, its rail shows or a pill floats
+  test("with neither a model nor an AI: no assistant", async () => {
+    user(NO_MODEL, []);
+    expect(await windowShown()).toEqual({ folded: true, rail: false, quiet: true, pill: null });
   });
 
   // protects=a fold made only for the User's own AI goes once they set up a model; fails_when=it stays folded for a User with a model who never folded it
@@ -440,21 +442,23 @@ describe("a sentence the User asked their AI to fix (#3419)", () => {
 describe("a Question in the chat box with no model", () => {
   const input = { mindId: MIND, text: "What did fuel cost in 2025?" };
 
-  // protects=with the User's own AI connected the chat box offers it instead of the setup card, the words kept; with none, the setup card waits as before; fails_when=an agent User gets the setup card, or a User with no agent loses it
-  test("offers the User's own AI where one is connected, else the setup card", async () => {
+  // protects=with the User's own AI connected the chat box offers it, the words kept; with none, the box says what asking needs and no model's setup waits on it (#3767); fails_when=the Question waits for a model, or the box says nothing
+  test("offers the User's own AI where one is connected, else says what asking needs", async () => {
     user(NO_MODEL, [pairing("Claude Code", "claude-code")]);
     await lineAbove();
     expect(await askInAssistant(input)).toBe(false);
     expect(useAnswers.getState().blocked[composerKey(MIND)]).toMatchObject({
       kind: "not-ready",
     });
-    expect(useModelSetup.getState().waiting).toBeNull();
     await unmount?.();
 
     user(NO_MODEL, []);
     await lineAbove();
-    expect(await askInAssistant(input)).toBe(true);
-    expect(useModelSetup.getState().waiting?.text).toBe(input.text);
+    expect(await askInAssistant(input)).toBe(false);
+    expect(useAnswers.getState().blocked[composerKey(MIND)]).toMatchObject({
+      kind: "not-ready",
+      readiness: { reason: "no-provider" },
+    });
   });
 });
 

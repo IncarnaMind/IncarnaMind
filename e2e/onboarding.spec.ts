@@ -21,6 +21,7 @@ import {
   openExample,
   paletteFound,
   removeDataFolder,
+  useCloudChatModel as saveCloudChatModel,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -204,8 +205,8 @@ test("removing the examples deletes the example Mind, its Documents and the copi
   await expect(window.getByTestId("document-list-item")).toHaveCount(0);
   await expect(linkedFolderRow(window, "Examples")).toHaveCount(0);
   await expectHomeInFront(window);
-  // Moving on from the example: setting up a chat model is offered now.
-  await dismissChatSetup(window);
+  // Moving on from the example: the empty Home says asking needs the User's AI (#3767).
+  await expect(window.getByTestId("home-ask-no-ai")).toBeVisible();
   await expect
     .poll(() =>
       access(join(dataDir, "Examples")).then(
@@ -227,7 +228,7 @@ test("removing the examples deletes the example Mind, its Documents and the copi
   await again.app.close();
 });
 
-test("the footer asks for a model to tag only once a Document of the User's own carries a Tag (#1942)", async () => {
+test("with no model and no AI connected, the footer never asks for a model to tag, even once a Document of the User's own carries a Tag (#1942, #3767)", async () => {
   const own = join(sources, "Harbour notes.md");
   await writeFile(own, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true });
@@ -260,16 +261,24 @@ test("the footer asks for a model to tag only once a Document of the User's own 
     const tag = await bridge.createTag({ name: "Harbour", description: "" });
     if (document) await bridge.addTagToDocuments([document.id], tag.id);
   });
-  await expect(notice).toBeVisible();
-  await expect(notice).toContainText("Tags need an AI model");
-  // One 28px line, never wrapping: the whole sentence is on hover (#763).
-  await expect(notice).toHaveAttribute("title", "Tags come once you choose an AI model.");
-  await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("Choose…");
+  await expect
+    .poll(() =>
+      window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const tags = await bridge.listTags();
+        return tags.some((each) => each.name === "Harbour");
+      }),
+    )
+    .toBe(true);
+  // No model to tag is chosen here, so nothing asks for one (#3767).
+  const footer = window.getByTestId("sidebar-footer");
+  await expect(footer).toBeVisible();
+  await expect(notice).toHaveCount(0);
+  await expect(footer).not.toContainText("Tags need an AI model");
   await setLanguage(window, "zh-CN");
-  await expect(notice).toContainText("打标签需要 AI 模型");
-  await expect(notice.getByTestId("tagging-waiting-setup")).toHaveText("选择…");
-  await notice.getByTestId("tagging-waiting-setup").click();
-  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
+  await expect(footer).toBeVisible();
+  await expect(notice).toHaveCount(0);
+  await expect(footer).not.toContainText("打标签需要 AI 模型");
   await app.close();
 });
 
@@ -322,10 +331,12 @@ test("the first screens and the example's line speak plainly, and an empty note 
   const pane = window.getByTestId("mind-pane");
   const checks = pane.getByTestId("mind-editor").getByTestId("citation-chip");
   await expect(checks.nth(0)).toHaveAttribute("data-check", "found", { timeout: 20_000 });
+  // With no model and no AI connected there is no assistant: the example's foot says how to ask (#3767).
+  await expect(window.getByTestId("assistant")).toBeHidden();
   const firstScreen = [
     window.getByTestId("sidebar"),
     window.getByTestId("example-line"),
-    window.getByTestId("assistant"),
+    window.getByTestId("note-ask-no-ai"),
   ];
   await expectPlainWords(firstScreen);
   await expect(window.getByTestId("mind-editor").locator("h1")).toHaveText(
@@ -346,8 +357,16 @@ test("the first screens and the example's line speak plainly, and an empty note 
 });
 
 test("Remove the examples or a deleted example ends the first open, after a restart too (#123)", async () => {
+  // With no model and no AI connected, the shell has no assistant: one line says how to ask (#3767).
   const shellIsBack = async (window: Page) => {
-    await expect(window.getByTestId("assistant")).toBeVisible();
+    await expect(
+      window
+        .locator(
+          '[data-testid="home-ask-no-ai"], [data-testid="home-foot-no-ai"], [data-testid="note-ask-no-ai"]',
+        )
+        .first(),
+    ).toBeVisible();
+    await expect(window.getByTestId("assistant")).toBeHidden();
     await expect(window.getByTestId("ask-pill")).toHaveCount(0);
     await expect(window.getByTestId("sidebar").getByTestId("sidebar-status")).toHaveCount(1);
   };
@@ -384,7 +403,7 @@ test("Remove the examples or a deleted example ends the first open, after a rest
   await removeDataFolder(deleting);
 });
 
-test("on a fresh install, a first checked Citation from the User's own file takes seven steps", async () => {
+test("with a model set up, a first checked Citation from the User's own file takes four steps (#3767)", async () => {
   const notes = join(sources, "Harbour notes.md");
   await writeFile(
     notes,
@@ -394,6 +413,8 @@ test("on a fresh install, a first checked Citation from the User's own file take
   try {
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
+    // The interface sets no model up (#3767): the profile's is saved through the bridge.
+    await saveCloudChatModel(window, { cap: false });
     await expectHomeInFront(window);
     const taken: string[] = [];
     const step = async (name: string, action: () => Promise<unknown>) => {
@@ -409,18 +430,12 @@ test("on a fresh install, a first checked Citation from the User's own file take
         hasText: "Harbour notes",
       }),
     ).toHaveCount(1);
-    // With no AI app connected, ⌘J leads to Connect your AI (#3819); ⇧⌘O opens the assistant for the built-in model flow.
+    // ⇧⌘O opens the assistant, which asks the model set up in IncarnaMind.
     await step("⇧⌘O", () => window.keyboard.press("Shift+ControlOrMeta+o"));
     await expect(window.getByTestId("composer-input")).toBeFocused();
     await step("type the Question", () =>
       window.keyboard.type("When does the harbour master publish the tide tables?"),
     );
-    await step("Enter", () => window.keyboard.press("Enter"));
-    const card = window.getByTestId("model-setup");
-    const field = card.getByTestId("setup-key");
-    await step("Paste an API key", () => pointAndClick(window, field));
-    await expect(field).toBeFocused();
-    await step("paste the key", () => window.keyboard.insertText("sk-ant-a-key-from-the-company"));
     await step("Enter", () => window.keyboard.press("Enter"));
 
     const citation = assistantAnswers(window).last().getByTestId("citation").first();
@@ -429,7 +444,7 @@ test("on a fresh install, a first checked Citation from the User's own file take
       "aria-label",
       /Harbour notes/,
     );
-    expect(taken).toHaveLength(7);
+    expect(taken).toHaveLength(4);
   } finally {
     await app.close();
   }

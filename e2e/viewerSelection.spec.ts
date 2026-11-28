@@ -14,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   stubClipboard,
@@ -67,12 +68,18 @@ test.afterEach(async () => {
 });
 
 /** The app with the paper beside a new Mind of two paragraphs, typed so the cursor has been in it. */
-async function paperBesideMind({ mind = true } = {}) {
+async function paperBesideMind({ mind = true, model = false } = {}) {
   const path = join(sources, "Rate cuts.pdf");
   await writeFile(path, PAPER);
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
+  if (model) {
+    // Before the paper is drawn: the assistant that arrives narrows the pane, and the page redraws.
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
+    await expect(window.getByTestId("composer")).toBeVisible();
+    await motionSettled(window);
+  }
   await addDocuments(window, [path]);
   await expectReadyDocuments(window, 1);
   if (mind) {
@@ -117,6 +124,29 @@ async function dragOver(
 }
 
 const menuOf = (window: Page) => window.getByTestId("viewer-selection-menu");
+
+/**
+ * Scrolls the pages so page `page`'s top lies `below` px under the pane's top, at once, and waits
+ * until they rest: a drag aims at where the words are now, so they must not still be moving.
+ */
+async function scrollPageTo(viewer: Locator, page: number, below: number): Promise<void> {
+  await viewer.getByTestId("pdf-scroller").evaluate(
+    async (pane, wanted) => {
+      const target = pane.querySelector(`[data-page-number="${wanted.page}"]`);
+      if (!target) throw new Error(`Page ${wanted.page} isn't drawn.`);
+      const offset =
+        target.getBoundingClientRect().top - pane.getBoundingClientRect().top - wanted.below;
+      pane.scrollTo({ top: pane.scrollTop + offset, behavior: "instant" });
+      let last = -1;
+      for (let still = 0; still < 3; ) {
+        await new Promise((frame) => requestAnimationFrame(frame));
+        still = pane.scrollTop === last ? still + 1 : 0;
+        last = pane.scrollTop;
+      }
+    },
+    { page, below },
+  );
+}
 
 async function quoteIn(window: Page, text: RegExp): Promise<Locator> {
   const quote = frontMindOrAny(window).locator("blockquote").filter({ hasText: text });
@@ -163,10 +193,8 @@ test("selected text goes into the note at its cursor as a quote whose Citation i
 test("across a page break, the quote leaves out the footer and header, and copies with its citation", async () => {
   const { window, viewer, layer } = await paperBesideMind();
   const copied = await stubClipboard(window);
-  // The foot of page 3 and the top of page 4 in view together.
-  await viewer
-    .locator('[data-page-number="4"]')
-    .evaluate((page) => page.scrollIntoView({ block: "center" }));
+  // The foot of page 3 and the top of page 4 in view together, however tall the pages are drawn.
+  await scrollPageTo(viewer, 4, 240);
   await expect(layer(3)).toContainText("floating");
   await dragOver(window, layer(3), "at floating rates", {
     layer: layer(4),
@@ -189,7 +217,8 @@ test("across a page break, the quote leaves out the footer and header, and copie
 });
 
 test("the keys reach the menu: ⌘/ moves into it, the arrows go through it, and ⌘K has its actions", async () => {
-  const { window, layer } = await paperBesideMind();
+  // Ask is in the menu only where an AI can take the words: a model in IncarnaMind here (#3767).
+  const { window, layer } = await paperBesideMind({ model: true });
   const copied = await stubClipboard(window);
   await dragOver(window, layer(1), "Grocers studied across the eleven chains.");
   await expect(menuOf(window)).toBeVisible();

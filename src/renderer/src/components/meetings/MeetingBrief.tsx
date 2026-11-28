@@ -111,9 +111,22 @@ export function MeetingBrief({ mindId }: { mindId: string }) {
     return (
       <div className="my-1 text-ui">
         {preparation.prepared ? (
-          <span role="status">
-            {t(preparation.route ? "meetings.brief.nothing" : "meetings.brief.chooseModel")}
-          </span>
+          preparation.route ? (
+            <span role="status">{t("meetings.brief.nothing")}</span>
+          ) : (
+            <span role="status" data-testid="meeting-brief-needs-ai">
+              {t("meetings.brief.needsAi")}
+              <span aria-hidden="true"> · </span>
+              <button
+                type="button"
+                data-testid="meeting-brief-connect-ai"
+                onClick={() => useAppStore.getState().openSettings("ai")}
+                className="text-accent hover:underline"
+              >
+                {t("agents.install.connectYourAi")}
+              </button>
+            </span>
+          )
         ) : (
           prepare
         )}

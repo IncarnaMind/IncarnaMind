@@ -16,6 +16,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -141,6 +142,8 @@ test("a docked card scrolls its change above it only while the cursor is in the 
     const { app, window } = await launchApp(dataDir, { home: files });
     await setWindowSize(app, window, 900, 900);
     await dismissChatSetup(window);
+    // The narrow page this tests is the one an assistant beside it leaves; with no model and no AI there is none (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await importWordFile(app, window, files, "Long redline.docx", longRedline());
     const editor = window.getByTestId("mind-editor");
     const change = editor.locator("ins.proposal-theirs", { hasText: "ten working days" });

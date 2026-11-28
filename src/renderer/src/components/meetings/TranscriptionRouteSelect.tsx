@@ -21,6 +21,8 @@ export interface TranscriptionSetUpRows {
   onChoose(route: CloudTranscriptionRoute): void;
 }
 
+const ADD_KEY = `${SET_UP}add-key`;
+
 /**
  * Where meeting audio is transcribed, one setting, chosen in Settings › AI. Unchosen it reads
  * as this computer, and choosing that
@@ -39,6 +41,7 @@ export function TranscriptionRouteSelect({
   testId = "meetings-route",
   read,
   setUp = null,
+  onAddKey,
   onChosen,
   onBlur,
   onEscape,
@@ -59,6 +62,8 @@ export function TranscriptionRouteSelect({
   /** The view's read of the services, which says a failure; the select reads none of its own. */
   read: ServicesView;
   setUp?: TranscriptionSetUpRows | null;
+  /** "Add a key…": a company's key the cloud services use, added where keys are (Settings › AI). */
+  onAddKey?(): void;
   onChosen?(chosen: TranscriptionRoute): void;
   onBlur?(): void;
   onEscape?(): void;
@@ -82,6 +87,7 @@ export function TranscriptionRouteSelect({
       (!localOnly &&
         (each === value || services.some((service) => service.route === each && service.hasKey))),
   );
+  const addKey = onAddKey !== undefined && !localOnly;
   const Field = popUp ? PopUpSelect : "select";
   return (
     <Field
@@ -100,6 +106,10 @@ export function TranscriptionRouteSelect({
         }
       }}
       onChange={(event) => {
+        if (event.target.value === ADD_KEY) {
+          onAddKey?.();
+          return;
+        }
         const offer = setUp?.offers.find((each) => `${SET_UP}${each}` === event.target.value);
         if (offer) {
           setUp?.onChoose(offer);
@@ -137,13 +147,14 @@ export function TranscriptionRouteSelect({
           </option>
         ))
       )}
-      {setUp && setUp.offers.length > 0 && (
+      {((setUp && setUp.offers.length > 0) || addKey) && (
         <optgroup label={t("meetings.setUp.group")}>
-          {setUp.offers.map((each) => (
+          {setUp?.offers.map((each) => (
             <option key={each} value={`${SET_UP}${each}`}>
               {t("meetings.setUp.row", { provider: t(ROUTE_LABELS[each]) })}
             </option>
           ))}
+          {addKey && <option value={ADD_KEY}>{t("ai.accounts.add")}</option>}
         </optgroup>
       )}
     </Field>

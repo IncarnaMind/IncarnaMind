@@ -327,6 +327,7 @@ export function useMeetingHelpInWindow(): void {
   useEffect(() => {
     const stops = [
       files.onMeetingHelp((kind) => void askHelpInAssistant(kind)),
+      // With no model set up, this lands at Settings › AI's top, where the User's AI connects (#3767).
       files.onSetUpModel(() => useAppStore.getState().openSettings("ai", "model")),
       files.onOpenConversation(
         (at) =>

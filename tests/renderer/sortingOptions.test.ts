@@ -8,18 +8,15 @@ import type {
 } from "../../src/core/api";
 import {
   automaticRow,
-  hostSetUpOffers,
   jevStateOf,
   keptForSorting,
   keyProviderOf,
-  offersJevSetUp,
   sortingOptions,
 } from "../../src/renderer/src/components/providers/sortingOptions";
 
 /*
- * The sorting picker's list (#2615): with no Jev key it ends with "Use TypeSafe Jev…", which sets
- * Jev up in place; with a key Jev comes first and the set-up row goes; in Local mode only a Jev
- * server on this computer is offered.
+ * The sorting picker's list (#2615): with a Jev key Jev comes first; in Local mode only a Jev
+ * server on this computer is offered. The picker sets nothing up (#3767).
  */
 
 const TYPESAFE = { id: "https://api.typesafe.ai", name: "TypeSafe Jev" };
@@ -65,7 +62,7 @@ const models = (options: TaggingModelOption[], localMode = false): TaggingModels
   saved: null,
 });
 
-/** The picker's rows, as it draws them: the choices, then the set-up row when it is offered. */
+/** The picker's rows, as it draws them. */
 function rows(jev: JevSettings | null, options: TaggingModelOption[], localMode = false) {
   const state = jevStateOf(jev);
   const list = sortingOptions(models(options, localMode), {
@@ -76,21 +73,14 @@ function rows(jev: JevSettings | null, options: TaggingModelOption[], localMode 
     chatLabel: "Use your AI model",
     chatName: "Claude Haiku 5.5",
   }).map((option) => option.label);
-  return offersJevSetUp(state, localMode) ? [...list, "Use TypeSafe Jev…"] : list;
+  return list;
 }
 
 describe("the sorting picker's Jev rows (#2615)", () => {
-  test("with no Jev key, the set-up row comes last, after the choices that can run", () => {
-    expect(rows(jevSettings({}), [CHAT_OPTION])).toEqual([
-      "Use your AI model",
-      "Use TypeSafe Jev…",
-    ]);
-  });
-
-  test("set up, but with no key on this device, the set-up row is offered to enter it again", () => {
+  test("with no Jev key, only the choices that can run, and no row that sets Jev up (#3767)", () => {
+    expect(rows(jevSettings({}), [CHAT_OPTION])).toEqual(["Use your AI model"]);
     expect(rows(jevSettings({ enabled: true }), [JEV_OPTION, CHAT_OPTION])).toEqual([
       "Use your AI model",
-      "Use TypeSafe Jev…",
     ]);
   });
 
@@ -112,11 +102,6 @@ describe("the sorting picker's Jev rows (#2615)", () => {
     expect(rows(jevSettings({ enabled: true, hasApiKey: true }), [JEV_OPTION], true)).toEqual([]);
   });
 
-  test("in Local mode, a Jev server on this computer without its key here offers the set-up row", () => {
-    const here = jevSettings({ enabled: true, endpoint: "http://127.0.0.1:8080", service: null });
-    expect(rows(here, [JEV_OPTION], true)).toEqual(["Use TypeSafe Jev…"]);
-  });
-
   test("in Local mode, a Jev server on this computer is a choice, first, with no set-up row", () => {
     const here = jevSettings({
       enabled: true,
@@ -127,7 +112,7 @@ describe("the sorting picker's Jev rows (#2615)", () => {
     expect(rows(here, [JEV_OPTION], true)).toEqual(["TypeSafe Jev"]);
   });
 
-  test("before Jev's settings are read, no set-up row is drawn", () => {
+  test("before Jev's settings are read, the choices are drawn as they are", () => {
     expect(rows(null, [CHAT_OPTION])).toEqual(["Use your AI model"]);
   });
 });
@@ -204,30 +189,7 @@ describe("the sorting picker's hosts (#1907)", () => {
     expect(rows(jevSettings({}), options, true)).toEqual(["Tev1 4B"]);
   });
 
-  test("a host is set up in place when it needs a key of its own, or its account beside a chat key", () => {
-    const offers = hostSetUpOffers(
-      [
-        status("openrouter", { key: "provider", provider: "openrouter", hasKey: false }),
-        status("perplexity"),
-        status("liquid", { hasKey: true, ready: true }),
-        status("alibaba", {
-          key: "provider",
-          provider: "qwen",
-          hasKey: true,
-          account: { kind: "alibaba-workspace", value: null },
-        }),
-      ],
-      false,
-      (host) => `Use ${host.models[0]?.name}…`,
-    );
-    expect(offers).toEqual([
-      { id: "perplexity", label: "Use perplexity best…" },
-      { id: "alibaba", label: "Use alibaba best…" },
-    ]);
-    expect(hostSetUpOffers([status("perplexity")], true, () => "")).toEqual([]);
-  });
-
-  test("a set-up host leaves the fold, Alibaba with its workspace too; Your providers keeps what each has of its own", () => {
+  test("Your providers keeps what each set-up host has of its own, Alibaba its workspace", () => {
     const alibaba = status("alibaba", {
       key: "provider",
       provider: "qwen",
@@ -246,9 +208,6 @@ describe("the sorting picker's hosts (#1907)", () => {
       hasKey: true,
       ready: true,
     });
-    expect(hostSetUpOffers([alibaba, cloudflare, openrouter], false, (host) => host.host)).toEqual(
-      [],
-    );
     expect([alibaba, cloudflare, openrouter, status("liquid")].filter(keptForSorting)).toEqual([
       alibaba,
       cloudflare,

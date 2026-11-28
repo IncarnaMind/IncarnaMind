@@ -8,6 +8,7 @@ import {
   motionSettled,
   newMind,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -60,6 +61,8 @@ test("Esc out of ⌘K leaves the composer able to type, with the caret it had", 
     const { app, window } = await launchApp(dataDir);
     await setWindowSize(app, window, 1280, 660);
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await newMind(window);
     const composer = window.getByTestId("composer-input");
     await composer.click();
@@ -89,6 +92,7 @@ test("Esc out of the popover with no chip in the band leaves the composer able t
     const { app, window } = await launchApp(dataDir, { fakeChat: true, scriptedTasks: true });
     await setWindowSize(app, window, 1280, 660);
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await newMind(window);
     const composer = window.getByTestId("composer-input");
     await composer.click();

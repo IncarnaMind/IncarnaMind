@@ -6571,6 +6571,11 @@ export interface ChatProvider {
   endpoint: string | null;
   /** The server's URL for "openai-compatible" and "ollama"; null for the others. */
   baseUrl: string | null;
+  /**
+   * A key added for meeting transcription and Document search alone (#3767): its models answer
+   * nothing here, and none is offered in a model picker or made a default. Absent otherwise.
+   */
+  jobsOnly?: true;
   /** Whether an API key is stored for it. Keys live in the keychain, never in the database. */
   hasApiKey: boolean;
   /**
@@ -6611,6 +6616,11 @@ export interface SaveChatProviderInput {
    * none. "always": it stays as it is, none included, for a key kept for something else alone.
    */
   keepDefault?: boolean | "always";
+  /**
+   * A key for meeting transcription and Document search alone (`ChatProvider.jobsOnly`). It
+   * applies only to a company not saved yet: one saved before keeps what it is.
+   */
+  jobsOnly?: boolean;
 }
 
 export interface TestChatConnectionInput {

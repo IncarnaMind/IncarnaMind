@@ -120,7 +120,7 @@ async function start(
 }
 
 for (const language of LANGUAGES) {
-  test(`no AI app: opening sentence, Install progress & sign-in handoff, and ⌘J leads to Connect without opening model setup (${language})`, async () => {
+  test(`no AI app: opening sentence, Install progress & sign-in handoff, and ⌘J leads to Connect with no assistant (${language}) (#3767)`, async () => {
     test.setTimeout(120_000);
     installer = await startInstallerStandIn({ install: "hold" });
     const window = await start(
@@ -177,20 +177,18 @@ for (const language of LANGUAGES) {
     await expect(window.getByTestId("setup-page")).toHaveCount(0);
     await expect(window.getByTestId("example-line")).toBeVisible();
 
-    // Box 2: ⌘J on the example Note focuses Connect your AI and never opens model-setup.
+    // Box 2: ⌘J on the example Note focuses Connect your AI, and no assistant opens.
     await window.getByTestId("mind-editor").click();
     await window.keyboard.press("ControlOrMeta+j");
     await expect(window.getByTestId("note-ask-connect")).toBeFocused();
-    await expect(window.getByTestId("model-setup")).toHaveCount(0);
     await expect(window.getByTestId("assistant")).toBeHidden();
 
-    // Box 2 on Home: ⌘J focuses Connect your AI on Home and never opens model-setup.
+    // Box 2 on Home: ⌘J focuses Connect your AI on Home, and no assistant opens.
     await window.getByTestId("sidebar-home").click();
     await expect(window.getByTestId("home")).toBeVisible();
     await window.getByTestId("home-greeting").click();
     await window.keyboard.press("ControlOrMeta+j");
     await expect(window.getByTestId("home-ask-connect")).toBeFocused();
-    await expect(window.getByTestId("model-setup")).toHaveCount(0);
     await expect(window.getByTestId("assistant")).toBeHidden();
 
     // Box 2 exception: a profile that already has a model set up is unchanged.

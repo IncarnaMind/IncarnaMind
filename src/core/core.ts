@@ -4110,7 +4110,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const tagging = createTagging({
     setting: () => library.settings().classifier,
     chat: {
-      list: () => chat.list(),
+      list: () => chat.chatList(),
       defaultModel: () => settings.get().user.chatModel,
       describeModel: (choice) => chat.describeModel(choice),
       quickTasksModel: (answers) => chat.quickTasksModel(answers),

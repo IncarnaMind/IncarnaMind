@@ -40,7 +40,6 @@ import { useViewerHandle } from "../commands/handles";
 import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
 import { useLanguage, useT } from "../i18n";
-import { useSettingUp } from "../modelSetup";
 import { useNoAiConnected } from "../ownAiPanel";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
@@ -668,10 +667,9 @@ function Grid({
   const applied = useRef<ScrollRequest | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
   const csv = model.look === null;
-  const settingUp = useSettingUp();
   // As over words, no Ask with no AI of the User's to take it (#3764).
   const noAi = useNoAiConnected();
-  const askable = !settingUp && !noAi;
+  const askable = !noAi;
   const sheetUnits = useMemo(
     () => (csv ? units : units.filter((unit) => (unit.label?.sheet ?? "") === sheet.name)),
     [units, csv, sheet.name],

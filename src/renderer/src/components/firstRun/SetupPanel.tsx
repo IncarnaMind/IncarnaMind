@@ -1,21 +1,14 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
-import {
-  CheckLineIcon,
-  ChevronDownLineIcon,
-  ChevronLeftLineIcon,
-  ChevronRightLineIcon,
-  CloseLineIcon,
-} from "../icons";
+import { CheckLineIcon, ChevronLeftLineIcon } from "../icons";
 import { OnThisComputer } from "../OnThisComputer";
 
-export type SetupStep = "work" | "ai" | "sorting" | "meetings";
+export type SetupStep = "work" | "ai" | "meetings";
 
 const STEP_NAMES: Record<SetupStep, MessageKey> = {
   work: "setupPage.progress.work",
   ai: "setupPage.progress.ai",
-  sorting: "setupPage.progress.sorting",
   meetings: "setupPage.progress.meetings",
 };
 
@@ -26,8 +19,6 @@ export interface StepPlace {
   next(): void;
   /** Absent on the first step shown. */
   back?(): void;
-  /** Where the steps show in a dialog: what its ✕ does. */
-  close?(): void;
 }
 
 /**
@@ -91,11 +82,9 @@ export function SetupPanel({
       data-testid="setup-panel"
       data-step={place.steps[place.at]}
       aria-labelledby="setup-title"
-      className={`relative flex w-full max-w-[640px] flex-col bg-sheet ${
-        place.close ? "" : "rounded-[12px] shadow-[0_0_0_1px_var(--color-rule)]"
-      }`}
+      className="relative flex w-full max-w-[640px] flex-col rounded-[12px] bg-sheet shadow-[0_0_0_1px_var(--color-rule)]"
     >
-      <div className={`flex px-6 pt-5 ${place.close ? "pr-14" : ""}`}>
+      <div className="flex px-6 pt-5">
         <ol
           aria-label={t("setupPage.progress", { step: place.at + 1, count: place.steps.length })}
           className="grid flex-1 gap-1.5"
@@ -155,19 +144,6 @@ export function SetupPanel({
           {foot}
         </div>
       )}
-      {/* Last, so the step's own first choice takes the focus as the dialog opens. */}
-      {place.close && (
-        <button
-          type="button"
-          data-testid="setup-close"
-          aria-label={t("setupPage.close")}
-          title={t("setupPage.close")}
-          onClick={place.close}
-          className="absolute top-3.5 right-4 inline-flex size-8 items-center justify-center rounded-md text-ink-secondary hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
-        >
-          <CloseLineIcon />
-        </button>
-      )}
     </section>
   );
 }
@@ -224,39 +200,6 @@ export function SetupChoice({
         {line && <span className="text-ui leading-5 text-ink-secondary">{line}</span>}
       </span>
     </label>
-  );
-}
-
-/**
- * A choice kept out of the way until the User asks for it, as plain text with a chevron. With
- * `expanded` it opens and closes what `controls` names; without, it is pressed once and goes.
- */
-export function QuietLine({
-  testId,
-  expanded,
-  controls,
-  onClick,
-  children,
-}: {
-  testId: string;
-  expanded?: boolean;
-  controls?: string;
-  onClick(): void;
-  children: ReactNode;
-}) {
-  const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-expanded={expanded}
-      aria-controls={controls}
-      onClick={onClick}
-      className="-mt-1 flex w-fit items-center gap-1 rounded-sm text-ui leading-5 text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
-    >
-      {children}
-      <Chevron aria-hidden="true" className="size-3 shrink-0" />
-    </button>
   );
 }
 

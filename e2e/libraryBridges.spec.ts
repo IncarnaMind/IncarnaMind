@@ -17,6 +17,8 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  saveProvider,
+  setWindowSize,
   sizeAssistant,
 } from "./app";
 
@@ -130,6 +132,8 @@ test("filters by year, format, status and Folder with counts, and asks about the
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     // Room for a chip for each Document chosen; a narrower panel folds them into a count.
     await sizeAssistant(window, 480);
     // A Mind written in already: the most recent one, where the Questions go.
@@ -342,8 +346,11 @@ test("with no Mind yet, asking about many Documents chosen makes one, and their 
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
-    // Room for two chips beside "+8 more"; a narrower panel folds further (`composerPlus.spec.ts`).
-    await sizeAssistant(window, 480);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
+    // Room for two chips beside "+8 more", with the model's name in the row; a narrower panel folds
+    // further (`composerPlus.spec.ts`). The window is wide enough for the selection bar to keep Ask.
+    await setWindowSize(app, window, 1700, 660);
+    await sizeAssistant(window, 600);
     await linkFolderFromSidebar(app, window, sources);
     await expectReadyDocuments(window, 15);
     await window.getByTestId("open-library").click();

@@ -27,8 +27,10 @@ import { core } from "../core";
 import { type EstimateLine, estimateLine, runStopParts } from "../cost";
 import { errorMessage } from "../errors";
 import { useLanguage, useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
 import { useModelInUse } from "../modelInUse";
 import { enter } from "../motion";
+import { useLocalModelSaved } from "../savedProviders";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
@@ -284,6 +286,7 @@ export function VerifyCard({
   const t = useT();
   const language = useLanguage();
   const openSettings = useAppStore((app) => app.openSettings);
+  const localModel = useLocalModelSaved();
   const readiness = useAppStore((app) => app.chatReadiness);
   const noModel = useNoModel();
   const asked = useAskedAgent({ kind: "check", mindId });
@@ -619,9 +622,23 @@ export function VerifyCard({
           testId="verify-problem"
           className="mind-verify-problem"
           action={{
-            label: t("checks.problem.chooseModel"),
-            onClick: () => openSettings("ai", "model"),
+            label: t("localMode.turnOff"),
+            onClick: () => {
+              dismissVerifyOutcome(mindId);
+              void turnOffLocalMode().catch((error: unknown) =>
+                useAppStore.getState().reportError(error),
+              );
+            },
           }}
+          {...(localModel && {
+            also: {
+              label: t("answer.error.chooseModel"),
+              onClick: () => {
+                dismissVerifyOutcome(mindId);
+                openSettings("ai", "chat-model");
+              },
+            },
+          })}
         >
           {t("checks.problem.local-mode")}
         </ProblemLine>

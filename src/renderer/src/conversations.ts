@@ -22,12 +22,11 @@ import {
   expectRestart,
   sawRestart,
 } from "./askedChanges";
-import { agentsToAsk } from "./askYourAi";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
 import { clientId } from "./clientId";
-import { composerKey, useComposer } from "./composer";
+import { composerKey } from "./composer";
 import { forgetConversationPick, showConversationModel } from "./conversationModel";
 import { core } from "./core";
 import { documentsOnScreen } from "./documentsOnScreen";
@@ -35,7 +34,6 @@ import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
 import { currentTabOf, WINDOW_ID } from "./layoutSlice";
-import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { ownAiOnlyNow, readConversationForOwnAi } from "./ownAiPanel";
 import { useAppStore } from "./store";
@@ -307,22 +305,8 @@ export async function askInAssistant(
       commands: offeredCommands(input.mindId),
       clientId,
     });
-    if (
-      !result.asked &&
-      result.reason === "not-ready" &&
-      result.readiness.reason === "no-provider"
-    ) {
-      // With the User's own AI connected, the composer offers it for the words, which come back
-      // to the box (#3373).
-      if (agentsToAsk(input.mindId).length > 0) {
-        settleAsk(key, result);
-        return false;
-      }
-      // No model yet: the Question waits in the conversation while the setup card is shown.
-      settleAsk(key, null);
-      waitForModel({ ...input, conversationId: useConversations.getState().openId });
-      return true;
-    }
+    // With no model, the composer offers the User's own AI for the words, which come back to the
+    // box (#3373), or says what asking needs, as no model is set up here (#3767).
     settleAsk(key, result);
     sayLeftOut(result);
     if (!result.asked) return false;
@@ -350,60 +334,6 @@ export async function askInAssistant(
     useConversations.setState({ asking: null, askingReads: null, stopWanted: false });
   }
 }
-
-/** Asks the Question that waited for a model, now that one is set. */
-function askWaitingQuestion(): void {
-  const { waiting } = useModelSetup.getState();
-  if (!waiting) return;
-  useModelSetup.setState({ waiting: null });
-  const { conversationId, ...question } = waiting;
-  (async () => {
-    // The conversation it was typed in, whichever is open now.
-    if (useConversations.getState().openId !== conversationId) {
-      if (conversationId) {
-        // The User moved on (New chat, another row) while the read was on its way: the words go
-        // back to the composer rather than being asked in a chat they didn't mean (#2310).
-        if (!(await openConversation(conversationId))) {
-          returnQuestion(waiting);
-          return;
-        }
-      } else startNewChat();
-    }
-    await askInAssistant(question);
-  })().catch((error: unknown) => useAppStore.getState().reportError(error));
-}
-
-/**
- * The cursor goes where the User asks next, unless they are typing outside the setup card (in the
- * Note or another field): a model that starts working never pulls their next keys into the
- * composer draft (#2310).
- */
-function focusComposerUnlessTyping(): void {
-  const active = document.activeElement;
-  const inSetup =
-    active instanceof Element && active.closest('[data-testid="model-setup"]') !== null;
-  const typing =
-    active instanceof HTMLElement &&
-    (active.isContentEditable || active.tagName === "INPUT" || active.tagName === "TEXTAREA");
-  if (!typing || inSetup) useComposer.getState().requestFocus();
-}
-
-core.on("chatReadiness.changed", (readiness) => {
-  if (!readiness.ready) {
-    // The model that worked is gone: the card asks for one again (#2310).
-    useModelSetup.setState({ ready: false });
-    return;
-  }
-  const { wanted, waiting, ready } = useModelSetup.getState();
-  if (!wanted && !waiting) return;
-  // Only the readiness that brings the first working model in moves the cursor and gives the
-  // composer the panel: a later one (the key checked again, another model saved) leaves it
-  // (#2310).
-  if (ready) return;
-  useModelSetup.setState({ ready: true, wanted: true });
-  focusComposerUnlessTyping();
-  askWaitingQuestion();
-});
 
 /**
  * Writes an Answer of the open conversation again; why it couldn't be is kept under its id.

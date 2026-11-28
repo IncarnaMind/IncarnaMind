@@ -40,8 +40,6 @@ const EXCEPTIONS: readonly Exception[] = [
   {
     why: "Offers or explains a model set up in IncarnaMind: it leaves or changes with those entries (#3764)",
     keys: [
-      "setupPage.ai.sorting.about",
-      "setupPage.sorting.agentAlone",
       "providers.secrets.plainText.body",
       "providers.secrets.unavailable",
       "error.provider.openrouterCapabilities",
@@ -50,8 +48,6 @@ const EXCEPTIONS: readonly Exception[] = [
       "answer.error.window-too-small.question",
       "answer.error.window-too-small.assistant",
       "tagging.problem.data-retention",
-      "error.library.cantPropose",
-      "meetings.brief.chooseModel",
       "error.meeting.briefTooLong",
       "ai.jobs.checks.tip",
       "error.research.plan.thoughtOnly",
@@ -95,8 +91,6 @@ const EXCEPTIONS: readonly Exception[] = [
       "meetings.words.waiting",
       "privacy.skills.body",
       "providers.sendsLine",
-      "setup.key.sends",
-      "setup.sorting.asks",
       "setup.sorting.sendsWhenOn",
       "webPages.add.fetch.details.keepLook",
       "webPages.keepLook.body",
