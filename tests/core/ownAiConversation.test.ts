@@ -33,14 +33,23 @@ import {
 } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { sentenceReasonText } from "../../src/renderer/src/cost";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { checkButtonOf } from "../../src/renderer/src/editor/checkButtonState";
 import { wholeCheckStands } from "../../src/renderer/src/editor/checkCardStage";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { readNoteState } from "../../src/renderer/src/noteState";
-import { translate } from "../../src/shared/i18n";
+import {
+  cantBeChecked,
+  claimCheckShown,
+  saysNotFound,
+  sentenceResultOf,
+} from "../../src/shared/claimChecks";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { versionsWithLibrary } from "../../src/shared/libraryFacts";
 import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
+import { checkRows } from "../../src/shared/noteHealth";
 import { writeOpinionSentences } from "../../src/shared/opinions";
 import { decideProposals, NODE_CHARACTER, recordProposalRequest } from "../../src/shared/proposals";
 import {
@@ -5668,6 +5677,232 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       expect(afterB.health.unchecked).toEqual([]);
       expect(afterB.wholeCheck).toBe(true);
       expect(afterB.button).toMatchObject({ kind: "checked", words: checkedWord });
+    },
+  );
+
+  // protects=#2525 + #3862: with check-as-it-lands on, landing a library-unsettled verdict marks the sentence Not checked (cantBeChecked, no Cut, nothing ticked), leaves no unchecked key or uncheckedBlocks marker (and clears uncheckedBlocks after an AI edit), and flips to Needs re-check when a Document joins the Library (EN and ZH); fails_when=library-unsettled stays in unchecked or uncheckedBlocks, counts as Supported or toCheck, or ignores Library changes
+  it.each([
+    {
+      language: "en" as const,
+      title: "Library coverage note",
+      firstSentence: "Three of your Documents were added in October.",
+      secondSentence: "Most of your files cover marine biology.",
+      reasonLine: "Only your Library’s counts, names and kinds can be checked.",
+      addedFile: "Harbour.md",
+      addedContent: "# Harbour\n\nTwo stone quays.\n",
+    },
+    {
+      language: "zh-CN" as const,
+      title: "资料库覆盖笔记",
+      firstSentence: "你的资料库里有 3 个文档是在十月添加的。",
+      secondSentence: "你的大多数文件都讨论海洋生物。",
+      reasonLine: "只能核对资料库的数量、名称和类型。",
+      addedFile: "海港.md",
+      addedContent: "# 海港\n\n两座石砌码头。\n",
+    },
+  ])(
+    "settles a library-unsettled sentence with check-as-it-lands on, leaves no unchecked markers or ticks, and re-checks on Library change ($language)",
+    async ({
+      language,
+      title,
+      firstSentence,
+      secondSentence,
+      reasonLine,
+      addedFile,
+      addedContent,
+    }) => {
+      let noteId = "";
+      let createNext: string | null = null;
+      const run = runner(async (agent, request) => {
+        if (request.prompt.includes("create-library-note")) {
+          const made = structured<{ mindId: string; next: string | null }>(
+            await agent.callTool({
+              name: "create_mind",
+              arguments: { title, markdown: firstSentence },
+            }),
+          );
+          noteId = made.mindId;
+          createNext = made.next;
+          const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+            await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }),
+          );
+          expect(given.sentences).toEqual([{ n: 1, text: firstSentence }]);
+          const reported = structured<{
+            marked: number;
+            unconfirmed: number[];
+            unreported: number[];
+            next: string | null;
+          }>(
+            await agent.callTool({
+              name: "report_check",
+              arguments: {
+                mindId: noteId,
+                task: given.task,
+                results: [
+                  {
+                    n: 1,
+                    verdict: "library unsettled",
+                    explanation: "The Library lists do not hold dates added.",
+                  },
+                ],
+              },
+            }),
+          );
+          expect(reported).toMatchObject({
+            marked: 1,
+            unconfirmed: [],
+            unreported: [],
+            next: null,
+          });
+          const after = structured<{
+            sentences: unknown[];
+            checked?: { supported: number; needLook: number; notChecked: number };
+          }>(await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }));
+          expect(after.sentences).toEqual([]);
+          expect(after.checked).toMatchObject({ supported: 0, needLook: 0, notChecked: 1 });
+          return { kind: "finished", reply: "Created and checked." };
+        }
+        if (request.prompt.includes("add-second-sentence")) {
+          const read = structured<{ version: string }>(
+            await agent.callTool({ name: "read_mind", arguments: { mindId: noteId, named: true } }),
+          );
+          structured(
+            await agent.callTool({
+              name: "propose_changes",
+              arguments: {
+                mindId: noteId,
+                version: read.version,
+                changes: [{ paragraph: "¶1+", text: secondSentence }],
+              },
+            }),
+          );
+          return { kind: "finished", reply: "Added second sentence." };
+        }
+        const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+          await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }),
+        );
+        expect(given.sentences).toEqual([{ n: 1, text: secondSentence }]);
+        const reported = structured<{
+          marked: number;
+          unconfirmed: number[];
+          unreported: number[];
+          next: string | null;
+        }>(
+          await agent.callTool({
+            name: "report_check",
+            arguments: {
+              mindId: noteId,
+              task: given.task,
+              results: [
+                {
+                  n: 1,
+                  verdict: "library unsettled",
+                  explanation: "The Library lists do not hold document topics.",
+                },
+              ],
+            },
+          }),
+        );
+        expect(reported).toMatchObject({
+          marked: 1,
+          unconfirmed: [],
+          unreported: [],
+          next: null,
+        });
+        return { kind: "finished", reply: "Checked second sentence." };
+      });
+
+      const { core, sources, mindId, ended } = await written(run.adapter);
+      await core.updateSettings({ user: { checkAssistantWrites: true, language } });
+
+      await core.askInNote({ mindId, words: "create-library-note" });
+      await ended(1);
+      expect(createNext).toEqual(expect.any(String));
+
+      const view = await noteCheckView(core, noteId, language);
+      const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+      const shownNow = async () => {
+        await view.client.settled();
+        const versions = versionsWithLibrary(
+          new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash])),
+          await core.libraryListsVersion(noteId),
+        );
+        return claimSpans(readMind(view.client)).map((span) => ({
+          text: span.sentence.text,
+          check: span.check,
+          shown: claimCheckShown(span.check, {
+            footing: "not-yet-known",
+            text: span.sentence.text,
+            versions,
+            folderId: view.folderId,
+            scope: null,
+          }),
+        }));
+      };
+
+      const [first] = await shownNow();
+      expect(first?.check).toMatchObject({
+        state: "not-checked",
+        reason: "library-unsettled",
+        outside: true,
+      });
+      expect(first?.shown).toEqual({ state: "not-checked", reason: "library-unsettled" });
+      if (!first || first.shown.state !== "not-checked") throw new Error("Expected not-checked.");
+      expect(cantBeChecked(first.shown)).toBe(true);
+      expect(saysNotFound(first.shown, first.check, 0)).toBe(false);
+      expect(sentenceResultOf(first.shown, first.check, 0)).toBe("notChecked");
+      expect(sentenceReasonText(t, language, first.shown, first.check)).toBe(reasonLine);
+
+      expect(view.run).not.toBeNull();
+      expect(view.run?.stop).toBeNull();
+      expect(view.run?.unchecked).toBeUndefined();
+      expect(view.run?.uncheckedBlocks).toBeUndefined();
+      expect(view.health.supported).toBe(0);
+      expect(view.health.unchecked).toEqual([]);
+      expect(
+        Object.fromEntries(checkRows(view.health).map(({ row, places }) => [row, places.length])),
+      ).toEqual({ cantCheck: 1 });
+      expect(view.state).toMatchObject({
+        kind: "not-checked",
+        notChecked: 0,
+        mark: "notChecked",
+      });
+      expect(view.button?.kind).not.toBe("checked");
+      expect(view.button?.kind).not.toBe("check");
+      expect(view.button?.mark).toBe("notChecked");
+
+      await core.askInNote({ mindId, words: "add-second-sentence" });
+      await ended(2);
+      const midView = await noteCheckView(core, noteId, language);
+      expect(midView.run?.uncheckedBlocks?.length).toBeGreaterThan(0);
+      expect(midView.health.unchecked).toHaveLength(1);
+
+      await core.askInNote({ mindId, words: "check-second-sentence" });
+      await ended(3);
+      const settledView = await noteCheckView(core, noteId, language);
+      expect(settledView.run?.unchecked).toBeUndefined();
+      expect(settledView.run?.uncheckedBlocks).toBeUndefined();
+      expect(settledView.health.supported).toBe(0);
+      expect(settledView.health.unchecked).toEqual([]);
+      expect(
+        Object.fromEntries(
+          checkRows(settledView.health).map(({ row, places }) => [row, places.length]),
+        ),
+      ).toEqual({ cantCheck: 2 });
+      expect(settledView.button?.kind).not.toBe("checked");
+      expect(settledView.button?.kind).not.toBe("check");
+      expect(settledView.button?.mark).toBe("notChecked");
+
+      const [added] = await addAndProcess(core, [
+        await writeSourceFile(sources, addedFile, addedContent),
+      ]);
+      if (added && view.folderId) await core.assignDocumentGroup(added.id, view.folderId);
+      const afterLibraryChange = await shownNow();
+      expect(afterLibraryChange).toHaveLength(2);
+      expect(afterLibraryChange.map((each) => each.shown)).toEqual([
+        { state: "needs-recheck", why: "library" },
+        { state: "needs-recheck", why: "library" },
+      ]);
     },
   );
 
