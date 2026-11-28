@@ -89,12 +89,12 @@ export function UsageDataCard() {
           />
         </label>
       ) : (
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
             data-testid="usage-data-send"
             onClick={() => void answer(true)}
-            className={`${buttonStyle("secondary", "sm")} flex-1`}
+            className={buttonStyle("secondary", "sm")}
           >
             {t("usageData.card.send")}
           </button>
@@ -102,7 +102,7 @@ export function UsageDataCard() {
             type="button"
             data-testid="usage-data-decline"
             onClick={() => void answer(false)}
-            className={`${buttonStyle("secondary", "sm")} flex-1`}
+            className={buttonStyle("secondary", "sm")}
           >
             {t("usageData.card.decline")}
           </button>

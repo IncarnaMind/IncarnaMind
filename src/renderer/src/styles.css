@@ -265,6 +265,16 @@
   initial-value: 0px;
 }
 
+/*
+ * The width the composer's text needs beside its controls: the row wraps below it. A length, so
+ * Composer's measureLayout reads it in pixels whichever layout the row is in.
+ */
+@property --composer-text-least {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
 /* The space a Block keeps above it, which a paragraph's own space before adds to (src/shared/paragraphFormat.ts). Each Block's own. */
 @property --block-gap {
   syntax: "<length>";
@@ -1149,10 +1159,10 @@
       color: var(--color-ink-placeholder);
     }
   }
+  /* An icon button, 28px square around the strip's 18px icon. */
   .tab-strip-button {
-    min-width: 28px;
+    width: 28px;
     margin: 0 2px 4px;
-    padding: 0 6px;
     border-radius: 6px;
   }
   .tab-split {
@@ -2735,7 +2745,9 @@
     padding: 8px 8px 8px 11px;
   }
   .composer-input {
-    flex: 1 1 14rem;
+    --composer-text-least: 14rem;
+
+    flex: 1 1 var(--composer-text-least);
     min-width: 8rem;
     min-height: 28px;
     /* Eight lines, then it scrolls. */
@@ -5288,6 +5300,13 @@
     /* A paragraph's own space after is all the space below it. */
     > [data-space-after] + * {
       --block-gap: 0px;
+    }
+    /*
+     * A list keeps no margin of its own (below), but under a table it keeps the Block's gap: the
+     * table's Add row bar sits in that gap, over no one's words.
+     */
+    > .tableWrapper + * {
+      margin-top: var(--block-gap);
     }
 
     :where(sup, sub):not([data-type]) {
@@ -11215,7 +11234,8 @@
       position: sticky;
       left: 0;
       z-index: 1;
-      min-width: 96px;
+      /* Low enough that a short three-column comparison fits the 320px panel at 14px. */
+      min-width: 88px;
       max-width: 132px;
       padding-left: 0;
       border-right: 1px solid var(--color-rule);

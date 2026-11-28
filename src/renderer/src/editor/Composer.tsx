@@ -335,11 +335,12 @@ export function Composer({
       (controls.current?.offsetWidth ?? 0) -
       gap -
       Number.parseFloat(fieldStyle.paddingLeft);
-    // The controls wrap under a field with less room than its own least width, so + goes with them.
+    // The row wraps by the text's flex basis, not its least width: with less room than that the
+    // controls go under it, so + goes with them.
     const runsPast =
       draft.text.includes("\n") ||
       widthOf(draft.text, element) > room - 2 ||
-      room < Number.parseFloat(fieldStyle.minWidth) + 2;
+      room < Number.parseFloat(fieldStyle.getPropertyValue("--composer-text-least")) + 2;
     const lineHeight = Number.parseFloat(fieldStyle.lineHeight) || 20;
     const padding =
       Number.parseFloat(fieldStyle.paddingTop) + Number.parseFloat(fieldStyle.paddingBottom);

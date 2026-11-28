@@ -9,6 +9,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  menuCommands,
   newMind,
   openSettings,
   pointAndClick,
@@ -20,8 +21,8 @@ import {
 
 /*
  * Red, sparingly (DESIGN.md, Colors): an error reads in ink after the amber "!", or has the
- * attention dot; a field in error has a warning edge; Delete in a menu is ink. Red stays on the
- * button of a dialog that asks about what can't be undone.
+ * attention dot; a field in error has a warning edge. Red stays on the button of a dialog that asks
+ * about what can't be undone, and on Delete in a menu, last after a rule with its icon (#3761).
  */
 
 const INK = "rgb(23, 25, 28)";
@@ -104,7 +105,7 @@ test("a refused key and a variable with no name read in ink after the amber mark
   }
 });
 
-test("Delete in a menu is ink, like Rename; the button that deletes for good stays red", async () => {
+test("Delete in a menu is red and last, Rename stays ink; the button that deletes for good stays red", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -113,8 +114,11 @@ test("Delete in a menu is ink, like Rename; the button that deletes for good sta
     await mind.hover();
     await mind.getByTestId("mind-menu").click();
     const menu = mind.getByTestId("mind-actions");
-    await expect(menu.getByTestId("mind.delete")).toHaveCSS("color", INK);
+    const remove = menu.getByTestId("mind.delete");
+    await expect(remove).toHaveCSS("color", RED);
+    await expect(remove.locator("svg")).toHaveCSS("color", RED);
     await expect(menu.getByTestId("mind.rename")).toHaveCSS("color", INK);
+    expect((await menuCommands(menu)).slice(-2)).toEqual(["—", "mind.delete"]);
     await menu.getByTestId("mind.delete").click();
 
     await pointAndClick(window, window.getByTestId("open-library"));
