@@ -245,7 +245,7 @@ test("typing in the menu's Edit with AI field and pressing Enter changes the tex
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The waves here are very strong and really regular.");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    changedParagraph("en", "The waves here are…"),
+    changedParagraph("en", "The waves here are very strong…"),
   );
   await expect(line.getByTestId("applied-undo")).toBeVisible();
   await expect(menu).toHaveCount(0);
@@ -267,7 +267,7 @@ test("typing in the menu's Edit with AI field and pressing Enter changes the tex
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The seas here are very strong and really regular.");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    changedParagraph("zh-CN", "The seas here are…"),
+    changedParagraph("zh-CN", "The seas here are very strong…"),
   );
   await expect(menu).toHaveCount(0);
   await expect(editor).toBeFocused();
@@ -481,9 +481,9 @@ const TIDES = "the tide turns very slowly";
 const TIDE_LINE = `${TIDES} in the harbour today.`;
 /** How the paragraph starts once each action has changed the selected words: capitalised, without "very", in capitals. */
 const TIDE_LINE_STARTS = {
-  improve: "The tide turns very…",
-  shorten: "the tide turns slowly…",
-  translate: "THE TIDE TURNS VERY…",
+  improve: "The tide turns very slowly in…",
+  shorten: "the tide turns slowly in the…",
+  translate: "THE TIDE TURNS VERY SLOWLY in…",
 } as const;
 
 /** Chooses one of the three in the open menu, and Translate's language. */
@@ -837,7 +837,7 @@ test("Enter while an input method is composing doesn't send; the next Enter does
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The seas here are very strong.");
   await expect(editor.getByTestId("applied-count")).toHaveText(
-    changedParagraph("en", "The seas here are…"),
+    changedParagraph("en", "The seas here are very strong."),
   );
   await app.close();
 });
@@ -867,7 +867,7 @@ test("the hand-off moves the typed request and the selection to the composer, wh
   await window.keyboard.press("Enter");
   await expect(note).toHaveText("The seas here are very strong.");
   await expect(editor.getByTestId("applied-count")).toHaveText(
-    changedParagraph("en", "The seas here are…"),
+    changedParagraph("en", "The seas here are very strong."),
   );
   await app.close();
 });
@@ -952,7 +952,7 @@ for (const sidebar of ["shown", "hidden"] as const) {
     expect(undo?.y).toBe(spot?.y);
     expect(undo?.height).toBe(spot?.height);
     await expect(editor.getByTestId("applied-count")).toHaveText(
-      changedParagraph("en", "The seas here are…"),
+      changedParagraph("en", "The seas here are very strong."),
     );
     await app.close();
   });
@@ -1234,7 +1234,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // ...and the change that was running carries on to its own Undo line, one change in all.
       await expect(applied).toBeVisible({ timeout: 40_000 });
       await expect(applied.getByTestId("applied-count")).toHaveText(
-        changedParagraph(language, "The Tide turns very…"),
+        changedParagraph(language, "The Tide turns very slowly and…"),
       );
       await expect(note).toHaveText(
         "The Tide turns very slowly and the harbour is quiet all evening.",

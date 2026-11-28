@@ -113,7 +113,9 @@ test("Shorten applies at once and the line names the paragraph it changed; ⌘Z 
   await pointAndClick(window, menu.getByTestId("selection-action-shorten"));
   await expect(note).toContainText("The tides here are strong and regular");
   const line = editor.getByTestId("applied-line");
-  const changed = translate("en", "edit.applied.named", { start: "The tides here are…" });
+  const changed = translate("en", "edit.applied.named", {
+    start: "The tides here are strong and…",
+  });
   await expect(line.getByTestId("applied-count")).toHaveText(changed);
   await expect(window.getByTestId("proposal-spoken")).toHaveText(changed);
   await expect(note.locator("del")).toHaveCount(0);
@@ -275,7 +277,9 @@ test("⌘J with text selected says what to change in the selection menu's field,
   await expect(note.locator(".generated-text")).toHaveText("准时");
   await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
   const line = editor.getByTestId("applied-line");
-  const changed = translate("zh-CN", "edit.applied.named", { start: "潮水每天非常准时…" });
+  const changed = translate("zh-CN", "edit.applied.named", {
+    start: "潮水每天非常准时地涨落两次。",
+  });
   await expect(line.getByTestId("applied-count")).toHaveText(changed);
   await expect(line).toHaveAttribute("title", "原因：已按你的要求修改。");
   await expect(window.getByTestId("proposal-spoken")).toHaveText(changed);
@@ -294,7 +298,7 @@ test("⌘J with text selected says what to change in the selection menu's field,
   await pointAndClick(window, window.getByTestId("selection-action-shorten"));
   await expect(note).toHaveText("潮水每天规律地涨落两次。");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    translate("zh-CN", "edit.applied.named", { start: "潮水每天规律地涨…" }),
+    translate("zh-CN", "edit.applied.named", { start: "潮水每天规律地涨落两次。" }),
   );
 
   // Translate… asks for the language beside it. A text the model gives back as it was (the
@@ -384,7 +388,9 @@ test("⌘J's change streams in and applies paragraph by paragraph, with Writing�
   await expect(paragraphs.nth(2)).toHaveText(
     "Harbours are very busy in the spring and really quiet in winter.",
   );
-  const stopped = translate("en", "edit.applied.named", { start: "The tides here are…" });
+  const stopped = translate("en", "edit.applied.named", {
+    start: "The tides here are strong and…",
+  });
   await expect(line.getByTestId("applied-count")).toHaveText(
     new RegExp(`^(?:${stopped}|Changed \\d+ paragraphs)$`),
   );
@@ -393,7 +399,7 @@ test("⌘J's change streams in and applies paragraph by paragraph, with Writing�
   await ask("replace tides with waves");
   await expect(paragraphs.first()).toHaveText("The waves here are strong and regular.");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    translate("en", "edit.applied.named", { start: "The waves here are…" }),
+    translate("en", "edit.applied.named", { start: "The waves here are strong and…" }),
   );
   await editor.focus();
   await window.keyboard.press("ControlOrMeta+z");

@@ -35,7 +35,8 @@ const screenshot = async (window: Page, name: string) => {
 };
 
 const TIDES = "The tides here are very strong and really regular.";
-const TIDES_START = "The tides here are…";
+const TIDES_START = "The tides here are very powerful…";
+const SHORTENED_START = "The tides here are strong and…";
 const FIRST = "Tides rise twice a day along this coast.";
 const SECOND = "It is a big harbour and a lot of boats do not leave at low water.";
 const THIRD = "The harbour office posts the times each week.";
@@ -133,7 +134,7 @@ test("Shorten from the menu applies at once, and the line's Undo takes it back",
   await pointAndClick(window, window.getByTestId("selection-action-shorten"));
   await expect(note).toHaveText("The tides here are strong and regular.");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    translate("en", "edit.applied.named", { start: TIDES_START }),
+    translate("en", "edit.applied.named", { start: SHORTENED_START }),
   );
   await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
   await motionSettled(window);
@@ -156,7 +157,7 @@ test("whole note selected, “make the second paragraph more formal”, the mode
 
   await expect(paragraphs).toHaveText([FIRST, FORMAL, THIRD]);
   await expect(line.getByTestId("applied-count")).toHaveText(
-    translate("en", "edit.applied.named", { start: "It is a considerable…" }),
+    translate("en", "edit.applied.named", { start: "It is a considerable harbour and…" }),
   );
   await expect(kept).toHaveText("Kept 2 paragraphs the edit left out·Remove them");
   // The line over the paragraph it changed, the kept one's over the first it kept.
@@ -350,7 +351,7 @@ test("“delete the second paragraph” applies at once, said as the paragraph r
   await askToChange(window, "delete the second paragraph");
   await expect(paragraphs).toHaveText([FIRST, THIRD]);
   await expect(line.getByTestId("applied-count")).toHaveText(
-    "Removed the paragraph “It is a big…” (1 sentence)",
+    "Removed the paragraph “It is a big harbour and a lot of…” (1 sentence)",
   );
   await expect(editor.getByTestId("applied-kept")).toHaveCount(0);
 

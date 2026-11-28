@@ -113,38 +113,63 @@ export function writtenAgain(before: readonly string[], written: readonly string
   });
 }
 
-const HAN = /\p{Script=Han}/u;
-/** The most words, or Chinese characters, a paragraph is named by. */
-const START_WORDS = 4;
-const START_CHARACTERS = 8;
+/** How wide a paragraph's start may be, in screen columns: a Chinese character takes two. */
+const START_COLUMNS = 32;
 
-/** The start of `text`: its first words, or first Chinese characters, and whether that is all of it. */
-function firstOf(text: string): { start: string; whole: boolean } {
-  if (HAN.test(text)) {
-    const characters = [...text];
-    let seen = 0;
-    let at = 0;
-    while (at < characters.length && seen < START_CHARACTERS) {
-      if ((characters[at] ?? "").trim() !== "") seen++;
-      at++;
-    }
-    const rest = characters.slice(at).join("");
-    return { start: characters.slice(0, at).join("").trimEnd(), whole: rest.trim() === "" };
+/** Characters that stand alone as their own word, as written without spaces: Chinese, Japanese, Korean and full-width marks. */
+const SOLO =
+  "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}\\u3000-\\u303f\\uff00-\\uffef";
+const SOLO_CHARACTER = new RegExp(`[${SOLO}]`, "u");
+/** A word: one such character, or a run of the others between spaces, so "07:40" and "1,240" are one. */
+const WORD = new RegExp(`[${SOLO}]|[^\\s${SOLO}]+`, "gu");
+/** What a cut start doesn't end on: the comma or colon its next words would have followed. */
+const DANGLING = /[\s,;:，；：、\-–—([（“‘"']+$/u;
+
+const columns = (text: string): number =>
+  [...text].reduce((sum, each) => sum + (SOLO_CHARACTER.test(each) ? 2 : 1), 0);
+
+/** The first characters of `text` that fit `START_COLUMNS`. */
+function fitting(text: string): string {
+  let kept = "";
+  for (const each of text) {
+    if (columns(kept) + columns(each) > START_COLUMNS) break;
+    kept += each;
   }
-  const words = text.split(" ");
-  return { start: words.slice(0, START_WORDS).join(" "), whole: words.length <= START_WORDS };
+  return kept;
+}
+
+/**
+ * The start of `text` as whole words that fit `START_COLUMNS`, and whether that is all of it. The
+ * first word is always taken, though a run with no space that is far wider than the room (a link)
+ * is cut at the room.
+ */
+function firstOf(text: string): { start: string; whole: boolean } {
+  let used = 0;
+  let end = 0;
+  for (const word of text.matchAll(WORD)) {
+    const at = word.index ?? 0;
+    const next = used + columns(text.slice(end, at)) + columns(word[0]);
+    if (end > 0 && next > START_COLUMNS) return { start: text.slice(0, end), whole: false };
+    if (end === 0 && next > START_COLUMNS * 2) return { start: fitting(word[0]), whole: false };
+    used = next;
+    end = at + word[0].length;
+  }
+  return { start: text, whole: true };
 }
 
 /**
  * How a paragraph is named where its change is said: its label without the colon ("Parking"), or
- * its first words. A colon inside a time ("07:40") or a ratio never ends a label.
+ * its first words, as many whole words as fit `START_COLUMNS`, with "…" only where something was
+ * cut. A word or number ("07:40", "1,240") is never cut, and a colon inside one never ends a label.
  */
 export function paragraphStart(text: string): string {
   const plain = text.replace(/\s+/gu, " ").trim();
   const label = /^([^:：]+)(?:：|:(?=\s))\s*\S/u.exec(plain)?.[1]?.trim();
   if (label && firstOf(label).whole) return label;
   const { start, whole } = firstOf(plain);
-  return whole ? start : `${start}…`;
+  if (whole) return start;
+  const cut = start.replace(DANGLING, "");
+  return `${cut === "" ? start : cut}…`;
 }
 
 /** What removing these whole paragraphs takes out, as the line and the card say it. */

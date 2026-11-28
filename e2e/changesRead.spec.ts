@@ -124,14 +124,14 @@ for (const language of ["en", "zh-CN"] as const) {
             ],
             "Led quarterly forecasting for a team of twelve analysts",
             "Ran the forecast cycle each quarter",
-            "Ran the forecast cycle…",
+            "Ran the forecast cycle each…",
           ]
         : [
             "教育经历",
             ["2016.09—2018.06 上海财经大学 会计学 硕士", "2012.09—2016.06 复旦大学 金融学 学士"],
             "2016.09—2018.06 上海财经大学 会计学 硕士",
             "2018.10—至今 Quillmere Hart Advisory, Senior Manager",
-            "2018.10—…",
+            "2018.10—至今 Quillmere Hart…",
           ];
     const editor = await listWith(window, heading, items);
 

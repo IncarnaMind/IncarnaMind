@@ -466,7 +466,7 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
     "a note about the meeting",
   ]);
   await expect(editor.getByTestId("applied-count")).toHaveText(
-    translate("en", "edit.added.named", { start: "a note about the…" }),
+    translate("en", "edit.added.named", { start: "a note about the meeting" }),
   );
   await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
   await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
