@@ -1821,7 +1821,15 @@ export type OwnAiProgress =
 
 /** How a run of the User's own AI ended, or one of its requests before the last (#3765). */
 export type OwnAiEnd =
-  | { kind: "finished"; reply: string }
+  | {
+      kind: "finished";
+      reply: string;
+      /**
+       * It ended the request at a question the User denied, or IncarnaMind refused, as Codex's
+       * request does: what it asked didn't run, and it did nothing after (#3653).
+       */
+      endedAtAsk?: true;
+    }
   | { kind: "failed"; reason: OwnAiFailure };
 
 /**

@@ -604,6 +604,11 @@ function Turn({
           </div>
         </div>
       )}
+      {state === "landed" && turn.endedAtAsk && (
+        <p data-testid="note-column-ended-at-ask" className="note-column-notice">
+          {t("ownAsk.endedAtAsk", { agent })}
+        </p>
+      )}
       {accept && <div className="note-column-accept">{accept}</div>}
     </div>
   );

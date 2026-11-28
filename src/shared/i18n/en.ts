@@ -9572,6 +9572,7 @@ export const en = {
   "ownAsk.runs.background": "in the background",
   "ownAsk.runs.unsandboxed": "outside {agent}’s own sandbox",
   "ownAsk.steers": "This file changes how {agent} behaves from now on.",
+  "ownAsk.endedAtAsk": "{agent} stopped and didn’t run what it asked to.",
   "ownAsk.unsure": "IncarnaMind can’t tell where this file leads.",
   "ownAsk.moreLines.one": "1 more line · Show all",
   "ownAsk.moreLines.other": "{count} more lines · Show all",

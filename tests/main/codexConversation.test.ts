@@ -227,11 +227,11 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
     });
   });
 
-  // protects=Deny goes back as the no Codex offers: "cancel" where it offers no "decline", as Codex 0.170 does, which ends its turn, so the request ends there, finished; the command never runs and its step says it failed; fails_when=a denied command runs, IncarnaMind answers with what Codex didn't offer, or the turn it ended reads as a failure
+  // protects=Deny goes back as the no Codex offers: "cancel" where it offers no "decline", as Codex 0.170 does, which ends its turn, so the request ends there, finished, and says it ended at the question; the command never runs and its step says it failed; fails_when=a denied command runs, IncarnaMind answers with what Codex didn't offer, or the turn it ended reads as a failure
   it("runs nothing it was denied", async () => {
     await mode("conv-command");
     const run = converse({ answer: async () => "deny" });
-    expect(await run.ended).toEqual({ kind: "finished", reply: "" });
+    expect(await run.ended).toEqual({ kind: "finished", reply: "", endedAtAsk: true });
     expect(existsSync(join(conversations, KEY, "marker.txt"))).toBe(false);
     expect(await decisions()).toEqual([{ decision: "cancel" }]);
     expect(ownSteps(run.steps).at(-1)).toMatchObject({ state: "failed" });
@@ -319,7 +319,7 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
       kind: "write",
       value: join(".agents", "skills", "tides", "SKILL.md"),
       inFolder: true,
-      steers: true,
+      steers: "codex",
     });
     expect(run.asked[0]?.forRequest).toEqual([
       {

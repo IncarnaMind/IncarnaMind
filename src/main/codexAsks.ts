@@ -116,6 +116,12 @@ function fileActionOf(
   };
 }
 
+/** Whose own file the first of a change's files that steers an AI is. */
+const steersOf = (actions: readonly NoteAction[]) => {
+  const agent = actions.find((each) => each.steers)?.steers;
+  return agent ? { steers: agent } : {};
+};
+
 /**
  * A change of several files as one step: each file's path, and what it does to each, the files
  * apart. One file is that file's own.
@@ -140,7 +146,7 @@ function fileChangeOf(item: Record<string, unknown>, places: Places, steering: S
       count: actions.reduce((sum, each) => sum + (each.size?.count ?? 0), 0),
     },
     change: actions.map((each) => `${each.value}\n${body(each)}`).join("\n…\n"),
-    ...(actions.some((each) => each.steers) && { steers: true }),
+    ...steersOf(actions),
     ...(actions.some((each) => each.unsure) && { unsure: true }),
   };
   return { action, paths: actions.map((each) => each.value) };
@@ -180,7 +186,7 @@ export function itemActionOf(
     const command = commandOf(text(item.command));
     return command === ""
       ? null
-      : { kind: "command", value: command, ...(steering.names(command) && { steers: true }) };
+      : { kind: "command", value: command, ...steering.commandMark(command) };
   }
   if (item.type === "fileChange") return fileChangeOf(item, places, steering)?.action ?? null;
   if (item.type === "mcpToolCall") {
@@ -321,7 +327,7 @@ function commandQuestion(
           value: command,
           ...(host !== "" && { host }),
           ...(elsewhere && { folder: placeOf(cwd, places).value }),
-          ...(steering.names(command) && { steers: true }),
+          ...steering.commandMark(command),
           // A request for the network alone runs the command in the sandbox still.
           ...(sandboxed && host === "" && { unsandboxed: true }),
           ...(reason !== "" && { reason }),

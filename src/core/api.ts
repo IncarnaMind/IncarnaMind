@@ -13622,6 +13622,8 @@ export interface NoteTurn {
   mode: string | null;
   /** The User started a new conversation after this turn: the AI carries none of the turns before (#3765). */
   newAfter: boolean;
+  /** Its AI ended it at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
 }
 
 /**
@@ -13656,8 +13658,12 @@ export interface NoteAction {
   change?: string;
   /** For a file it writes: what it writes, whole. */
   content?: string;
-  /** For a file, or a command that names one: one the AI reads as its own (CLAUDE.md, .claude/, .mcp.json). */
-  steers?: true;
+  /**
+   * For a file, or a command that names one: the command-line AI that reads it as its own, which
+   * may not be the one asking (Claude Code's CLAUDE.md, .claude/ and .mcp.json; Codex's .codex/,
+   * .agents/ and its own home).
+   */
+  steers?: "claude-code" | "codex";
   /** For a file: where it really leads can't be told (a loop of links, say), so it is asked about. */
   unsure?: true;
   /** For a command: it keeps running in the background, or runs outside the AI's own sandbox. */
@@ -13787,6 +13793,8 @@ export interface NoteTurnEvent {
    * oldest first (#3765): while there are any, the run goes on after this request ends.
    */
   queued: string[];
+  /** Ended at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
 }
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */

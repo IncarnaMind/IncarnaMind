@@ -466,13 +466,17 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
     turning = false;
     turnId = null;
     const end: OwnAiEnd =
-      turn.status === "completed" || (turn.status === "interrupted" && cancelled)
+      turn.status === "completed"
         ? { kind: "finished", reply: reply.slice(0, run.maxReplyChars) }
-        : {
-            kind: "failed",
-            reason:
-              failureOf(turn.error) ?? failure ?? (turn.status === "failed" ? "service" : "other"),
-          };
+        : turn.status === "interrupted" && cancelled
+          ? { kind: "finished", reply: reply.slice(0, run.maxReplyChars), endedAtAsk: true }
+          : {
+              kind: "failed",
+              reason:
+                failureOf(turn.error) ??
+                failure ??
+                (turn.status === "failed" ? "service" : "other"),
+            };
     failure = null;
     cancelled = false;
     // Steered in as the turn ended, and never taken: it goes as the next turn.

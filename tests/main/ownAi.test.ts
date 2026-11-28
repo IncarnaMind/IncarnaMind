@@ -1073,13 +1073,13 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         inFolder: true,
         size: { kind: "new", count: 1 },
         content: "{}",
-        steers: true,
+        steers: "claude-code",
       },
       {
         kind: "change",
         value: "CLAUDE.md",
         inFolder: true,
-        steers: true,
+        steers: "claude-code",
         size: { kind: "changes", count: 1 },
         change: "- a\n+ b",
       },
@@ -1297,15 +1297,15 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     expect(
       asked.map(({ action }, index) => [
         files[index],
-        action.steers ?? false,
+        action.steers ?? null,
         action.unsure ?? false,
       ]),
     ).toEqual([
-      ["copy.md", true, false],
-      ["twin.md", false, true],
-      ["loopA", false, true],
-      ["~/notes.md", false, true],
-      ["plain.md", false, false],
+      ["copy.md", "claude-code", false],
+      ["twin.md", null, true],
+      ["loopA", null, true],
+      ["~/notes.md", null, true],
+      ["plain.md", null, false],
     ]);
   });
 

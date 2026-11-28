@@ -61,7 +61,7 @@ export function actionOf(
     return {
       kind: "command",
       value: command,
-      ...(agentSteering(places).names(command) && { steers: true }),
+      ...agentSteering(places).commandMark(command),
       ...(input.run_in_background === true && { background: true }),
       ...(input.dangerouslyDisableSandbox === true && { unsandboxed: true }),
       ...(text(input.description).trim() !== "" && { description: text(input.description).trim() }),

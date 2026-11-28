@@ -12,7 +12,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { useLanguage, useT } from "../../i18n";
 import { answerInNote, focusNoteAsk } from "../../ownAiInNote";
 import { visible } from "../../visibleText";
-import { lastingWords } from "./ownAskWords";
+import { lastingWords, steersWords } from "./ownAskWords";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -365,14 +365,14 @@ export function QuestionCard({
   const titleId = useId();
   const steersId = useId();
   const { action } = question;
-  const [change, setChange] = useState(action.steers === true);
+  const [change, setChange] = useState(action.steers !== undefined);
   const details = useRef<HTMLDivElement>(null);
   const [all, setAll] = useState(false);
   const [long, setLong] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each question starts short again.
   useLayoutEffect(() => {
     setAll(false);
-    setChange(question.action.steers === true);
+    setChange(question.action.steers !== undefined);
   }, [question.id]);
   useMeasured(
     details,
@@ -480,7 +480,7 @@ export function QuestionCard({
         </p>
         {action.steers && (
           <p id={steersId} data-testid="own-ask-steers" className="approval-explanation">
-            {t("ownAsk.steers", { agent })}
+            {steersWords(t, action.steers)}
           </p>
         )}
         {action.unsure && (

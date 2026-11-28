@@ -135,6 +135,18 @@ async function lastSteps(window: Page): Promise<string[]> {
   return steps;
 }
 
+/** The line under the last request's words saying its AI stopped at a no, "" for none. */
+async function endedAtAskLine(window: Page): Promise<string> {
+  await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+  const panel = group(window).getByTestId("note-ask-panel");
+  const turn = panel.getByTestId("note-column-turn").last();
+  await expect(turn).toBeVisible();
+  const line = turn.getByTestId("note-column-ended-at-ask");
+  const said = (await line.count()) > 0 ? ((await line.textContent()) ?? "") : "";
+  await fromConversationMenu(window, panel, "note-ask-fold");
+  return said;
+}
+
 /** The folder of the Note's one conversation. */
 async function conversationFolder(): Promise<string> {
   const conversations = join(dataDir, "Own AI conversations");
@@ -142,7 +154,7 @@ async function conversationFolder(): Promise<string> {
   return join(conversations, key ?? "");
 }
 
-test("on the User's own Codex: the first request asks in Codex's words; a command asks with Codex's own answers, runs once allowed and not when denied; its answer for this request; a write that steers says so; Stop with a card open ends all it started; a setting that never asks is said once", async () => {
+test("on the User's own Codex: the first request asks in Codex's words; a command asks with Codex's own answers, runs once allowed and not when denied, which says in one line that it stopped; its answer for this request; a write that steers says so; Stop with a card open ends all it started; a setting that never asks is said once", async () => {
   test.setTimeout(150_000);
   const { app, window } = await launchApp(dataDir, {
     home,
@@ -195,7 +207,10 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     card = await cardOf(window);
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
     await ended(window, mindId, before);
+    const stopped = "Codex stopped and didn’t run what it asked to.";
+    await expect(group(window).getByTestId("note-ask-pill-open")).toHaveText(stopped);
     expect(await lastSteps(window)).toEqual(["Didn’t run touch marker.txt · denied"]);
+    expect(await endedAtAskLine(window)).toBe(stopped);
     expect(await readFile(join(bin, "answers.jsonl"), "utf8")).toContain('"cancel"');
 
     // Codex's answer for this request, beside Allow once.
@@ -210,6 +225,7 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     await pointAndClick(window, card.getByTestId("own-ask-request"));
     await ended(window, mindId, before);
     expect(await lastSteps(window)).toEqual(["Ran touch marker.txt · allowed for this request"]);
+    expect(await endedAtAskLine(window)).toBe("");
 
     // A command in another folder that reaches a site shows both, and its answer for this request
     // is the site.

@@ -206,6 +206,7 @@ interface TurnRow {
   problem: string | null;
   mode: string | null;
   new_after: number;
+  ended_at_ask: number;
   created_at: string;
 }
 
@@ -420,10 +421,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     problem: NoteTurnProblem | null,
     reply: string,
     mode: string | null,
+    endedAtAsk = false,
   ) => {
     db.run(
-      "UPDATE own_ai_turns SET outcome = ?, problem = ?, reply = ?, mode = ?, updated_at = ? WHERE id = ?",
-      [outcome, problem, reply, mode, options.now(), turnId],
+      `UPDATE own_ai_turns SET outcome = ?, problem = ?, reply = ?, mode = ?, ended_at_ask = ?,
+         updated_at = ? WHERE id = ?`,
+      [outcome, problem, reply, mode, endedAtAsk ? 1 : 0, options.now(), turnId],
     );
   };
 
@@ -445,6 +448,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         outcome.problem,
         reply,
         rest.mode ?? null,
+        rest.endedAtAsk === true,
       );
       options.turned({
         ...turn,
@@ -861,7 +865,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           ? { state: "failed", problem: "read-only" }
           : { state: "landed", problem: null };
     /** Ends a request of the run: its record, and every window told. */
-    const close = (of: Taken, outcome: Pick<NoteTurnEvent, "state" | "problem">, reply: string) => {
+    const close = (
+      of: Taken,
+      outcome: Pick<NoteTurnEvent, "state" | "problem">,
+      reply: string,
+      endedAtAsk = false,
+    ) => {
       if (current === of) current = null;
       if (outcome.state === "failed") {
         options.log.warn("agents.ownAiConversation.ended", {
@@ -875,6 +884,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         fresh: fresh && of.turnId === turnId,
         quiet: false,
         questions: [],
+        ...(endedAtAsk && outcome.state === "landed" && { endedAtAsk: true }),
       });
       lastEnd = told;
       endTurn({ mindId, pairingId: pairing.id, turnId: of.turnId }, outcome, told);
@@ -954,6 +964,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             current,
             outcomeOf(current, step.end),
             step.end.kind === "finished" ? step.end.reply.trim() : "",
+            step.end.kind === "finished" && step.end.endedAtAsk === true,
           );
         return;
       }
@@ -1430,6 +1441,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             ? { state: "stopped", problem: null }
             : outcomeOf(current, end),
         end.kind === "finished" ? end.reply.trim() : "",
+        !lost && !signal.aborted && end.kind === "finished" && end.endedAtAsk === true,
       );
     } else if (neverTaken && lastEnd && !options.lifetime.aborted) {
       tell({ ...lastEnd, queued: [] });
@@ -1511,7 +1523,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       );
       if (!latest) return [];
       const rows = db.all<TurnRow>(
-        `SELECT id, request, selection, reply, outcome, problem, mode, new_after, created_at
+        `SELECT id, request, selection, reply, outcome, problem, mode, new_after, ended_at_ask, created_at
          FROM own_ai_turns WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
         [latest.id],
       );
@@ -1564,6 +1576,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         closed: closed.get(row.id) ?? [],
         mode: row.mode,
         newAfter: row.new_after === 1,
+        ...(row.ended_at_ask === 1 && { endedAtAsk: true }),
       }));
     },
 

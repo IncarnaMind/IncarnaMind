@@ -1975,6 +1975,32 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=a request its AI ended at a question told no ends finished, its last words kept, and says so in the window and in the conversation read again; a later one that finished says nothing of it (#3653); fails_when=the conversation shows only the AI's words of what it would do, as if it ran, or the request reads as failed
+  it("says a request ended at a question told no ran none of it", async () => {
+    let ask = true;
+    const run = runner(async () =>
+      ask
+        ? { kind: "finished", reply: "I’ll run touch denied.txt.", endedAtAsk: true }
+        : { kind: "finished", reply: "Done." },
+    );
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "make a file" });
+    expect(await ended(1)).toMatchObject({ state: "landed", endedAtAsk: true });
+    ask = false;
+    await core.askInNote({ mindId, words: "say hello" });
+    expect((await ended(2))?.endedAtAsk).toBeUndefined();
+    expect(
+      (await core.noteConversation(mindId)).map(({ outcome, reply, endedAtAsk }) => [
+        outcome,
+        reply,
+        endedAtAsk ?? false,
+      ]),
+    ).toEqual([
+      ["landed", "I’ll run touch denied.txt.", true],
+      ["landed", "Done.", false],
+    ]);
+  });
+
   // protects=Stop ends the run and leaves the Note as it was; fails_when=a stopped request changes the Note or keeps running
   it("stops on Stop, and leaves the Note as it was", async () => {
     const { core, mindId, client, ended } = await written(runner(untilStopped).adapter);

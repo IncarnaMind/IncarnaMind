@@ -8937,6 +8937,7 @@ export const zhCN = {
   "ownAsk.runs.background": "在后台",
   "ownAsk.runs.unsandboxed": "在 {agent} 自己的沙盒之外",
   "ownAsk.steers": "这个文件会改变 {agent} 以后的行为。",
+  "ownAsk.endedAtAsk": "{agent} 已停止，未运行所请求的操作。",
   "ownAsk.unsure": "IncarnaMind 无法确定这个文件实际指向哪里。",
   "ownAsk.moreLines.one": "还有 1 行 · 显示全部",
   "ownAsk.moreLines.other": "还有 {count} 行 · 显示全部",

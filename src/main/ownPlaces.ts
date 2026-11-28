@@ -2,12 +2,13 @@
  * Where a file a command-line AI names really is, as a Note's conversation shows it (#3653): from the
  * conversation's folder when it is in it, else from home, links followed as the system follows them;
  * and whether it is one of the files the AI reads as its own, which steer every later request of the
- * conversation. Shared by Claude Code's questions (./claudeCodeAsks) and Codex's (./codexAsks), with
- * one list of what either reads, since each can write the other's.
+ * conversation, and whose. Shared by Claude Code's questions (./claudeCodeAsks) and Codex's
+ * (./codexAsks), with what each reads as its own, since each can write the other's.
  */
 import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import type { NoteAction } from "../core/api";
 
 /** Where a file is: from the conversation's folder when it is in it, else from home as "~". */
 export interface Places {
@@ -322,11 +323,13 @@ export const codexHomeOf = (environment: Readonly<Record<string, string | undefi
 
 const asPattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const kept = new Map<string, ReturnType<typeof steeringOf>>();
+type Steered = NonNullable<NoteAction["steers"]>;
+
+const kept = new Map<string, ReturnType<typeof bothSteering>>();
 
 /**
- * What either command-line AI reads as its own, one list for both, since a request on one can
- * write the other's (#3653). Claude Code's: CLAUDE.md, CLAUDE.local.md, a folder's servers
+ * What each command-line AI reads as its own, each list saying whose it is, since a request on one
+ * can write the other's (#3653). Claude Code's: CLAUDE.md, CLAUDE.local.md, a folder's servers
  * (.mcp.json) and the User's own (.claude.json in their home folder), each a command started next
  * time, and anything under a .claude folder; in the conversation's folder and each above it, and in
  * the User's own ~/.claude and ~/.claude.json. Codex's: anything in its home (its global AGENTS.md,
@@ -336,28 +339,83 @@ const kept = new Map<string, ReturnType<typeof steeringOf>>();
  * settings, as `codex mcp add`. `.claude` may follow a short option's letter with nothing between, as
  * in -C.claude.
  */
+const steeringLists = (home: string, codexHome: string): [Steered, SteeringNames][] => [
+  [
+    "claude-code",
+    {
+      files: new Set(["claude.md", "claude.local.md", ".mcp.json", ".claude.json"]),
+      folders: new Set([".claude"]),
+      near: ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".claude"],
+      own: () => [join(home, ".claude"), join(home, ".claude.json")],
+      named: new RegExp(
+        [
+          String.raw`claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])`,
+          "CLAUDE_CONFIG_DIR",
+          String.raw`\bclaude\s+(?:mcp|plugins?|features|config|login|logout)\b`,
+        ].join("|"),
+        "i",
+      ),
+    },
+  ],
+  [
+    "codex",
+    {
+      files: new Set(),
+      folders: new Set([".codex", ".agents"]),
+      near: [".codex", ".agents"],
+      own: () => [codexHome],
+      named: new RegExp(
+        [
+          String.raw`\.codex(?:$|[^\w.-])|\.agents(?:$|[^\w.-])`,
+          "CODEX_HOME",
+          String.raw`\bcodex\s+(?:mcp|plugins?|features|config|login|logout)\b`,
+          asPattern(codexHome),
+        ].join("|"),
+        "i",
+      ),
+    },
+  ],
+];
+
+function bothSteering(home: string, codexHome: string) {
+  const lists = steeringLists(home, codexHome).map(
+    ([agent, names]) => [agent, steeringOf(names)] as const,
+  );
+  const steering = (path: string, cwd: string) => {
+    const found = lists.map(([agent, each]) => [agent, each.steering(path, cwd)] as const);
+    return (
+      found.find(([, said]) => said === "known") ?? found.find(([, said]) => said === "unknown")
+    );
+  };
+  const names = (command: string): Steered | null =>
+    lists.find(([, each]) => each.names(command))?.[0] ?? null;
+  return {
+    /** Whether a file is either AI's own: "known", "unknown" where that can't be told, or null. */
+    steering: (path: string, cwd: string) => steering(path, cwd)?.[1] ?? null,
+    /** What a file's card says of it: whose own file it is, or that where it leads can't be told. */
+    mark(path: string, cwd: string): { steers?: Steered; unsure?: true } {
+      const found = steering(path, cwd);
+      if (!found) return {};
+      return found[1] === "known" ? { steers: found[0] } : { unsure: true };
+    },
+    /** Whose own files a command names, if anyone's. */
+    names,
+    /** What a command's card says of it: whose own files it names. */
+    commandMark(command: string): { steers?: Steered } {
+      const agent = names(command);
+      return agent ? { steers: agent } : {};
+    },
+  };
+}
+
+/** What Claude Code and Codex read as their own, for the User's homes as `places` gives them. */
 export function agentSteering(places: Places) {
   const home = places.home || homedir();
   const codexHome = places.codexHome || join(home, ".codex");
   const at = `${home}\u0000${codexHome}`;
   const found = kept.get(at);
   if (found) return found;
-  const steering = steeringOf({
-    files: new Set(["claude.md", "claude.local.md", ".mcp.json", ".claude.json"]),
-    folders: new Set([".claude", ".codex", ".agents"]),
-    near: ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".claude", ".codex", ".agents"],
-    own: () => [join(home, ".claude"), join(home, ".claude.json"), codexHome],
-    named: new RegExp(
-      [
-        String.raw`claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])`,
-        String.raw`\.codex(?:$|[^\w.-])|\.agents(?:$|[^\w.-])`,
-        String.raw`CODEX_HOME|CLAUDE_CONFIG_DIR`,
-        String.raw`\b(?:codex|claude)\s+(?:mcp|plugins?|features|config|login|logout)\b`,
-        asPattern(codexHome),
-      ].join("|"),
-      "i",
-    ),
-  });
+  const steering = bothSteering(home, codexHome);
   kept.set(at, steering);
   return steering;
 }

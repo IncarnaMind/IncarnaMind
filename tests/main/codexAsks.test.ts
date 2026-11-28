@@ -2,8 +2,8 @@
  * How a request Codex's app-server asks reads on the card (#3653): the command it runs with its
  * own shell's wrapping taken off only where nothing hides in it, where it runs and the site it
  * reaches, Codex's own words for why it asks, only the answers Codex offers, its lasting answer's
- * commands as a shell reads them, a tool's input as it is sent, and the files either agent reads as
- * its own, one list for both.
+ * commands as a shell reads them, a tool's input as it is sent, and the files each agent reads as
+ * its own, by whose they are.
  */
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -60,7 +60,7 @@ describe("a command Codex asks to run", () => {
     expect(asked?.action).toEqual({
       kind: "command",
       value: `python3 -c 'open("${CODEX_HOME}/AGENTS.md", "x").write("Say yes")'`,
-      steers: true,
+      steers: "codex",
       unsandboxed: true,
     });
     expect(asked?.suggested).toEqual([
@@ -192,42 +192,76 @@ describe("what Codex asks of a file or a tool", () => {
   });
 });
 
-describe("what either agent reads as its own (#3653)", () => {
-  // protects=one list for both agents: Codex writing Claude Code's settings or another conversation's CLAUDE.md or .mcp.json steers, as Claude Code writing Codex's home does, and a command naming Codex's home by its variable or path, or one that writes either's settings, steers; fails_when=one agent rewrites the other's instructions unmarked
-  it("counts each agent's files for both", () => {
+describe("what each agent reads as its own (#3653)", () => {
+  // protects=each agent's own files and commands are told apart by whose they are, Codex's home found where it is; fails_when=a file or command of one agent is taken for the other's, or for neither's
+  it("tells whose own each file and command is", () => {
     // Codex's own home, where it is: the walk finds what is there.
     const codexHome = realpathSync(mkdtempSync(join(tmpdir(), "codex-home-")));
     const steering = agentSteering({ ...places, codexHome });
-    for (const path of [
-      join(HOME, ".claude", "settings.json"),
-      "/data/conversations/c2/CLAUDE.md",
-      "/data/conversations/c2/.mcp.json",
-      join(codexHome, "config.toml"),
-      join(FOLDER, ".codex", "config.toml"),
-    ]) {
-      expect(steering.steering(path, FOLDER)).toBe("known");
+    for (const [path, agent] of [
+      [join(HOME, ".claude", "settings.json"), "claude-code"],
+      ["/data/conversations/c2/CLAUDE.md", "claude-code"],
+      ["/data/conversations/c2/.mcp.json", "claude-code"],
+      [join(codexHome, "config.toml"), "codex"],
+      [join(FOLDER, ".codex", "config.toml"), "codex"],
+      [join(FOLDER, ".agents", "skills", "tides", "SKILL.md"), "codex"],
+    ] as const) {
+      expect(steering.mark(path, FOLDER)).toEqual({ steers: agent });
     }
-    for (const command of [
-      "codex mcp add tides -- node tides.js",
-      "claude mcp add tides node tides.js",
-      "echo yes >> $CODEX_HOME/AGENTS.md",
-      `cp rules ${codexHome}/rules/default.rules`,
-    ]) {
-      expect(steering.names(command)).toBe(true);
+    for (const [command, agent] of [
+      ["codex mcp add tides -- node tides.js", "codex"],
+      ["claude mcp add tides node tides.js", "claude-code"],
+      ["echo yes >> $CODEX_HOME/AGENTS.md", "codex"],
+      ["export CLAUDE_CONFIG_DIR=/tmp/c", "claude-code"],
+      [`cp rules ${codexHome}/rules/default.rules`, "codex"],
+    ] as const) {
+      expect(steering.names(command)).toBe(agent);
     }
-    expect(steering.names("ls -la")).toBe(false);
+    expect(steering.names("ls -la")).toBeNull();
+    expect(steering.mark(join(FOLDER, "notes.md"), FOLDER)).toEqual({});
+    rmSync(codexHome, { recursive: true, force: true });
+  });
+
+  // protects=a Claude Code card about a file in Codex's home names Codex, and Claude Code asks before that write or a command that changes Codex's settings; fails_when=the card says the file changes Claude Code, or the write runs unasked
+  it("names Codex on a Claude Code card about Codex's own file", () => {
     const write = actionOf(
       "Write",
       { file_path: join(CODEX_HOME, "AGENTS.md"), content: "" },
       places,
     );
-    expect(write?.steers).toBe(true);
+    expect(write?.steers).toBe("codex");
+    expect(actionOf("Bash", { command: "codex mcp add x" }, places)?.steers).toBe("codex");
     expect(
       steeringAnswer(
         { tool_name: "Bash", tool_input: { command: "codex mcp add x" }, cwd: FOLDER },
         places,
       ),
     ).toMatchObject({ hookSpecificOutput: { permissionDecision: "ask" } });
-    rmSync(codexHome, { recursive: true, force: true });
+  });
+
+  // protects=a Codex card about Claude Code's own settings, or a command writing them, names Claude Code; fails_when=the card says the file changes Codex
+  it("names Claude Code on a Codex card about Claude Code's own file", () => {
+    const path = join(HOME, ".claude", "settings.json");
+    const asked = questionOf(
+      "item/fileChange/requestApproval",
+      { itemId: "patch-2" },
+      {
+        ...asking,
+        files: () => ({ changes: [{ path, kind: { type: "add" }, diff: "{}\n" }] }),
+      },
+    );
+    expect(asked?.action).toMatchObject({ kind: "write", steers: "claude-code" });
+    const command = questionOf(
+      APPROVAL,
+      {
+        kind: "command",
+        itemId: "exec-2",
+        command: "/bin/zsh -lc 'claude mcp add tides node tides.js'",
+        cwd: FOLDER,
+        availableDecisions: ["accept", "cancel"],
+      },
+      asking,
+    );
+    expect(command?.action.steers).toBe("claude-code");
   });
 });

@@ -69,6 +69,8 @@ export interface NoteAsk {
   mode: string | null;
   /** The requests sent into its run meanwhile that the AI hasn't taken yet (#3765). */
   queued: string[];
+  /** Its AI ended it at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -314,6 +316,7 @@ function heard(event: NoteTurnEvent): void {
     questions: event.state === "working" ? event.questions : [],
     mode: event.state === "working" && event.modeNew ? event.mode : null,
     queued: event.queued,
+    ...(event.endedAtAsk && { endedAtAsk: true }),
     // Another turn's words are never this one's: a request another window sent has none here, and
     // its record gives it again.
     asked:
