@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   askToChange,
   createDataFolder,
@@ -45,13 +46,15 @@ const WORDS = {
     folder: "Finance",
     first: "First sentence.",
     more: [" Two.", " Three."],
-    applied: "Changed 1 paragraph",
+    applied: translate("en", "edit.applied.named", { start: "The tides here are very powerful…" }),
   },
   "zh-CN": {
     folder: "财务",
     first: "第一句。",
     more: ["第二句。", "第三句。"],
-    applied: "修改了 1 个段落",
+    applied: translate("zh-CN", "edit.applied.named", {
+      start: "The tides here are very powerful…",
+    }),
   },
 } as const;
 type Language = keyof typeof WORDS;

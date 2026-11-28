@@ -17,7 +17,11 @@ import { DOMParser } from "linkedom";
 import { afterEach, describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD } from "../../src/core";
-import { appliedChanges, type ChangePlace } from "../../src/renderer/src/editor/appliedEditLine";
+import {
+  appliedChanges,
+  type ChangePlace,
+  changedBlocksOf,
+} from "../../src/renderer/src/editor/appliedEditLine";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 
 const dom = new DOMParser().parseFromString(
@@ -114,5 +118,36 @@ describe("A change whose start y-tiptap gives no position for", () => {
     const [change] = appliedChanges(editor.state, [countStart(editor.state, 3)]);
     expect(change?.blockId).toBeNull();
     expect(change?.written.size).toBe(0);
+  });
+});
+
+const wholeParagraph = (state: EditorState, paragraph: string): ChangePlace => ({
+  from: relativeAt(state, 14),
+  to: relativeAt(state, 14),
+  removed: Fragment.empty,
+  block: null,
+  paragraph,
+});
+
+describe("What an applied edit changed, named", () => {
+  test("a change to one paragraph names it by its opening words", async () => {
+    const editor = await mindWith(TWO_PARAGRAPHS);
+    const changes = appliedChanges(editor.state, [wholeParagraph(editor.state, "second")]);
+    expect(changedBlocksOf(editor.state, changes)).toMatchObject({
+      paragraphs: 1,
+      tables: 0,
+      named: { start: "gamma delta", added: false },
+    });
+  });
+
+  test("a change to two paragraphs names neither, and says how many", async () => {
+    const editor = await mindWith(TWO_PARAGRAPHS);
+    const changes = appliedChanges(editor.state, [
+      wholeParagraph(editor.state, "first"),
+      wholeParagraph(editor.state, "second"),
+    ]);
+    const blocks = changedBlocksOf(editor.state, changes);
+    expect(blocks.paragraphs).toBe(2);
+    expect(blocks.named).toBeUndefined();
   });
 });

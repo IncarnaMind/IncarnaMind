@@ -7052,30 +7052,12 @@
   .mind-editor .citation-marker.proposal-node--insert.proposal-applying {
     box-shadow: none;
   }
-  /* Review changes draws an applied edit's changes as proposals are drawn, over text that stays applied. */
-  .mind-editor .applied-new {
-    text-decoration: underline 1px var(--color-accent);
-    text-decoration-skip-ink: none;
-    text-underline-offset: 5px;
-  }
-  .mind-editor .applied-old {
-    color: var(--color-ink-meta);
-    text-decoration: line-through 1px var(--color-ink-meta);
-    user-select: none;
-  }
-  .mind-editor div.applied-old--block {
-    margin-block: 4px;
-  }
-  /* A Block taken out reads as it was, a list or table too, every line of it struck. */
-  .mind-editor .applied-old--block :is(p, h1, h2, h3, h4, h5, h6, li, td, th) {
-    text-decoration: line-through 1px var(--color-ink-meta);
-  }
   /*
    * How a change reads (#1028; DESIGN.md, AI edits): a struck run and its
    * replacement a thin space apart; a paragraph written anew shows its new
    * text alone, until its "Was: …" line, or its section's line, shows the old.
    */
-  .mind-editor :is(del.proposal-delete, del.applied-old) {
+  .mind-editor del.proposal-delete {
     margin-inline-end: 0.2em;
   }
   .mind-editor
@@ -7154,10 +7136,6 @@
   .mind-editor .applied-line {
     margin-bottom: 6px;
     color: var(--color-accent-strong);
-
-    & :is([data-applied-action="review"], [data-applied-action="done"]) {
-      color: var(--color-ink);
-    }
   }
   .mind-editor .applied-line .edit-pending-dot {
     margin-right: 0;
@@ -7178,33 +7156,6 @@
     height: 6px;
     border-radius: 9999px;
     background: var(--color-attention);
-  }
-  .mind-editor .applied-restore-holder {
-    margin-inline-start: 6px;
-    font-family: var(--font-sans);
-    font-size: var(--text-small);
-    line-height: 20px;
-    user-select: none;
-    white-space: nowrap;
-  }
-  /* Struck words take their space with them: the words after them need one. */
-  .mind-editor del.applied-old + .applied-restore-holder {
-    margin-inline-end: 6px;
-  }
-  .mind-editor .applied-restore-holder--block {
-    display: block;
-    margin-block: 4px 0;
-    margin-inline-start: 0;
-  }
-  .mind-editor .applied-restore {
-    color: var(--color-ink-meta);
-
-    &:hover {
-      color: var(--color-ink-secondary);
-    }
-  }
-  .mind-editor .applied-changed {
-    color: var(--color-ink-meta);
   }
   .mind-editor .applied-kept-line {
     margin-block: 4px;

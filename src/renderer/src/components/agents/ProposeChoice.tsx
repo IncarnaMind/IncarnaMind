@@ -4,7 +4,7 @@ import { checkBoxClass, checkHintClass, checkRowClass } from "../ui";
 
 /**
  * Whether an agent may propose changes to the notes in its Folders (#352): the User's grant,
- * given where they connect it and changed in place on its row. Its changes wait for them. With
+ * given where they connect it and changed in place on its row. With
  * `hint` false the sentences on what the grant allows are left for the caller to put under Details.
  */
 export function ProposeChoice({

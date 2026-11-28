@@ -354,7 +354,7 @@ for (const [language, longCount] of [
   ],
   ["zh-CN", "修改了 1,234,567,890 个段落，添加了 2,345,678,901 个表格和 3,456,789,012 个图表"],
 ] as const) {
-  test(`at 900px in ${language}, a long change count stays on one line with Undo and Review changes inside the band`, async () => {
+  test(`at 900px in ${language}, a long change count stays on one line with Undo inside the band`, async () => {
     test.setTimeout(90_000);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, 900, 800);
@@ -386,16 +386,14 @@ for (const [language, longCount] of [
     );
     const band = await line.boundingBox();
     if (!band) throw new Error("The applied line has no box.");
-    for (const action of ["applied-undo", "applied-review"] as const) {
-      const button = line.getByTestId(action);
-      await expect(button).toBeVisible();
-      const box = await button.boundingBox();
-      if (!box) throw new Error(`${action} has no box.`);
-      expect(box.x).toBeGreaterThanOrEqual(band.x);
-      expect(box.y).toBeGreaterThanOrEqual(band.y);
-      expect(box.x + box.width).toBeLessThanOrEqual(band.x + band.width + 1);
-      expect(box.y + box.height).toBeLessThanOrEqual(band.y + band.height + 1);
-    }
+    const undo = line.getByTestId("applied-undo");
+    await expect(undo).toBeVisible();
+    const box = await undo.boundingBox();
+    if (!box) throw new Error("Undo has no box.");
+    expect(box.x).toBeGreaterThanOrEqual(band.x);
+    expect(box.y).toBeGreaterThanOrEqual(band.y);
+    expect(box.x + box.width).toBeLessThanOrEqual(band.x + band.width + 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(band.y + band.height + 1);
     expect(
       await window.evaluate(() => document.documentElement.scrollWidth <= globalThis.innerWidth),
     ).toBe(true);
@@ -404,7 +402,7 @@ for (const [language, longCount] of [
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`at 1280px in ${language}, Undo and Review changes follow the change count on one line, not the band's far edge`, async () => {
+  test(`at 1280px in ${language}, Undo follows the change count on one line, not the band's far edge`, async () => {
     test.setTimeout(90_000);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, 1280, 800);
@@ -416,10 +414,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const line = window.locator('[data-testid="mind-editor"]:visible').getByTestId("applied-line");
     const count = line.getByTestId("applied-count");
     const undo = line.getByTestId("applied-undo");
-    const review = line.getByTestId("applied-review");
     await expect(line).toBeVisible();
     await expect(undo).toBeVisible();
-    await expect(review).toBeVisible();
     await capture(window, `band-actions-${language}`);
 
     const wordsEnd = await count.evaluate((element) => {
@@ -429,18 +425,14 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     const countBox = await count.boundingBox();
     const undoBox = await undo.boundingBox();
-    const reviewBox = await review.boundingBox();
-    if (!countBox || !undoBox || !reviewBox) throw new Error("The count or an action has no box.");
+    if (!countBox || !undoBox) throw new Error("The count or Undo has no box.");
 
     // Only the separator dot sits between them, and its glyph's width differs by platform: 16px apart on macOS, 24px on Linux.
     expect(undoBox.x).toBeGreaterThanOrEqual(wordsEnd);
     expect(undoBox.x - wordsEnd).toBeLessThanOrEqual(40);
-    expect(reviewBox.x).toBeGreaterThanOrEqual(undoBox.x + undoBox.width);
-    for (const box of [undoBox, reviewBox]) {
-      expect(
-        Math.abs(box.y + box.height / 2 - (countBox.y + countBox.height / 2)),
-      ).toBeLessThanOrEqual(2);
-    }
+    expect(
+      Math.abs(undoBox.y + undoBox.height / 2 - (countBox.y + countBox.height / 2)),
+    ).toBeLessThanOrEqual(2);
     await app.close();
   });
 }
