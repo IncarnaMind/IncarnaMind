@@ -8329,6 +8329,15 @@ export const zhCN = {
   "agents.propose.typedTag":
     "{name} 的文字漏掉了用户在这一段输入的 <removed> 标记，会删掉用户的文字，因此没有写入任何修改。请按原样保留每个标记。",
   "agents.propose.misnamed": "{name} 的文字没有说清替换哪一段，因此没有写入任何修改。",
+  "agents.propose.citationNotFound":
+    "未添加：这条引文在该段落中未逐字找到。请从下方段落原样复制引文并更新笔记：",
+  "agents.propose.citationNotFoundShort": "未添加：这条引文在该段落中未逐字找到。",
+  "agents.propose.citationNotFoundFile": "未添加：这条引文在该文件中未逐字找到。",
+  "agents.propose.citationCantCheck":
+    "未添加：无法核对该段落中的这条引文。请从下方段落原样复制更长的一段话并更新笔记：",
+  "agents.propose.citationCantCheckShort": "未添加：无法核对该段落中的这条引文。",
+  "agents.propose.citationUnknownPassage":
+    "未添加：共享给此智能体的文件夹中没有段落“{passageId}”。请原样填写 search 或 read_passages 返回的 passageId。",
   "agents.propose.unchecked.one":
     "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
   "agents.propose.unchecked":

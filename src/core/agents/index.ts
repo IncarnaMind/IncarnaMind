@@ -75,6 +75,7 @@ import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
 import { createHandOverTurns } from "./handedFiles";
 import type { AgentChallengeSession, OpenedAgentConnection, ServedConnection } from "./mcp";
+import { createPassageCiteRegistry } from "./passageCites";
 import { createAgentRequests, type KeptRequest } from "./requests";
 import {
   AgentEndpointError,
@@ -678,6 +679,7 @@ export function createAgents(options: AgentsOptions) {
     workings: createAgentWorkings(),
     handOverTurns: createHandOverTurns(),
     versions: new Map(),
+    passageCites: createPassageCiteRegistry(),
     citations,
     requests: {
       ofPairing: requests.ofPairing,

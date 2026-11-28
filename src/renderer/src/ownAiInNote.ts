@@ -1028,7 +1028,8 @@ export function selectedForRequest(
  * A reply's Citation tokens, which the AI writes as it does in a Note; a Note shows them as chips,
  * and a reply leaves them out until it shows them as chips too.
  */
-export const withoutCitations = (reply: string) => reply.replace(/\s?\[cite:[a-z0-9]{1,32}\]/g, "");
+export const withoutCitations = (reply: string) =>
+  reply.replace(/\s?\[cite:(?:[^\]\n[]|\[[^\]\n]*\])*(?:\]|$)/g, "");
 
 /** The first words of a reply, as one line: its Markdown marks gone. */
 export const firstWordsOf = (reply: string): string =>

@@ -8891,6 +8891,18 @@ export const en = {
   "agents.propose.text": "Give the text for {name}.",
   "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
   "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.citationNotFound":
+    "Not attached: this quote wasn’t found word for word in that passage. Copy the exact words from the passage below and update the note:",
+  "agents.propose.citationNotFoundShort":
+    "Not attached: this quote wasn’t found word for word in that passage.",
+  "agents.propose.citationNotFoundFile":
+    "Not attached: this quote wasn’t found word for word in that file.",
+  "agents.propose.citationCantCheck":
+    "Not attached: this quote couldn’t be checked in that passage. Copy a longer exact phrase from the passage below and update the note:",
+  "agents.propose.citationCantCheckShort":
+    "Not attached: this quote couldn’t be checked in that passage.",
+  "agents.propose.citationUnknownPassage":
+    "Not attached: there is no passage “{passageId}” in the Folders shared with this agent. Give the passageId exactly as search or read_passages returned it.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
   "agents.propose.ownOutsideSelection":
