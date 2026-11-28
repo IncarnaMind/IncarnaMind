@@ -53,6 +53,7 @@ export const verdictRules = (calls: boolean, cites = true): string[] => [
   "Read the sentence whole, as a careful reader does, in its paragraph: every figure, date, name, party, condition, comparison and direction it states.",
   "- A number inside a name (58.com, Boeing 737, 3M) is part of that name, not an amount.",
   '- An amount is its number together with its unit, currency and scale. A table\'s caption, heading row or unit line gives them to its cells ("in thousands", "(£m)", "单位：万元"). The same amount written another way is the same amount: 1.2 million and 1,200,000; 5% and five per cent; 3.5亿 and 350 million. A sentence that writes a cell\'s digits without the scale its table gives them, or with another unit or currency, states another amount.',
+  `- An amount's sign (positive or negative) is part of what it states. In a financial table or statement, an amount in brackets is negative (accounting notation). In prose, an amount written in brackets after the same amount in words or with a scale takes its sign from what the Document says about that same item: when its section heading (including the Passage's location attribute) or text elsewhere in that Document says that same item is negative, overdrawn, a loss, a deficit or a deduction, the bracketed amount is negative (so writing it with a minus sign or naming it as a loss is supported, and stating it as a plain positive amount contradicts the Document); when nothing about that same item makes it negative (ignoring unrelated clauses about something else), the bracket restates a positive amount.${cites ? " Where a Passage shows such a bracketed amount without settling its sign, check the Passage's location heading and search that Document for context on that item before deciding." : ""} Never mark a plain positive statement supported when the Document states elsewhere that the same item is negative or a loss (if it is genuinely unclear whether that statement applies to the figure, give Sign: unclear). A sentence that names a loss, deficit or deduction carries that negative sign in its words; one that states the item without saying it is negative or a loss states a positive amount.`,
   "- The change between two percentages (of a rate, a share, a margin) is a number of percentage points (个百分点). Written as a percent (rose or fell so many %, 上升或下降百分之几), a percentage's change is a change by that share of itself, the points divided by the earlier percentage: another amount, not the points written another way, so a sentence that gives the points as a percent states another amount.",
   "- A word for which way something went or which is more (up, down, rose, fell, more than, 上升, 下降) is part of what the sentence states: work out which way the Document's own figures go.",
   "- Where a Document limits what it states (to a condition, within a limit, with an exception, to the party it applies to or the time it holds for), that limit is part of what it says, not a detail a sentence may leave out: a sentence that states it without the limit, or of someone the Document doesn't say it of, says more than the Document does, even when each word it has is the Document's.",
@@ -97,12 +98,17 @@ const VERDICTS = [
 const UNITS_RULE =
   '"none" when neither the sentence nor its heading or unit line states a currency, unit or scale; "same" when the Passages state the same currency, unit and scale for those figures — including the same amount written at another scale or in a unit it converts to exactly, or a figure worked out from amounts whose units the Passages state; "another" when the Passages state a different currency, unit or scale (not an exact conversion); "unstated" only when the Passages you have read, including table headers and unit lines, never state one for that figure or state one only for another table.';
 
+/** Shared Sign classification rule for both the reply form and the cite tool schema (#2578). */
+const SIGN_RULE =
+  '"none" only when the sentence states no amount whose sign is in question and no Passage writes that amount in brackets; "same" when the sentence and the Document agree on each amount\'s sign (including a negative amount stated with a minus sign or named as a loss, deficit or deduction in the sentence\'s words, or a prose bracketed repeat when nothing in the Document says that same item is negative or a loss); "differs" when the Document makes the amount negative (by accounting brackets, a minus sign, or a section heading — including the Passage\'s location — or text about that same item) and the sentence states it as positive without saying it is negative or a loss, or vice versa; "unclear" when a Passage writes that amount in brackets and another part of the Document says that same item is negative or a loss without settling whether it applies to the same figure or date.';
+
 const reply = (language: Language) =>
   [
     "Reply in exactly this form, the verdict word in English:",
-    'Details: what the sentence states, one thing after another (each figure with its unit and scale, each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
+    'Details: what the sentence states, one thing after another (each figure with its sign, unit and scale — for a bracketed amount, note the Passage\'s location heading and any context on that item\'s sign — each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
     `Verdict: ${VERDICTS.slice(0, -1).join(", ")} or ${VERDICTS.at(-1)}`,
     `Units: ${STATED_UNITS.slice(0, -1).join(", ")}, or ${STATED_UNITS.at(-1)} — ${UNITS_RULE}`,
+    `Sign: ${STATED_SIGNS.slice(0, -1).join(", ")}, or ${STATED_SIGNS.at(-1)} — ${SIGN_RULE}`,
     `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the quotes that decide it at its end ("… [^1]"); for contradicted, name the thing, and give the Document's value and the sentence's. For overstated, say what the Document says and how the sentence goes further; for partly supported, say which part the Documents don't state; for not found, say what the Documents don't say; for own view, say what the Documents hold on it, with the markers of the quotes: the facts that are a reason for it and the facts that point the other way, or that they hold nothing on it. Never mention the search, the Passages or how you found it.`,
     "Evidence: [1, 2] naming the cite markers of the quotes that decide it, or Evidence: [] when no quote does.",
     `Working: where no quote states the sentence as it stands and you reached supported or contradicted by working it out from the quotes (a sum, a difference, a share, a comparison of two figures, a step of plain logic), that working in one short line, its figures in it and its words in ${LANGUAGE_NAMES[language]} ("412 + 388 = 800, under the 1,000 the sentence gives"). Otherwise "Working: none".`,
@@ -302,6 +308,12 @@ export const STATED_UNITS = ["same", "none", "another", "unstated"] as const;
 /** Whether the Passages state the same currency, unit and scale as the sentence for its amounts (#3806). */
 export type StatedUnits = (typeof STATED_UNITS)[number];
 
+/** The four words a check's reply may give for its Sign field (#2578). */
+export const STATED_SIGNS = ["same", "none", "differs", "unclear"] as const;
+
+/** Whether the sentence and the Document agree on the sign of each amount, including bracketed amounts (#2578). */
+export type StatedSign = (typeof STATED_SIGNS)[number];
+
 /** What a reply says: its verdict, its one sentence, and the markers of the quotes it rests on. */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
@@ -309,6 +321,8 @@ export interface ReadVerdict {
   word?: Finer;
   /** Whether the sentence's currencies, units and scales match the Passages for those same figures (#3806). */
   units?: StatedUnits;
+  /** Whether the sentence and the Document agree on each amount's sign (#2578). */
+  sign?: StatedSign;
   says: string | null;
   /** The markers its Evidence line names; null when it gives no line that reads. */
   evidence: number[] | null;
@@ -333,7 +347,13 @@ const UNITS_WORDS = STATED_UNITS.join("|");
 const UNITS_WORDS_CI = STATED_UNITS.map(
   (word) => `[${word.slice(0, 1).toUpperCase()}${word.slice(0, 1)}]${word.slice(1)}`,
 ).join("|");
+const SIGN_WORDS = STATED_SIGNS.join("|");
+const SIGN_WORDS_CI = STATED_SIGNS.map(
+  (word) => `[${word.slice(0, 1).toUpperCase()}${word.slice(0, 1)}]${word.slice(1)}`,
+).join("|");
 const NEXT_FIELD = "(?:Details|Verdict|Explanation|Evidence|Working|Change 1|To 1)[ \\t]*[:：]";
+const UNITS_BARE = `Units[ \\t]*[:：][ \\t*_"'“”\`]*(?:${UNITS_WORDS_CI})`;
+const SIGN_BARE = `Sign[ \\t]*[:：][ \\t*_"'“”\`]*(?:${SIGN_WORDS_CI})`;
 /**
  * A Units field holds only one of the four words, optionally followed by punctuation, so a quoted
  * Document label such as "Residential Units: 240" or "(Units: none given)" never matches (#3806).
@@ -343,13 +363,21 @@ const UNITS_LINE = new RegExp(
   "i",
 );
 /**
+ * A Sign field holds only one of the four words, optionally followed by punctuation, so a quoted
+ * phrase such as "Exit Sign: same hall" never matches (#2578).
+ */
+const SIGN_LINE = new RegExp(
+  `^[\\s>*_#\`"'“”-]*sign[\\s*_]*[:：][\\s*_"'“”\`]*(${SIGN_WORDS})[\\s*_"'”\`.,;。，；]*$`,
+  "i",
+);
+/**
  * Where a field's label stands after other words on its line. Only the labels the reply form
  * gives: a Chinese label's word followed by a colon is ordinary prose inside an explanation
- * ("这是作者的判断：…"), so it names a field only at a line's start. "Units:" starts a field only
- * after whitespace when one of the four words stands alone as its value.
+ * ("这是作者的判断：…"), so it names a field only at a line's start. "Units:" and "Sign:" start a
+ * field only after whitespace when one of their four words stands alone as its value.
  */
 const FIELD_START = new RegExp(
-  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=Units[ \\t]*[:：][ \\t*_"'“”\`]*(?:${UNITS_WORDS_CI})[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD})))`,
+  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=${UNITS_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|${SIGN_BARE})))|(?<=\\s)(?=${SIGN_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|${UNITS_BARE})))`,
   "gm",
 );
 
@@ -358,6 +386,11 @@ type Finer = NonNullable<UnsupportedReason["word"]>;
 const unitsIn = (words: string | undefined): StatedUnits | undefined => {
   const said = new RegExp(`^(${UNITS_WORDS})\\b`, "i").exec(words ?? "")?.[1]?.toLowerCase();
   return STATED_UNITS.find((each) => each === said);
+};
+
+const signIn = (words: string | undefined): StatedSign | undefined => {
+  const said = new RegExp(`^(${SIGN_WORDS})\\b`, "i").exec(words ?? "")?.[1]?.toLowerCase();
+  return STATED_SIGNS.find((each) => each === said);
 };
 
 /** A reply's verdict word: one of the six it is asked for, or "unsupported" as older replies say. */
@@ -415,6 +448,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
   const units = unitsIn(
     UNITS_LINE.exec(lines.findLast((line) => UNITS_LINE.test(line)) ?? "")?.[1],
   );
+  const sign = signIn(SIGN_LINE.exec(lines.findLast((line) => SIGN_LINE.test(line)) ?? "")?.[1]);
   const evidence = field(EVIDENCE);
   const from = clean(field(CHANGE));
   const to = field(TO);
@@ -424,6 +458,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
   return {
     ...given,
     ...(units && { units }),
+    ...(sign && { sign }),
     says: clean(field(EXPLANATION)),
     evidence: evidence === undefined ? null : markersOf(parseJson(evidence)?.value),
     ...(working && !/^(?:none|无)(?![\p{L}\p{N}])/iu.test(working) && { working }),
@@ -445,13 +480,15 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   if (start < 0 || end <= start) return null;
   const value = parseJson(reply.slice(start, end + 1))?.value;
   if (typeof value !== "object" || value === null) return null;
-  const { verdict, units, says, evidence } = value as Record<string, unknown>;
+  const { verdict, units, sign, says, evidence } = value as Record<string, unknown>;
   const known = verdictIn(typeof verdict === "string" ? verdict : undefined);
   const statedUnits = unitsIn(typeof units === "string" ? units : undefined);
+  const statedSign = signIn(typeof sign === "string" ? sign : undefined);
   return (
     known && {
       ...known,
       ...(statedUnits && { units: statedUnits }),
+      ...(statedSign && { sign: statedSign }),
       says: typeof says === "string" ? clean(says) : null,
       evidence: markersOf(evidence),
     }
@@ -486,6 +523,11 @@ export const CITE_REPLY: CiteReply = {
       enum: [...STATED_UNITS],
       description: `What your reply's Units line would say: ${UNITS_RULE}`,
     },
+    sign: {
+      type: "string",
+      enum: [...STATED_SIGNS],
+      description: `What your reply's Sign line would say: ${SIGN_RULE}`,
+    },
     ...Object.fromEntries(
       Object.entries(CARRIED_LINES).map(([field, label]) => [
         field,
@@ -506,6 +548,7 @@ export const CITE_REPLY: CiteReply = {
     return [
       ...replyLine("Verdict", given.verdict),
       ...replyLine("Units", given.units),
+      ...replyLine("Sign", given.sign),
       ...Object.entries(CARRIED_LINES).flatMap(([field, label]) => replyLine(label, given[field])),
       `Evidence: [${markers.join(", ")}]`,
     ].join("\n");

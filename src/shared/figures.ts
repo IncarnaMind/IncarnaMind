@@ -91,8 +91,6 @@ export type AmbiguityKind = "separator" | "currency" | "scale" | "sign" | "range
 export interface Ambiguity {
   kind: AmbiguityKind;
   readings: Reading[];
-  /** A "sign" the text leaves open for a word about a loss or a deduction in another sentence: that word (#3228). */
-  word?: string;
 }
 
 /** A number read from a text. */
@@ -161,12 +159,6 @@ export interface FigureContext {
    * number at its start is neither a list's nor a heading's (#1969).
    */
   midLine?: boolean;
-  /**
-   * The Document's text on either side of the text read, when that is a quote from it. A sign word
-   * there ("The reserve turned negative in May." before "At year end it stood at …") keeps the
-   * minus of a bracket that gives an amount again.
-   */
-  around?: { before: string; after: string } | null;
 }
 
 /** A scale or unit stated apart from the figures it applies to: "单位：万元", "(in millions)". */
@@ -827,13 +819,6 @@ interface Settled {
   periodColumns: boolean;
   /** A stated unit or scale applies to the text read, in the text or in its header ("单位：万元"). */
   statedAmount: boolean;
-  /** The page above a quote runs on past the 400 characters read with no blank line in them. */
-  pageCut: boolean;
-  /** Up to 2,000 characters of the Document before the text read, in NFKC, dashes as "-" (#2578). */
-  wide: string;
-  /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
-  before: string;
-  after: string;
 }
 
 /**
@@ -874,22 +859,6 @@ function periodHeaderEnd(prepared: Prepared): number {
   return end;
 }
 
-/**
- * Whether the page above a quote runs on past the 400 characters the reader looks at with no blank
- * line in them, so that the start of the amount's paragraph is out of sight. A short or numbered line
- * may carry a sentence on ("and was reported as", "as set out in cl." then "3. It was …"), so only a
- * blank line counts.
- */
-function pageCut(before: string): boolean {
-  if (before.length <= 400) return false;
-  // The first piece may start mid-line and the last is the quote's own line: only those between count.
-  const lines = before.slice(-400).split("\n").slice(1, -1);
-  return !lines.some((line) => line.trim() === "");
-}
-
-/** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
-const DASHES = /[\u2010-\u2015\u2212]/g;
-
 function settle(context: FigureContext): Settled {
   const byLanguage = context.language ? languageSeparators(context.language) : null;
   const byText = context.separators ?? null;
@@ -913,14 +882,9 @@ function settle(context: FigureContext): Settled {
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
-    pageCut: pageCut(context.around?.before ?? ""),
     periodColumns:
-      context.headerRead?.periodColumns ??
-      headsPeriods(`${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC")),
+      context.headerRead?.periodColumns ?? headsPeriods((context.header ?? "").normalize("NFKC")),
     statedAmount: false,
-    wide: (context.around?.before ?? "").slice(-2000).normalize("NFKC").replace(DASHES, "-"),
-    before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
-    after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
 }
 
@@ -2614,8 +2578,6 @@ interface Draft extends Span {
   negative: boolean;
   /** "△1,250", or a whole number in brackets: the sign is a question. */
   signUnsure: boolean;
-  /** The word for a loss or a deduction that leaves the sign open (#3228), when it is that. */
-  signWord?: string;
   /** A count of people in brackets: no sign, and no unit a header states, applies to it. */
   count: boolean;
   exponent: number;
@@ -2781,74 +2743,8 @@ function amountInWords(
     : null;
 }
 
-/**
- * Words right before an amount that may give it a sign the reader doesn't read as one: "less", "a
- * deficit of", "decreased by", "亏损", "减少", "扣除"; or a minus or a △ written on it.
- */
-const SIGN_BEFORE =
-  /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除|减去|扣减|抵扣|减除)[ \u00a0]*[为了]?$|-[ \u00a0]*$|[△▲▽▼][ \u00a0]*$/i;
-
-/**
- * A word that says a thing is below zero: "minus", "negative", "overdrawn", "in the red", "below
- * zero", "in debit", "-ve", "(−)", 负, 透支, 红字, 小于零. It counts as far back as the reader sees
- * (#2578). Not a "negative pledge", 负责, 负担, 负债, 负面 or 自负.
- */
-const STATE_WORD =
-  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|(?:below|under|less than) zero|in debit|-ve|od|(?:shown|printed) in red|under ?water)(?![A-Za-z])|(?<!自)负(?![责担债面])|透支|[小低]于零|红字|\(-\)/i;
-
-/**
- * A word for a loss or a deduction, which may be about something else ("not liable for any loss of
- * business"): "loss", "deficit", "less", "deducted", 亏, 损失, 赤字, 逆差, 缺口. A loss's size ("The
- * loss was …") keeps the minus too, as main reads it. Not "less than", 幸亏 or 多亏.
- */
-const SUM_WORD =
-  /(?<![A-Za-z])(?:loss(?:es)?|deficits?|less(?! than)|deduct(?:s|ed|ing|ions?)?)(?![A-Za-z])|(?<![幸多])亏|损失|赤字|逆差|缺口/i;
-
-/** The end of a sentence: a full stop, "?" or "!" before a space or the end, or "。", "！", "？". A line break is none. */
-const SENTENCE_END = /[.!?](?=\s|$)|[。！？]/gu;
-
-/** What follows the last sentence end in `text`: the start of the sentence that `text` ends in. */
-function sentenceHead(text: string): string {
-  let from = 0;
-  for (const end of text.matchAll(SENTENCE_END)) from = end.index + end[0].length;
-  return text.slice(from);
-}
-
-/** What comes before the first sentence end in `text`: the rest of the sentence that `text` starts in. */
-function sentenceTail(text: string): string {
-  const end = new RegExp(SENTENCE_END.source, "u").exec(text);
-  return end ? text.slice(0, end.index) : text;
-}
-
-/** The sentence just before the one that `text`, ending where that one starts, comes to: "A made a loss. " gives "A made a loss". */
-function sentenceBefore(text: string): string {
-  return sentenceHead(text.replace(/[.!?。！？\s]+$/u, ""));
-}
-
-/** The sentence after the one that `text` starts in. */
-function sentenceAfter(text: string): string {
-  const end = new RegExp(SENTENCE_END.source, "u").exec(text);
-  return end ? sentenceTail(text.slice(end.index + end[0].length)) : "";
-}
-
-/** The word for a loss or a deduction in `text` nearest the amount: the last before it, else the first after it. */
-function lossWordIn(text: string, before: boolean): string | undefined {
-  const found = [...text.matchAll(new RegExp(SUM_WORD.source, "gi"))];
-  const match = before ? found.at(-1) : found[0];
-  if (!match) return undefined;
-  // 亏 alone is the pattern's; the Document writes 亏损.
-  return match[0] === "亏" && text[match.index + 1] === "损" ? "亏损" : match[0];
-}
-
-/**
- * A sentence that starts with a pronoun for a subject ("Its result for the year was …", "其本年经营成果为…"),
- * so what is said of a loss above is its subject's. Not 其他, 其中, 他人.
- */
-const TIED_START =
-  /^[\s"“'(（]*(?:(?:its|their|his|her|it)(?![A-Za-z'’])|其(?![他次中余实])|它|她|他(?!人))/i;
-
-/** A line that subtracts what follows: "Less: deposit paid …", "减：已付定金 …", a "Less" cell or heading. */
-const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\||$)/im;
+/** Explicit unary minus or delta mark right before an amount: "−sixty-four thousand dollars ($64,000)", "△ sixty-two thousand dollars ($62,000)". */
+const UNARY_SIGN_BEFORE = /(?:(?<![A-Za-z0-9-])-[ \u00a0]*|[△▲▽▼][ \u00a0]*)$/;
 
 /** The Document says amounts in brackets are negative: "Amounts in brackets are negative", "括号内数字为负数". */
 const SAYS_BRACKETS_NEGATIVE =
@@ -2860,10 +2756,10 @@ const SAYS_BRACKETS_NEGATIVE =
  * ($75,000.00)"; and the one currency the two agree on, which settles a bare "$" or "¥" in the
  * bracket. Null when it doesn't. Only an amount in words or with a scale word is given again so:
  * two cells of a statement line write one form twice, as an elimination's "3,600 (3,600)" does,
- * and a tab or a line between them parts two cells. Where the words may give the amount a sign, or
- * the Document says brackets are negative, the bracket is read as before. `unsure`: the only such
- * word is one for a loss or a deduction in another sentence than the amount's, which may be about
- * something else; it is that word, and the bracket's sign is left open (#3228).
+ * and a tab or a line between them parts two cells. Code confirms only exact structural matches
+ * (digits, currency, period columns, statement columns, explicit unary signs, and Document-wide
+ * negative-brackets statements); sign meaning in surrounding prose is judged by the check's model
+ * (#2578, #3462).
  */
 function restates(
   prepared: Prepared,
@@ -2873,7 +2769,7 @@ function restates(
   row: "table" | "statement" | null,
   inner: Draft,
   settled: Settled,
-): { currency?: string | null; repeated?: boolean; unsure?: string } | null {
+): { currency?: string | null; repeated?: boolean } | null {
   const { s } = prepared;
   const value = readingOf({ ...inner, negative: false }).value;
   // No further back than one amount's words reach, so a long line costs no more.
@@ -2886,54 +2782,6 @@ function restates(
   const end = bracket - gap;
   for (let at = end; at <= bracket; at++)
     if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return null;
-  const signFrom = (from: number): "minus" | { word: string } | null => {
-    // A sign word can be lines or sentences before or after the amount it gives a sign to ("The
-    // balance was negative. It was …", "… ($62,000.00), turned negative"), and a stop can't tell a
-    // sentence's end from an abbreviation's ("St. Louis", "acct. A12"), so all the text within 400
-    // characters counts, the Document's around a quote too. A word that says a thing is below zero
-    // counts as far back as 2,000 characters: the model reads a sign stated in another sentence
-    // wrong, and the reader can't see where the amount's section starts (#2578). A word for a loss or
-    // a deduction counts within the 400 only, being as often about something else: it gives the
-    // minus in the amount's own sentence and leaves the sign open in another.
-    if (STATE_WORD.test(`${settled.wide}${s.slice(0, from)}`)) return "minus";
-    // Words that start further into the text read, or a quote whose page runs further back with no
-    // blank line or heading in sight, keep the bracket's minus: the reader can't see where the
-    // amount's part of the page starts.
-    if (from > 400 || settled.pageCut) return "minus";
-    const after = s.slice(inner.to, inner.to + 400) + settled.after;
-    const window = settled.before + s.slice(0, from);
-    if (STATE_WORD.test(window) || STATE_WORD.test(after) || DEDUCTION_LINE.test(window))
-      return "minus";
-    const opening = sentenceHead(window);
-    // "Party A made a loss this year. … Its result for the year was …": a sentence that starts with a
-    // pronoun for its subject is the subject's, so a loss stated anywhere above, as far back as a
-    // state word counts, is its loss (#3252).
-    if (TIED_START.test(opening) && SUM_WORD.test(`${settled.wide}${s.slice(0, from)}`))
-      return "minus";
-    const start = s.lastIndexOf("\n", from - 1) + 1;
-    // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.
-    const label = /^[\s|]*减/.exec(s.slice(start, from))?.[0].length;
-    if (
-      SIGN_BEFORE.test(window.slice(-24)) ||
-      (label !== undefined && prepared.tabbed.has(start + label))
-    )
-      return "minus";
-    // A loss in the amount's own sentence ("The loss for the year was …", "亏损…为…") is the
-    // amount's; so is one in the sentence beside it when that starts with a pronoun for the
-    // amount's subject ("Party A made a loss. Its result …"). In another sentence it may be about
-    // something else ("The Landlord is not liable for any loss of business. The annual rent is …"),
-    // and nothing in the words says which: the amount's sign is left open (#3228).
-    if (SUM_WORD.test(`${opening}${sentenceTail(after)}`)) return "minus";
-    const next = sentenceAfter(after);
-    if (
-      (TIED_START.test(opening) &&
-        SUM_WORD.test(sentenceBefore(window.slice(0, window.length - opening.length)))) ||
-      (TIED_START.test(next) && SUM_WORD.test(next))
-    )
-      return "minus";
-    const word = lossWordIn(window, true) ?? lossWordIn(after, false);
-    return word === undefined ? null : { word };
-  };
   // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".
   const sign = inner.currencyAt ? s.slice(inner.currencyAt.from, inner.currencyAt.to) : "";
   const codes = [...inner.currencies, ...(SIGN_CURRENCIES[sign] ?? [])];
@@ -2953,7 +2801,6 @@ function restates(
     if (!unitsAgree || readingOf(before).value !== value) return null;
     // A statement line writes one amount twice, its minused column in the same scale form in
     // brackets: "£3.6m (£3.6m)", "3.6亿元（3.6亿元）" is positive then negative, not a gloss (#2576).
-    // The sign words and the page's far reaches don't change that: the column is a minus anyway.
     // A sentence in running text with a clause before its figure keeps the bracket an aside (#2799).
     if (
       before.scaleWord !== null &&
@@ -2966,9 +2813,8 @@ function restates(
       return { repeated: true };
     }
     if (settled.negativeBrackets) return null;
-    const signOfBefore = signFrom(before.from);
-    if (signOfBefore === "minus") return null;
-    return { ...agreed(before.currencies), ...(signOfBefore && { unsure: signOfBefore.word }) };
+    if (UNARY_SIGN_BEFORE.test(s.slice(Math.max(0, before.from - 4), before.from))) return null;
+    return agreed(before.currencies);
   }
   if (settled.negativeBrackets) return null;
   // Back to the line's or the cell's start, not to the last figure: "and 50/100" may have been
@@ -2983,9 +2829,9 @@ function restates(
       !words.codes.some((code) => codes.includes(code)))
   )
     return null;
-  const signOfWords = signFrom(from + words.start);
-  if (signOfWords === "minus") return null;
-  return { ...agreed(words.codes), ...(signOfWords && { unsure: signOfWords.word }) };
+  if (UNARY_SIGN_BEFORE.test(s.slice(Math.max(0, from + words.start - 4), from + words.start)))
+    return null;
+  return agreed(words.codes);
 }
 
 /**
@@ -3345,9 +3191,7 @@ function readAround(
     const row = glued || reference ? null : rowOf(prepared, outer?.from ?? bracket, close + 1);
     // Brackets that give the amount before them again are neither a minus nor a question, and
     // make no figure of a "thirty (30) days" that has none.
-    const restated = restates(prepared, before, floor, bracket, row, draft, settled);
-    // A count of people in brackets is never a minus, so a sign left open is no matter to it.
-    const aside = restated?.unsure !== undefined && count ? null : restated;
+    const aside = restates(prepared, before, floor, bracket, row, draft, settled);
     // "Australian Dollars ($98,000)": the bracket's "$" is the dollar its words name.
     const restate = () => {
       if (!aside?.currency) return;
@@ -3384,12 +3228,7 @@ function readAround(
     };
     draft.count = count;
     const currencySigned = outer !== null || currency !== null;
-    if (aside?.unsure !== undefined) {
-      restate();
-      draft.signUnsure = true;
-      draft.signWord = aside.unsure;
-      enclose();
-    } else if (aside?.repeated) {
+    if (aside?.repeated) {
       // A count of people in brackets is never a minus (#1023), repeated or not.
       if (count) enclose();
       else negate();
@@ -3651,7 +3490,6 @@ function finish(
     ambiguous.push({
       kind: "sign",
       readings: [positive, readingOf({ ...draft, negative: true }, written)],
-      ...(draft.signWord !== undefined && { word: draft.signWord }),
     });
   }
   if (draft.loosePoints !== null || draft.percentOrPoints) {

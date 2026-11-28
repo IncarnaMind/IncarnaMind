@@ -8,8 +8,10 @@ import type {
   CoreAdapters,
   Document,
 } from "../../src/core";
+import { ChatNotReadyError } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
+import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
@@ -2102,6 +2104,210 @@ describe("Stated units check (#3806)", () => {
         text: `Units: ${unknown}\nVerdict: supported\nExplanation: Matches.\nEvidence: [1]`,
       });
       expect(kept.verdict).toBe("supported");
+    }
+  });
+});
+
+describe("Stated Sign lowering and no-model behaviour (#2578)", () => {
+  const QUOTE =
+    "Spring tides happen at new moon and at full moon, when the Sun and the Moon pull together.";
+
+  const runCheck = async (
+    reply: { text: string } | { citeReply: Record<string, unknown> },
+    language: "en" | "zh-CN" = "en",
+  ) => {
+    const model = scriptedModel((call) => {
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      const passage = shownPassages(search.text)[0];
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passage?.id ?? "P1",
+                    location: passage?.location ?? "§ Tides",
+                    quote: QUOTE,
+                  },
+                ],
+                ...("citeReply" in reply ? reply.citeReply : {}),
+              },
+            },
+          ],
+        };
+      }
+      return "text" in reply ? reply : { text: "" };
+    });
+    const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "test-key",
+      modelId: "claude-haiku-5-5",
+    });
+    await core.updateSettings({ user: { language } });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+    const result = await core.checkClaim({ claim: SUPPORTED });
+    core.close();
+    return result;
+  };
+
+  test("lowers Supported to Unsupported (kind: sign) when Sign is differs, in en and zh-CN", async () => {
+    const enDiffers = await runCheck(
+      {
+        text: "Verdict: supported\nUnits: same\nSign: differs\nExplanation: Matches.\nEvidence: [1]",
+      },
+      "en",
+    );
+    expect(enDiffers).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "sign",
+        reason: translate("en", "claim.unsupported.signDiffers"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+    if (enDiffers.verdict === "unsupported") {
+      expect(readUnsupportedReason(enDiffers.unsupported)).toMatchObject({ kind: "sign" });
+    }
+
+    const zhDiffers = await runCheck(
+      {
+        text: "Verdict: supported\nUnits: same\nSign: differs\nExplanation: 符合。\nEvidence: [1]",
+      },
+      "zh-CN",
+    );
+    expect(zhDiffers).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "sign",
+        reason: translate("zh-CN", "claim.unsupported.signDiffers"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+  });
+
+  test("lowers Supported to Not checked (sign-unclear) when Sign is unclear, in en and zh-CN", async () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      const unclear = await runCheck(
+        {
+          text: "Verdict: supported\nUnits: same\nSign: unclear\nExplanation: Matches.\nEvidence: [1]",
+        },
+        language,
+      );
+      expect(unclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
+      if (unclear.verdict === "not-checked") {
+        expect(
+          reasonText(
+            (key, params) => translate(language, key, params),
+            language,
+            unclear.reason,
+            unclear.detail ?? null,
+          ),
+        ).toBe(translate(language, "claim.reason.sign-unclear"));
+      }
+    }
+  });
+
+  test("handles cite tool carrying sign: differs and sign: unclear", async () => {
+    const differs = await runCheck({
+      citeReply: {
+        verdict: "supported",
+        units: "same",
+        sign: "differs",
+        explanation: "Matches.",
+      },
+    });
+    expect(differs).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { kind: "sign", found: true, quoted: { quote: QUOTE } },
+    });
+
+    const unclear = await runCheck({
+      citeReply: {
+        verdict: "supported",
+        units: "same",
+        sign: "unclear",
+        explanation: "Matches.",
+      },
+    });
+    expect(unclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
+  });
+
+  test("parses same-line Units + Sign, ignores prose Sign: labels, fails open on unknown/omitted, and leaves non-Supported untouched", async () => {
+    const sameLine = await runCheck({
+      text: "Verdict: supported Units: same Sign: differs Explanation: Opposite sign. Evidence: [1]",
+    });
+    expect(sameLine).toMatchObject({ verdict: "unsupported", unsupported: { kind: "sign" } });
+
+    const proseSign = await runCheck({
+      text: "Verdict: contradicted\nUnits: same\nSign: same\nExplanation: Exit Sign: same hall, not main lobby [^1].\nEvidence: [1]",
+    });
+    expect(proseSign.verdict).toBe("contradicted");
+    if (proseSign.verdict === "contradicted") {
+      expect(proseSign.says).toBe("Exit Sign: same hall, not main lobby.");
+    }
+
+    for (const line of ["Sign: same\n", "Sign: none\n", "Sign: positive\n", ""]) {
+      const kept = await runCheck({
+        text: `Verdict: supported\nUnits: same\n${line}Explanation: Matches.\nEvidence: [1]`,
+      });
+      expect(kept.verdict).toBe("supported");
+    }
+
+    const contradicted = await runCheck({
+      text: "Verdict: contradicted\nUnits: same\nSign: differs\nExplanation: Opposite sign.\nEvidence: [1]\nChange 1: full moon\nTo 1: new moon [^1]",
+    });
+    expect(contradicted.verdict).toBe("contradicted");
+    if (contradicted.verdict === "contradicted") {
+      expect(contradicted.correction).toMatchObject({ from: "full moon" });
+    }
+  });
+
+  test("when no model is set up, checkMind returns not-ready with no guessed marks and checkClaim throws ChatNotReadyError, in en and zh-CN", async () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      const core = startCore(await createTempDataFolder());
+      await core.updateSettings({ user: { language } });
+      const sources = await createTempDataFolder();
+      const docText =
+        language === "en"
+          ? "After the review, the closing reserve is negative.\n\nThe closing reserve stood at eighty-four thousand dollars ($84,000.00)."
+          : "经复核，期末准备金为负。\n\n期末准备金为人民币八万四千元（¥84,000）。";
+      await addAndProcess(core, [await writeSourceFile(sources, "Reserve.md", docText)]);
+      const mind = await core.createMind({ title: "Reserve note" });
+      const client = await connectToMind(core, mind.id);
+      const claim =
+        language === "en" ? "The closing reserve stood at $84,000." : "期末准备金为¥84,000。";
+      writeMind(client, [
+        { type: "paragraph", attrs: { id: "p-1" }, content: [{ type: "text", text: claim }] },
+      ]);
+      await client.settled();
+
+      const mindResult = await core.checkMind({
+        requestId: `req-no-model-${language}`,
+        mindId: mind.id,
+        mode: "all",
+      });
+      expect(mindResult).toEqual({
+        kind: "not-ready",
+        readiness: { ready: false, reason: "no-provider" },
+      });
+      expect(claimSpans(readMind(client))).toEqual([]);
+
+      await expect(core.checkClaim({ claim })).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof ChatNotReadyError && error.readiness.reason === "no-provider",
+      );
+
+      core.close();
     }
   });
 });

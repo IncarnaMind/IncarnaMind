@@ -6,9 +6,10 @@
  * quote. The model may search the Documents for more, records each quote that decides the
  * sentence with `cite`, and gives one verdict (./prompt). IncarnaMind confirms that a Supported or
  * Contradicted verdict rests on a quote its Document holds (the Citation check), and lowers
- * Supported to Unsupported when the model's own Units word says "unstated" or "another" (#3806).
- * Code never raises a verdict. A refusal, a reply with no verdict, an empty one or a provider's
- * failure leaves the sentence not checked, with the reason; never Supported.
+ * Supported when the model's own Units word says "unstated" or "another" (#3806), or when its own
+ * Sign word says "differs" or "unclear" (#2578). Code never raises a verdict. A refusal, a reply
+ * with no verdict, an empty one or a provider's failure leaves the sentence not checked, with the
+ * reason; never Supported.
  *
  * A decision model the User's checks use reads the sentence first (./decisionFirst), and only a
  * sentence it leaves undecided comes here.
@@ -520,6 +521,29 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         ...facts(),
         excluded: [...facts().excluded, ...results.ownWorkings()],
       };
+    }
+    if (read.verdict === "supported" && read.sign === "differs") {
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: {
+          kind: "sign",
+          reason: translate(language, "claim.unsupported.signDiffers"),
+          covered: null,
+          uncovered: null,
+          found: true as const,
+          ...(evidence && { quoted: evidence }),
+        },
+        calculation: null,
+        ...(working && { working }),
+        ...court.citedCase(null),
+        ...facts(),
+        excluded: [...facts().excluded, ...results.ownWorkings()],
+      };
+    }
+    if (read.verdict === "supported" && read.sign === "unclear") {
+      return notChecked("sign-unclear");
     }
     const correction =
       read.correction &&

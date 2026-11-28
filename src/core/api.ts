@@ -7910,6 +7910,7 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "sign-word": an amount that a word for a loss or a deduction in another sentence nearby may
  *   give a minus, which the text doesn't settle (#3228); its detail is the amount and the word, as
  *   `src/shared/signWord.ts` writes them. A reading the model gives doesn't settle it.
+ * - "sign-unclear": the check's model left a bracketed amount's sign unsettled (#2578).
  * - "readings-unsettled": a figure of the sentence reads more ways than one choice names, such as
  *   a sign and a scale both unsettled (#3088); its detail is the figure as the sentence writes it.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
@@ -7973,6 +7974,7 @@ export type ClaimCheckFailure =
   | "sentence-figures-not-read"
   | "two-readings"
   | "sign-word"
+  | "sign-unclear"
   | "readings-unsettled"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
   | "other-cell"
@@ -8003,8 +8005,9 @@ export interface UnsupportedReason {
    * "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378).
    * "units": a figure written as bare digits differs from its source only by a unit (#2864), or
    * Supported was lowered because the judge's own Units word said "unstated" or "another" (#3806).
+   * "sign": Supported was lowered because the judge's own Sign word said "differs" (#2578).
    */
-  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
+  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units" | "sign";
   /** Which Units mismatch lowered Supported (#3806), so the card translates when the interface language switches. */
   units?: "another" | "unstated";
   /**
