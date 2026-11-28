@@ -1327,6 +1327,26 @@ export function createAgents(options: AgentsOptions) {
     },
 
     /**
+     * Resolves confirmed sentence handles in a completed Note conversation reply into durable
+     * SQLite-backed Citation tokens before saving the reply (#3753).
+     */
+    persistReplyCitations(pairingId: string, reply: string): string {
+      if (!reply.includes("[cite:")) return reply;
+      let access = replyCitations.get(pairingId);
+      if (!access) {
+        access = createAgentAccess(accessDeps, pairingId);
+        replyCitations.set(pairingId, access);
+      }
+      try {
+        return access.persistReplyCitations(reply);
+      } catch (error) {
+        if (!(error instanceof AgentRefusedError)) throw error;
+        replyCitations.delete(pairingId);
+        return reply;
+      }
+    },
+
+    /**
      * The name of a Document the connection reaches, by its id or one of its Passages; null for
      * one it doesn't, and once the connection is gone (#3677).
      */

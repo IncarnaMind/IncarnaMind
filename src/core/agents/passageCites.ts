@@ -5,12 +5,30 @@
  * prefix so handles from an earlier run never alias a new Passage after a restart, and each
  * pairing has its own bounded LRU of Passage entries.
  */
-import { randomCiteCode } from "./citations";
+import { CITE_ALPHABET, randomCiteCode } from "./citations";
 
 const RUN_PREFIX_LENGTH = 2;
 const PASSAGE_CODE_LENGTH = 4;
+const PASSAGE_CODE_SPACE = CITE_ALPHABET.length ** PASSAGE_CODE_LENGTH;
+const PASSAGE_CODE_STRIDE = 681_493;
 export const MAX_ENTRIES_PER_PAIRING = 2_000;
 const MAX_SENTENCE_CHARS = 1_000;
+
+function randomMask(): number {
+  const buf = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(buf);
+  return (buf[0] ?? 0) & (PASSAGE_CODE_SPACE - 1);
+}
+
+function encodePassageCode(value: number): string {
+  let n = value & (PASSAGE_CODE_SPACE - 1);
+  let code = "";
+  for (let i = 0; i < PASSAGE_CODE_LENGTH; i++) {
+    code = (CITE_ALPHABET[n & 31] ?? "a") + code;
+    n >>>= 5;
+  }
+  return code;
+}
 
 const HAS_WORD_CHAR = /\p{L}|\p{N}/u;
 const sentenceSegmenter = new Intl.Segmenter(undefined, { granularity: "sentence" });
@@ -153,8 +171,8 @@ export function formatCitedTimedText(
 interface PairingStore {
   byKey: Map<string, PassageCiteEntry>;
   byHandle: Map<string, PassageCiteEntry>;
-  /** Every handle allocated for this pairing in this run so evicted handles never alias a new Passage. */
-  allocated: Set<string>;
+  mask: number;
+  seq: number;
 }
 
 /** Per-pairing bounded LRU registry of sentence Citation handles with a per-run prefix (#3753). */
@@ -169,10 +187,19 @@ export function createPassageCiteRegistry(options?: {
   const storeOf = (pairingId: string): PairingStore => {
     let store = perPairing.get(pairingId);
     if (!store) {
-      store = { byKey: new Map(), byHandle: new Map(), allocated: new Set() };
+      store = { byKey: new Map(), byHandle: new Map(), mask: randomMask(), seq: 0 };
       perPairing.set(pairingId, store);
     }
     return store;
+  };
+
+  const nextHandleFor = (store: PairingStore): string => {
+    // Full-period permutation over 32^4 = 1,048,576 codes: O(1) time, O(1) memory, and zero reuse
+    // across a million Passages per pairing.
+    const slot =
+      (Math.imul(store.seq, PASSAGE_CODE_STRIDE) + store.mask) & (PASSAGE_CODE_SPACE - 1);
+    store.seq = (store.seq + 1) & (PASSAGE_CODE_SPACE - 1);
+    return `${runPrefix}${encodePassageCode(slot)}`;
   };
 
   const keyOf = (passageId: string, contentHash: string) => `${passageId}\u0000${contentHash}`;
@@ -211,9 +238,9 @@ export function createPassageCiteRegistry(options?: {
         touch(store, existing);
         return existing;
       }
-      let handle = `${runPrefix}${randomCiteCode(PASSAGE_CODE_LENGTH)}`;
-      while (store.allocated.has(handle)) {
-        handle = `${runPrefix}${randomCiteCode(PASSAGE_CODE_LENGTH)}`;
+      let handle = nextHandleFor(store);
+      for (let tries = 0; tries < maxPerPairing && store.byHandle.has(handle); tries++) {
+        handle = nextHandleFor(store);
       }
       const entry: PassageCiteEntry = {
         handle,
@@ -222,7 +249,6 @@ export function createPassageCiteRegistry(options?: {
         contentHash,
         spans: sentenceSpansOf(fullText, { maxChars: MAX_SENTENCE_CHARS, requireWord: true }),
       };
-      store.allocated.add(handle);
       store.byKey.set(k, entry);
       store.byHandle.set(handle, entry);
       evictIfFull(store);

@@ -22,12 +22,13 @@ import {
 import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { translate } from "../../src/shared/i18n";
 import {
+  agentsAdapter,
   buildAgentShim,
   connectLegacyAgent,
   startAgentsCore,
   startMeetingAgentsCore,
 } from "../helpers/agents";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -417,6 +418,10 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
             "",
             `Quote with right bracket attaches cleanly [cite:${tidesPassageId}: ${RIGHT_BRACKET}].`,
             "",
+            `Complete quote leaves later escaped bracket prose untouched [cite:${tidesPassageId}: ${SPRING}]. Keep the literal bracket \\] in this example.`,
+            "",
+            `[cite:abcde] ~~~text\nLater line after stripped prefix still resolves [cite:${h}.${n1}].`,
+            "",
             `Unbalanced open bracket does not break the later handle [cite:${tidesPassageId}: broken [bracket [cite:${h}.${n1}].`,
             "",
             `Zero index and bare handles strip cleanly [cite:${h}.0] [cite:${h}] [cite:abcde].`,
@@ -431,12 +436,15 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
     expect(inspected.text).not.toMatch(/\[cite:/);
     expect(inspected.text).not.toContain("[quote not found]");
     expect(inspected.text).not.toContain("open the outer gate before sunrise].");
+    expect(inspected.text).toContain("Keep the literal bracket ] in this example.");
     expect(inspected.citations.map((each) => each.quote)).toEqual([
       SPRING,
       SPRING_RANGE,
       SPRING,
       NEAP,
       RIGHT_BRACKET,
+      SPRING,
+      SPRING,
       SPRING,
     ]);
 
@@ -453,6 +461,7 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
       ]),
     );
     expect(created.uncited).toEqual([
+      "Keep the literal bracket \\] in this example.",
       "Zero index and bare handles strip cleanly.",
       "Unclosed tag at end of line strips cleanly",
     ]);
@@ -829,7 +838,12 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
       await agent.callTool({
         name: "check_citations",
         arguments: {
-          text: `Spring tides occur twice a month ${springHandle}.\n\nHarbour boats double every winter ${fakeHandle}.`,
+          text: [
+            `Spring tides occur twice a month ${springHandle}.`,
+            `Range covers both spring facts [cite:${springHandle.slice("[cite:".length, -1).replace(/\.\d+$/, "")}.1-2].`,
+            `Code-spanned handle does not cite this claim \`${springHandle}\`.`,
+            `Harbour boats double every winter ${fakeHandle}.`,
+          ].join("\n\n"),
         },
       }),
     );
@@ -839,7 +853,10 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
         expect.objectContaining({ cite: fakeHandle, check: "unknown" }),
       ]),
     );
-    expect(checkedDraft.uncited).toEqual(["Harbour boats double every winter."]);
+    expect(checkedDraft.uncited).toEqual([
+      `Code-spanned handle does not cite this claim \`${springHandle}\`.`,
+      "Harbour boats double every winter.",
+    ]);
 
     const shown = structured<{ shown: boolean; document: string }>(
       await agent.callTool({ name: "show_citation", arguments: { cite: springHandle } }),
@@ -1108,7 +1125,7 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
       },
     };
     const kept = await createTempDataFolder();
-    const { core: convCore } = await startAgentsCore(replyingModel(), {
+    const { core: convCore, dataDir: convDataDir } = await startAgentsCore(replyingModel(), {
       ownAi: ownRunner,
       canvasFiles: createCanvasFiles(join(kept, "Canvases")),
     });
@@ -1133,12 +1150,31 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
       .toBe(true);
     const turns = await convCore.noteTurnsForMind(mind.id);
     expect(replyHandle).toBeTruthy();
+    expect(turns[0]?.reply).toMatch(/^Spring tides occur twice a month \[cite:[a-z0-9]{8}\]\.$/);
     expect(turns[0]?.citations).toEqual([
       expect.objectContaining({
-        token: replyHandle.slice("[cite:".length, -1),
+        token: expect.stringMatching(/^[a-z0-9]{8}$/),
         quote: SPRING,
       }),
     ]);
+
+    convCore.close();
+    const restartedCore = startCore(convDataDir, {
+      agents: await agentsAdapter(convDataDir),
+      ownAi: ownRunner,
+      canvasFiles: createCanvasFiles(join(kept, "Canvases")),
+    });
+    try {
+      const persistedTurns = await restartedCore.noteTurnsForMind(mind.id);
+      expect(persistedTurns[0]?.citations).toEqual([
+        expect.objectContaining({
+          token: expect.stringMatching(/^[a-z0-9]{8}$/),
+          quote: SPRING,
+        }),
+      ]);
+    } finally {
+      restartedCore.close();
+    }
   });
 
   // protects=a recorded meeting Transcript read with cited:true tags every sentence in both text and timedText, and attaches verified Transcript Citations in one call; fails_when=timedText misses sentence handles or Transcript citations fail to attach

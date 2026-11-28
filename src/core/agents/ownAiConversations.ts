@@ -158,6 +158,8 @@ export interface OwnAiConversationsOptions {
   askable(mindId: string): AgentPairing[];
   /** Of `tokens`, the Citations IncarnaMind gave this connection, found in their Document now. */
   citationsOf(pairingId: string, tokens: readonly string[]): NoteCitation[];
+  /** Replaces confirmed sentence handles in a completed reply with durable Citation tokens (#3753). */
+  persistReplyCitations?(pairingId: string, reply: string): string;
   /** The name of a Document the connection reaches, by its id or one of its Passages; else null. */
   documentNamed?(
     pairingId: string,
@@ -571,7 +573,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     rest: Partial<Omit<NoteTurnEvent, "state" | "problem">> = {},
   ) => {
     if (options.lifetime.aborted) return;
-    const reply = rest.reply ?? "";
+    const reply =
+      rest.reply && options.persistReplyCitations
+        ? options.persistReplyCitations(turn.pairingId, rest.reply)
+        : (rest.reply ?? "");
     // Only immediate applied changes in this turn's Note count as "Changed N paragraphs": waiting
     // Proposals elsewhere or here are never called "Changed" (#3731).
     const appliedCount = (rest.applied ?? [])

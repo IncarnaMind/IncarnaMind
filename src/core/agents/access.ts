@@ -134,7 +134,6 @@ import {
   findInlineQuoteTags,
   type ParsedInlineTag,
   rewriteInlineQuoteTags,
-  SENTENCE_REF_GLOBAL,
   SENTENCE_REF_INNER,
   SENTENCE_REF_TAG,
 } from "./inlineCitations";
@@ -681,6 +680,8 @@ export interface AgentAccess {
   readDeck(input: ReadDeckToolInput): Promise<object>;
   /** Proposes targeted changes to named shapes, cells, notes or chart series of a deck (#149 part 2). */
   proposeDeckChanges(input: ProposeDeckChangesInput): Promise<object>;
+  /** Resolves confirmed sentence handles in a completed Note reply into durable Citation tokens (#3753). */
+  persistReplyCitations(reply: string): string;
 }
 
 export { AgentRefusedError } from "./refusals";
@@ -3767,6 +3768,42 @@ export function createAgentAccess(
       });
     },
 
+    /**
+     * Resolves any confirmed sentence handles in a completed Note conversation reply into durable
+     * SQLite-backed Citation tokens before the reply is persisted (#3753).
+     */
+    persistReplyCitations(reply: string): string {
+      if (!reply.includes("[cite:")) return reply;
+      const pairing = deps.reachOf(pairingId);
+      const inScope = new Set(scopeOf(pairing, undefined));
+      return (
+        rewriteInlineQuoteTags([reply], (tag) => {
+          if (tag.kind === "sentence") {
+            const resolved = resolveLiveSentenceHandle(pairing, inScope, tag.handle, tag.index);
+            return resolved.status === "found" && resolved.citation
+              ? citeTag(mint(pairing, resolved.citation).token)
+              : tag.raw;
+          }
+          if (tag.kind === "sentence-list") {
+            const minted: string[] = [];
+            const seenTokens = new Set<string>();
+            for (const ref of tag.refs) {
+              const resolved = resolveLiveSentenceHandle(pairing, inScope, ref.handle, ref.index);
+              if (resolved.status === "found" && resolved.citation) {
+                const tok = citeTag(mint(pairing, resolved.citation).token);
+                if (!seenTokens.has(tok)) {
+                  seenTokens.add(tok);
+                  minted.push(tok);
+                }
+              }
+            }
+            return minted.length > 0 ? minted.join(" ") : tag.raw;
+          }
+          return tag.raw;
+        })[0] ?? reply
+      );
+    },
+
     documentNamed({ documentId, passageId }) {
       const pairing = deps.reachOf(pairingId);
       const reach = new Set(scopeOf(pairing, undefined));
@@ -3825,17 +3862,10 @@ export function createAgentAccess(
           });
         }
         const confirmedHandles = new Set<string>();
-        for (const match of draft.matchAll(SENTENCE_REF_GLOBAL)) {
-          const at = match.index ?? 0;
-          let slashes = 0;
-          for (let i = at - 1; i >= 0 && draft[i] === "\\"; i--) slashes++;
-          if (slashes % 2 === 1) continue;
-          const raw = match[0];
-          const handle = match[1];
-          const indexStr = match[2];
-          if (!handle || !indexStr || seen.has(raw)) continue;
+        const checkOneHandle = (handle: string, index: number, raw: string): boolean => {
+          if (seen.has(raw)) return confirmedHandles.has(raw);
           seen.add(raw);
-          const resolved = resolveLiveSentenceHandle(pairing, inScope, handle, Number(indexStr));
+          const resolved = resolveLiveSentenceHandle(pairing, inScope, handle, index);
           if (resolved.status === "unknown") {
             citations.push({
               cite: raw,
@@ -3845,7 +3875,7 @@ export function createAgentAccess(
               quote: null,
               changed: false,
             });
-            continue;
+            return false;
           }
           if (resolved.status === "out-of-scope" || !resolved.citation || !resolved.passage) {
             citations.push({
@@ -3856,7 +3886,7 @@ export function createAgentAccess(
               quote: null,
               changed: false,
             });
-            continue;
+            return false;
           }
           if (resolved.status === "found") confirmedHandles.add(raw);
           citations.push({
@@ -3873,16 +3903,31 @@ export function createAgentAccess(
             quote: resolved.citation.quote,
             changed: resolved.changed,
           });
+          return resolved.status === "found";
+        };
+        const inlineTags = findInlineQuoteTags([draft]);
+        for (const tag of inlineTags) {
+          if (tag.kind === "sentence") {
+            checkOneHandle(tag.handle, tag.index, tag.raw);
+          } else if (tag.kind === "sentence-list") {
+            for (const ref of tag.refs) {
+              checkOneHandle(ref.handle, ref.index, `[cite:${ref.handle}.${ref.index}]`);
+            }
+          }
         }
-        const draftForUncited = draft.replace(
-          SENTENCE_REF_GLOBAL,
-          (raw, _h, _i, offset: number) => {
-            let slashes = 0;
-            for (let i = offset - 1; i >= 0 && draft[i] === "\\"; i--) slashes++;
-            if (slashes % 2 === 1) return raw;
-            return confirmedHandles.has(raw) ? "[cite:00000000]" : "[cite:00000001]";
-          },
-        );
+        const draftForUncited =
+          rewriteInlineQuoteTags([draft], (tag) => {
+            if (tag.kind === "sentence") {
+              return confirmedHandles.has(tag.raw) ? "[cite:00000000]" : "[cite:00000001]";
+            }
+            if (tag.kind === "sentence-list") {
+              const anyFound = tag.refs.some((ref) =>
+                confirmedHandles.has(`[cite:${ref.handle}.${ref.index}]`),
+              );
+              return anyFound ? "[cite:00000000]" : "[cite:00000001]";
+            }
+            return tag.raw;
+          })[0] ?? draft;
         const uncited = uncitedIn([draftForUncited], (token) => token !== "00000001");
         return {
           result: { citations, uncited },

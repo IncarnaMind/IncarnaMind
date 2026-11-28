@@ -150,8 +150,8 @@ function matchInlineTag(
         const raw = source.slice(at, i).trimEnd();
         return { tag: { kind: "malformed", raw }, end: i };
       }
-      depth++;
-    } else if (ch === "]") {
+      if (!isEscaped(source, i)) depth++;
+    } else if (ch === "]" && !isEscaped(source, i)) {
       if (depth === 0) {
         end = i + 1;
         break;
@@ -167,9 +167,15 @@ function matchInlineTag(
   let inner = source.slice(innerStart, end - 1);
   if (MINTED_TOKEN_INNER.test(inner)) return null;
 
-  // When a quote itself contains a bare `]`, extend to the last unmatched `]` on this line (when
-  // prose before `[cite:` didn't open a `[` of its own and we don't cross another `[` or a table cell).
+  // When a quote itself contains an unescaped bare `]` (e.g. `Step 1] open gate.`), extend to an
+  // unescaped closing `]` on the same line only if nothing after `end` crosses a sentence break,
+  // another `[`, an escaped `\]`, or a table cell boundary, and prose before `[cite:` didn't open `[`.
+  const afterClose = source[end];
+  const looksCompleteBeforeProse =
+    /[.!?。！？]$/.test(inner.trimEnd()) &&
+    (afterClose === "." || afterClose === "。" || afterClose === " " || afterClose === "\t");
   if (
+    !looksCompleteBeforeProse &&
     lineUnclosedBrackets === 0 &&
     !SENTENCE_REF_INNER.test(inner) &&
     parseSentenceList(inner) === null &&
@@ -180,7 +186,13 @@ function matchInlineTag(
     while (scan < source.length) {
       const ch = source[scan];
       if (ch === "\n" || ch === "[" || (inTableRow && ch === "|")) break;
-      if (ch === "]") lastRight = scan;
+      if (
+        (ch === "." || ch === "!" || ch === "?" || ch === "。" || ch === "！" || ch === "？") &&
+        (source[scan + 1] === " " || source[scan + 1] === "\t")
+      ) {
+        break;
+      }
+      if (ch === "]" && !isEscaped(source, scan)) lastRight = scan;
       scan++;
     }
     if (lastRight !== -1) {
@@ -273,6 +285,8 @@ function scanOne(
     let next = after;
     if (out.length === 0 || out[out.length - 1] === "\n") {
       while (next < source.length && (source[next] === " " || source[next] === "\t")) next++;
+      // Prevent stripping a leading tag from turning non-fence text into a Markdown code fence.
+      if (FENCE_OPEN.test(source.slice(next))) out += "\\";
     }
     return next;
   };
@@ -331,7 +345,8 @@ function scanOne(
             lineStart = false;
           } else {
             at = stripAt(matched.end);
-            lineStart = out.length === 0 || out[out.length - 1] === "\n";
+            // Keep lineStart tied to the original source line, not post-strip output spacing.
+            lineStart = false;
           }
         }
         continue;
