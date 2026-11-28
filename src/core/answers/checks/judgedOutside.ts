@@ -16,6 +16,7 @@ import { targetHash } from "../../../shared/proposals";
 import { isClaim } from "../../../shared/sentences";
 import { type Verification, verificationOf } from "../../../shared/verification";
 import {
+  ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
   type CheckedVersion,
@@ -38,6 +39,7 @@ import {
 import {
   checkText,
   everySentence,
+  hasAiText,
   markedSentences,
   markSentence,
   type SelectedSentence,
@@ -210,6 +212,16 @@ const blockIdsOf = (element: Y.XmlElement): string[] => {
   }
   return ids;
 };
+
+const inAnswerBlock = (element: Y.XmlElement): boolean => {
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    if (at.nodeName === ANSWER_BLOCK) return true;
+  }
+  return false;
+};
+
+const lineId = (sentence: Pick<Line, "blockId" | "occurrence" | "text" | "said">): string =>
+  `${sentence.blockId}\u0000${sentence.occurrence}\u0000${sentence.text}\u0000${sentence.said}`;
 
 /** The tasks given most lately, each with its sentences as given: enough for any check under way. */
 const TASKS_KEPT = 200;
@@ -409,30 +421,20 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       const at = options.now().toISOString();
       const request = randomUUID();
       let fileCheck = false;
-      let unreportedKeys: string[] = [];
+      const taskSentenceIds = new Set<string>();
+      const landedSentenceIds = new Set<string>();
       const taskBlockIds = new Set<string>();
-      const unreportedBlockIds = new Set<string>();
       const landed = content.edit(mindId, (blocks): Judged<LandedCheck> => {
         const { verification, lines } = linesOf(blocks);
-        const marksBefore = markedSentences(blocks);
         const open = pending(blocks, lines, skipped, scope.reader);
         const sentences = sentencesOf(task, mindId, lines, open);
         if (!sentences) return { ok: false, reason: "changed" };
         const stillOpen = (sentence: Line) =>
           open.some((each) => each.element === sentence.element && each.from === sentence.from);
-        const alreadyNotChecked = (sentence: Line) =>
-          marksBefore.some(
-            ({ element, from, to, check }) =>
-              element === sentence.element &&
-              from < sentence.to &&
-              to > sentence.from &&
-              check.text === sentence.text &&
-              check.outside === true &&
-              check.state === "not-checked",
-          );
         const unconfirmed: number[] = [];
         const changesNotKept: LandedCheck["changesNotKept"] = [];
         const reported = new Set<number>();
+        const landedResult = new Set<number>();
         let marked = 0;
         for (const each of judged) {
           const sentence = sentences[each.n - 1];
@@ -456,6 +458,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
                 sentence.to,
                 "check-against-documents",
               );
+              landedResult.add(each.n);
             }
             continue;
           }
@@ -514,24 +517,19 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             ...(otherwise.length > 0 && { otherwise }),
           });
           marked++;
+          landedResult.add(each.n);
         }
         const unreported = sentences.flatMap((sentence, index) =>
           reported.has(index + 1) || !stillOpen(sentence) ? [] : [index + 1],
         );
         fileCheck = verification !== null;
         if (!fileCheck) {
-          for (const sentence of sentences) {
-            for (const id of blockIdsOf(sentence.element)) taskBlockIds.add(id);
+          for (const [index, sentence] of sentences.entries()) {
+            const id = lineId(sentence);
+            taskSentenceIds.add(id);
+            if (landedResult.has(index + 1)) landedSentenceIds.add(id);
+            for (const blockId of blockIdsOf(sentence.element)) taskBlockIds.add(blockId);
           }
-          const unreportedSet = new Set<string>();
-          for (const n of unreported) {
-            const sentence = sentences[n - 1];
-            if (!sentence || alreadyNotChecked(sentence) || !needsCheck(sentence, sentence.always))
-              continue;
-            unreportedSet.add(sentence.key);
-            for (const id of blockIdsOf(sentence.element)) unreportedBlockIds.add(id);
-          }
-          unreportedKeys = [...unreportedSet];
         }
         return {
           ok: true,
@@ -545,13 +543,52 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       });
       if (!landed.ok) return landed;
       options.retainEvidence(mindId);
-      const { keys, sentences, remainingBlockIds } = content.read(mindId, (blocks) => {
+      const {
+        keys,
+        sentences,
+        pendingUnmarkedKeys,
+        unsettledTaskKeys,
+        unsettledTaskBlockIds,
+        uncoveredAiBlockIds,
+        uncoveredAiOwnBlockIds,
+        remainingUnmarkedBlockIds,
+      } = content.read(mindId, (blocks) => {
         const { verification, lines } = linesOf(blocks);
+        const marksAfter = markedSentences(blocks);
+        const pendingKeys = new Set<string>();
+        const unsettledKeys = new Set<string>();
+        const unsettledBlocks = new Set<string>();
+        const uncoveredAiBlocks = new Set<string>();
+        const uncoveredAiOwnBlocks = new Set<string>();
         const remainingIds = new Set<string>();
         if (verification === null) {
+          const outsideNotChecked = (sentence: Line) =>
+            marksAfter.some(
+              ({ element, from, to, check }) =>
+                element === sentence.element &&
+                from < sentence.to &&
+                to > sentence.from &&
+                check.text === sentence.text &&
+                check.outside === true &&
+                check.state === "not-checked",
+            );
           for (const sentence of pending(blocks, lines, skipped, scope.reader)) {
-            if (!needsCheck(sentence, sentence.always)) continue;
-            for (const id of blockIdsOf(sentence.element)) remainingIds.add(id);
+            if (!needsCheck(sentence, sentence.always) || outsideNotChecked(sentence)) continue;
+            pendingKeys.add(sentence.key);
+            const blockIds = blockIdsOf(sentence.element);
+            for (const id of blockIds) remainingIds.add(id);
+            const id = lineId(sentence);
+            if (taskSentenceIds.has(id)) {
+              if (!landedSentenceIds.has(id)) {
+                unsettledKeys.add(sentence.key);
+                for (const blockId of blockIds) unsettledBlocks.add(blockId);
+              }
+            } else if (hasAiText(blocks, sentence)) {
+              for (const blockId of blockIds) uncoveredAiBlocks.add(blockId);
+              if (!inAnswerBlock(sentence.element) && sentence.blockId !== "") {
+                uncoveredAiOwnBlocks.add(sentence.blockId);
+              }
+            }
           }
         }
         return {
@@ -559,24 +596,44 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             ...everySentence(blocks).map((each) => sentenceKey(each.text)),
             ...lines.map((each) => each.key),
           ]),
-          sentences: markedSentences(blocks).length,
-          remainingBlockIds: remainingIds,
+          sentences: marksAfter.length,
+          pendingUnmarkedKeys: pendingKeys,
+          unsettledTaskKeys: [...unsettledKeys],
+          unsettledTaskBlockIds: unsettledBlocks,
+          uncoveredAiBlockIds: uncoveredAiBlocks,
+          uncoveredAiOwnBlockIds: uncoveredAiOwnBlocks,
+          remainingUnmarkedBlockIds: remainingIds,
         };
       });
       content.editSettings(mindId, (settings) => {
         const previous = readMindCheck(settings);
+        const unchecked = fileCheck
+          ? []
+          : [
+              ...new Set([
+                ...(previous?.unchecked ?? []).filter((key) => pendingUnmarkedKeys.has(key)),
+                ...unsettledTaskKeys,
+              ]),
+            ];
         const uncheckedBlocks = fileCheck
           ? []
-          : (previous?.uncheckedBlocks ?? []).filter((id) =>
-              taskBlockIds.has(id) ? unreportedBlockIds.has(id) : remainingBlockIds.has(id),
-            );
+          : [
+              ...new Set([
+                ...(previous?.uncheckedBlocks ?? []).filter((id) =>
+                  taskBlockIds.has(id)
+                    ? unsettledTaskBlockIds.has(id) || uncoveredAiBlockIds.has(id)
+                    : remainingUnmarkedBlockIds.has(id),
+                ),
+                ...(previous === null || previous.stop !== null ? uncoveredAiOwnBlockIds : []),
+              ]),
+            ];
         writeMindCheck(settings, {
           at,
           sentences,
           stop: null,
           skipped: [...skipped].filter((key) => keys.has(key)),
           unexamined: (previous?.unexamined ?? []).filter((key) => keys.has(key)),
-          ...(unreportedKeys.length > 0 && { unchecked: unreportedKeys }),
+          ...(unchecked.length > 0 && { unchecked }),
           ...(uncheckedBlocks.length > 0 && { uncheckedBlocks }),
         });
       });
