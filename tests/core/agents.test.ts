@@ -734,6 +734,121 @@ describe("outside agents", () => {
     expect((await useTag(hidden.id)).isError).toBe(true);
   });
 
+  // protects=top-level proposed Folders stay top-level when reused for a Document already in a Folder, list_sorting never writes Suggestions, deleted cursors resume at the next Document, and skipped omissions reset on a new request (#2737); fails_when=a top-level offer nests under a Document's current Folder, list_sorting writes Suggestions, a deleted cursor restarts from the start, or an abandoned request hides Documents from the next request
+  it("keeps list_sorting read-only, preserves top-level offered Folder parentId, and resumes past deleted cursors", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    const existingFolder = await core.createLibraryGroup({ name: "Inbox", description: "" });
+    const files: string[] = [];
+    for (let at = 1; at <= 52; at++) {
+      files.push(
+        await writeSourceFile(
+          sources,
+          `Dock ${String(at).padStart(2, "0")}.md`,
+          `# Dock ${at}\n\n${"harbour quay breakwater tide gauge mooring seawall ".repeat(10)}item ${at}.`,
+        ),
+      );
+    }
+    const added = await addAndProcess(core, files, 120_000);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const agent = await connectLegacyAgent(launch);
+
+    const sampleDocs: SortingBatch["documents"] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const batch = structured<SortingBatch>(
+        await agent.callTool({ name: "list_sorting", arguments: after ? { after } : {} }),
+      );
+      sampleDocs.push(...batch.documents);
+      if (batch.next === null) break;
+      after = batch.next;
+    }
+    const sampleIds = new Set(sampleDocs.map((d) => d.id));
+    // File one unsampled Document into Inbox as the User; still waiting for Tags so it stays in list_sorting.
+    const inInbox = added.find((d) => !sampleIds.has(d.id));
+    if (!inInbox) throw new Error("Expected an unsampled Document.");
+    await core.assignDocumentGroup(inInbox.id, existingFolder.id);
+
+    // Submit fewer than half the sample so propagation does not run; next list_sorting stays read-only.
+    const first = sampleDocs[0];
+    if (!first) throw new Error("Expected a sampled Document.");
+    await agent.callTool({
+      name: "propose_sorting",
+      arguments: {
+        proposals: [{ documentId: first.id, version: first.version, newFolder: "Top harbour" }],
+      },
+    });
+    const beforeList = (await core.getOrganizeReview()).items.length;
+    const round2 = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect((await core.getOrganizeReview()).items.length).toBe(beforeList);
+    // Omitted 39 sampled docs were skipped during this request.
+    expect(round2.total).toBe(52 - sampleDocs.length);
+
+    // Offered top-level Folder picked for a Document in Inbox stays top-level (parentId: null).
+    const offered = round2.folders.find((f) => f.name === "Top harbour");
+    const inboxRow = round2.documents.find((d) => d.id === inInbox.id);
+    expect(offered).toBeDefined();
+    expect(inboxRow).toBeDefined();
+    if (offered && inboxRow) {
+      await agent.callTool({
+        name: "propose_sorting",
+        arguments: {
+          proposals: [{ documentId: inboxRow.id, version: inboxRow.version, folderId: offered.id }],
+        },
+      });
+      const review = await core.getOrganizeReview();
+      expect(
+        review.folders.filter((f) => f.name === "Top harbour").every((f) => f.parentId === null),
+      ).toBe(true);
+    }
+
+    // Draining the request finishes with empty documents, and a new request resets skipped so omitted docs return.
+    const drained = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(drained.documents).toEqual([]);
+    const restarted = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(restarted.total).toBe(50);
+
+    // Deleting a cursor Document in natural order (<= 48 Documents) resumes after its id rather than restarting at 0.
+    const { core: smallCore } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const smallSources = await createSourceFolder();
+    const smallFiles: string[] = [];
+    for (let at = 1; at <= 41; at++) {
+      smallFiles.push(
+        await writeSourceFile(
+          smallSources,
+          `Item ${String(at).padStart(2, "0")}.md`,
+          `# Item ${at}\n\n${"The quay wall inspection note lists soundings and markers. ".repeat(35)}`,
+        ),
+      );
+    }
+    await addAndProcess(smallCore, smallFiles, 60_000);
+    await smallCore.setAgentsEnabled(true);
+    const { launch: smallLaunch } = await smallCore.connectAgent({
+      name: "Claude Code",
+      folderIds: [ALL_SHARED_ID],
+    });
+    const smallAgent = await connectLegacyAgent(smallLaunch);
+    const page1 = structured<SortingBatch>(
+      await smallAgent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(page1.next).not.toBeNull();
+    const cursorId = page1.next as string;
+    await smallCore.deleteDocument(cursorId);
+    const page2 = structured<SortingBatch>(
+      await smallAgent.callTool({ name: "list_sorting", arguments: { after: cursorId } }),
+    );
+    const page1Ids = new Set(page1.documents.map((d) => d.id));
+    expect(page2.documents.length).toBeGreaterThan(0);
+    expect(page2.documents.some((d) => page1Ids.has(d.id))).toBe(false);
+  }, 180_000);
+
   // protects=with no Folder yet and no model set up, an agent suggests a Folder and a Tag by name; nothing is made, filed or tagged before Confirm; one name given in two calls is one Folder; a Document nothing fits gets nothing; a name the Library can't take is refused in its own form's words with nothing of the call kept; Confirm makes them and files and tags the Documents (#3610); fails_when=a new name is refused, something is made or filed before Confirm, one name gives two Folders, or a bad name fails as IncarnaMind's own error
   it("suggest new Folders and Tags by name, which Confirm alone makes", async () => {
     const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
@@ -923,6 +1038,237 @@ describe("outside agents", () => {
     expect((await core.getOrganizeReview()).items).toHaveLength(SORTING_MOST + 1);
     expect((await core.getLibrary()).groups).toEqual([]);
   }, 120_000);
+
+  // protects=past SAMPLE (48) Documents, list_sorting serves a proportional 40-Document sample across pages within READ_PART_TOKENS, propagates unanimous clear Folder placements locally as IncarnaMind's own Suggestions with no copied Tags and never touching User-filed Documents, exposes scoped proposed Folders in Round 2 (never across another pairing's wall), never loops on omitted outliers, and Confirm + one Undo reverts every Document (agent and copied rows alike) cleanly (#2737); fails_when=large Libraries copy Tags to unread Documents, attribute copied rows to the agent, refile a User-filed Document, leak proposed Folders across pairings, loop on skipped Documents, create Folders before Confirm, or fail clean Undo
+  it("sample, propagate clear clusters, reuse scoped proposed Folders, and undo cleanly past 48 Documents", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    const privateFolder = await core.createLibraryGroup({
+      name: "Private wall",
+      description: "",
+    });
+    await core.updateLibraryGroup(privateFolder.id, {
+      name: privateFolder.name,
+      description: "",
+      keepInside: true,
+    });
+    const userKeptFolder = await core.createLibraryGroup({
+      name: "User kept",
+      description: "",
+    });
+    const themes = [
+      {
+        prefix: "Harbour",
+        folder: "Harbour works",
+        kind: "kind:report",
+        body: "harbour quay breakwater dredging tide gauge beacon pier mooring vessel berth seawall",
+      },
+      {
+        prefix: "Orchard",
+        folder: "Orchard care",
+        kind: "kind:paper",
+        body: "orchard apple pruning grafting blossom cider rootstock trellis frost harvest irrigation",
+      },
+      {
+        prefix: "Bakery",
+        folder: "Bakery ledger",
+        kind: "kind:invoice",
+        body: "bakery sourdough yeast flour oven fermentation rye brioche pastry dough hearth",
+      },
+    ];
+    const files: string[] = [];
+    for (const theme of themes) {
+      for (let at = 1; at <= 18; at++) {
+        files.push(
+          await writeSourceFile(
+            sources,
+            `${theme.prefix} ${at}.md`,
+            `# ${theme.prefix} ${at}\n\n${`${theme.body} item${at}. `.repeat(12)}`,
+          ),
+        );
+      }
+    }
+    // Two boundary Documents mixing two themes so they stay below CLEAR and test Round 2 reuse.
+    files.push(
+      await writeSourceFile(
+        sources,
+        "Harbour 19.md",
+        "# Harbour 19\n\nharbour quay breakwater orchard apple pruning blossom tide gauge harvest",
+      ),
+      await writeSourceFile(
+        sources,
+        "Bakery 19.md",
+        "# Bakery 19\n\nbakery sourdough flour harbour quay mooring vessel yeast oven seawall",
+      ),
+    );
+    for (let at = 1; at <= 4; at++) {
+      files.push(
+        await writeSourceFile(
+          sources,
+          `Stray ${at}.md`,
+          `# Stray ${at}\n\nMiscellaneous personal memo ${at} about stargazing and comet trails.`,
+        ),
+      );
+    }
+    const wallFile = await writeSourceFile(
+      sources,
+      "Walled note.md",
+      "# Walled secret\n\nConfidential walled project budget.",
+    );
+    await addAndProcess(core, [...files, wallFile], 120_000);
+    const allDocs = await core.listDocuments();
+    const walledDoc = allDocs.find((d) => d.name === "Walled note");
+    const userFiledDoc = allDocs.find((d) => d.name === "Harbour 18");
+    if (!walledDoc || !userFiledDoc) throw new Error("Missing walled or user-filed Document");
+    await core.assignDocumentGroup(walledDoc.id, privateFolder.id);
+    await core.assignDocumentGroup(userFiledDoc.id, userKeptFolder.id);
+
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const { launch: wallLaunch } = await core.connectAgent({
+      name: "Walled Agent",
+      folderIds: [privateFolder.id],
+    });
+    const agent = await connectLegacyAgent(launch);
+    const walledAgent = await connectLegacyAgent(wallLaunch);
+
+    const round1Docs: SortingBatch["documents"] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const res = await agent.callTool({
+        name: "list_sorting",
+        arguments: after ? { after } : {},
+      });
+      expect(estimateTokens(resultText(res))).toBeLessThanOrEqual(READ_PART_TOKENS);
+      const batch = structured<SortingBatch>(res);
+      expect(batch.total).toBe(60);
+      round1Docs.push(...batch.documents);
+      if (batch.next === null) break;
+      after = batch.next;
+    }
+    expect(round1Docs).toHaveLength(SORTING_MOST);
+
+    const themeFor = (name: string) => themes.find((t) => name.startsWith(t.prefix));
+    const round1Proposals = round1Docs.flatMap((doc) => {
+      if (doc.id === userFiledDoc.id) return [];
+      const theme = themeFor(doc.name);
+      return theme
+        ? [
+            {
+              documentId: doc.id,
+              version: doc.version,
+              newFolder: theme.folder,
+              tagIds: [theme.kind],
+            },
+          ]
+        : [];
+    });
+    const taken1 = structured<{ waiting: number; left?: string }>(
+      await agent.callTool({ name: "propose_sorting", arguments: { proposals: round1Proposals } }),
+    );
+    // Propagation wrote more items than the agent submitted directly.
+    expect(taken1.waiting).toBeGreaterThan(round1Proposals.length);
+    const reviewAfterRound1 = await core.getOrganizeReview();
+    const copiedAfterRound1 = reviewAfterRound1.items.filter((i) => i.origin === "library");
+    expect(copiedAfterRound1.length).toBeGreaterThan(0);
+    // Copied rows carry IncarnaMind's origin (no agent name), zero copied Tags, and never touch a User-filed Document.
+    expect(copiedAfterRound1.every((i) => i.agent === undefined && i.tags.length === 0)).toBe(true);
+    expect(copiedAfterRound1.some((i) => i.documentId === userFiledDoc.id)).toBe(false);
+    expect((await core.getLibrary()).groups.map((g) => g.id).sort()).toEqual(
+      [privateFolder.id, userKeptFolder.id].sort(),
+    );
+
+    // A pairing inside a separate wall never sees proposed Folders from outside its scope.
+    const wallBatch = structured<SortingBatch>(
+      await walledAgent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(wallBatch.folders.map((f) => f.id)).toEqual([privateFolder.id]);
+
+    // Drain any remaining uncertain Documents using offered folderIds; skip Strays without looping.
+    let drained = false;
+    for (let step = 0; step < 4; step++) {
+      const next = structured<SortingBatch>(
+        await agent.callTool({ name: "list_sorting", arguments: {} }),
+      );
+      if (next.documents.length === 0) {
+        drained = true;
+        break;
+      }
+      const folderByName = new Map(next.folders.map((f) => [f.name, f.id]));
+      for (const theme of themes) expect(folderByName.has(theme.folder)).toBe(true);
+      const batchProposals = next.documents.flatMap((doc) => {
+        if (doc.id === userFiledDoc.id) return [];
+        const theme = themeFor(doc.name);
+        if (!theme) return [];
+        const folderId = folderByName.get(theme.folder);
+        return folderId
+          ? [{ documentId: doc.id, version: doc.version, folderId, tagIds: [theme.kind] }]
+          : [];
+      });
+      if (batchProposals.length === 0) {
+        await agent.callTool({
+          name: "propose_sorting",
+          arguments: {
+            proposals: next.documents.map((doc) => ({ documentId: doc.id, version: doc.version })),
+          },
+        });
+      } else {
+        await agent.callTool({
+          name: "propose_sorting",
+          arguments: { proposals: batchProposals },
+        });
+      }
+    }
+    expect(drained).toBe(true);
+    // Starting a new request after the first finished resets the skipped list so omitted Documents can be seen again.
+    const nextRequest = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(
+      nextRequest.documents.every((d) => d.name.startsWith("Stray") || d.id === userFiledDoc.id),
+    ).toBe(true);
+
+    const review = await core.getOrganizeReview();
+    expect(review.folders.map((f) => f.name).sort()).toEqual(themes.map((t) => t.folder).sort());
+    const confirmed = await core.confirmOrganizeReview(review.items.map((i) => i.id));
+    const afterConfirm = await core.getLibrary();
+    expect(afterConfirm.groups.map((g) => g.name).sort()).toEqual(
+      [...themes.map((t) => t.folder), "Private wall", "User kept"].sort(),
+    );
+    expect(afterConfirm.assignments.find((a) => a.documentId === userFiledDoc.id)?.groupId).toBe(
+      userKeptFolder.id,
+    );
+    for (const theme of themes) {
+      const group = afterConfirm.groups.find((g) => g.name === theme.folder);
+      const members = afterConfirm.assignments.filter((a) => a.groupId === group?.id);
+      const expected = theme.prefix === "Bakery" ? 19 : 18;
+      expect(members).toHaveLength(expected);
+    }
+
+    if (!confirmed) throw new Error("Expected confirmation result");
+    await core.undoOrganizeReviewConfirmation(confirmed.id);
+    const afterUndo = await core.getLibrary();
+    expect(afterUndo.groups.map((g) => g.id).sort()).toEqual(
+      [privateFolder.id, userKeptFolder.id].sort(),
+    );
+    const expectedLooseIds = allDocs
+      .filter((d) => d.id !== walledDoc.id && d.id !== userFiledDoc.id)
+      .map((d) => d.id)
+      .sort();
+    const stillLoose = afterUndo.assignments.filter(
+      (a) => a.documentId !== walledDoc.id && a.documentId !== userFiledDoc.id,
+    );
+    expect(stillLoose.map((a) => a.documentId).sort()).toEqual(expectedLooseIds);
+    expect(stillLoose.every((a) => a.groupId === null)).toBe(true);
+    expect(afterUndo.assignments.find((a) => a.documentId === walledDoc.id)?.groupId).toBe(
+      privateFolder.id,
+    );
+    expect(afterUndo.assignments.find((a) => a.documentId === userFiledDoc.id)?.groupId).toBe(
+      userKeptFolder.id,
+    );
+    // Undo brings every row (agent and IncarnaMind-copied alike) back to open Suggestions.
+    expect((await core.getOrganizeReview()).items).toHaveLength(review.items.length);
+  }, 180_000);
 
   // protects=a new Folder an agent suggests for a Document in a Folder bound to a folder on disk is proposed inside that Folder, made there only at Confirm, and the Document filed in it, as the Library's own Organize of a Folder makes its subfolders (#3610); fails_when=the new Folder is proposed at the top level, which would take the Document out of its Project, or anything is made before Confirm
   it("suggest a new Folder for a Document in a Project inside the Project", async () => {

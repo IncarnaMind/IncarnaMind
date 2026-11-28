@@ -9135,6 +9135,10 @@ export const en = {
     "The last of your {total} Suggestions wasn’t taken, to keep this call short: send it again in another call.",
   "agents.sorting.left.other":
     "The last {count} of your {total} Suggestions weren’t taken, to keep this call short: send them again in another call.",
+  "agents.sorting.moreWaiting.one":
+    "1 more Document still waits to be organized. Call list_sorting again for the next batch and reuse the listed Folders by folderId where they fit rather than creating new ones.",
+  "agents.sorting.moreWaiting.other":
+    "{count} more Documents still wait to be organized. Call list_sorting again for the next batch and reuse the listed Folders by folderId where they fit rather than creating new ones.",
   "agents.sorting.invalid":
     "The Documents or choices have changed. List the waiting Documents again and use their current Folders and Tags.",
   "agents.activity.list_sorting": "Read Documents waiting to be organized",

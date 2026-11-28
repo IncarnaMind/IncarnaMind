@@ -11,7 +11,6 @@ import type {
   OrganizeProgress,
   RunEstimate,
 } from "../api";
-import { decodeVector } from "../documents/vectors";
 import { InvalidInputError, isRecord, TaggingNotReadyError } from "../errors";
 import type { Language } from "../language";
 import type { OrganizeReviewProposal, OrganizeReviewRun, TagsProposal } from "../organizeReview";
@@ -35,21 +34,18 @@ import {
   aimAfter,
   finishPlan,
   type LibraryPlan,
-  meanVector,
   type PlanExcerpt,
   type PlanFolder,
   type PlanRequest,
   planLocally,
-  wordVectors,
 } from "./plan";
 import type { LibraryGroup, LibrarySettings } from "./types";
+import { storedDocumentVectors } from "./vectors";
 
 /** Above this, in US dollars, the run shows its cost first. */
 const ASK_ABOVE_USD = 1;
 /** How much of each Document the model sees. */
 const EXCERPT_TOKENS = 150;
-/** How many Passages make a Document's word vector, and its mean of vectors. */
-const VECTOR_PASSAGES = 30;
 const WAIT_MS = 300;
 
 interface Subject extends StoredDocument {
@@ -160,43 +156,8 @@ export function createLibraryOrganizer(options: {
     BEING_READ.has(subject.status) ||
     (subject.status === "embedding" && options.embedding.enabled());
 
-  /**
-   * Each readable Document's vector: the search embeddings when every one has them from the
-   * model in use, else its words. Never the two mixed.
-   */
-  const vectorsOf = (subjects: readonly Subject[]): Float32Array[] => {
-    const { embedding } = options;
-    const embedded =
-      embedding.enabled() &&
-      subjects.every((each) => each.status === "ready" && each.embedding_model === embedding.id);
-    if (embedded) {
-      const vectors = subjects.map((each) =>
-        meanVector(
-          db
-            .all<{ embedding: Uint8Array }>(
-              `SELECT embedding FROM passages WHERE document_id = ? AND deleted_at IS NULL
-                 AND embedding IS NOT NULL ORDER BY position LIMIT ?`,
-              [each.id, BigInt(VECTOR_PASSAGES)],
-            )
-            .map((row) => decodeVector(row.embedding)),
-        ),
-      );
-      if (vectors.every((vector) => vector !== null)) return vectors as Float32Array[];
-    }
-    return wordVectors(
-      subjects.map((each) =>
-        [
-          each.name,
-          ...db
-            .all<{ text: string }>(
-              "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT ?",
-              [each.id, BigInt(VECTOR_PASSAGES)],
-            )
-            .map((row) => row.text),
-        ].join("\n"),
-      ),
-    );
-  };
+  const vectorsOf = (subjects: readonly Subject[]): Float32Array[] =>
+    storedDocumentVectors(db, subjects, options.embedding);
 
   const excerptOf = (subject: Subject): Omit<PlanExcerpt, "ref"> => {
     const excerpt = organizeExcerpt(storedOrganizeSource(db, subject));

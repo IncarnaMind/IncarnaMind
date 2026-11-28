@@ -7195,6 +7195,10 @@ export function createCore(adapters: CoreAdapters): Core {
         () => settings.get().language,
         (run, rows) => organizeReview.propose(run, rows),
         (key, values) => translate(settings.get().language, key, values),
+        {
+          offeredFolders: () => organizeReview.offeredFolders(),
+          embedding: embedding.model,
+        },
       ),
       say: (key, params) => translate(settings.get().language, key, params),
       folders: () =>

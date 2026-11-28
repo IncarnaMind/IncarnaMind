@@ -8535,6 +8535,10 @@ export const zhCN = {
     "为免调用过长，你的 {total} 条建议中最后 1 条没有收下：请在下一次调用中重新发送。",
   "agents.sorting.left.other":
     "为免调用过长，你的 {total} 条建议中最后 {count} 条没有收下：请在下一次调用中重新发送这 {count} 条。",
+  "agents.sorting.moreWaiting.one":
+    "还有 1 个文档等待整理。请再次调用 list_sorting 查看下一批文档，适合的请直接用 folderId 归入已列出的文件夹，不要重复新建。",
+  "agents.sorting.moreWaiting.other":
+    "还有 {count} 个文档等待整理。请再次调用 list_sorting 查看下一批文档，适合的请直接用 folderId 归入已列出的文件夹，不要重复新建。",
   "agents.sorting.invalid":
     "文档或可选项已更改。请重新列出待整理的文档，再使用当前可选的文件夹和标签。",
   "agents.activity.list_sorting": "读取了待整理的文档",

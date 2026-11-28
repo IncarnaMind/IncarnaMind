@@ -1785,6 +1785,7 @@ export function createAgentAccess(
     const reached = reachedFolders(deps, pairing);
     if (!reached.size) throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     return {
+      pairingId: pairing.id,
       documents: documentsForPairing(deps, pairing, [...reached], reached),
       shareTagNames: pairing.shareTagNames === true,
       folders: deps
