@@ -35,13 +35,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Four explicit jobs (not a matrix) so each shard hands its own `status` output to red-night.
+  # Four explicit jobs (not a matrix) so each shard hands its own `status` output to red-night. An
+  # expression has no replace(): a list typed by hand is matched with and without one space beside
+  # a comma, as scripts/nightlyRealModel.ts trims each name.
   live-1:
     name: Live tests on Claude (1/4)
     outputs:
       status: ${{ steps.run.outputs.status }}
     # A run by hand from another branch would give that branch's files the keys.
-    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', replace(inputs.steps, ' ', '')), ',live,'))
+    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', inputs.steps), ',live,') || contains(format(',{0},', inputs.steps), ', live,') || contains(format(',{0},', inputs.steps), ',live ,') || contains(format(',{0},', inputs.steps), ', live ,'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -59,7 +61,7 @@ jobs:
     name: Live tests on Claude (2/4)
     outputs:
       status: ${{ steps.run.outputs.status }}
-    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', replace(inputs.steps, ' ', '')), ',live,'))
+    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', inputs.steps), ',live,') || contains(format(',{0},', inputs.steps), ', live,') || contains(format(',{0},', inputs.steps), ',live ,') || contains(format(',{0},', inputs.steps), ', live ,'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -77,7 +79,7 @@ jobs:
     name: Live tests on Claude (3/4)
     outputs:
       status: ${{ steps.run.outputs.status }}
-    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', replace(inputs.steps, ' ', '')), ',live,'))
+    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', inputs.steps), ',live,') || contains(format(',{0},', inputs.steps), ', live,') || contains(format(',{0},', inputs.steps), ',live ,') || contains(format(',{0},', inputs.steps), ', live ,'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -95,7 +97,7 @@ jobs:
     name: Live tests on Claude (4/4)
     outputs:
       status: ${{ steps.run.outputs.status }}
-    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', replace(inputs.steps, ' ', '')), ',live,'))
+    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && (inputs.steps == '' || contains(format(',{0},', inputs.steps), ',live,') || contains(format(',{0},', inputs.steps), ', live,') || contains(format(',{0},', inputs.steps), ',live ,') || contains(format(',{0},', inputs.steps), ', live ,'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -113,7 +115,7 @@ jobs:
     name: Real-model checks
     outputs:
       status: ${{ steps.run.outputs.status }}
-    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && replace(inputs.steps, ' ', '') != 'live'
+    if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main' && !contains(fromJSON('["live", " live", "live ", " live "]'), inputs.steps)
     runs-on: ubuntu-latest
     timeout-minutes: 280
     steps:
