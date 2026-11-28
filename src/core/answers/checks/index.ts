@@ -1409,6 +1409,12 @@ export function createChecks(options: ChecksOptions) {
 
   const written = createWrittenCheck({
     ...options,
+    canCheck: ({ provider: { service } }) => {
+      if (service === null) return "ready";
+      if (options.localOnly()) return "off";
+      if (options.consent.covers("checks", service, WRITTEN_SENDS)) return "ready";
+      return options.consent.allows("checks", service) ? "widened" : "off";
+    },
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }, WRITTEN_SENDS),
     widened: ({ provider: { service } }) => waitsFor(service, WRITTEN_SENDS),
