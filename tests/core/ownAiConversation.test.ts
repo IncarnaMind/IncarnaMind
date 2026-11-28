@@ -1944,7 +1944,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(results[0]?.status).toBe("waiting");
     expect(results[0]?.markdown).toContain(`¶2 ${waiting}`);
     expect(results[0]?.markdown).not.toContain(translate("en", "agents.mind.yours"));
-    // From this Note's conversation, editing a different User Note still waits (#3839 D5).
+    // From this Note's conversation, editing a different User Note still waits (#3839).
     targetOther = otherId;
     await core.askInNote({ mindId, words: "update the other note too" });
     await ended(2);
@@ -6217,7 +6217,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(citations).toEqual([expect.objectContaining({ check: "found" })]);
   });
 
-  // protects=SHOULD-FIX 6: a Note-input translation request on an AI-written (own) Note where the User added >50% User text still sets requested:"edit" and instruction so translationRequested exempts it from holding, while a non-translation >50% rewrite holds (#3839); fails_when=translation on an own Note with User text holds with waiting
+  // protects=a Note-input translation request on an AI-written (own) Note where the User added >50% User text still sets requested:"edit" and instruction so translationRequested exempts it from holding, while a non-translation >50% rewrite holds (#3839); fails_when=translation on an own Note with User text holds with waiting
   it("exempts a Note-input whole-Note translation on an AI-written Note with >50% User text while holding non-translations", async () => {
     const userLine1 =
       "The harbour office publishes tidal heights for every coastal pier on Monday morning.";

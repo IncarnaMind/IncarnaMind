@@ -22,9 +22,6 @@ import type {
   OpenNotePrepareResult,
 } from "../shared/openNoteEditor";
 import type { PrintDocument } from "../shared/printDocument";
-
-export type { OpenNoteAcceptInput, OpenNoteAcceptResult, OpenNoteEditor, OpenNotePrepareResult };
-
 import type { AgentLauncher } from "./agents";
 import type { AnswerEngine } from "./answers/engine";
 import type {
@@ -72,6 +69,8 @@ import type { PaceTimers } from "./sources/pace";
 import type { SourceProviderUrls } from "./sources/providers";
 import type { PublicFetchOptions } from "./tools/web/fetcher";
 import type { UsageEventName, UsageValue } from "./usageEvents";
+
+export type { OpenNoteAcceptInput, OpenNoteAcceptResult, OpenNoteEditor, OpenNotePrepareResult };
 
 export interface Paths {
   /**

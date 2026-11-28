@@ -1,7 +1,8 @@
 /**
  * Outside-app AI changes to any Note (User-written or AI-written) apply at once with Checkpoints,
- * 1-step Undo, lossless mounted-editor / IME protection (D1), >50% User-text hold (D2),
- * `#3866` `uncheckedBlocks` tracking with `own`-only `next` (D4), and consent copy (D5) (#3839).
+ * 1-step Undo, lossless mounted-editor and IME protection, >50% User-text hold, `#3866`
+ * `uncheckedBlocks` tracking with `own`-only `next`, AI use recording, timeout doc confirmation,
+ * and pre-existing AI Note title handling (#3839).
  */
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -11,17 +12,26 @@ import { createElement } from "../../src/core/answers/blocks";
 import {
   type AgentNoteChange,
   BLOCK_ID_ATTRIBUTE,
+  GENERATED_MARK,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
+  PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
 } from "../../src/core/api";
 import { changeFact } from "../../src/renderer/src/changeFacts";
+import { INLINE_CODE_MARK } from "../../src/shared/aiText";
+import { ownTextRemoved } from "../../src/shared/askedChanges";
 import { summarizeProposalChanges } from "../../src/shared/changeSummary";
 import { translate } from "../../src/shared/i18n";
 import { readMindCheck, writeMindCheck } from "../../src/shared/mindCheck";
+import { recordNoteWriter } from "../../src/shared/noteWriter";
 import {
+  cleanStagedProposals,
+  decideProposals,
   pendingProposals,
   proposalRequestOf,
+  recordProposalRequest,
   resolveProposals,
   targetHash,
   waitingChanges,
@@ -29,7 +39,7 @@ import {
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { editMind, note, readMind } from "../helpers/minds";
+import { editMind, heading, note, readMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
 
 const TIDES = "# Tides\n\nSpring tides happen twice a month, at new moon and full moon.\n";
@@ -201,7 +211,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
   );
 
   it.each(["en", "zh-CN"] as const)(
-    "D1: refuses with changedByUser when openNoteEditor reports busy or changed, rolling back cleanly with 0 words lost (%s)",
+    "refuses with changedByUser when openNoteEditor reports busy or changed, rolling back cleanly with 0 words lost (%s)",
     async (language) => {
       let prepareMode: "busy" | "ready" = "busy";
       let acceptMode: "changed" | "applied" | "not-open" = "changed";
@@ -333,7 +343,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
     ["en", EN_P1, "Harbour ferries cross every hour through the winter season."],
     ["zh-CN", ZH_P1, "渡轮整个冬季每小时往返港口一次，载客量创新高。"],
   ] as const)(
-    "D2: holds >50% User-text rewrites with held: true persisted and 0 Checkpoints saved (%s)",
+    "holds >50% User-text rewrites with held: true persisted and 0 Checkpoints saved (%s)",
     async (language, original, rewrite) => {
       const { core, agent, coast, told } = await paired(language);
       const mind = await core.createMind({ title: "Draft", folderId: coast.id });
@@ -388,7 +398,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
     ["en", EN_P1, EN_P2, "Tides rise and fall twice a day."],
     ["zh-CN", ZH_P1, ZH_P2, "潮水每天沿着海岸涨落两次。"],
   ] as const)(
-    "D4: updates #3866 uncheckedBlocks immediately on already-checked User Note and AI Note while keeping next own-only (%s)",
+    "updates #3866 uncheckedBlocks immediately on already-checked User Note and AI Note while keeping next own-only (%s)",
     async (language, p1, p2, rewrittenP1) => {
       const { core, agent, coast } = await paired(language);
 
@@ -432,7 +442,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
         }),
       );
       expect(userEdit.status).toBe("applied");
-      // D4: next stays null on User-written Note (check_mind_yourself remains own-only).
+      // next stays null on User-written Note (check_mind_yourself remains own-only).
       expect(userEdit.next).toBeNull();
       await expect
         .poll(() => readMindCheck(userClient.doc.getMap(MIND_SETTINGS_FIELD))?.uncheckedBlocks)
@@ -479,7 +489,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
         }),
       );
       expect(aiEdit.status).toBe("applied");
-      // D4: own === true still reports unchecked sentences in next AND updates uncheckedBlocks.
+      // own === true still reports unchecked sentences in next AND updates uncheckedBlocks.
       expect(aiEdit.next).not.toBeNull();
       await expect
         .poll(() => readMindCheck(aiClient.doc.getMap(MIND_SETTINGS_FIELD))?.uncheckedBlocks)
@@ -487,7 +497,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
     },
   );
 
-  // protects=MUST-FIX 2: when openNoteEditor.acceptInEditor throws/rejects, staged Proposals are cleanly rolled back in core so zero orphaned Proposals leak (#3839); fails_when=staged Proposals remain pending after acceptInEditor throws
+  // protects=when openNoteEditor.acceptInEditor throws/rejects, staged Proposals are cleanly rolled back in core so zero orphaned Proposals leak (#3839); fails_when=staged Proposals remain pending after acceptInEditor throws
   it("rolls back staged Proposals in core when acceptInEditor throws", async () => {
     const throwingEditor: OpenNoteEditor = {
       async prepareWrite() {
@@ -522,7 +532,7 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
     expect(linesOf(client)).toEqual([EN_P1, EN_P2]);
   });
 
-  // protects=SHOULD-FIX 4: removing a whole table counts as 1 table (tablesRemoved: true) so the inline summary says "Changed 1 table" / "修改了 1 个表格" rather than "Changed 0 paragraphs" or "Added a table" (#3839); fails_when=tables is 0 or summary says 0 paragraphs / Added
+  // protects=removing a whole table counts as 1 table (tablesRemoved: true) so the inline summary says "Changed 1 table" / "修改了 1 个表格" rather than "Changed 0 paragraphs" or "Added a table" (#3839); fails_when=tables is 0 or summary says 0 paragraphs / Added
   it.each([
     ["en", "Changed 1 table"],
     ["zh-CN", "修改了 1 个表格"],
@@ -578,6 +588,310 @@ describe("outside-app changes to any Note apply at once (#3839)", () => {
         null,
       );
       expect(rendered).toBe(expectedLine);
+    } finally {
+      doc.destroy();
+    }
+  });
+
+  // protects=outside-agent edits applied on the core path (closed or hidden Note) record outside-agent-change-accepted so the AI use statement lists them (#3839); fails_when=AI use record or statement misses the outside-agent edit
+  it.each([
+    [
+      "en",
+      EN_P1,
+      EN_P2,
+      "Tides rise and fall twice daily along the coast.",
+      "Changes from a connected agent accepted",
+    ],
+    [
+      "zh-CN",
+      ZH_P1,
+      ZH_P2,
+      "潮水每日沿着海岸涨落两次，时间十分规律。",
+      "接受已连接智能体提出的修订",
+    ],
+  ] as const)(
+    "records AI use on the core path so the AI use statement lists Claude Code edits to a closed User Note (%s)",
+    async (language, p1, p2, rewrittenP1, expectedRow) => {
+      const { core, agent, coast } = await paired(language);
+      const mind = await core.createMind({ title: "Closed draft", folderId: coast.id });
+      const client = await connectToMind(core, mind.id);
+      editMind(client, () => [note(p1), note(p2)]);
+      await client.settled();
+      // Close the Note so the outside-agent edit takes the core-accept path.
+      await core.closeMind(mind.id);
+
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+      );
+      const edited = structured<Proposed>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: mind.id,
+            version: read.version,
+            changes: [{ paragraph: "¶1", text: rewrittenP1 }],
+          },
+        }),
+      );
+      expect(edited.status).toBe("applied");
+
+      const entries = await core.listAiUse(mind.id);
+      expect(entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            mindId: mind.id,
+            kind: "outside-agent-change-accepted",
+            agent: "Claude Code",
+          }),
+        ]),
+      );
+
+      const statement = await core.createAiUseStatement(mind.id);
+      const statementClient = await connectToMind(core, statement.id);
+      const rows: string[][] = [];
+      readMind(statementClient).descendants((node) => {
+        if (node.type.name === "tableRow") {
+          const row: string[] = [];
+          node.forEach((cell) => void row.push(cell.textContent));
+          rows.push(row);
+        }
+      });
+      expect(rows).toContainEqual([expectedRow, expect.stringContaining("Claude Code"), "1"]);
+    },
+  );
+
+  // protects=when openNoteEditor applies on the editor thread, core does not duplicate AI use recording because applyArrived records it (#3839); fails_when=core records AI use on appliedInEditor path
+  it("does not double-record AI use in core when the open editor applied the write", async () => {
+    let clientRef: MindClient | null = null;
+    const editorAdapter: OpenNoteEditor = {
+      async prepareWrite() {
+        return { open: true, busy: false, token: `tok-${randomUUID()}` };
+      },
+      async acceptInEditor(input) {
+        const current = clientRef;
+        if (current) {
+          await current.settled();
+          current.doc.transact(() => {
+            decideProposals(current.blocks, (ref) => ref.request === input.request, "accept");
+          }, "editor");
+          await current.settled();
+        }
+        return "applied";
+      },
+    };
+    const { core, agent, coast } = await paired("en", editorAdapter);
+    const mind = await core.createMind({ title: "Open note", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    clientRef = client;
+    editMind(client, () => [note(EN_P1), note(EN_P2)]);
+    await client.settled();
+
+    const read = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    const edited = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: read.version,
+          changes: [{ paragraph: "¶1", text: "Tides rise twice daily." }],
+        },
+      }),
+    );
+    expect(edited.status).toBe("applied");
+    // Renderer's applyArrived owns core.recordAiUse on the open-editor path; core itself writes 0 entries here.
+    expect(await core.listAiUse(mind.id)).toEqual([]);
+  });
+
+  // protects=when acceptInEditor times out, core confirms against the doc instead of guessing: rolls back and refuses if still pending, or confirms applied if the renderer already accepted (#3839); fails_when=timeout guesses changed when already applied or leaves pending Proposals behind
+  it("confirms against the document on acceptInEditor timeout (rolls back if pending, confirms if already applied)", async () => {
+    let applyBeforeTimeout = false;
+    let clientRef: MindClient | null = null;
+    const timeoutEditor: OpenNoteEditor = {
+      async prepareWrite() {
+        return { open: true, busy: false, token: `tok-${randomUUID()}` };
+      },
+      async acceptInEditor(input) {
+        const current = clientRef;
+        if (applyBeforeTimeout && current) {
+          await current.settled();
+          current.doc.transact(() => {
+            decideProposals(current.blocks, (ref) => ref.request === input.request, "accept");
+          }, "editor");
+          await current.settled();
+        }
+        return "timeout";
+      },
+    };
+    const { core, agent, coast, told } = await paired("en", timeoutEditor);
+    const mind = await core.createMind({ title: "Timeout confirmation", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    clientRef = client;
+    editMind(client, () => [note(EN_P1), note(EN_P2)]);
+    await client.settled();
+
+    // Case 1: renderer never applied before timeout -> core rolls back and refuses with changedByUser.
+    const r1 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    const timedOutPending = await agent.callTool({
+      name: "propose_changes",
+      arguments: {
+        mindId: mind.id,
+        version: r1.version,
+        changes: [{ paragraph: "¶1", text: "Tides rise twice daily." }],
+      },
+    });
+    expect(refusal(timedOutPending)).toBe(translate("en", "agents.problem.changedByUser"));
+    await client.settled();
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(linesOf(client)).toEqual([EN_P1, EN_P2]);
+    expect(told).toEqual([]);
+
+    // Case 2: renderer already accepted before IPC timed out -> core confirms applied, no refusal, no duplicate write!
+    applyBeforeTimeout = true;
+    const confirmed = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: r1.version,
+          changes: [{ paragraph: "¶1", text: "Tides rise twice daily." }],
+        },
+      }),
+    );
+    expect(confirmed).toMatchObject({ status: "applied", waiting: 0 });
+    await client.settled();
+    expect(linesOf(client)).toEqual(["Tides rise twice daily.", EN_P2]);
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({ mindId: mind.id, appliedInEditor: true, step: null });
+  });
+
+  // protects=pre-existing AI-written Notes whose synthetic title heading lacks GENERATED_MARK do not hold a title rewrite as removing User text, while a User-written Note's heading still counts as User text (#3839); fails_when=rewriting an older AI Note's title holds or a User Note's heading stops counting
+  it("treats a pre-existing AI Note's unmarked first title heading as generated while keeping User Note headings as User text", async () => {
+    const { core, agent, coast, pairing } = await paired("en");
+
+    // Simulate a pre-existing AI-written Note whose opening heading 1 has NO GENERATED_MARK.
+    const aiMind = await core.createMind({ title: "Harbour Draft", folderId: coast.id });
+    const aiClient = await connectToMind(core, aiMind.id);
+    editMind(aiClient, () => [
+      heading(1, "Harbour Draft"),
+      {
+        type: "paragraph",
+        attrs: { id: randomUUID() },
+        content: [{ type: "text", text: EN_P1, marks: [{ type: GENERATED_MARK }] }],
+      },
+    ]);
+    aiClient.doc.transact(() => {
+      recordNoteWriter(aiClient.doc, {
+        source: "outside-agent",
+        agent: pairing.name,
+        pairingId: pairing.id,
+        mindId: aiMind.id,
+        createdAt: "2026-11-28T09:00:00.000Z",
+      });
+    });
+    await aiClient.settled();
+
+    const rAi = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: aiMind.id, named: true } }),
+    );
+    const titleRewrite = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: aiMind.id,
+          version: rAi.version,
+          changes: [{ paragraph: "¶0", text: "# Revised Coastal Briefing" }],
+        },
+      }),
+    );
+    expect(titleRewrite.status).toBe("applied");
+
+    // Contrast: a User-written Note with only an unmarked heading 1 holds when rewritten (>50% User text).
+    const userMind = await core.createMind({ title: "My Private Title", folderId: coast.id });
+    const userClient = await connectToMind(core, userMind.id);
+    editMind(userClient, () => [heading(1, "My Private Title")]);
+    await userClient.settled();
+    const rUser = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: userMind.id, named: true } }),
+    );
+    const heldUserTitle = structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: userMind.id,
+          version: rUser.version,
+          changes: [{ paragraph: "¶0", text: "# Completely Different Words" }],
+        },
+      }),
+    );
+    expect(heldUserTitle.status).toBe("waiting");
+
+    // Inline code inside an AI-written paragraph is not miscounted as User text.
+    const codeDoc = new Y.Doc();
+    try {
+      const blocks = codeDoc.getXmlFragment(MIND_CONTENT_FIELD);
+      const para = new Y.XmlElement("paragraph");
+      const text = new Y.XmlText();
+      text.insert(0, "Run ", { [GENERATED_MARK]: {} });
+      text.insert(4, "npm test", {
+        [INLINE_CODE_MARK]: {},
+        [PROPOSAL_DELETE_MARK]: { id: "p-code", request: "req-code" },
+      });
+      text.insert(12, "npm check", {
+        [INLINE_CODE_MARK]: {},
+        [PROPOSAL_INSERT_MARK]: { id: "p-code", request: "req-code" },
+      });
+      para.insert(0, [text]);
+      blocks.insert(0, [para]);
+      expect(ownTextRemoved(blocks, new Set(["req-code"]))).toBe(0);
+    } finally {
+      codeDoc.destroy();
+    }
+  });
+
+  // protects=temporary staging Proposals left behind by a crash before accept are rolled back on load while held Proposals persist (#3839); fails_when=staged Proposals leak on reload or held Proposals are wiped
+  it("cleans up leftover staged Proposals on reload without touching held Proposals", () => {
+    const doc = new Y.Doc();
+    try {
+      const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+      const p1 = new Y.XmlElement("paragraph");
+      p1.setAttribute(BLOCK_ID_ATTRIBUTE, "b-staged");
+      const t1 = new Y.XmlText();
+      t1.insert(0, "old", { [PROPOSAL_DELETE_MARK]: { id: "prop-s", request: "req-s" } });
+      t1.insert(3, "new", { [PROPOSAL_INSERT_MARK]: { id: "prop-s", request: "req-s" } });
+      p1.insert(0, [t1]);
+
+      const p2 = new Y.XmlElement("paragraph");
+      p2.setAttribute(BLOCK_ID_ATTRIBUTE, "b-held");
+      const t2 = new Y.XmlText();
+      t2.insert(0, "kept", { [PROPOSAL_DELETE_MARK]: { id: "prop-h", request: "req-h" } });
+      t2.insert(4, "rewritten", { [PROPOSAL_INSERT_MARK]: { id: "prop-h", request: "req-h" } });
+      p2.insert(0, [t2]);
+
+      blocks.insert(0, [p1, p2]);
+      recordProposalRequest(doc, "req-s", {
+        source: "outside-agent",
+        agent: "Claude Code",
+        pairingId: "pair-1",
+        createdAt: "2026-11-28T09:00:00.000Z",
+        staging: true,
+      });
+      recordProposalRequest(doc, "req-h", {
+        source: "outside-agent",
+        agent: "Claude Code",
+        pairingId: "pair-1",
+        createdAt: "2026-11-28T09:00:00.000Z",
+        held: true,
+      });
+
+      expect(cleanStagedProposals(blocks)).toBe(true);
+      expect(pendingProposals(blocks).map((ref) => ref.request)).toEqual(["req-h"]);
+      expect(t1.toString()).toBe("old");
+      expect(cleanStagedProposals(blocks)).toBe(false);
     } finally {
       doc.destroy();
     }

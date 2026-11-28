@@ -12,13 +12,16 @@ import {
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
   type MindChange,
+  NOTE_TAB_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type SentenceChanges,
 } from "../core/api";
 import { diffSteps, splitWords } from "../core/proposals/diff";
+import { INLINE_CODE_MARK } from "./aiText";
 import { hasMarkIn, markValueOf } from "./markKeys";
+import { noteWriterOf } from "./noteWriter";
 import {
   proposalRequestOf,
   readProposalAttribute,
@@ -86,6 +89,33 @@ function notWrittenBack(out: string, back: string): number {
 }
 
 /**
+ * An AI-written Note made before synthetic title headings carried `GENERATED_MARK` still has its
+ * opening level-1 heading treated as generated rather than User text (#3839).
+ */
+function syntheticTitleHeading(
+  blocks: Y.XmlFragment | Y.XmlElement,
+  mindId?: string,
+): Y.XmlElement | null {
+  if (!(blocks instanceof Y.XmlFragment) || !blocks.doc) return null;
+  const writer = noteWriterOf(blocks.doc);
+  if (!writer) return null;
+  if (mindId !== undefined && writer.mindId !== undefined && writer.mindId !== mindId) {
+    return null;
+  }
+  const first = blocks.get(0);
+  const at = first instanceof Y.XmlElement && first.nodeName === NOTE_TAB_NODE ? 1 : 0;
+  const heading = blocks.get(at);
+  if (
+    heading instanceof Y.XmlElement &&
+    heading.nodeName === "heading" &&
+    Number(heading.getAttribute("level")) === 1
+  ) {
+    return heading;
+  }
+  return null;
+}
+
+/**
  * What the User's own text loses: the words each change strikes and doesn't write back, in word
  * characters. A paragraph written anew is struck whole and written again (#1028), its spaces and
  * marks with it, so counted by its strike, or with its spaces, the same change would wait or apply
@@ -94,10 +124,12 @@ function notWrittenBack(out: string, back: string): number {
 function measureOwnText(
   blocks: Y.XmlFragment | Y.XmlElement,
   requests: ReadonlySet<string>,
+  mindId?: string,
 ): OwnTextMeasurement {
   let own = 0;
   let words = 0;
   let removed = 0;
+  const generatedTitle = syntheticTitleHeading(blocks, mindId);
   const changes = new Map<string, { out: string; back: string }>();
   const changeOf = (id: string) => {
     const change = changes.get(id) ?? { out: "", back: "" };
@@ -107,11 +139,18 @@ function measureOwnText(
   const visit = (parent: Y.XmlFragment | Y.XmlElement, goes: boolean) => {
     for (const child of parent.toArray()) {
       if (child instanceof Y.XmlText) {
-        for (const run of runsOf(child)) {
+        const runs = runsOf(child);
+        const hasGenerated = runs.some((run) => marked(run, GENERATED_MARK));
+        for (const run of runs) {
           const added = readProposalRef(markValueOf(PROPOSAL_INSERT_MARK, run.attributes));
           if (added) changeOf(added.id).back += run.insert;
-          if (marked(run, GENERATED_MARK) || hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes))
+          if (
+            marked(run, GENERATED_MARK) ||
+            hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes) ||
+            (hasGenerated && marked(run, INLINE_CODE_MARK))
+          ) {
             continue;
+          }
           own += run.insert.length;
           words += wordCharacters(run.insert);
           const deleted = readProposalRef(markValueOf(PROPOSAL_DELETE_MARK, run.attributes));
@@ -119,6 +158,7 @@ function measureOwnText(
           else if (deleted && requests.has(deleted.request)) changeOf(deleted.id).out += run.insert;
         }
       } else if (child instanceof Y.XmlElement) {
+        if (child === generatedTitle) continue;
         const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
         if (proposal?.kind === "insert") continue;
         visit(child, goes || (proposal?.kind === "delete" && requests.has(proposal.request)));
@@ -131,16 +171,17 @@ function measureOwnText(
 }
 
 /** How much original User text a Block or Mind holds, excluding AI and inserted text. */
-export function ownTextLength(blocks: Y.XmlFragment | Y.XmlElement): number {
-  return measureOwnText(blocks, new Set()).own;
+export function ownTextLength(blocks: Y.XmlFragment | Y.XmlElement, mindId?: string): number {
+  return measureOwnText(blocks, new Set(), mindId).own;
 }
 
 /** How much of the User's own text in the Mind, not AI text, the requests' changes take out: a share from 0 to 1. */
 export function ownTextRemoved(
   blocks: Y.XmlFragment | Y.XmlElement,
   requests: ReadonlySet<string>,
+  mindId?: string,
 ): number {
-  const { words, removed } = measureOwnText(blocks, requests);
+  const { words, removed } = measureOwnText(blocks, requests, mindId);
   return words === 0 ? 0 : removed / words;
 }
 
@@ -178,6 +219,7 @@ export function translationRequested(doc: Y.Doc, requests: ReadonlySet<string>):
 export function whyItWaits(
   doc: Y.Doc,
   requests: ReadonlySet<string>,
+  mindId?: string,
 ):
   | { why: "most-of-their-text" }
   | { why: "wider-than-asked" }
@@ -187,7 +229,7 @@ export function whyItWaits(
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
   if (
     !translationRequested(doc, requests) &&
-    ownTextRemoved(blocks, requests) > MOST_OF_YOUR_TEXT
+    ownTextRemoved(blocks, requests, mindId) > MOST_OF_YOUR_TEXT
   ) {
     return { why: "most-of-their-text" };
   }
@@ -210,8 +252,8 @@ export function whyItWaits(
   return null;
 }
 
-export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
-  return whyItWaits(doc, requests) !== null;
+export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>, mindId?: string): boolean {
+  return whyItWaits(doc, requests, mindId) !== null;
 }
 
 /**
@@ -227,7 +269,7 @@ export function appliedRequests(
     calls.flatMap((call) => (call.mindChange?.mindId === mindId ? [call.mindChange.request] : [])),
   );
   const requested = requestedRequests(doc, asked);
-  return waitsForUser(doc, requested) ? new Set() : requested;
+  return waitsForUser(doc, requested, mindId) ? new Set() : requested;
 }
 
 /**

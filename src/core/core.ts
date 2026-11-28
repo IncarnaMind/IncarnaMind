@@ -63,7 +63,7 @@ import { sameName } from "../shared/names";
 import { mindName, numberedName } from "../shared/naming";
 import { noteWriterOf, recordNoteWriter } from "../shared/noteWriter";
 import { paperFor } from "../shared/printDocument";
-import { resolveProposals, restoreRevised } from "../shared/proposals";
+import { cleanStagedProposals, resolveProposals, restoreRevised } from "../shared/proposals";
 import { readableQuoteText } from "../shared/readableQuote";
 import { isPaperOrBook, referenceFieldOrder } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
@@ -1060,7 +1060,11 @@ export function createCore(adapters: CoreAdapters): Core {
     {
       unsaved: unsaved.mindUnsaved,
       persisted: (mindId) => rebuildFigureRetention(mindId),
-      upgrade: keyMarks,
+      upgrade: (blocks) => {
+        const keyed = keyMarks(blocks);
+        const cleaned = cleanStagedProposals(blocks);
+        return keyed || cleaned;
+      },
     },
   );
   const mindSnapshots = createMindSnapshots(content);
@@ -7274,6 +7278,7 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoint: (mindId) => {
         checkpoints.save(mindId, "accept");
       },
+      recordAiUse: (inputs) => void aiUse.record(inputs),
       noteChanged: (change) => events.emit("agents.noteChanged", change),
       ...(adapters.agents?.openNoteEditor && { openNoteEditor: adapters.agents.openNoteEditor }),
       mindMarkdown: agentMarkdown,

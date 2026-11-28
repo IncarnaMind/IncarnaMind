@@ -874,6 +874,8 @@ export interface OutsideAgentRequest {
   instruction?: string;
   /** Held for the User because the change would rewrite most of their own text (#3839). */
   held?: true;
+  /** Temporary staging for an immediate open-editor accept; rolled back on reload if left behind by a crash (#3839). */
+  staging?: true;
 }
 
 /**

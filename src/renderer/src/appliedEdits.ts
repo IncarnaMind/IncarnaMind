@@ -882,7 +882,7 @@ export function applyArrived(
   if ((!first && !application) || editor.isDestroyed) return null;
   for (const request of requests) drawApplying(editor, request, false);
   const doc = editorDoc(editor);
-  if ((application?.held || (holds && doc && waitsForUser(doc, requests))) && first) {
+  if ((application?.held || (holds && doc && waitsForUser(doc, requests, mindId))) && first) {
     setAppliedLine(editor, {
       kind: "held",
       blockId: topBlockAt(editor.state, first.from),
@@ -1004,7 +1004,7 @@ export function applyArrivedInHistory(
     (each) => requests.has(each.request) && !stale.has(each.id),
   );
   if (pending.length === 0) return null;
-  if (holds && waitsForUser(doc, requests)) {
+  if (holds && waitsForUser(doc, requests, mindId)) {
     pendingHidden.set(history, {
       kind: "held",
       mindId,
@@ -1412,7 +1412,7 @@ export function showClosedAgentLine(
 export function syncHeldOutsideProposals(mindId: string, editor: Editor): void {
   if (editor.isDestroyed) return;
   const current = appliedLineIn(editor.state);
-  if (current !== null && current.kind !== "applied" && current.kind !== "held") return;
+  if (current !== null && current.kind !== "held") return;
   const doc = editorDoc(editor);
   if (!doc) return;
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -1427,7 +1427,7 @@ export function syncHeldOutsideProposals(mindId: string, editor: Editor): void {
     if (made?.source !== "outside-agent") continue;
     if (
       made.held === true ||
-      (made.requested === "edit" && waitsForUser(doc, new Set([ref.request])))
+      (made.requested === "edit" && waitsForUser(doc, new Set([ref.request]), mindId))
     ) {
       held.push(ref.request);
     }

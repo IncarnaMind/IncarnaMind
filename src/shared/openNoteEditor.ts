@@ -24,7 +24,7 @@ export interface OpenNoteAcceptInput {
   named?: NamedChange;
 }
 
-export type OpenNoteAcceptResult = "applied" | "changed" | "not-open";
+export type OpenNoteAcceptResult = "applied" | "changed" | "not-open" | "timeout";
 
 /**
  * Reaches a mounted editable Note editor in the host window, when the Note is currently shown in
@@ -33,13 +33,15 @@ export type OpenNoteAcceptResult = "applied" | "changed" | "not-open";
 export interface OpenNoteEditor {
   /**
    * Flushes any in-flight local edits from the mounted editor to the core before a write begins.
-   * Returns `{ open: true, busy: true }` while the User is composing (IME) or edited during flush.
+   * Waits briefly for active IME composition to settle before returning `{ open: true, busy: true }`.
    */
   prepareWrite(mindId: string): Promise<OpenNotePrepareResult>;
   /**
    * Accepts `request`'s Proposals on the mounted editor's UI thread in one Undo step, saving a
    * Checkpoint first and drawing the inline applied-edit line. Returns `"changed"` with zero DOM
-   * mutation if the User started composing or edited since `prepareWrite` or any target is stale.
+   * mutation if the User edited a targeted paragraph, remained busy past the settle window, or any
+   * target is stale; returns `"timeout"` when the window did not answer in time so the core can
+   * confirm the document state directly.
    */
   acceptInEditor(input: OpenNoteAcceptInput): Promise<OpenNoteAcceptResult>;
 }

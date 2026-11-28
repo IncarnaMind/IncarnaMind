@@ -39,6 +39,12 @@ export interface OpenNoteEditorOptions {
   windows(): BrowserWindow[];
   trusted(event: IpcMainEvent): boolean;
   log: Logger;
+  prepareTimeoutMs?: number;
+  acceptTimeoutMs?: number;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isReply(value: unknown): value is OpenNoteWriteReply {
@@ -65,6 +71,8 @@ export function createOpenNoteEditor({
   windows,
   trusted,
   log,
+  prepareTimeoutMs = PREPARE_TIMEOUT_MS,
+  acceptTimeoutMs = ACCEPT_TIMEOUT_MS,
 }: OpenNoteEditorOptions): OpenNoteEditor {
   const pending = new Map<string, PendingCall>();
   const tokenOwners = new Map<string, TokenOwner>();
@@ -93,10 +101,25 @@ export function createOpenNoteEditor({
       log.warn("openNoteEditor.untrustedReply");
       return;
     }
-    if (!isReply(payload)) return;
+    if (!isReply(payload)) {
+      log.warn("openNoteEditor.invalidReply");
+      return;
+    }
     const entry = pending.get(payload.callId);
-    if (!entry) return;
-    if (entry.window.isDestroyed() || entry.window.webContents !== event.sender) return;
+    if (!entry) {
+      log.warn("openNoteEditor.unexpectedReply", {
+        callId: payload.callId,
+        kind: payload.kind,
+      });
+      return;
+    }
+    if (entry.window.isDestroyed() || entry.window.webContents !== event.sender) {
+      log.warn("openNoteEditor.senderMismatch", {
+        callId: payload.callId,
+        kind: payload.kind,
+      });
+      return;
+    }
     entry.cleanup();
     entry.resolve(payload);
   });
@@ -108,6 +131,11 @@ export function createOpenNoteEditor({
     fallback: OpenNoteWriteReply,
   ): Promise<OpenNoteWriteReply> => {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
+      log.warn("openNoteEditor.windowDestroyed", {
+        kind: request.kind,
+        mindId: request.mindId,
+        callId: request.callId,
+      });
       return Promise.resolve(fallback);
     }
     return new Promise((resolve) => {
@@ -116,8 +144,23 @@ export function createOpenNoteEditor({
         cleanup();
         resolve(reply);
       };
-      const onGone = () => finish(fallback);
-      const timer = setTimeout(() => finish(fallback), timeoutMs);
+      const onGone = () => {
+        log.warn("openNoteEditor.windowGone", {
+          kind: request.kind,
+          mindId: request.mindId,
+          callId,
+        });
+        finish(fallback);
+      };
+      const timer = setTimeout(() => {
+        log.warn("openNoteEditor.timeout", {
+          kind: request.kind,
+          mindId: request.mindId,
+          callId,
+          timeoutMs,
+        });
+        finish(fallback);
+      }, timeoutMs);
       timer.unref?.();
       const cleanup = () => {
         clearTimeout(timer);
@@ -132,7 +175,13 @@ export function createOpenNoteEditor({
       window.webContents.once("render-process-gone", onGone);
       try {
         window.webContents.send(FILES_CHANNELS.openNoteWriteRequest, request);
-      } catch {
+      } catch (error) {
+        log.warn("openNoteEditor.sendFailed", {
+          kind: request.kind,
+          mindId: request.mindId,
+          callId,
+          error: errorMessage(error),
+        });
         finish(fallback);
       }
     });
@@ -154,8 +203,30 @@ export function createOpenNoteEditor({
         mindId,
         token,
       } satisfies OpenNoteWriteRequest);
-    } catch {
-      // Window closed between check and send; its tokens are already gone.
+    } catch (error) {
+      log.warn("openNoteEditor.releaseFailed", {
+        mindId,
+        error: errorMessage(error),
+      });
+    }
+  };
+
+  const cancelRemote = (window: BrowserWindow, mindId: string, request: string, token: string) => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    try {
+      window.webContents.send(FILES_CHANNELS.openNoteWriteRequest, {
+        kind: "cancel",
+        callId: randomUUID(),
+        mindId,
+        request,
+        token,
+      } satisfies OpenNoteWriteRequest);
+    } catch (error) {
+      log.warn("openNoteEditor.cancelFailed", {
+        mindId,
+        request,
+        error: errorMessage(error),
+      });
     }
   };
 
@@ -169,7 +240,7 @@ export function createOpenNoteEditor({
           const reply = await askWindow(
             window,
             { kind: "prepare", callId, mindId },
-            PREPARE_TIMEOUT_MS,
+            prepareTimeoutMs,
             { kind: "prepare", callId, open: false },
           );
           return { window, reply };
@@ -213,7 +284,7 @@ export function createOpenNoteEditor({
             const reply = await askWindow(
               window,
               { kind: "verify", callId, mindId: input.mindId, token: otherToken },
-              PREPARE_TIMEOUT_MS,
+              prepareTimeoutMs,
               { kind: "verify", callId, ok: false },
             );
             return reply.kind === "verify" && reply.ok;
@@ -223,7 +294,7 @@ export function createOpenNoteEditor({
           const reply = await askWindow(
             window,
             { kind: "prepare", callId, mindId: input.mindId },
-            PREPARE_TIMEOUT_MS,
+            prepareTimeoutMs,
             { kind: "prepare", callId, open: true, busy: true },
           );
           if (reply.kind === "prepare" && reply.open) {
@@ -241,10 +312,17 @@ export function createOpenNoteEditor({
       const reply = await askWindow(
         owner.window,
         { kind: "accept", callId, ...input },
-        ACCEPT_TIMEOUT_MS,
-        { kind: "accept", callId, result: "changed" },
+        acceptTimeoutMs,
+        { kind: "accept", callId, result: "timeout" },
       );
-      return reply.kind === "accept" ? reply.result : "changed";
+      if (reply.kind !== "accept") {
+        cancelRemote(owner.window, input.mindId, input.request, input.token);
+        return "timeout";
+      }
+      if (reply.result === "timeout") {
+        cancelRemote(owner.window, input.mindId, input.request, input.token);
+      }
+      return reply.result;
     },
   };
 }

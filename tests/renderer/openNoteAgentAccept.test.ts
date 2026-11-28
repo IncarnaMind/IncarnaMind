@@ -1,14 +1,16 @@
 /**
  * Renderer behavior for outside-app Note writes (#3839):
- * - D1: Mounted editor single-threaded accept, typing race refusal (0 words lost), and Chinese IME
- *   composing (`view.composing === true`) refusal on both the SAME paragraph and ANOTHER paragraph
- *   with 0 DOM mutation and 0 IME text wiped; composing gate defers incoming `mind.update`.
- * - D2: >50% User-text rewrite held as `Apply · Discard`, survives closed-Note reopen without
- *   falling back to `Accept all · Reject all`, and clicking Apply saves Checkpoint + updates `#3866`
- *   `uncheckedBlocks` (flipping Checked / 已核对 to unchecked).
- * - D3: Front tab shows inline `AppliedEditLine` only (suppressing `SidebarStatus` notice);
- *   hidden tab & closed Note keep `SidebarStatus` notice with Open and draw `AppliedEditLine` on
- *   tab switch / Note open with 1-step Undo.
+ * - Mounted editor single-threaded accept, typing race refusal (0 words lost), bounded settle wait
+ *   for IME composition and unrelated typing, and Chinese IME composing (`view.composing === true`)
+ *   refusal on both the same paragraph and another paragraph with 0 DOM mutation and 0 IME wiped;
+ *   composing gate defers incoming `mind.update`.
+ * - >50% User-text rewrite held as `Apply · Discard`, survives closed-Note reopen without falling
+ *   back to `Accept all · Reject all`, never overwrites an `applied` Undo line, and clicking Apply
+ *   saves Checkpoint + updates `#3866` `uncheckedBlocks`.
+ * - Front tab shows inline `AppliedEditLine` only (suppressing `SidebarStatus` notice); hidden tab
+ *   and closed Note keep `SidebarStatus` notice with Open and draw `AppliedEditLine` on tab switch
+ *   or Note open with 1-step Undo.
+ * - Real app extensions (`NoteTabs`) empty-tab staging and remote fix-up handling.
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -18,12 +20,16 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import {
   type AgentNoteChange,
+  BLOCK_ID_ATTRIBUTE,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
+  NOTE_TAB_NODE,
+  NOTE_TAB_TITLE_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type ProposalRequest,
 } from "../../src/core/api";
+import { blockProposal, setProposal } from "../../src/core/proposals/write";
 import { BRIDGE_KEY, FILES_BRIDGE_KEY } from "../../src/shared/bridge";
 import { translate } from "../../src/shared/i18n";
 import { readMindCheck, writeMindCheck } from "../../src/shared/mindCheck";
@@ -33,6 +39,7 @@ import {
   resolveProposals,
   targetHash,
 } from "../../src/shared/proposals";
+import { editorExtensions } from "../helpers/editor";
 
 function domDocument() {
   const page = new DOMParser().parseFromString(
@@ -114,13 +121,17 @@ Object.assign(globalThis, {
 });
 
 let noteExtensions: typeof import("../../src/renderer/src/editor/noteSchema").noteExtensions;
+let NoteTabs: typeof import("../../src/renderer/src/editor/noteTabs").NoteTabs;
+let noteTabsOf: typeof import("../../src/renderer/src/editor/noteTabs").noteTabsOf;
 let AppliedEditLine: typeof import("../../src/renderer/src/editor/appliedEditLine").AppliedEditLine;
 let appliedLineIn: typeof import("../../src/renderer/src/editor/appliedEditLine").appliedLineIn;
+let setAppliedLine: typeof import("../../src/renderer/src/editor/appliedEditLine").setAppliedLine;
 let ProposalReview: typeof import("../../src/renderer/src/editor/proposalReview").ProposalReview;
 let registerMindEditor: typeof import("../../src/renderer/src/editor/openEditors").registerMindEditor;
 let prepareOpenNoteWrite: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").prepareOpenNoteWrite;
 let verifyOpenNoteWrite: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").verifyOpenNoteWrite;
 let acceptOpenNoteWrite: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").acceptOpenNoteWrite;
+let cancelOpenNoteWrite: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").cancelOpenNoteWrite;
 let installOpenNoteAgentAccept: typeof import("../../src/renderer/src/editor/openNoteAgentAccept").installOpenNoteAgentAccept;
 let actOnAppliedEdit: typeof import("../../src/renderer/src/appliedEdits").actOnAppliedEdit;
 let syncHeldOutsideProposals: typeof import("../../src/renderer/src/appliedEdits").syncHeldOutsideProposals;
@@ -154,6 +165,7 @@ beforeAll(async () => {
     keptMod,
     ownSharedMod,
     healthMod,
+    tabsMod,
   ] = await Promise.all([
     import("../../src/renderer/src/editor/noteSchema"),
     import("../../src/renderer/src/editor/appliedEditLine"),
@@ -169,13 +181,20 @@ beforeAll(async () => {
     import("../../src/renderer/src/editor/keptHistories"),
     import("../../src/shared/agentOwnChanges"),
     import("../../src/renderer/src/editor/healthCounts"),
+    import("../../src/renderer/src/editor/noteTabs"),
   ]);
   ({ noteExtensions } = schemaMod);
-  ({ AppliedEditLine, appliedLineIn } = lineMod);
+  ({ NoteTabs, noteTabsOf } = tabsMod);
+  ({ AppliedEditLine, appliedLineIn, setAppliedLine } = lineMod);
   ({ ProposalReview } = reviewMod);
   ({ registerMindEditor } = openMod);
-  ({ prepareOpenNoteWrite, verifyOpenNoteWrite, acceptOpenNoteWrite, installOpenNoteAgentAccept } =
-    acceptMod);
+  ({
+    prepareOpenNoteWrite,
+    verifyOpenNoteWrite,
+    acceptOpenNoteWrite,
+    cancelOpenNoteWrite,
+    installOpenNoteAgentAccept,
+  } = acceptMod);
   ({ actOnAppliedEdit, syncHeldOutsideProposals, showClosedAgentLine } = appliedMod);
   ({ useAgentNotes, takeClosedAgentChange } = notesMod);
   ({ useAppStore } = storeMod);
@@ -278,12 +297,12 @@ function stageInlineProposal(
   return Y.encodeStateVector(doc);
 }
 
-describe("mounted editor lossless writes, IME protection, held reopen, and D3 notices (#3839)", () => {
+describe("mounted editor lossless writes, IME protection, held reopen, and notices (#3839)", () => {
   it.each([
     ["en", "Tides rise and fall twice a day.", "twice", "three times", "Added by typing."],
     ["zh-CN", "潮水每天沿着海岸涨落两次。", "两次", "三次", "用户刚输入的文字。"],
   ] as const)(
-    "D1: typing during write refuses with changed (0 words lost), then re-read and reapply succeeds with 1-step Undo (%s)",
+    "typing in targeted paragraph refuses with changed (0 words lost), then re-read and reapply succeeds with 1-step Undo (%s)",
     async (language, para, oldWord, newWord, typed) => {
       currentLanguage = language;
       const stop = installOpenNoteAgentAccept();
@@ -357,7 +376,7 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
     ["same paragraph", 0, "两次", "三次"],
     ["another paragraph", 1, "两次", "三次"],
   ] as const)(
-    "D1 (ZH): Chinese IME composing (view.composing === true) in %s refuses write with 0 DOM mutation and 0 IME wiped",
+    "Chinese IME composing (view.composing === true) in %s refuses write with 0 DOM mutation and 0 IME wiped once settle wait expires",
     async (_caseName, composeBlockIndex, oldWord, newWord) => {
       currentLanguage = "zh-CN";
       const stop = installOpenNoteAgentAccept();
@@ -398,14 +417,14 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
       Object.defineProperty(editor.view, "composing", { value: true, configurable: true });
       const beforeHtml = editor.view.dom.innerHTML;
 
-      const prepBusy = await prepareOpenNoteWrite(mindId);
+      const prepBusy = await prepareOpenNoteWrite(mindId, { settleWaitMs: 60 });
       expect(prepBusy).toEqual({ open: true, busy: true });
       expect(editor.view.dom.innerHTML).toBe(beforeHtml);
       expect(saveCheckpoint).not.toHaveBeenCalled();
 
       // Also test the 1ms race: composing starts right AFTER prepareWrite returned ready.
       Object.defineProperty(editor.view, "composing", { value: false, configurable: true });
-      const prepReady = await prepareOpenNoteWrite(mindId);
+      const prepReady = await prepareOpenNoteWrite(mindId, { settleWaitMs: 60 });
       if (!prepReady.open || prepReady.busy) throw new Error("Expected ready token.");
 
       // IME starts in `composeBlockIndex` before acceptInEditor runs; incoming mind.update is deferred by composing gate.
@@ -423,15 +442,18 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
       expect(Y.encodeStateVector(doc)).toEqual(beforeVector);
       expect(editor.view.dom.innerHTML).toBe(htmlDuringIme);
 
-      const raceResult = await acceptOpenNoteWrite({
-        mindId,
-        request: "req-ime",
-        token: prepReady.token,
-        stateVector,
-        changed: 1,
-        added: 0,
-        tables: 0,
-      });
+      const raceResult = await acceptOpenNoteWrite(
+        {
+          mindId,
+          request: "req-ime",
+          token: prepReady.token,
+          stateVector,
+          changed: 1,
+          added: 0,
+          tables: 0,
+        },
+        { settleWaitMs: 60, typingQuietMs: 20 },
+      );
       expect(raceResult).toBe("changed");
       expect(editor.view.dom.innerHTML).toBe(htmlDuringIme);
       expect(saveCheckpoint).not.toHaveBeenCalled();
@@ -446,7 +468,7 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
     ],
     ["zh-CN", "潮水每天沿着海岸涨落两次。", "渡轮整个冬季每小时往返港口一次。"],
   ] as const)(
-    "D2 + D4: held >50% rewrite restores Apply · Discard on closed-Note reopen and Apply saves Checkpoint + updates uncheckedBlocks (%s)",
+    "held >50% rewrite restores Apply · Discard on closed-Note reopen and Apply saves Checkpoint + updates uncheckedBlocks (%s)",
     async (language, original, rewrite) => {
       currentLanguage = language;
       const mindId = `mind-held-${language}`;
@@ -508,7 +530,7 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
     },
   );
 
-  it("D3: suppresses SidebarStatus notice when Note is front tab, keeps it for hidden tab & closed Note, and draws inline lines with 1-step Undo", async () => {
+  it("suppresses SidebarStatus notice when Note is front tab, keeps it for hidden tab & closed Note, and draws inline lines with 1-step Undo", async () => {
     const frontId = "mind-front";
     const hiddenId = "mind-hidden";
     const closedId = "mind-closed";
@@ -760,8 +782,8 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
     expect(appliedLineIn(closedEditor.state)).toBeNull();
   });
 
-  // protects=MUST-FIX 1a: flushDomObserver calls forceFlush() before flush() so ProseMirror's 20ms flushingSoon window cannot hide in-flight typing (#3839); fails_when=forceFlush is skipped or called after flush
-  it("D1 (1a): calls domObserver.forceFlush() before flush() during prepare and accept", async () => {
+  // protects=flushDomObserver calls forceFlush() before flush() so ProseMirror's 20ms flushingSoon window cannot hide in-flight typing (#3839); fails_when=forceFlush is skipped or called after flush
+  it("calls domObserver.forceFlush() before flush() during prepare and accept", async () => {
     const stop = installOpenNoteAgentAccept();
     cleanups.push(stop);
     const mindId = "mind-force-flush";
@@ -804,8 +826,8 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
     expect(calls).toContain("flush");
   });
 
-  // protects=MUST-FIX 1b: notifyCompositionEnd flushes DOM via forceFlush() BEFORE draining deferred mind.update, and fallback timer drains deferred updates if view.composing clears without a DOM compositionend (#3839); fails_when=deferred updates run before forceFlush or stay wedged forever
-  it("D1 (1b): flushes committed IME DOM before draining deferred updates and unblocks without compositionend", async () => {
+  // protects=notifyCompositionEnd flushes DOM via forceFlush() BEFORE draining deferred mind.update, and fallback timer drains deferred updates if view.composing clears without a DOM compositionend (#3839); fails_when=deferred updates run before forceFlush or stay wedged forever
+  it("flushes committed IME DOM before draining deferred updates and unblocks without compositionend", async () => {
     const stop = installOpenNoteAgentAccept();
     cleanups.push(stop);
     const mindId = "mind-ime-drain";
@@ -889,8 +911,8 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
     seed.destroy();
   });
 
-  // protects=MUST-FIX 1c: split panes all flush on accept, an edit flushed from a second pane refuses with changed, and a second pane opened between prepare and accept refuses with changed (#3839); fails_when=only primary flushes or a newly opened pane slips past gens
-  it("D1 (1c): flushes all split-pane editors and refuses if a second pane edits or opens after prepare", async () => {
+  // protects=split panes all flush on accept, an edit flushed from a second pane refuses with changed, and a second pane opened between prepare and accept refuses with changed (#3839); fails_when=only primary flushes or a newly opened pane slips past gens
+  it("flushes all split-pane editors and refuses if a second pane edits or opens after prepare", async () => {
     const stop = installOpenNoteAgentAccept();
     cleanups.push(stop);
     const mindId = "mind-split";
@@ -969,5 +991,327 @@ describe("mounted editor lossless writes, IME protection, held reopen, and D3 no
       tables: 0,
     });
     expect(res2).toBe("changed");
+  });
+
+  // protects=NoteTabs remote-change fix-ups never count as User typing, and staging an empty tab to an open Note with the app's extensions lands cleanly on the first try with zero stray blank paragraphs (#3839); fails_when=NoteTabs empty-line fix-up triggers changed or leaks blank paragraphs
+  it("lands a staged empty tab cleanly with the app's NoteTabs extension without counting remote fix-ups as typing", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+    const mindId = "mind-notetabs";
+    const doc = new Y.Doc();
+    cleanups.push(() => doc.destroy());
+    const schema = new Editor({ element: null, extensions: editorExtensions() });
+    prosemirrorToYXmlFragment(
+      schema.schema.nodeFromJSON({
+        type: "doc",
+        content: [
+          { type: NOTE_TAB_NODE, attrs: { id: "tab-1", [NOTE_TAB_TITLE_ATTRIBUTE]: "Summary" } },
+          {
+            type: "paragraph",
+            attrs: { id: "p-1" },
+            content: [{ type: "text", text: "Harbour report." }],
+          },
+        ],
+      }),
+      doc.getXmlFragment(MIND_CONTENT_FIELD),
+    );
+    schema.destroy();
+
+    const host = document.createElement("div");
+    const editor = new Editor({
+      element: host,
+      extensions: [
+        ...editorExtensions(),
+        NoteTabs.configure({ mindId }),
+        Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+        ProposalReview.configure({
+          translate: (key, params) => translate(currentLanguage, key, params),
+        }),
+        AppliedEditLine.configure({
+          translate: (key, params) => translate(currentLanguage, key, params),
+          undoKeys: () => "⌘Z",
+        }),
+      ],
+    });
+    const unregister = registerMindEditor(mindId, editor);
+    cleanups.push(() => {
+      unregister();
+      editor.destroy();
+    });
+
+    const prep = await prepareOpenNoteWrite(mindId);
+    if (!prep.open || prep.busy) throw new Error("Expected ready token.");
+
+    // Stage an empty tab Proposal from core (FROM_CORE).
+    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    const prop = blockProposal({ id: "prop-tab", request: "req-tab" }, "insert", "");
+    doc.transact(() => {
+      const tabEl = new Y.XmlElement(NOTE_TAB_NODE);
+      tabEl.setAttribute(BLOCK_ID_ATTRIBUTE, "tab-2");
+      tabEl.setAttribute(NOTE_TAB_TITLE_ATTRIBUTE, "Notes");
+      setProposal(tabEl, prop);
+      blocks.insert(blocks.length, [tabEl]);
+      recordProposalRequest(doc, "req-tab", {
+        source: "outside-agent",
+        agent: "Claude Code",
+        pairingId: "pair-1",
+        createdAt: "2026-11-28T09:00:00.000Z",
+        staging: true,
+      });
+    }, FROM_CORE);
+
+    // NoteTabs must NOT insert a stray empty paragraph while the tab is only a staged insert Proposal.
+    expect(blocks.length).toBe(3);
+
+    const outcome = await acceptOpenNoteWrite({
+      mindId,
+      request: "req-tab",
+      token: prep.token,
+      stateVector: Y.encodeStateVector(doc),
+      changed: 0,
+      added: 1,
+      tables: 0,
+    });
+    expect(outcome).toBe("applied");
+    expect(noteTabsOf(editor.state).tabs.map((each) => each.title)).toEqual(["Summary", "Notes"]);
+    expect(pendingProposals(blocks)).toEqual([]);
+
+    // Now test a remote change triggering NoteTabs' empty-tab fix-up on an existing tab: must NOT count as User typing!
+    const prep2 = await prepareOpenNoteWrite(mindId);
+    if (!prep2.open || prep2.busy) throw new Error("Expected second token.");
+    doc.transact(() => {
+      // Remove the empty line after "Notes" remotely so NoteTabs' appendTransaction re-inserts one on remote sync.
+      if (blocks.length > 3) blocks.delete(3, blocks.length - 3);
+    }, FROM_CORE);
+    const sv2 = stageInlineProposal(doc, 1, "Harbour", "Coastal", "req-tab-2", "prop-tab-2");
+    const outcome2 = await acceptOpenNoteWrite({
+      mindId,
+      request: "req-tab-2",
+      token: prep2.token,
+      stateVector: sv2,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    expect(outcome2).toBe("applied");
+    expect(editor.getText()).toContain("Coastal report.");
+  });
+
+  // protects=when Chinese IME or unrelated typing settles within the bounded wait in another paragraph, the write lands cleanly without losing User text, whereas committing in the targeted paragraph still refuses cleanly (#3839); fails_when=any unrelated typing or brief IME commit always refuses
+  it("waits briefly for Chinese IME and unrelated typing to settle before accepting or refusing", async () => {
+    currentLanguage = "zh-CN";
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+
+    // Case 1: IME composing in paragraph 2 commits within the bounded settle window -> AI edit on paragraph 1 applies cleanly!
+    const mindId1 = "mind-settle-ime-other";
+    const seed = new Y.Doc();
+    const schema = new Editor({ element: null, extensions: noteExtensions() });
+    prosemirrorToYXmlFragment(
+      schema.schema.nodeFromJSON({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            attrs: { id: "p1" },
+            content: [{ type: "text", text: "潮水每天沿着海岸涨落两次。" }],
+          },
+          {
+            type: "paragraph",
+            attrs: { id: "p2" },
+            content: [{ type: "text", text: "港务记录。" }],
+          },
+        ],
+      }),
+      seed.getXmlFragment(MIND_CONTENT_FIELD),
+    );
+    schema.destroy();
+    bridge.openMind.mockResolvedValueOnce({
+      state: Y.encodeStateAsUpdate(seed),
+      access: "edit" as const,
+    });
+    const doc1 = await new Promise<Y.Doc>((resolve, reject) => {
+      const stopCopy = openMindCopy(
+        mindId1,
+        (copy) => (copy.doc ? resolve(copy.doc) : reject(new Error("Missing doc"))),
+        reject,
+      );
+      cleanups.push(stopCopy);
+    });
+    const { editor: editor1 } = mountEditor(mindId1, [], doc1);
+    const prep1 = await prepareOpenNoteWrite(mindId1, { settleWaitMs: 300 });
+    if (!prep1.open || prep1.busy) throw new Error("Expected ready token.");
+
+    Object.defineProperty(editor1.view, "composing", { value: true, configurable: true });
+    editor1.view.dom.dispatchEvent(new page.defaultView.Event("compositionstart"));
+    const beforeVec = Y.encodeStateVector(doc1);
+    const sv1 = stageInlineProposal(seed, 0, "两次", "三次", "req-settle-1", "prop-settle-1");
+    const upd1 = Y.encodeStateAsUpdate(seed, beforeVec);
+    seed.destroy();
+    emitCore("mind.update", { mindId: mindId1, update: upd1 });
+
+    // Commit Chinese text into paragraph 2 after 30ms (within settleWaitMs).
+    setTimeout(() => {
+      Object.defineProperty(editor1.view, "composing", { value: false, configurable: true });
+      editor1.commands.insertContentAt(editor1.state.doc.content.size - 1, "补充海港信息。");
+      editor1.view.dom.dispatchEvent(new page.defaultView.Event("compositionend"));
+    }, 30);
+
+    const res1 = await acceptOpenNoteWrite(
+      {
+        mindId: mindId1,
+        request: "req-settle-1",
+        token: prep1.token,
+        stateVector: sv1,
+        changed: 1,
+        added: 0,
+        tables: 0,
+      },
+      { settleWaitMs: 400, typingQuietMs: 30 },
+    );
+    expect(res1).toBe("applied");
+    expect(editor1.getText()).toContain("三次");
+    expect(editor1.getText()).toContain("补充海港信息。");
+
+    // Case 2: Unrelated typing in paragraph 2 pauses -> AI edit on paragraph 1 lands cleanly with both edits intact!
+    const mindId2 = "mind-settle-typing-other";
+    const { doc: doc2, editor: editor2 } = mountEditor(mindId2, [
+      {
+        type: "paragraph",
+        attrs: { id: "a1" },
+        content: [{ type: "text", text: "Tides rise twice a day." }],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "a2" },
+        content: [{ type: "text", text: "Harbour timetable." }],
+      },
+    ]);
+    const prep2 = await prepareOpenNoteWrite(mindId2);
+    if (!prep2.open || prep2.busy) throw new Error("Expected ready token.");
+    editor2.commands.insertContentAt(editor2.state.doc.content.size - 1, " Checked Monday.");
+    const sv2 = stageInlineProposal(doc2, 0, "twice", "daily", "req-settle-2", "prop-settle-2");
+    const res2 = await acceptOpenNoteWrite(
+      {
+        mindId: mindId2,
+        request: "req-settle-2",
+        token: prep2.token,
+        stateVector: sv2,
+        changed: 1,
+        added: 0,
+        tables: 0,
+      },
+      { settleWaitMs: 300, typingQuietMs: 30 },
+    );
+    expect(res2).toBe("applied");
+    expect(editor2.getText()).toContain("daily");
+    expect(editor2.getText()).toContain("Checked Monday.");
+
+    // Case 3: IME composing in the SAME targeted paragraph commits within settleWaitMs -> refuses cleanly with 0 words lost!
+    const mindId3 = "mind-settle-ime-same";
+    const { doc: doc3, editor: editor3 } = mountEditor(mindId3, [
+      {
+        type: "paragraph",
+        attrs: { id: "s1" },
+        content: [{ type: "text", text: "潮水每天沿着海岸涨落两次。" }],
+      },
+    ]);
+    const prep3 = await prepareOpenNoteWrite(mindId3, { settleWaitMs: 300 });
+    if (!prep3.open || prep3.busy) throw new Error("Expected ready token.");
+    const sv3 = stageInlineProposal(doc3, 0, "两次", "三次", "req-settle-3", "prop-settle-3");
+    Object.defineProperty(editor3.view, "composing", { value: true, configurable: true });
+    editor3.view.dom.dispatchEvent(new page.defaultView.Event("compositionstart"));
+    setTimeout(() => {
+      Object.defineProperty(editor3.view, "composing", { value: false, configurable: true });
+      editor3.commands.insertContentAt(editor3.state.doc.content.size - 1, "海港实测");
+      editor3.view.dom.dispatchEvent(new page.defaultView.Event("compositionend"));
+    }, 30);
+    const res3 = await acceptOpenNoteWrite(
+      {
+        mindId: mindId3,
+        request: "req-settle-3",
+        token: prep3.token,
+        stateVector: sv3,
+        changed: 1,
+        added: 0,
+        tables: 0,
+      },
+      { settleWaitMs: 400, typingQuietMs: 30 },
+    );
+    expect(res3).toBe("changed");
+    expect(editor3.getText()).toContain("海港实测");
+  });
+
+  // protects=cancelOpenNoteWrite aborts an in-flight acceptOpenNoteWrite cleanly without mutating the doc after a main-process timeout (#3839); fails_when=cancelled accept still mutates the doc
+  it("aborts an in-flight accept cleanly on cancelOpenNoteWrite without mutating the document", async () => {
+    const stop = installOpenNoteAgentAccept();
+    cleanups.push(stop);
+    const mindId = "mind-cancel";
+    const { doc, editor } = mountEditor(mindId, [
+      {
+        type: "paragraph",
+        attrs: { id: "b1" },
+        content: [{ type: "text", text: "Tides rise twice a day." }],
+      },
+    ]);
+    const prep = await prepareOpenNoteWrite(mindId);
+    if (!prep.open || prep.busy) throw new Error("Expected ready token.");
+
+    // State vector ahead of current doc so acceptOpenNoteWrite waits for vector arrival.
+    const remote = new Y.Doc();
+    Y.applyUpdate(remote, Y.encodeStateAsUpdate(doc));
+    const aheadVector = stageInlineProposal(
+      remote,
+      0,
+      "twice",
+      "daily",
+      "req-cancel",
+      "prop-cancel",
+    );
+    remote.destroy();
+
+    const pendingAccept = acceptOpenNoteWrite({
+      mindId,
+      request: "req-cancel",
+      token: prep.token,
+      stateVector: aheadVector,
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    cancelOpenNoteWrite(mindId, "req-cancel", prep.token);
+    expect(await pendingAccept).toBe("changed");
+    expect(editor.getText()).toContain("twice");
+    expect(saveCheckpoint).not.toHaveBeenCalled();
+  });
+
+  // protects=syncHeldOutsideProposals never replaces an existing "applied" Undo line with a held line (#3839); fails_when=applied Undo line disappears when held proposals exist
+  it("never overwrites an applied Undo line when syncing held outside-agent Proposals", () => {
+    const mindId = "mind-keep-applied-line";
+    const { doc, editor } = mountEditor(mindId, [
+      {
+        type: "paragraph",
+        attrs: { id: "b1" },
+        content: [{ type: "text", text: "Tides rise twice a day along the coast." }],
+      },
+    ]);
+    stageInlineProposal(
+      doc,
+      0,
+      "Tides rise twice a day along the coast.",
+      "Harbour ferries cross hourly.",
+      "req-held-keep",
+      "prop-held-keep",
+      true,
+    );
+    setAppliedLine(editor, {
+      kind: "applied",
+      blockId: "b1",
+      blocks: { paragraphs: 1, tables: 0 },
+      reason: null,
+      kept: null,
+    });
+    syncHeldOutsideProposals(mindId, editor);
+    expect(appliedLineIn(editor.state)?.kind).toBe("applied");
   });
 });

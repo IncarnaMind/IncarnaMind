@@ -189,7 +189,8 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
       (claimed) => {
         if (!claimed) steps.drop();
       },
-      () => {
+      (error: unknown) => {
+        console.warn(`Couldn't claim agent change ${cause.request} for Mind ${mindId}.`, error);
         steps.drop();
       },
     );

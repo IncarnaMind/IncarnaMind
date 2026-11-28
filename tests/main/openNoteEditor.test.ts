@@ -1,9 +1,10 @@
 /**
- * Multi-window D1 coordination for `createOpenNoteEditor` (#3839):
+ * Multi-window and timeout coordination for `createOpenNoteEditor` (#3839):
  * verifies that when two Electron windows hold the same Note (or a second window opens it between
  * `prepareWrite` and `acceptInEditor`), `acceptInEditor` verifies every other window before letting
  * the primary window mutate the document, refusing with `"changed"` if any other window became
- * busy, edited, or newly opened the Note.
+ * busy, edited, or newly opened the Note; and that on accept timeout it logs, cancels the renderer
+ * request, and returns `"timeout"` so core confirms against the document instead of guessing.
  */
 import type { BrowserWindow, IpcMainEvent } from "electron";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -73,10 +74,13 @@ const log = {
 afterEach(() => {
   ipcListeners.clear();
   focusedWindow = null;
+  log.info.mockClear();
+  log.warn.mockClear();
+  log.error.mockClear();
 });
 
-describe("createOpenNoteEditor multi-window guard (#3839)", () => {
-  // protects=SHOULD-FIX 3: when two windows both hold mindId, acceptInEditor verifies the second window first and refuses with "changed" without mutating Window 1 if Window 2 edited or started composing; fails_when=Window 1 receives accept despite Window 2 returning ok:false
+describe("createOpenNoteEditor multi-window guard and timeout handling (#3839)", () => {
+  // protects=when two windows both hold mindId, acceptInEditor verifies the second window first and refuses with "changed" without mutating Window 1 if Window 2 edited or started composing (#3839); fails_when=Window 1 receives accept despite Window 2 returning ok:false
   it("refuses with changed without mutating Window 1 when Window 2 fails verify", async () => {
     const { createOpenNoteEditor } = await import("../../src/main/openNoteEditor");
     const win1 = fakeWindow((req) => {
@@ -117,7 +121,7 @@ describe("createOpenNoteEditor multi-window guard (#3839)", () => {
     expect(win1.requests.some((req) => req.kind === "verify" && req.token === "tok-1")).toBe(true);
   });
 
-  // protects=SHOULD-FIX 3: when Window 2 verifies clean (ok: true), acceptInEditor proceeds to Window 1 and returns applied; fails_when=two clean windows fail to apply
+  // protects=when Window 2 verifies clean (ok: true), acceptInEditor proceeds to Window 1 and returns applied (#3839); fails_when=two clean windows fail to apply
   it("applies in Window 1 once Window 2 verifies clean", async () => {
     const { createOpenNoteEditor } = await import("../../src/main/openNoteEditor");
     const win1 = fakeWindow((req) => {
@@ -155,7 +159,7 @@ describe("createOpenNoteEditor multi-window guard (#3839)", () => {
     expect(win1.requests.some((req) => req.kind === "accept")).toBe(true);
   });
 
-  // protects=SHOULD-FIX 3: if a second window opens mindId between prepareWrite and acceptInEditor, acceptInEditor detects it and refuses with changed without mutating Window 1; fails_when=newly opened window is missed
+  // protects=if a second window opens mindId between prepareWrite and acceptInEditor, acceptInEditor detects it and refuses with changed without mutating Window 1 (#3839); fails_when=newly opened window is missed
   it("refuses with changed if a second window opens the Note between prepare and accept", async () => {
     const { createOpenNoteEditor } = await import("../../src/main/openNoteEditor");
     let win2Open = false;
@@ -182,7 +186,6 @@ describe("createOpenNoteEditor multi-window guard (#3839)", () => {
 
     const prep = await editor.prepareWrite("mind-3");
     expect(prep).toEqual({ open: true, busy: false, token: "tok-x" });
-    // Window 2 opens mind-3 before acceptInEditor runs.
     win2Open = true;
     const outcome = await editor.acceptInEditor({
       mindId: "mind-3",
@@ -198,5 +201,50 @@ describe("createOpenNoteEditor multi-window guard (#3839)", () => {
     expect(win2.requests.some((req) => req.kind === "verify" && req.token === "tok-late")).toBe(
       true,
     );
+  });
+
+  // protects=when acceptInEditor times out waiting for the renderer reply, main returns "timeout" (never guessing "changed"), logs the timeout, and sends a cancel message so a slow renderer will not apply late (#3839); fails_when=timeout assumes changed or skips cancel
+  it("returns timeout, logs warning, and sends cancel to the renderer when accept times out", async () => {
+    const { createOpenNoteEditor } = await import("../../src/main/openNoteEditor");
+    const win1 = fakeWindow((req) => {
+      if (req.kind === "prepare")
+        return { kind: "prepare", callId: req.callId, open: true, busy: false, token: "tok-to" };
+      // Never replies to "accept".
+      return null;
+    });
+    focusedWindow = win1.window;
+    const editor = createOpenNoteEditor({
+      windows: () => [win1.window],
+      trusted: () => true,
+      log,
+      acceptTimeoutMs: 40,
+    });
+
+    const prep = await editor.prepareWrite("mind-timeout");
+    expect(prep).toEqual({ open: true, busy: false, token: "tok-to" });
+
+    const outcome = await editor.acceptInEditor({
+      mindId: "mind-timeout",
+      request: "req-timeout",
+      token: "tok-to",
+      stateVector: new Uint8Array([0]),
+      changed: 1,
+      added: 0,
+      tables: 0,
+    });
+    expect(outcome).toBe("timeout");
+    expect(log.warn).toHaveBeenCalledWith(
+      "openNoteEditor.timeout",
+      expect.objectContaining({ kind: "accept", mindId: "mind-timeout", timeoutMs: 40 }),
+    );
+    expect(
+      win1.requests.some(
+        (req) =>
+          req.kind === "cancel" &&
+          req.mindId === "mind-timeout" &&
+          req.request === "req-timeout" &&
+          req.token === "tok-to",
+      ),
+    ).toBe(true);
   });
 });

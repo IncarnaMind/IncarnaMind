@@ -884,7 +884,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const filedRequest = await askToFix(core, writer.pairing.id, agent, filed);
     expect(filedRequest).toMatch(
       new RegExp(
-        `save it again with save_as_word and that mindId, with folderId ${archive.id}\\.$`,
+        `save it again with save_as_word and that mindId, with folderId ${archive.id}\\. If propose_changes says it waits for me to apply, tell me so instead of saving yet\\.$`,
       ),
     );
     const { version } = structured<{ version: string }>(
@@ -927,7 +927,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     expect(noteRequest).toContain(`“${SOUTH}”`);
     expect(noteRequest).toMatch(
       new RegExp(
-        `Fix it in the note \\(mindId: ${mindId}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\.$`,
+        `Fix it in the note \\(mindId: ${mindId}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\. If propose_changes says it waits for me to apply, tell me so instead of saving yet\\.$`,
       ),
     );
     const textRequest = await ask(fromText);
@@ -1160,12 +1160,12 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const request = await askToFix(core, writer.pairing.id, agent, first);
     expect(request).toMatch(
       new RegExp(
-        `Fix it in the note \\(mindId: ${mind.id}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\.$`,
+        `Fix it in the note \\(mindId: ${mind.id}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\. If propose_changes says it waits for me to apply, tell me so instead of saving yet\\.$`,
       ),
     );
     await core.updateSettings({ user: { language: "zh-CN" } });
     expect(await askToFix(core, writer.pairing.id, agent, first)).toContain(
-      `用 propose_changes 在这篇笔记（mindId：${mind.id}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件。`,
+      `用 propose_changes 在这篇笔记（mindId：${mind.id}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件。如果 propose_changes 说需要等我应用，请先告诉我，暂不重新生成。`,
     );
     await core.updateSettings({ user: { language: "en" } });
 

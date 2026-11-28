@@ -32,16 +32,17 @@ test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION
 
 /*
  * Outside-app AI changes to the User's own Note (#3839):
- * - D1: Single-threaded mounted-editor accept, lossless typing race refusal (`changedByUser`), and
- *   Chinese IME composition (`Input.imeSetComposition` -> `view.composing === true`) refusal on
- *   both the same paragraph and another paragraph with 0 words/IME lost.
- * - D2: >50% User-text rewrites hold with `Apply · Discard` (no `Accept all · Reject all`),
- *   including after closing and reopening the Note; Apply saves a Checkpoint and lands the change.
- * - D3: Front tab shows only the inline applied-edit line (no sidebar footer notice); hidden tab
- *   and closed Note keep the sidebar footer notice with Open and draw the inline line with 1-step
- *   Undo when opened.
- * - D4: Editing an already-checked User Note immediately updates `#3866` `uncheckedBlocks` so the
- *   Check button flips from Checked / 已核对 back to unchecked.
+ * - Single-threaded mounted-editor accept, lossless typing guard (`changedByUser`) including
+ *   concurrent typing during an in-flight write, and Chinese IME composition
+ *   (`Input.imeSetComposition` -> `view.composing === true`) refusal on both the same paragraph and
+ *   another paragraph with 0 words or IME text lost.
+ * - >50% User-text rewrites hold with `Apply · Discard` (no `Accept all · Reject all`), including
+ *   after closing and reopening the Note; Apply saves a Checkpoint and lands the change.
+ * - Front tab shows only the inline applied-edit line (no sidebar footer notice); hidden tab and
+ *   closed Note keep the sidebar footer notice with Open and draw the inline line with 1-step Undo
+ *   (including keyboard `ControlOrMeta+z`).
+ * - Editing an already-checked User Note immediately updates `#3866` `uncheckedBlocks` so the Check
+ *   button flips from Checked / 已核对 back to unchecked.
  */
 
 let dataDir: string;
@@ -150,8 +151,8 @@ for (const language of ["en", "zh-CN"] as const) {
           discardLabel: "放弃",
         };
 
-  // protects=outside-app AI edits to the User's own Note apply at once with Checkpoint, 1-step Undo, inline line only in front tab (D3), sidebar Open notice for hidden/closed Notes, and lossless typing refusal (#3839); fails_when=changes wait with Accept all, sidebar notice duplicates front inline line, hidden/closed open misses inline line or Undo, or typing is lost
-  test(`outside-app edit applies at once on front, hidden, and closed User Note with Checkpoint, 1-step Undo, D3 notices, and lossless typing guard (${language})`, async () => {
+  // protects=outside-app AI edits to the User's own Note apply at once with Checkpoint, 1-step Undo (including keyboard Cmd+Z on hidden and closed Notes), inline line only in front tab, sidebar Open notice for hidden/closed Notes, and lossless typing guard including concurrent typing (#3839); fails_when=changes wait with Accept all, sidebar notice duplicates front inline line, hidden/closed open misses inline line or Cmd+Z Undo, or typing is lost
+  test(`outside-app edit applies at once on front, hidden, and closed User Note with Checkpoint, 1-step Undo, notices, and lossless typing guard (${language})`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir, { home });
     try {
@@ -195,7 +196,16 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const agent = await openMcp(launch);
       try {
-        // 1. Front tab: applies immediately, inline line shown, NO sidebar notice (D3), Checkpoint saved, 1-step Undo.
+        // 1. Front tab: applies immediately, inline line shown, NO sidebar notice, Checkpoint saved (+1), 1-step Undo.
+        const checkpointsBefore1 = await window.evaluate(
+          async (id) =>
+            (
+              await (
+                globalThis as unknown as { incarnamind: CoreBridge }
+              ).incarnamind.listCheckpoints(id)
+            ).checkpoints.length,
+          mindId,
+        );
         const r1 = structured<{ version: string }>(
           await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
         );
@@ -225,13 +235,13 @@ for (const language of ["en", "zh-CN"] as const) {
             ).checkpoints.length,
           mindId,
         );
-        expect(checkpointsAfter1).toBeGreaterThanOrEqual(1);
+        expect(checkpointsAfter1).toBe(checkpointsBefore1 + 1);
 
         await pointAndClick(window, inlineLine.getByTestId("applied-undo"));
         await expect(paragraphsOf(window)).toHaveText([copy.p1, copy.p2]);
         await expect(inlineLine).toHaveCount(0);
 
-        // 2. Typing guard (D1): User types after AI read -> refused with changedByUser, 0 words lost, re-read & reapply works.
+        // 2. Typing guard: real typing during an in-flight outside-app write loses 0 characters, and re-read & reapply works.
         const rBeforeType = structured<{ version: string }>(
           await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
         );
@@ -252,6 +262,36 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(refused).toBe(translate(language, "agents.problem.changedByUser"));
         await expect(paragraphsOf(window).nth(1)).toHaveText(`${copy.p2}${copy.typed}`);
 
+        // Concurrent typing while propose_changes is in flight on the same paragraph loses 0 typed characters.
+        const concurrentSuffix = language === "en" ? " Live keys." : " live";
+        const rConcurrent = structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        );
+        await pointAndClick(window, paragraphsOf(window).first());
+        await window.keyboard.press("End");
+        const [, concurrentResult] = await Promise.all([
+          window.keyboard.type(concurrentSuffix, { delay: 20 }),
+          agent.callTool({
+            name: "propose_changes",
+            arguments: {
+              mindId,
+              version: rConcurrent.version,
+              changes: [{ paragraph: "¶1", text: copy.p1Front }],
+            },
+          }),
+        ]);
+        await expect(paragraphsOf(window).first()).toContainText(concurrentSuffix.trim());
+        const concurrentError = (concurrentResult as { isError?: boolean }).isError === true;
+        if (concurrentError) {
+          expect(refusal(concurrentResult)).toBe(
+            translate(language, "agents.problem.changedByUser"),
+          );
+          await expect(paragraphsOf(window).first()).toHaveText(`${copy.p1}${concurrentSuffix}`);
+        } else {
+          expect(structured<{ status: string }>(concurrentResult).status).toBe("applied");
+          await pointAndClick(window, frontMind(window).getByTestId("applied-undo"));
+        }
+        // Reset paragraph 1 back to copy.p1 cleanly via re-read & reapply, keeping User's typed copy.typed in paragraph 2.
         const rAfterType = structured<{ version: string }>(
           await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
         );
@@ -261,16 +301,14 @@ for (const language of ["en", "zh-CN"] as const) {
             arguments: {
               mindId,
               version: rAfterType.version,
-              changes: [{ paragraph: "¶1", text: copy.p1Front }],
+              changes: [{ paragraph: "¶1", text: copy.p1 }],
             },
           }),
         );
         expect(reapplied.status).toBe("applied");
-        await expect(paragraphsOf(window)).toHaveText([copy.p1Front, `${copy.p2}${copy.typed}`]);
-        await pointAndClick(window, frontMind(window).getByTestId("applied-undo"));
         await expect(paragraphsOf(window)).toHaveText([copy.p1, `${copy.p2}${copy.typed}`]);
 
-        // 3. Hidden tab (D3): switch to other tab -> sidebar notice with Open, switching draws inline line + 1-step Undo.
+        // 3. Hidden tab: switch to other tab -> sidebar notice with Open, switching draws inline line + keyboard Cmd+Z Undo.
         await pointAndClick(
           window,
           window.locator(`[data-testid="mind-tab"][data-mind-id="${otherId}"]`),
@@ -300,10 +338,12 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(
           frontMind(window).getByTestId("applied-line").getByTestId("applied-count"),
         ).toHaveText(copy.hiddenLine);
-        await pointAndClick(window, frontMind(window).getByTestId("applied-undo"));
+        await frontMind(window).getByTestId("mind-editor").focus();
+        await window.keyboard.press("ControlOrMeta+z");
         await expect(paragraphsOf(window).first()).toHaveText(copy.p1);
+        await expect(frontMind(window).getByTestId("applied-line")).toHaveCount(0);
 
-        // 4. Closed Note (D3): close tab -> sidebar notice with Open, reopening draws inline line wired to core 1-step Undo.
+        // 4. Closed Note: close tab -> sidebar notice with Open, reopening draws inline line + keyboard Cmd+Z Undo.
         const tab = window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`);
         await tab.hover();
         await pointAndClick(window, tab.getByTestId("tab-close"));
@@ -331,8 +371,10 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(
           frontMind(window).getByTestId("applied-line").getByTestId("applied-count"),
         ).toHaveText(copy.closedLine);
-        await pointAndClick(window, frontMind(window).getByTestId("applied-undo"));
+        await frontMind(window).getByTestId("mind-editor").focus();
+        await window.keyboard.press("ControlOrMeta+z");
         await expect(paragraphsOf(window).first()).toHaveText(copy.p1);
+        await expect(frontMind(window).getByTestId("applied-line")).toHaveCount(0);
       } finally {
         await agent.close();
       }
@@ -341,8 +383,8 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  // protects=D2 >50% User-text rewrite holds with Apply · Discard even when closed and reopened, and D4 outside-app edits flip an already-checked User Note from Checked back to unchecked (#3839, #3866); fails_when=reopening falls back to Accept all · Reject all, Apply omits Checkpoint or uncheckedBlocks, or Checked stays stale
-  test(`D2 closed-Note >50% held rewrite restores Apply · Discard and D4 updates Checked badge on User Note (${language})`, async () => {
+  // protects=>50% User-text rewrite holds with Apply · Discard even when closed and reopened, and outside-app edits flip an already-checked User Note from Checked back to unchecked (#3839, #3866); fails_when=reopening falls back to Accept all · Reject all, Apply omits Checkpoint or uncheckedBlocks, or Checked stays stale
+  test(`closed-Note >50% held rewrite restores Apply · Discard and updates Checked badge on User Note (${language})`, async () => {
     test.setTimeout(120_000);
     const pdfPath = join(sources, "Tides.pdf");
     await writeFile(
@@ -410,7 +452,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const agent = await openMcp(launch);
       try {
-        // D4: Outside-app small edit on checked User Note lands at once and flips Checked -> unchecked!
+        // Outside-app small edit on checked User Note lands at once and flips Checked -> unchecked.
         const r1 = structured<{ version: string }>(
           await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
         );
@@ -433,7 +475,7 @@ for (const language of ["en", "zh-CN"] as const) {
           language === "en" ? /1 sentence not checked yet/ : /1 句未核对/,
         );
 
-        // Re-check so badge is Checked again, then close the Note tab before a >50% rewrite (D2).
+        // Re-check so badge is Checked again, then close the Note tab before a >50% rewrite.
         await checkNote(window);
         await expect(badge).toHaveAttribute("data-state", "checked");
 
@@ -521,12 +563,12 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// protects=D1 ZH Chinese IME composition (`view.composing === true`) in BOTH the same paragraph and another paragraph refuses an outside-app write with changedByUser, 0 DOM/IME loss, and succeeds cleanly once composition commits (#3839); fails_when=IME is interrupted or wiped, or write slips through while composing in another paragraph
+// protects=Chinese IME composition (`view.composing === true`) in both the same paragraph and another paragraph refuses an outside-app write with changedByUser, 0 DOM/IME loss, and succeeds cleanly once composition commits (#3839); fails_when=IME is interrupted or wiped, or write slips through while composing in another paragraph
 for (const [label, composeParagraph] of [
   ["same paragraph", 0],
   ["another paragraph", 1],
 ] as const) {
-  test(`D1 (ZH): Chinese IME composing in ${label} refuses write with changedByUser and loses 0 IME text`, async () => {
+  test(`Chinese IME composing in ${label} refuses write with changedByUser and loses 0 IME text`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir, { home });
     try {

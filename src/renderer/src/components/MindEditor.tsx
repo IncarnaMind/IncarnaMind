@@ -23,7 +23,13 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type * as Y from "yjs";
-import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD, NOTE_TAB_NODE } from "../../../core/api";
+import {
+  ANSWER_BLOCK,
+  type EditPart,
+  MIND_CONTENT_FIELD,
+  MIND_PROPOSAL_REQUESTS_FIELD,
+  NOTE_TAB_NODE,
+} from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
 import type { CitationLive } from "../../../shared/citations";
@@ -941,15 +947,24 @@ function MindEditorView({
       if (closed) showClosedAgentLine(editor, closed.change, closed.undoable);
     }
     syncHeldOutsideProposals(mindId, editor);
-    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
-      if (transaction.docChanged) syncHeldOutsideProposals(mindId, editor);
+    const requestsMap = doc.getMap(MIND_PROPOSAL_REQUESTS_FIELD);
+    let proposalsChanged = false;
+    const onRequestsChange = () => {
+      proposalsChanged = true;
     };
-    editor.on("transaction", onTransaction);
+    const onAfterTransaction = () => {
+      if (!proposalsChanged) return;
+      proposalsChanged = false;
+      syncHeldOutsideProposals(mindId, editor);
+    };
+    requestsMap.observe(onRequestsChange);
+    doc.on("afterTransaction", onAfterTransaction);
     return () => {
-      editor.off("transaction", onTransaction);
+      requestsMap.unobserve(onRequestsChange);
+      doc.off("afterTransaction", onAfterTransaction);
       unregister();
     };
-  }, [editor, mindId, readOnly]);
+  }, [editor, doc, mindId, readOnly]);
   useEffect(() => {
     if (!editor.isDestroyed) resumeTabCloseFocus();
   }, [editor]);

@@ -9808,9 +9808,9 @@ export const en = {
   "agents.ask.request.noteFile":
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
   "agents.ask.request.fixWordNote":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}. If propose_changes says it waits for me to apply, tell me so instead of saving yet.",
   "agents.ask.request.fixWordNoteAll":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}. If propose_changes says it waits for me to apply, tell me so instead of saving yet.",
   "agents.ask.request.wordFolder": ", with folderId {folderId}",
   "agents.ask.request.wordNote":
     "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}, mindId: {mindId}).",

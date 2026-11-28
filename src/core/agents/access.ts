@@ -53,10 +53,12 @@ import type { CheckRow } from "../../shared/noteHealth";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
 import {
   addsOnly,
+  aiUseOfAccepted,
   type ChangeKind,
   changeKinds,
   countChanged,
   decideProposals,
+  decisionsOn,
   NODE_CHARACTER,
   outOfDateProposals,
   pendingProposals,
@@ -102,6 +104,7 @@ import {
   type Mind,
   NOT_IN_A_FOLDER_ID,
   NOTE_TAB_NODE,
+  type RecordAiUseInput,
 } from "../api";
 import { citedTokens } from "../canvases/markers";
 import type { CheckRecord } from "../checkRecord";
@@ -862,6 +865,8 @@ export interface AgentAccessDeps {
   ): { value: T; step: string | null };
   /** Saves a Checkpoint of a Mind as it is, just before an agent's change applies there. */
   checkpoint(mindId: string): void;
+  /** Records AI use entries for outside-agent changes accepted on the core path (#3839). */
+  recordAiUse?(inputs: RecordAiUseInput[]): void;
   /** Tells the windows of a Note an agent wrote, or changed at once (#3371). */
   noteChanged(change: AgentNoteChange): void;
   /** Reaches a mounted editable Note editor in the host window for lossless immediate writes (#3839). */
@@ -3771,7 +3776,7 @@ export function createAgentAccess(
         if (immediate && asked.some((each) => each.kind !== "add")) {
           try {
             held = deps.mindBlocks(mind.id, (blocks) => {
-              if (!blocks.doc || ownTextLength(blocks) === 0) return false;
+              if (!blocks.doc || ownTextLength(blocks, mind.id) === 0) return false;
               const { note, placed } = assertVersionAndPlace(blocks);
               const copy = new Y.Doc();
               try {
@@ -3796,7 +3801,7 @@ export function createAgentAccess(
                   newId: deps.newId,
                   allowEmptyTab: true,
                 });
-                return waitsForUser(copy, new Set([request]));
+                return waitsForUser(copy, new Set([request]), mind.id);
               } finally {
                 copy.destroy();
               }
@@ -3846,6 +3851,7 @@ export function createAgentAccess(
                 instruction: (front ?? madeFor)?.words,
               }),
               ...(mode === "held" && { held: true as const }),
+              ...(mode === "editor-stage" && { staging: true as const }),
             },
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
@@ -3860,7 +3866,11 @@ export function createAgentAccess(
             mode === "core-accept" || mode === "editor-stage"
               ? summarizeProposalChanges(blocks, mine)
               : null;
-          if (mode === "core-accept") decideProposals(blocks, mine, "accept");
+          const resolved = mode === "core-accept" ? decideProposals(blocks, mine, "accept") : [];
+          const aiUse =
+            mode === "core-accept" && blocks.doc && resolved.length > 0
+              ? aiUseOfAccepted(blocks.doc, mind.id, resolved, deps.now())
+              : [];
           if (askedHere) {
             ownPending.add(request);
             requestOwn.add(request);
@@ -3886,6 +3896,7 @@ export function createAgentAccess(
             ...proposed,
             kinds,
             summary,
+            aiUse,
             stateVector,
             moved,
             now,
@@ -3937,6 +3948,26 @@ export function createAgentAccess(
                 written = { ...staged, ...refreshed };
                 appliedInEditor = true;
                 appliedNow = true;
+              } else if (editorOutcome === "timeout") {
+                const confirmed = deps.editMind(mind.id, (blocks) => {
+                  if (pendingProposals(blocks).some(mine)) {
+                    resolveProposals(blocks, mine, "reject");
+                    return "rolled-back" as const;
+                  }
+                  const accepted = blocks.doc ? decisionsOn(blocks.doc, request).accepted : 0;
+                  return accepted > 0 ? ("applied" as const) : ("changed" as const);
+                });
+                if (confirmed === "applied") {
+                  const refreshed = deps.mindBlocks(mind.id, (blocks) => ({
+                    now: namedNote(blocks, namedWords(pairing, inScope, []), naming),
+                    waitingInNote: waitingChanges(blocks, forUser),
+                  }));
+                  written = { ...staged, ...refreshed };
+                  appliedInEditor = true;
+                  appliedNow = true;
+                } else {
+                  throw new AgentRefusedError("changed", t("agents.problem.changedByUser"));
+                }
               } else if (editorOutcome === "changed") {
                 deps.editMind(mind.id, (blocks) => {
                   resolveProposals(blocks, mine, "reject");
@@ -3969,6 +4000,9 @@ export function createAgentAccess(
         } catch (error) {
           if (error instanceof AgentRefusedError) throw error;
           throw mapWriteError(error);
+        }
+        if (appliedNow && !appliedInEditor && written.aiUse.length > 0) {
+          deps.recordAiUse?.(written.aiUse);
         }
         deps.versions.set(key, written.now.version);
         // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.

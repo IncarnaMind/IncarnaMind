@@ -9136,9 +9136,9 @@ export const zhCN = {
   "agents.ask.request.noteFile":
     "我这条消息说的是你提交给 IncarnaMind 的文件{title}（第 {version} 版，来自 {path}）。",
   "agents.ask.request.fixWordNote":
-    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。如果 propose_changes 说需要等我应用，请先告诉我，暂不重新生成。",
   "agents.ask.request.fixWordNoteAll":
-    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里逐一改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里逐一改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。如果 propose_changes 说需要等我应用，请先告诉我，暂不重新生成。",
   "agents.ask.request.wordFolder": "，保存时带上 folderId {folderId}",
   "agents.ask.request.wordNote":
     "我这条消息说的是在 IncarnaMind 中从我的笔记{title}生成的 Word 文件（第 {version} 版，mindId：{mindId}）。",

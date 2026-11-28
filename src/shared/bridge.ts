@@ -50,6 +50,7 @@ export type SummarySaveState = "clear" | "saving" | "problem";
 export type OpenNoteWriteRequest =
   | { kind: "prepare"; callId: string; mindId: string }
   | { kind: "verify"; callId: string; mindId: string; token: string }
+  | { kind: "cancel"; callId: string; mindId: string; request: string; token: string }
   | ({ kind: "accept"; callId: string } & OpenNoteAcceptInput);
 
 /** Renderer's answer to `OpenNoteWriteRequest` (#3839). */
