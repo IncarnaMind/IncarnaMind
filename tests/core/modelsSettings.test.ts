@@ -106,6 +106,67 @@ describe("Adding a provider", () => {
     expect((await core.getSettings()).user.chatModel).toBeNull();
     expect((await core.listChatProviders()).map((each) => each.kind)).toEqual(["openai"]);
   });
+
+  // protects=a key added for meetings or search adds no model by another door (#3767); fails_when=its company's models show in a model picker or become a default
+  test("a key added for other jobs alone is kept, and its models answer nothing: no picker lists them, and none becomes the default", async () => {
+    const core = startCore(await createTempDataFolder(), { keychain: createMemoryKeychain() });
+    answerFetch({
+      [OPENAI_MODELS]: { data: [{ id: "gpt-6.1-sol" }] },
+      [ANTHROPIC_MODELS]: { data: [{ id: "claude-haiku-5-5" }] },
+    });
+    const claude = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6.1-sol",
+      keepDefault: "always",
+      jobsOnly: true,
+    });
+    expect(openai.jobsOnly).toBe(true);
+    expect((await core.listChatProviders()).map((each) => [each.kind, each.jobsOnly])).toEqual([
+      ["anthropic", undefined],
+      ["openai", true],
+    ]);
+    expect((await core.listChatModels()).map((group) => group.provider.kind)).toEqual([
+      "anthropic",
+    ]);
+    const tagging = await core.getTaggingModels();
+    expect(JSON.stringify(tagging)).not.toContain(openai.id);
+    expect((await core.getSettings()).user.chatModel?.providerId).toBe(claude.id);
+    expect(await core.getChatReadiness()).toMatchObject({ ready: true });
+
+    // The one chat provider removed: none is left, and the key for other jobs doesn't step in.
+    await core.deleteChatProvider(claude.id);
+    expect((await core.getSettings()).user.chatModel).toBeNull();
+    expect(await core.getChatReadiness()).toEqual({ ready: false, reason: "no-provider" });
+    expect(await core.listChatModels()).toEqual([]);
+  });
+
+  // protects=a company the User already chats with stays theirs when a key is added for another job (#3767); fails_when=its models leave the pickers
+  test("a key for other jobs leaves a company already saved as a chat provider as it was", async () => {
+    const core = startCore(await createTempDataFolder(), { keychain: createMemoryKeychain() });
+    answerFetch({ [OPENAI_MODELS]: { data: [{ id: "gpt-6.1-sol" }] } });
+    const chat = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6.1-sol",
+    });
+    const again = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test-2",
+      modelId: "gpt-6.1-sol",
+      keepDefault: "always",
+      jobsOnly: true,
+    });
+    expect(again.id).toBe(chat.id);
+    expect(again.jobsOnly).toBeUndefined();
+    expect((await core.listChatModels()).map((group) => group.provider.id)).toEqual([chat.id]);
+    expect((await core.getSettings()).user.chatModel?.providerId).toBe(chat.id);
+  });
 });
 
 describe("The model menu", () => {

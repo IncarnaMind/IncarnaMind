@@ -7,8 +7,8 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpDown,
+  ArrowUpRight,
   AtSign,
-  AudioLines,
   Ban,
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
@@ -18,7 +18,6 @@ import {
   Bookmark,
   BookmarkCheck,
   BookOpen,
-  Calculator,
   Calendar,
   ChartColumn,
   ChartLine,
@@ -35,12 +34,12 @@ import {
   CircleHelp,
   CircleMinus,
   ClipboardPaste,
+  Clock,
   Cloud,
   Code,
   Columns2,
   Columns3,
   Copy,
-  CopyPlus,
   Download,
   Ellipsis,
   Eraser,
@@ -50,25 +49,17 @@ import {
   File,
   FileArchive,
   FileCheck,
-  FileCode,
-  FileCode2,
-  FileImage,
   FilePlus,
   FileSearch,
-  FileSpreadsheet,
   Files,
-  FileText,
-  FileType,
   Folder,
-  FolderInput,
   FolderOpen,
   FolderPlus,
-  Globe,
+  GalleryVerticalEnd,
   GripHorizontal,
   GripVertical,
   Hash,
   Highlighter,
-  History,
   House,
   Image,
   Info,
@@ -102,7 +93,6 @@ import {
   Minus,
   Monitor,
   MoveHorizontal,
-  NotebookPen,
   Palette,
   PanelBottom,
   PanelLeft,
@@ -117,7 +107,6 @@ import {
   Play,
   Plug,
   Plus,
-  Presentation,
   Quote,
   RefreshCw,
   RemoveFormatting,
@@ -132,8 +121,9 @@ import {
   Sigma,
   Sparkle,
   Square,
-  SquareArrowOutUpRight,
   SquareDashed,
+  SquarePen,
+  SquarePlus,
   SquareTerminal,
   SquareX,
   StickyNote,
@@ -145,7 +135,7 @@ import {
   TextAlignEnd,
   TextAlignJustify,
   TextAlignStart,
-  Trash2,
+  Trash,
   TriangleAlert,
   Type,
   Unlink,
@@ -164,9 +154,9 @@ import type { CitationCheck, DocumentKind } from "../../../core/api";
 /**
  * Every icon in the app (#3766): one set, Lucide (ISC), imported here and nowhere else. An icon is
  * 16px in a row or a menu and 18px in a toolbar (`.title-bar`, `data-toolbar`) or with
- * `data-size="18"`, with one 1.5px line at both sizes; styles.css sets both, so a size a component
- * still writes loses to them. The few 12px icons (a step's chevron, a chip's ×, a note mark) are
- * named there too.
+ * `data-size="18"`, with one 1.25px line at both sizes, as light as the chat apps' sidebars draw
+ * theirs; styles.css sets both, so a size a component still writes loses to them. The few 12px
+ * icons (a step's chevron, a chip's ×, a note mark) are named there too.
  */
 export type IconProps = Omit<LucideProps, "ref">;
 export type Icon = (props: IconProps) => JSX.Element;
@@ -231,7 +221,7 @@ export const AskArrowIcon = line(ArrowUp);
 export const AskIcon = line(Play, true);
 export const AtLineIcon = line(AtSign);
 export const BookmarkLineIcon = line(Bookmark);
-export const CalculatorLineIcon = line(Calculator);
+export const CalculatorLineIcon = line(Sigma);
 export const CalendarLineIcon = line(Calendar);
 export const ChatLineIcon = line(MessageSquare);
 export const CheckLineIcon = line(Check);
@@ -265,7 +255,7 @@ export const FloatLineIcon = line(PictureInPicture2);
 export const FolderLineIcon = line(Folder);
 export const FolderPlusLineIcon = line(FolderPlus);
 export const GripIcon = line(GripVertical);
-export const HistoryLineIcon = line(History);
+export const HistoryLineIcon = line(Clock);
 export const HomeLineIcon = line(House);
 export const ImageLineIcon = line(Image);
 export const IndentDecreaseIcon = line(ListIndentDecrease);
@@ -273,20 +263,24 @@ export const IndentIncreaseIcon = line(ListIndentIncrease);
 export const InfoLineIcon = line(Info);
 export const KeyLineIcon = line(KeyRound);
 export const LineSpacingIcon = line(ListChevronsUpDown);
+/** A stack, as a chat app draws its collections: the bookshelf reads as bars at 16px. */
+export const LibraryLineIcon = line(GalleryVerticalEnd);
 export const LinkLineIcon = line(Link);
 export const LockLineIcon = line(Lock);
 export const LooseDocumentsLineIcon = line(Files);
 export const MergeLineIcon = line(Merge);
 export const MicLineIcon = line(Mic);
 export const MicOffLineIcon = line(MicOff);
-export const MindLineIcon = line(NotebookPen);
+export const MindLineIcon = line(SquarePen);
 export const MineLineIcon = line(UserCheck);
 export const MinusLineIcon = line(Minus);
 export const MoreLineIcon = line(Ellipsis);
 export const NextPageIcon = line(ChevronRight);
 export const NoteLineIcon = line(StickyNote);
 export const NumberingIcon = line(ListOrdered);
-export const OpenBesideLineIcon = line(SquareArrowOutUpRight);
+export const NewTabLineIcon = line(SquarePlus);
+export const OpenBesideLineIcon = line(PanelRight);
+export const OpenLineIcon = line(ArrowUpRight);
 export const OpenExternallyIcon = line(ExternalLink);
 export const OutlineToggleIcon = line(List);
 export const PageBreakLineIcon = line(SeparatorHorizontal);
@@ -319,7 +313,7 @@ export const SubscriptIcon = line(Subscript);
 export const SuperscriptIcon = line(Superscript);
 export const TableLineIcon = line(Table);
 export const TagLineIcon = line(Tag);
-export const TrashLineIcon = line(Trash2);
+export const TrashLineIcon = line(Trash);
 export const UploadLineIcon = line(Upload);
 export const VerifyLineIcon = line(FileCheck);
 export const WarningLineIcon = line(TriangleAlert);
@@ -339,7 +333,7 @@ export const CloseTabIcon = line(SquareX);
 export const CloseRightIcon = line(PanelRightClose);
 export const ColumnsIcon = line(Columns3);
 export const DeleteRowIcon = line(CircleMinus);
-export const DuplicateIcon = line(CopyPlus);
+export const DuplicateIcon = line(Copy);
 export const EraseIcon = line(Eraser);
 export const EyeLineIcon = line(Eye);
 export const FilePlusIcon = line(FilePlus);
@@ -352,7 +346,7 @@ export const MoveDownIcon = line(ArrowDown);
 export const MoveLeftIcon = line(ArrowLeft);
 export const MoveRightIcon = line(ArrowRight);
 export const MoveUpIcon = line(ArrowUp);
-export const MoveToIcon = line(FolderInput);
+export const MoveToIcon = line(Folder);
 export const PaletteIcon = line(Palette);
 export const QuoteIcon = line(Quote);
 export const ReplaceIcon = line(Replace);
@@ -378,29 +372,14 @@ export const PasteIcon = line(ClipboardPaste);
 export const ZoomInIcon = line(Plus);
 export const ZoomOutIcon = line(Minus);
 
-const KIND_GLYPH: Record<DocumentKind, LucideIcon> = {
-  pdf: FileText,
-  docx: FileType,
-  rtf: FileType,
-  xlsx: FileSpreadsheet,
-  csv: FileSpreadsheet,
-  pptx: Presentation,
-  markdown: FileCode2,
-  html: FileCode,
-  text: File,
-  image: FileImage,
-  web: Globe,
-  transcript: AudioLines,
-};
+const PlainDocumentIcon = line(File);
 
-const KIND_ICONS = Object.fromEntries(
-  Object.entries(KIND_GLYPH).map(([kind, glyph]) => [kind, line(glyph)]),
-) as Record<DocumentKind, Icon>;
-
-/** A Document: the shape of its kind, so a PDF, a sheet, a deck and a web page read apart. */
+/**
+ * A Document, of any kind: one plain page. Its kind is said in words where it matters (the
+ * Library's Format column, the viewer's header, the tooltip), not by a detailed glyph per kind.
+ */
 export function DocumentLineIcon({ kind, ...props }: IconProps & { kind: DocumentKind }) {
-  const Glyph = KIND_ICONS[kind];
-  return <Glyph data-kind={kind} {...props} />;
+  return <PlainDocumentIcon data-kind={kind} {...props} />;
 }
 
 /** The app's mark in the sidebar header: a serif "I" on a 16px ink square. */

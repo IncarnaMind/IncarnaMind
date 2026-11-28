@@ -1,19 +1,10 @@
-import { useState } from "react";
 import type { TaggingModels } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { useGap, useLanguage, useT } from "../../i18n";
-import { DecisionSortingSetUp, firstModelOf } from "../providers/DecisionKeyForm";
-import { JevSortingSetUp } from "../providers/JevSortingSetUp";
 import { SortingSelect, type useSorting } from "../providers/SortingChoice";
-import {
-  keyProviderOf,
-  type SetUpOffer,
-  type SortingOption,
-  sortingKey,
-} from "../providers/sortingOptions";
+import { keyProviderOf, type SortingOption, sortingKey } from "../providers/sortingOptions";
 import { ReadProblem } from "../ReadProblem";
-import { OtherModelForm } from "./OtherSortingModel";
 import { popUpWidth } from "./RoleSelect";
 
 type Translate = ReturnType<typeof useT>;
@@ -80,12 +71,10 @@ export function organizeGroups(
 }
 
 /**
- * The choice of the one model for Organize, Tags and meeting hints, set up in place from its
- * picker's foot (Jev, a decision model host, another model by name): Settings › AI's Organize and
- * Tags row draws it, and so does first run's Your AI step (#3570), so it is one setting with one
- * set of words. It returns the pop-up (`control`, none while the read of what can sort has failed)
- * and what goes `below` it: that problem, or the form of the model being set up (`settingUp`), or
- * the key a chosen host uses.
+ * The choice of the one model for Organize, Tags and meeting hints among those already set up:
+ * no new one is set up from its picker (#3767). It returns the pop-up (`control`, none while the
+ * read of what can sort has failed) and what goes `below` it: that problem, or the key a chosen
+ * host uses.
  */
 export function useSortingPicker(
   id: string,
@@ -95,18 +84,10 @@ export function useSortingPicker(
 ) {
   const t = useT();
   const language = useLanguage();
-  const { settingsOptions, current, choose, read, library, setUpOffers, jevSettings } = sorting;
-  const { decisionHosts, reread } = sorting;
-  const [settingUp, setSettingUp] = useState<SetUpOffer["id"] | null>(null);
+  const { settingsOptions, current, choose, read, decisionHosts } = sorting;
   const failed = read.state === "failed";
-  const close = () => {
-    setSettingUp(null);
-    document.getElementById(id)?.focus();
-  };
-  const host = decisionHosts?.find((each) => each.host === settingUp);
   const keyProvider = keyProviderOf(current, decisionHosts);
   const models = read.state === "ready" ? read.data : null;
-  const saved = library?.settings.classifier ?? null;
 
   const control = failed ? undefined : (
     <SortingSelect
@@ -117,63 +98,19 @@ export function useSortingPicker(
       groups={organizeGroups(settingsOptions, models, language, t)}
       current={current}
       {...(none !== undefined && { none })}
-      setUp={{
-        offers: [...setUpOffers, { id: "other", label: t("tagging.other") }],
-        open: settingUp,
-        onChoose: setSettingUp,
-      }}
-      onChange={(option) => {
-        setSettingUp(null);
-        void choose(option);
-      }}
+      onChange={(option) => void choose(option)}
     />
   );
 
-  const chosen = async (classifier: SortingOption["classifier"]) => {
-    const done = await choose({ classifier });
-    reread();
-    return done;
-  };
   let below = null;
   if (failed) {
     below = (
       <ReadProblem words={t("setup.sorting.failed")} read={read} testId="models-sorting-problem" />
     );
-  } else if (settingUp === "jev" && jevSettings) {
-    // Choosing here never turns tagging on: its own switch does, with its line (#2308).
-    below = (
-      <JevSortingSetUp
-        jev={jevSettings}
-        choose={() => chosen({ kind: "jev" })}
-        onChosen={close}
-        onCancel={close}
-      />
-    );
-  } else if (settingUp === "other") {
-    below = (
-      <OtherModelForm
-        current={saved && saved.kind !== "automatic" ? saved : null}
-        onSave={(classifier) => {
-          void choose({ classifier }).then((done) => {
-            if (done) close();
-          });
-        }}
-      />
-    );
-  } else if (host) {
-    below = (
-      <DecisionSortingSetUp
-        key={host.host}
-        host={host}
-        choose={() => chosen(firstModelOf(host))}
-        onChosen={close}
-        onCancel={close}
-      />
-    );
   } else if (keyProvider && !current?.unresolved) {
     below = <UsesKeyLine catalogId={keyProvider} />;
   }
-  return { control, below, failed, settingUp: settingUp !== null };
+  return { control, below, failed };
 }
 
 /** The chat provider's key the chosen decision model uses, which Accounts and keys lists as that company (#1907). */

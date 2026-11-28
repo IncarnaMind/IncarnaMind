@@ -1364,6 +1364,7 @@ export function createChecks(options: ChecksOptions) {
     content,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     documentVersions: options.watch.documentVersions,
+    ...(options.libraryLists && { libraryLists: options.libraryLists }),
     searched,
     citedOutside: (documentId) =>
       (options.documents.live([documentId])[0]?.citedBy ?? null) !== null,
@@ -1765,7 +1766,9 @@ export function createChecks(options: ChecksOptions) {
               ? "error.check.localMode"
               : reason === "cancelled" || reason === "consent-declined"
                 ? "error.check.declined"
-                : "error.recordCite.modelNotReady",
+                : reason === "no-provider"
+                  ? "error.recordCite.needsAi"
+                  : "error.recordCite.modelNotReady",
         });
       }
       const judged = await judgeResolvedRecordCites(

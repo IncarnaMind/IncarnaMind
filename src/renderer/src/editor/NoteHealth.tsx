@@ -24,8 +24,10 @@ import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
+import { useLocalModelSaved } from "../savedProviders";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
@@ -77,6 +79,7 @@ const NO_HEALTH: Health = {
   supported: 0,
   checkedAt: null,
   unexamined: [],
+  unchecked: [],
 };
 
 /** The Mind's health as drawn, and whether it is counted from the Mind as it is now. */
@@ -95,6 +98,8 @@ export function useHealth(
   editor: Editor,
   skipped: ReadonlySet<string>,
   unexamined: ReadonlySet<string>,
+  unchecked: ReadonlySet<string>,
+  uncheckedBlocks: ReadonlySet<string>,
   doc: Y.Doc,
   running: boolean,
 ): CountedHealth {
@@ -124,6 +129,8 @@ export function useHealth(
             citationState(attributes, documents, kept).check,
           skipped,
           unexamined,
+          unchecked,
+          uncheckedBlocks,
           omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
           tableShown: (table) =>
@@ -145,7 +152,18 @@ export function useHealth(
       editor.off("transaction", later);
       doc.off("afterTransaction", later);
     };
-  }, [editor, doc, documents, kept, skipped, unexamined, keptInside, running]);
+  }, [
+    editor,
+    doc,
+    documents,
+    kept,
+    skipped,
+    unexamined,
+    unchecked,
+    uncheckedBlocks,
+    keptInside,
+    running,
+  ]);
   const counted = useCallback(() => drawnThrough.current === seen.current, []);
   return { health: drawn.health, counted };
 }
@@ -224,6 +242,7 @@ export function HealthCard({
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
   const openSettings = useAppStore((state) => state.openSettings);
+  const localModel = useLocalModelSaved();
   const folderName = useAppStore((state) => {
     const folderId =
       problem?.kind === "no-documents" || problem?.kind === "only-cited" ? problem.folderId : null;
@@ -423,12 +442,23 @@ export function HealthCard({
           testId="checks-problem"
           className="mind-health-line"
           action={{
-            label: t("checks.problem.chooseModel"),
+            label: t("localMode.turnOff"),
             onClick: () => {
               dismissCheckProblem(mindId);
-              openSettings("ai", "model");
+              void turnOffLocalMode().catch((error: unknown) =>
+                useAppStore.getState().reportError(error),
+              );
             },
           }}
+          {...(localModel && {
+            also: {
+              label: t("answer.error.chooseModel"),
+              onClick: () => {
+                dismissCheckProblem(mindId);
+                openSettings("ai", "chat-model");
+              },
+            },
+          })}
         >
           {t("checks.problem.local-mode")}
         </ProblemLine>

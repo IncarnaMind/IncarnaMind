@@ -6,7 +6,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import type { ClaudeAccountStatus, ClaudeSignInErrorKind } from "../../core/api";
-import { EXPERIMENTAL_SIGN_IN_ROUTES } from "../../core/buildFlags";
 import { catalogProvider } from "../../core/providers/catalog/providers";
 import { core } from "./core";
 import { errorMessage } from "./errors";
@@ -52,11 +51,6 @@ export function useClaudeAccount(): ClaudeAccountStatus | null {
   return useClaudeSignIn((state) => state.status);
 }
 
-export function claudeSignInOffered(): boolean {
-  const status = useClaudeSignIn.getState().status;
-  return EXPERIMENTAL_SIGN_IN_ROUTES && status?.account.state !== "signed-in";
-}
-
 // A newer sign-in replaces one still waiting, which then ends as cancelled and must say nothing.
 let latest = 0;
 let cancelled = false;
@@ -76,18 +70,23 @@ async function chooseClaudePlan(keepDefault: boolean): Promise<string> {
 /**
  * Signs in through Anthropic's page, then saves the route as a provider, which allows its flows
  * (ADR-0022); `keepDefault` leaves the default model as it was. True once signed in. A failure
- * is kept for the row to say; the User's own Cancel says nothing.
+ * is kept for the row to say; the User's own Cancel says nothing. `fresh`: through the page even
+ * while the account reads signed in, as after Anthropic refused the tokens it keeps.
  */
-export async function signInWithClaude(options: { keepDefault?: boolean } = {}): Promise<boolean> {
+export async function signInWithClaude(
+  options: { keepDefault?: boolean; fresh?: boolean } = {},
+): Promise<boolean> {
   latest += 1;
   const run = latest;
   cancelled = false;
-  useClaudeSignIn.setState({ waiting: true, failure: null });
+  useClaudeSignIn.setState({ failure: null });
   let failure: ClaudeSignInFailure | null = null;
   try {
     const current = await core.getClaudeAccount();
     // Signed in already (e.g. its provider was removed since): no need for the browser again.
-    const result = current.account.state === "signed-in" ? null : await core.signInToClaude();
+    const throughPage = current.account.state !== "signed-in" || options.fresh === true;
+    if (throughPage) useClaudeSignIn.setState({ waiting: true });
+    const result = throughPage ? await core.signInToClaude() : null;
     if (result && !result.ok) {
       failure = result.error;
       return false;
@@ -118,7 +117,7 @@ export const forgetClaudeSignInFailure = (): void => useClaudeSignIn.setState({ 
  * there for the code Anthropic's page shows. True once signed in, so the Answer can be asked again.
  */
 export function signInToClaudeAgain(): Promise<boolean> {
-  const signingIn = signInWithClaude({ keepDefault: true });
+  const signingIn = signInWithClaude({ keepDefault: true, fresh: true });
   useAppStore.getState().openSettings("ai", "claude-account");
   return signingIn;
 }

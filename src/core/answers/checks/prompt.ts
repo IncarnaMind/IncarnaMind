@@ -102,13 +102,22 @@ const UNITS_RULE =
 const SIGN_RULE =
   '"none" only when no Passage writes an amount in brackets/parentheses (...)/(（...）) and no sign is at issue; "same" when signs agree; "differs" when one makes an amount negative and the other states it positive; "unclear" when a bracketed amount\'s context leaves open whether an adverse statement applies to it.';
 
-const reply = (language: Language) =>
+/** Shared Library classification rule for both the reply form and the cite tool schema (#2525). */
+const LIBRARY_RULE =
+  '"none" when the sentence states a specific claim from Document text or is not about the User\'s Library or files as a collection; "settled" when it is about the Library or files as a collection and the lists confirm all of it or contradict an exact stored fact (a count, name, kind, Folder, Tag or saved note); "unsettled" when it is about the Library or files as a collection — even without the word "Library" and even if a Passage touches one topic — nothing in the lists or Passages contradicts it, and the lists do not hold enough to settle the whole sentence (such as an unstored property, what the files cover or are about, or a name with only a close or partial match; a low count of topic words in names, Folders or Tags never settles what files cover).';
+
+const reply = (language: Language, library = false) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     'Details: what the sentence states, one thing after another (each figure with its unit and scale, each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
     `Verdict: ${VERDICTS.slice(0, -1).join(", ")} or ${VERDICTS.at(-1)}`,
     `Units: ${STATED_UNITS.slice(0, -1).join(", ")}, or ${STATED_UNITS.at(-1)} — ${UNITS_RULE}`,
     `Sign: ${STATED_SIGNS.slice(0, -1).join(", ")}, or ${STATED_SIGNS.at(-1)} — ${SIGN_RULE}`,
+    ...(library
+      ? [
+          `Library: ${LIBRARY_SETTLED.slice(0, -1).join(", ")}, or ${LIBRARY_SETTLED.at(-1)} — ${LIBRARY_RULE}`,
+        ]
+      : []),
     `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the quotes that decide it at its end ("… [^1]"); for contradicted, name the thing, and give the Document's value and the sentence's. For overstated, say what the Document says and how the sentence goes further; for partly supported, say which part the Documents don't state; for not found, say what the Documents don't say; for own view, say what the Documents hold on it, with the markers of the quotes: the facts that are a reason for it and the facts that point the other way, or that they hold nothing on it. Never mention the search, the Passages or how you found it.`,
     "Evidence: [1, 2] naming the cite markers of the quotes that decide it, or Evidence: [] when no quote does.",
     `Working: where no quote states the sentence as it stands and you reached supported or contradicted by working it out from the quotes (a sum, a difference, a share, a comparison of two figures, a step of plain logic), that working in one short line, its figures in it and its words in ${LANGUAGE_NAMES[language]} ("412 + 388 = 800, under the 1,000 the sentence gives"). Otherwise "Working: none".`,
@@ -123,7 +132,7 @@ const ROWS =
   "A figure the sentence gives over the rows of a data file (a sheet or a CSV file: a total, an average, a count, a share, a change over many rows) is not stated by the few rows a Passage shows. Work it out with run_analysis: give the file's Passage as its input, which reads the whole sheet, and write code that works out the quantity the sentence names (its rows, its column, its period, its group, its measure) without using the sentence's own number, giving it with result(). Then compare the result with the sentence's figure at the precision the sentence writes it: the same value is supported; another value is contradicted, and your explanation says the value the rows give; where the file has no such rows or column, it is not found. Such a verdict rests on the run and needs no quote: write Evidence: []. For contradicted, \"To 1:\" is only the value the rows give, written the way the sentence writes its figure, with no marker and nothing after it. A run that fails may be mended and run once more.";
 
 const LIBRARY =
-  "A sentence about the User's Library itself, rather than about what a Document says (how many Documents, Folders or notes it holds, what they are called, of what kind, where they are filed or how they are tagged), is stated by no Passage. A sentence that speaks of the User's files, Documents, Folders or notes as things is such a sentence, even where its words could also be read as about a Document's text: count the lists before you search. Work it out with run_analysis over the Library's own lists, as its description gives them: write code that counts what the sentence names, without using the sentence's own number, and give the count with result(): the lists are never shown to you, only the numbers your code gives. Then compare the result with the sentence: the same is supported and another value is contradicted, with no quote, and Working says what the code counted. The lists hold only names, kinds, Folders and Tags: what a Document says or is about is not in them, and they settle no sentence about that.";
+  "A sentence about the User's Library itself, rather than about what a Document says (how many Documents, Folders or notes it holds, what they are called, of what kind, where they are filed or how they are tagged), is stated by no Passage. A sentence that speaks of the User's files, Documents, Folders or notes as things — or characterizes what the collection of files covers as a whole, even without saying \"Library\" — is such a sentence, even where its words could also be read as about a Document's text: count the lists before you search. Work it out with run_analysis over the Library's own lists, as its description gives them: write code that counts what the sentence names, without using the sentence's own number, and give the count with result(): the lists are never shown to you, only the numbers your code gives. Then compare the result with the sentence: the same is supported and another value is contradicted, with no quote, and Working says what the code counted. When checking whether a Document, Folder or note name is present, count both exact matches and close or partial matches as numbers without printing names: zero exact and zero close contradicts the name, while zero exact with a close match leaves it unsettled. The lists hold only names, kinds, Folders, Tags and saved notes — not other file properties or what a Document says or covers. Never judge what Documents cover or are about by matching words in their names, Folders or Tags: a low or zero word count in labels neither confirms nor contradicts a claim about what the collection covers and leaves that part unsettled, unless an exact stored fact (such as a count, kind, Folder or Tag) contradicts the sentence.";
 
 /**
  * The instructions of a check's Run, for a way of citing; `passages`: what the one search found,
@@ -140,7 +149,7 @@ export function checkInstructions(
   rows = false,
   library = false,
 ): string {
-  const REPLY = reply(language);
+  const REPLY = reply(language, mode === "tools" && library);
   switch (mode) {
     case "tools":
       return [
@@ -318,6 +327,12 @@ export const STATED_SIGNS = ["same", "none", "differs", "unclear"] as const;
 /** Whether the sentence and the Document agree on the sign of each amount, including bracketed amounts (#2578). */
 export type StatedSign = (typeof STATED_SIGNS)[number];
 
+/** The three words a check's reply may give for its Library field (#2525). */
+export const LIBRARY_SETTLED = ["none", "settled", "unsettled"] as const;
+
+/** Whether the sentence is about the User's Library itself and settled by its lists (#2525). */
+export type LibrarySettled = (typeof LIBRARY_SETTLED)[number];
+
 /** What a reply says: its verdict, its one sentence, and the markers of the quotes it rests on. */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
@@ -327,6 +342,8 @@ export interface ReadVerdict {
   units?: StatedUnits;
   /** Whether the sentence and the Document agree on each amount's sign (#2578). */
   sign?: StatedSign;
+  /** Whether the sentence is about the User's Library itself and whether the lists settle it (#2525). */
+  library?: LibrarySettled;
   says: string | null;
   /** The markers its Evidence line names; null when it gives no line that reads. */
   evidence: number[] | null;
@@ -353,9 +370,12 @@ const UNITS_WORDS = STATED_UNITS.join("|");
 const UNITS_WORDS_CI = STATED_UNITS.map(foldCase).join("|");
 const SIGN_WORDS = STATED_SIGNS.join("|");
 const SIGN_WORDS_CI = STATED_SIGNS.map(foldCase).join("|");
+const LIBRARY_WORDS = LIBRARY_SETTLED.join("|");
+const LIBRARY_WORDS_CI = LIBRARY_SETTLED.map(foldCase).join("|");
 const NEXT_FIELD = "(?:Details|Verdict|Explanation|Evidence|Working|Change 1|To 1)[ \\t]*[:：]";
 const UNITS_BARE = `Units[ \\t]*[:：][ \\t*_"'“”\`]*(?:${UNITS_WORDS_CI})`;
 const SIGN_BARE = `Sign[ \\t]*[:：][ \\t*_"'“”\`]*(?:${SIGN_WORDS_CI})`;
+const LIBRARY_HEAD = "Library[ \\t]*[:：]";
 /**
  * A Units field holds only one of the four words, optionally followed by punctuation, so a quoted
  * Document label such as "Residential Units: 240" or "(Units: none given)" never matches (#3806).
@@ -373,16 +393,28 @@ const SIGN_LINE = new RegExp(
   "i",
 );
 /**
+ * A Library field starts with one of the three enum words, optionally followed by punctuation or
+ * a brief parenthetical note (matching `UNITS_LINE`), while inline splitting stays restricted to
+ * Verdict/Units/Sign lines so prose inside Explanation: never spoofs it (#2525).
+ */
+const LIBRARY_LINE = new RegExp(
+  `^[\\s>*_#\`"'“”-]*library[\\s*_]*[:：][\\s*_"'“”\`]*(${LIBRARY_WORDS})\\b`,
+  "i",
+);
+const LIBRARY_INLINE = `${LIBRARY_HEAD}[ \\t*_"'“”\`]*(?:${LIBRARY_WORDS_CI})\\b`;
+/**
  * Where a field's label stands after other words on its line. Only the labels the reply form
  * gives: a Chinese label's word followed by a colon is ordinary prose inside an explanation
  * ("这是作者的判断：…"), so it names a field only at a line's start. "Units:" and "Sign:" start a
- * field only after whitespace when one of their four words stands alone as its value.
+ * field only after whitespace when one of their four words stands alone as the value; "Library:"
+ * is split inline only on Verdict/Units/Sign lines so prose at the end of Explanation: never spoofs it.
  */
 const TRAILING = `[\\s*_"'”\`.,;。，；]*(?:\\[\\^\\d{1,4}\\][\\s*_"'”\`.,;。，；]*)*`;
 const FIELD_START = new RegExp(
-  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=${UNITS_BARE}${TRAILING}(?:$|[ \\t]+(?=${NEXT_FIELD}|${SIGN_BARE})))|(?<=\\s)(?=${SIGN_BARE}${TRAILING}(?:$|[ \\t]+(?=${NEXT_FIELD}|${UNITS_BARE})))`,
+  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=${UNITS_BARE}${TRAILING}(?:$|[ \\t]+(?=${NEXT_FIELD}|${SIGN_BARE}|${LIBRARY_HEAD})))|(?<=\\s)(?=${SIGN_BARE}${TRAILING}(?:$|[ \\t]+(?=${NEXT_FIELD}|${UNITS_BARE}|${LIBRARY_HEAD})))`,
   "gm",
 );
+const LIBRARY_SPLIT = new RegExp(`(?<=\\s)(?=${LIBRARY_INLINE})`, "g");
 
 type Finer = NonNullable<UnsupportedReason["word"]>;
 
@@ -394,6 +426,13 @@ const unitsIn = (words: string | undefined): StatedUnits | undefined => {
 const signIn = (words: string | undefined): StatedSign | undefined => {
   const said = (words ?? "").trim().toLowerCase();
   return STATED_SIGNS.find((each) => each === said);
+};
+
+const libraryIn = (words: string | undefined): LibrarySettled | undefined => {
+  const said = new RegExp(`^(${LIBRARY_WORDS})\\b`, "i")
+    .exec((words ?? "").trim())?.[1]
+    ?.toLowerCase();
+  return LIBRARY_SETTLED.find((each) => each === said);
 };
 
 /** A reply's verdict word: one of the six it is asked for, or "unsupported" as older replies say. */
@@ -442,6 +481,14 @@ export function readVerdict(reply: string): ReadVerdict | null {
     // written after a turn's own words follows them with no break.
     .replace(FIELD_START, "\n")
     .split("\n")
+    .flatMap((line, index) =>
+      VERDICT.test(line) ||
+      UNITS_LINE.test(line) ||
+      SIGN_LINE.test(line) ||
+      (index === 0 && BARE.test(line))
+        ? line.replace(LIBRARY_SPLIT, "\n").split("\n")
+        : [line],
+    )
     .map((line) => line.trim())
     .filter((line) => line !== "");
   const field = (of: RegExp) => of.exec(lines.findLast((line) => of.test(line)) ?? "")?.[1];
@@ -452,6 +499,9 @@ export function readVerdict(reply: string): ReadVerdict | null {
     UNITS_LINE.exec(lines.findLast((line) => UNITS_LINE.test(line)) ?? "")?.[1],
   );
   const sign = signIn(SIGN_LINE.exec(lines.findLast((line) => SIGN_LINE.test(line)) ?? "")?.[1]);
+  const library = libraryIn(
+    LIBRARY_LINE.exec(lines.findLast((line) => LIBRARY_LINE.test(line)) ?? "")?.[1],
+  );
   const evidence = field(EVIDENCE);
   const from = clean(field(CHANGE));
   const to = field(TO);
@@ -462,6 +512,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
     ...given,
     ...(units && { units }),
     ...(sign && { sign }),
+    ...(library && { library }),
     says: clean(field(EXPLANATION)),
     evidence: evidence === undefined ? null : markersOf(parseJson(evidence)?.value),
     ...(working && !/^(?:none|无)(?![\p{L}\p{N}])/iu.test(working) && { working }),
@@ -483,15 +534,17 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   if (start < 0 || end <= start) return null;
   const value = parseJson(reply.slice(start, end + 1))?.value;
   if (typeof value !== "object" || value === null) return null;
-  const { verdict, units, sign, says, evidence } = value as Record<string, unknown>;
+  const { verdict, units, sign, library, says, evidence } = value as Record<string, unknown>;
   const known = verdictIn(typeof verdict === "string" ? verdict : undefined);
   const statedUnits = unitsIn(typeof units === "string" ? units : undefined);
   const statedSign = signIn(typeof sign === "string" ? sign : undefined);
+  const librarySettled = libraryIn(typeof library === "string" ? library : undefined);
   return (
     known && {
       ...known,
       ...(statedUnits && { units: statedUnits }),
       ...(statedSign && { sign: statedSign }),
+      ...(librarySettled && { library: librarySettled }),
       says: typeof says === "string" ? clean(says) : null,
       evidence: markersOf(evidence),
     }
@@ -513,51 +566,63 @@ const replyLine = (label: string, value: unknown): string[] => {
 };
 
 /** The reply a check's model may hand over in `cite`, with the quotes that call records (#3381). */
-export const CITE_REPLY: CiteReply = {
-  properties: {
-    verdict: {
-      type: "string",
-      enum: [...VERDICTS],
-      description:
-        "What your reply's Verdict line would say: given, the check ends with this call.",
-    },
-    units: {
-      type: "string",
-      enum: [...STATED_UNITS],
-      description: `What your reply's Units line would say: ${UNITS_RULE}`,
-    },
-    sign: {
-      type: "string",
-      enum: [...STATED_SIGNS],
-      description:
-        "What your reply's Sign line would say: none only if no Passage writes an amount in brackets/parentheses; same; differs if one is negative and the other positive; unclear if context leaves sign open.",
-    },
-    ...Object.fromEntries(
-      Object.entries(CARRIED_LINES).map(([field, label]) => [
-        field,
-        {
+export function citeReply(library = false): CiteReply {
+  return {
+    properties: {
+      verdict: {
+        type: "string",
+        enum: [...VERDICTS],
+        description:
+          "What your reply's Verdict line would say: given, the check ends with this call.",
+      },
+      units: {
+        type: "string",
+        enum: [...STATED_UNITS],
+        description: `What your reply's Units line would say: ${UNITS_RULE}`,
+      },
+      sign: {
+        type: "string",
+        enum: [...STATED_SIGNS],
+        description:
+          "What your reply's Sign line would say: none only if no Passage writes an amount in brackets/parentheses; same; differs if one is negative and the other positive; unclear if context leaves sign open.",
+      },
+      ...(library && {
+        library: {
           type: "string",
-          description: `What your reply's ${label} line would say, where it has one.`,
+          enum: [...LIBRARY_SETTLED],
+          description: `What your reply's Library line would say: ${LIBRARY_RULE}`,
         },
-      ]),
-    ),
-  },
-  description:
-    "Give your reply in the call that records the quotes deciding the sentence, each of its lines in the field named for it, as the reply would write it: the check ends with that call, its quotes the evidence.",
-  reply(inputs, markers) {
-    const given = inputs.findLast(
-      ({ verdict }) => typeof verdict === "string" && verdictIn(verdict.trim()) !== null,
-    );
-    if (!given) return null;
-    return [
-      ...replyLine("Verdict", given.verdict),
-      ...replyLine("Units", given.units),
-      ...replyLine("Sign", given.sign),
-      ...Object.entries(CARRIED_LINES).flatMap(([field, label]) => replyLine(label, given[field])),
-      `Evidence: [${markers.join(", ")}]`,
-    ].join("\n");
-  },
-};
+      }),
+      ...Object.fromEntries(
+        Object.entries(CARRIED_LINES).map(([field, label]) => [
+          field,
+          {
+            type: "string",
+            description: `What your reply's ${label} line would say, where it has one.`,
+          },
+        ]),
+      ),
+    },
+    description:
+      "Give your reply in the call that records the quotes deciding the sentence, each of its lines in the field named for it, as the reply would write it: the check ends with that call, its quotes the evidence.",
+    reply(inputs, markers) {
+      const given = inputs.findLast(
+        ({ verdict }) => typeof verdict === "string" && verdictIn(verdict.trim()) !== null,
+      );
+      if (!given) return null;
+      return [
+        ...replyLine("Verdict", given.verdict),
+        ...replyLine("Units", given.units),
+        ...replyLine("Sign", given.sign),
+        ...(library ? replyLine("Library", given.library) : []),
+        ...Object.entries(CARRIED_LINES).flatMap(([field, label]) =>
+          replyLine(label, given[field]),
+        ),
+        `Evidence: [${markers.join(", ")}]`,
+      ].join("\n");
+    },
+  };
+}
 
 /** A reply that declined: it says so and gives no verdict. */
 export const readsAsRefusal = (reply: string): boolean =>

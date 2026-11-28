@@ -7,7 +7,7 @@ import { clockTime } from "../../meetingTime";
 import { useMindStatus } from "../../mindStatus";
 import { useAppStore } from "../../store";
 import { tabTitle } from "../../tabs";
-import { DocumentLineIcon, HomeLineIcon, LooseDocumentsLineIcon, MindLineIcon } from "../icons";
+import { DocumentLineIcon, HomeLineIcon, LibraryLineIcon, MindLineIcon } from "../icons";
 
 /** The tab a piece of UI is in, and its group: a Citation in a Mind opens beside that group. */
 export interface TabPlace {
@@ -27,7 +27,10 @@ export function useTabTitle(item: TabItem): string {
   return useAppStore((state) => tabTitle(state, item, t));
 }
 
-/** A tab's icon: a Mind's (or what it is busy with), the Library's, or the Document's kind. */
+/**
+ * A tab's icon: a Mind's (or what it is busy with), or the sidebar's for the Library, Home or a
+ * Document. Unlike a sidebar row, every tab keeps one: a tab short of room folds to it.
+ */
 export function TabIcon({ item }: { item: TabItem }) {
   const kind = useAppStore((state) =>
     item.kind === "document"
@@ -36,7 +39,7 @@ export function TabIcon({ item }: { item: TabItem }) {
   );
   if (item.kind === "mind") return <MindIcon mindId={item.mindId} />;
   if (item.kind === "figures") return <DocumentLineIcon kind="csv" />;
-  if (item.kind === "library") return <LooseDocumentsLineIcon />;
+  if (item.kind === "library") return <LibraryLineIcon />;
   if (item.kind === "home") return <HomeLineIcon />;
   if (item.kind === "canvas") return <DocumentLineIcon kind="html" />;
   return <DocumentLineIcon kind={kind ?? "pdf"} />;

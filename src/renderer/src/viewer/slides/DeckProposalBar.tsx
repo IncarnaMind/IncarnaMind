@@ -18,6 +18,7 @@ import { errorMessage } from "../../errors";
 import { languageNow, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { pageUndoPlace, UndoRefused, useUndo } from "../../undo";
+import type { DeckShapeTarget } from "./DeckAskBox";
 import { refreshKept } from "./deckEditing";
 import { type DeckReceipt, formatDeckPlace, formatDeckReceipt } from "./deckProposalFormat";
 
@@ -321,12 +322,7 @@ export function DeckProposalTop({
   onAskShorten,
 }: {
   state: DeckProposalsState;
-  onAskShorten(target: {
-    slide: number;
-    shapeId?: string;
-    shapeName?: string;
-    text?: string;
-  }): void;
+  onAskShorten?: (target: DeckShapeTarget) => void;
 }) {
   const t = useT();
   const proposal = state.activeProposal;
@@ -435,24 +431,26 @@ export function DeckProposalTop({
             >
               {t("viewer.deck.proposal.keepAsIs")}
             </button>
-            <button
-              type="button"
-              className="viewer-deck-proposal-btn"
-              data-testid="viewer-deck-proposal-shorten"
-              disabled={busy}
-              onClick={() => {
-                const shapeId =
-                  "shape" in overflowing.change ? overflowing.change.shape : undefined;
-                onAskShorten({
-                  slide: overflowing.change.slide,
-                  shapeId,
-                  shapeName: formatDeckPlace(overflowing, t),
-                  text: overflowing.after,
-                });
-              }}
-            >
-              {t("viewer.deck.proposal.shorten")}
-            </button>
+            {onAskShorten && (
+              <button
+                type="button"
+                className="viewer-deck-proposal-btn"
+                data-testid="viewer-deck-proposal-shorten"
+                disabled={busy}
+                onClick={() => {
+                  const shapeId =
+                    "shape" in overflowing.change ? overflowing.change.shape : undefined;
+                  onAskShorten({
+                    slide: overflowing.change.slide,
+                    shapeId,
+                    shapeName: formatDeckPlace(overflowing, t),
+                    text: overflowing.after,
+                  });
+                }}
+              >
+                {t("viewer.deck.proposal.shorten")}
+              </button>
+            )}
           </>
         ) : (
           <button

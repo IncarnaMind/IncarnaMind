@@ -7,8 +7,11 @@
  */
 
 import { beforeAll, describe, expect, it } from "vitest";
+import { sentenceReasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
+import { cantBeChecked, checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
+import { versionsWithLibrary } from "../../src/shared/libraryFacts";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -306,5 +309,98 @@ describe("a check the User asks of their own AI, on a Note they wrote (#3622)", 
     structured(await task(codex.agent, mindId));
     setup.later(2 * 60_000);
     expect(refusal(await task(codex.agent, mindId))).toBe(NOT_YOURS);
+  });
+
+  // protects=on the default own-AI check path (no model set up), an agent can report library unsettled via report_check so the User's card shows Not checked with the library-unsettled reason (never Not found + Cut, never stale immediately even with unshared Folders) and flips to Needs re-check when the Library changes (#2525); fails_when=report_check rejects library unsettled, leaves the ask open, shows Needs re-check immediately, or misses Library changes.
+  it("lands library unsettled from report_check as Not checked with its reason and invalidates when the Library changes", async () => {
+    const setup = await written();
+    const { core, claude, coast, client, mindId } = setup;
+    const sources = await createSourceFolder();
+    const [secret] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret.md", "# Secret\n\nPrivate board notes.\n"),
+    ]);
+    const privateFolder = await core.createLibraryGroup({ name: "Private", description: "" });
+    if (secret) await core.assignDocumentGroup(secret.id, privateFolder.id);
+
+    const UNSETTLED = "Most of your files cover marine tides.";
+    writeMind(client, [note(UNSETTLED), note(SPRING)]);
+    await client.settled();
+
+    await setup.press(claude);
+    const given = structured<Task & { how: string }>(await task(claude.agent, mindId));
+    expect(given.how).toContain("library unsettled");
+    const n = (text: string) => given.sentences.find((each) => each.text === text)?.n;
+    const reported = structured<{
+      marked: number;
+      unconfirmed: number[];
+      unreported: number[];
+      next: string | null;
+    }>(
+      await report(claude.agent, mindId, given.task, [
+        {
+          n: n(UNSETTLED),
+          verdict: "library unsettled",
+          explanation: "The lists do not hold what files cover.",
+        },
+        { n: n(SPRING), verdict: "supported", cites: [await cited(claude.agent, TWICE)] },
+      ]),
+    );
+    expect(reported).toMatchObject({ marked: 2, unconfirmed: [], unreported: [], next: null });
+    // The ask ended cleanly: library unsettled is settled, not unconfirmed.
+    expect(refusal(await task(claude.agent, mindId))).toBe(NOT_YOURS);
+
+    const userShown = async () => {
+      await client.settled();
+      const versions = versionsWithLibrary(
+        new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash])),
+        await core.libraryListsVersion(mindId),
+      );
+      return claimSpans(readMind(client)).map((span) => ({
+        text: span.sentence.text,
+        check: span.check,
+        shown: claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions,
+          folderId: coast.id,
+          scope: null,
+        }),
+      }));
+    };
+
+    const before = await userShown();
+    const unsettledSpan = before.find((each) => each.text === UNSETTLED);
+    expect(unsettledSpan?.shown).toEqual({ state: "not-checked", reason: "library-unsettled" });
+    expect(before.find((each) => each.text === SPRING)?.shown).toEqual({ state: "supported" });
+    if (!unsettledSpan || unsettledSpan.shown.state !== "not-checked") {
+      throw new Error("Unsettled span missing.");
+    }
+    expect(cantBeChecked(unsettledSpan.shown)).toBe(true);
+    expect(
+      sentenceReasonText(
+        (key, params) => translate("en", key, params),
+        "en",
+        unsettledSpan.shown,
+        unsettledSpan.check,
+      ),
+    ).toBe("Only your Library’s counts, names and kinds can be checked.");
+    expect(
+      sentenceReasonText(
+        (key, params) => translate("zh-CN", key, params),
+        "zh-CN",
+        unsettledSpan.shown,
+        unsettledSpan.check,
+      ),
+    ).toBe("只能核对资料库的数量、名称和类型。");
+
+    // Any change to the User's Library moves the mark to Needs re-check.
+    await addAndProcess(core, [
+      await writeSourceFile(sources, "Extra.md", "# Extra\n\nAnother file.\n"),
+    ]);
+    const after = await userShown();
+    expect(after.find((each) => each.text === UNSETTLED)?.shown).toEqual({
+      state: "needs-recheck",
+      why: "library",
+    });
   });
 });

@@ -6,6 +6,7 @@ import {
   placeAssistant,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -113,6 +114,8 @@ function wordsOnScreen(library: Locator, language: string) {
 for (const language of ["en", "zh-CN"] as const) {
   test(`at 1,100 px no name is cut for want of room, Added and Format go first, and their words stay in the tooltip (${language})`, async () => {
     const { app, window } = await launchLibrary(language);
+    // With no model and no AI there is no assistant beside the page (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     const library = window.getByTestId("library");
     await setWindowSize(app, window, 1100, 900);
 

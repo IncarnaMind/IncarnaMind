@@ -14,6 +14,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -488,6 +489,8 @@ test("a Document is found and asked about in four steps by keyboard: /, its word
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 900);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     const library = await openFullLibrary(window, sources);
     // 1 and 2: the search, and words of what is wanted.
     await window.keyboard.press("/");
@@ -776,6 +779,7 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 660);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     // Room for a Chinese Folder's name on its chip: a narrower panel folds it into a count.
     await sizeAssistant(window, 480);
     const library = await openFullLibrary(window, sources);

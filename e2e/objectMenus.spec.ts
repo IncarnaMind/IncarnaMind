@@ -241,7 +241,8 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   await newMind(window);
 
   // A Mind: Open, Open in new tab; Duplicate, Check, Tie out figures, Export… (one item, which
-  // opens the Export button's menu), History and More ›; Move to…; Rename; then Delete after a rule.
+  // opens the Export button's menu), History and More ›; Move to… and Rename in one group; then
+  // Delete after a rule.
   const mind = window.getByTestId("mind-row").first();
   const mindMenu = await sameFromBothWays(
     window,
@@ -262,7 +263,6 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "mind-more",
     "—",
     "mind.moveTo",
-    "—",
     "mind.rename",
     "—",
     "mind.delete",

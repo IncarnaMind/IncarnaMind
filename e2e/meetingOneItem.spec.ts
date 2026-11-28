@@ -16,6 +16,7 @@ import {
   pointAt,
   recordMeeting,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   stopMeeting,
@@ -91,6 +92,8 @@ const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and opens the Transcript beside it there; its menu can't move, tag or delete it alone, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // With no model and no AI there is no assistant (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await setWindowSize(app, window, 1440, 900);
   const tides = join(sources, "tide-tables.txt");
   await writeFile(tides, "High water at the pier at noon.");
@@ -306,6 +309,7 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
 test("the @ picker's arrows walk the order it draws: a meeting under Notes first, the Document below it next (#2579)", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await setWindowSize(app, window, 1440, 900);
   const { title } = await recordAndStop(window);
   const path = join(sources, "eighteenth-notes.txt");

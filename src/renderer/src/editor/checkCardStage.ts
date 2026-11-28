@@ -28,9 +28,13 @@ export type CardStage =
  */
 export const wholeCheckStands = (
   run: MindCheckRun | null,
-  health: Pick<NoteHealth, "checkedAt" | "unexamined">,
+  health: Pick<NoteHealth, "checkedAt" | "unexamined" | "unchecked">,
 ): boolean =>
-  run !== null && run.stop === null && health.checkedAt !== null && health.unexamined.length === 0;
+  run !== null &&
+  run.stop === null &&
+  health.checkedAt !== null &&
+  health.unexamined.length === 0 &&
+  health.unchecked.length === 0;
 
 export function cardStageOf({
   progress,

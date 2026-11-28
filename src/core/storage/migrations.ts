@@ -3531,6 +3531,25 @@ export const migrations: readonly Migration[] = [
       UPDATE own_ai_conversations SET renewed = 1 WHERE deleted_at IS NULL;
     `,
   },
+  {
+    version: 167,
+    description: "A request in a Note's conversation its AI ended at a question told no (#3653)",
+    sql: `
+      -- Its AI ended the request at a question the User denied, or IncarnaMind refused, so what
+      -- it asked didn't run: the conversation says so under its last words.
+      ALTER TABLE own_ai_turns ADD COLUMN ended_at_ask INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 169,
+    description:
+      "A provider's key added for meeting transcription and Document search alone (#3767)",
+    sql: `
+      -- Saved from Add a key… for those jobs: its models answer nothing in IncarnaMind, and none
+      -- is offered in a model picker or made a default. A provider saved before stays a chat one.
+      ALTER TABLE chat_providers ADD COLUMN jobs_only INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 /**

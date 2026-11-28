@@ -41,12 +41,12 @@ describe("a failed Answer's problem line", () => {
     expect(Object.keys(ANSWER_PROBLEMS).sort()).toEqual([...KINDS].sort());
   });
 
-  test("offers at most one action: a page of Settings, trying again, a provider's page, signing in, a model on this computer, Ollama, or nothing", () => {
+  test("offers at most one action: a page of Settings, trying again, a provider's page, signing in, turning local mode off, Ollama, or nothing", () => {
     for (const kind of KINDS) {
       const { fix } = ANSWER_PROBLEMS[kind];
       if (fix.kind === "settings") expect(settingsPages).toContain(fix.page);
       if (fix.kind === "link") expect(fix.url).toMatch(/^https:\/\//);
-      expect(["settings", "retry", "link", "sign-in", "local-model", "ollama", "none"]).toContain(
+      expect(["settings", "retry", "link", "sign-in", "local-mode", "ollama", "none"]).toContain(
         fix.kind,
       );
     }
@@ -59,10 +59,10 @@ describe("a failed Answer's problem line", () => {
     }
   });
 
-  test("local mode stopping an Answer offers a local model in place, and never a company's settings", () => {
+  test("local mode stopping an Answer offers to allow cloud models, never a new model or a company's settings (#3767)", () => {
     expect(ANSWER_PROBLEMS["local-mode"].fix).toEqual({
-      kind: "local-model",
-      label: "answer.error.useLocal",
+      kind: "local-mode",
+      label: "localMode.turnOff",
     });
   });
 

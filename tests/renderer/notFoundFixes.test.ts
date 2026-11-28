@@ -9,14 +9,18 @@ import {
   FOOTNOTE_NODE,
   GENERATED_MARK,
 } from "../../src/core/api";
+import { sentenceReasonText } from "../../src/renderer/src/cost";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
 import {
   claimPartRows,
   claimPlaces,
   claimSpans,
+  claimsOf,
   type ShownClaim,
 } from "../../src/renderer/src/editor/claimChecks";
+import { noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { noteStateOf, noteStateParts } from "../../src/renderer/src/noteState";
 import {
   cantBeChecked,
   claimCheckShown,
@@ -1107,4 +1111,101 @@ describe("Use the Document's wording for one forecast part", () => {
     expect(dispatched).toHaveLength(0);
     expect(useNotices.getState().errors.at(-1)?.message).toBe("error.check.partChanged");
   });
+});
+
+describe("Library sentence the lists can’t settle (#2525)", () => {
+  test.each([
+    [
+      "en",
+      "Not checked",
+      "Only your Library’s counts, names and kinds can be checked.",
+      "1 sentence can’t be checked",
+    ],
+    ["zh-CN", "未核对", "只能核对资料库的数量、名称和类型。", "1 句无法核对"],
+  ] as const)(
+    "shows Not checked with its reason, no Cut, and expected note health in %s",
+    (language, heading, reasonLine, cantCheckLine) => {
+      const sentence =
+        language === "en"
+          ? "Three of your Documents were added in October."
+          : "你的资料库里有 3 个文档是在十月添加的。";
+      const { editor } = editorHolding([paragraph(sentence)]);
+      const claim = partsClaim(editor, 0, 0, [
+        partOf(0, sentence.length, "not-checked", { reason: "library-unsettled" }),
+      ]);
+      expect(claim.shown).toEqual({ state: "not-checked", reason: "library-unsettled" });
+      expect(cantBeChecked(claim.shown)).toBe(true);
+      expect(translate(language, checkStateKey(editor, claim))).toBe(heading);
+      if (claim.shown.state !== "not-checked") return;
+      const t = (key: MessageKey, params?: Record<string, string | number>) =>
+        translate(language, key, params);
+      expect(sentenceReasonText(t, language, claim.shown, claim.check)).toBe(reasonLine);
+      expect(offersNotFound(editor, claim)).toBe(false);
+      expect(offersFindSources(editor, claim)).toBe(false);
+      expect(offersKeepAsView(editor, claim)).toBe(false);
+
+      const unsettledMark = {
+        type: CLAIM_CHECK_MARK,
+        attrs: {
+          ...checkMark("u1", sentence, "not-checked").attrs,
+          reason: "library-unsettled",
+        },
+      };
+      const supportedSentence =
+        language === "en" ? "Your Library holds 6 Documents." : "你的资料库里有 6 个文档。";
+      const supportedMark = {
+        type: CLAIM_CHECK_MARK,
+        attrs: {
+          ...checkMark("s1", supportedSentence, "supported").attrs,
+          evidence: {
+            passageId: null,
+            documentId: null,
+            documentName: "Library",
+            contentHash: null,
+            pageFrom: null,
+            pageTo: null,
+            location: { kind: "library", fact: { kind: "documents", count: 6 } },
+            quote: "",
+            check: "found",
+            checkReason: null,
+          },
+        },
+      };
+
+      const readState = (content: JSONContent[]) => {
+        const doc = schema.nodeFromJSON({ type: "doc", content });
+        const { claims, kept } = claimsOf(doc, {
+          footing: "not-yet-known",
+          versions: null,
+          folderId: null,
+          scope: null,
+        });
+        const health = noteHealth(doc, {
+          claims,
+          kept,
+          skipped: new Set(),
+          omitted: [],
+          citationCheck: () => "found",
+        });
+        return noteStateOf(health);
+      };
+
+      const besideSupported = readState([
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: supportedSentence, marks: [supportedMark] }],
+        },
+        { type: "paragraph", content: [{ type: "text", text: sentence, marks: [unsettledMark] }] },
+      ]);
+      expect(besideSupported).toMatchObject({ kind: "checked", cantCheck: 1 });
+      if (besideSupported) {
+        expect(noteStateParts(besideSupported, t, language)).toContain(cantCheckLine);
+      }
+
+      const alone = readState([
+        { type: "paragraph", content: [{ type: "text", text: sentence, marks: [unsettledMark] }] },
+      ]);
+      expect(alone).toMatchObject({ kind: "not-checked" });
+    },
+  );
 });

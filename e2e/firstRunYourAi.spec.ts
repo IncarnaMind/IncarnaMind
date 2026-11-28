@@ -215,9 +215,15 @@ for (const language of LANGUAGES) {
     await expect(ai.getByTestId("setup-another-app")).toContainText(
       say(language, "setupPage.ai.another"),
     );
-    await expect(ai.getByTestId("setup-sorting-model-open")).toBeVisible();
-    // Gone from the step: the search, the second list, each app's technical line, a model here.
-    for (const gone of ["setup-agents-search", "setup-agent", "setup-in-app-open", "setup-key"]) {
+    // Gone from the step: the search, the second list, each app's technical line, and every way to
+    // set up a model here, the sorting model's line too (#3767): the step is the AI list only.
+    for (const gone of [
+      "setup-agents-search",
+      "setup-agent",
+      "setup-in-app-open",
+      "setup-key",
+      "setup-sorting-model-open",
+    ]) {
       await expect(ai.getByTestId(gone), gone).toHaveCount(0);
     }
     const connect = ai.getByTestId("setup-connect");
@@ -401,12 +407,15 @@ for (const language of LANGUAGES) {
     await expect(window.getByTestId("ask-pill")).toHaveCount(0);
     await expect(window.getByTestId("example-line")).toBeVisible();
 
-    // Home: one input's place, the same line, and the three ways to start.
+    // Home: under the ways to start, the line that asking needs the User's AI, with Connect your
+    // AI, and no input (#3767).
     await pointAndClick(window, window.getByTestId("sidebar-home"));
     const home = window.getByTestId("home-ask");
-    await expect(home.getByTestId("home-ask-no-ai")).toContainText(
-      say(language, "noteAsk.connectToAsk"),
+    await expect(home.getByTestId("home-ask-no-ai")).toContainText(say(language, "noteAsk.noAi"));
+    await expect(home.getByTestId("home-ask-connect")).toHaveText(
+      say(language, "agents.install.connectYourAi"),
     );
+    await expect(home.getByTestId("home-ask-input")).toHaveCount(0);
     await expect(home.getByTestId("home-add-files")).toBeVisible();
     await expect(home.getByTestId("home-link-folder")).toBeVisible();
     await expect(home.getByTestId("home-new-mind")).toBeVisible();
@@ -658,7 +667,7 @@ test("Back while Connect runs: what connected stays, with Undo, and what hadn't 
   await expect.poll(() => controlReads(running(), "core:setUpAgent", {})).toBe(1);
   await expect(ai.getByTestId("setup-consent")).toContainText(
     say("en", "setupPage.ai.consent.many.write", {
-      agents: "Claude Code and ChatGPT app and Codex",
+      agents: "Claude Code and ChatGPT",
     }),
   );
   await expect(ai.getByTestId("setup-connect")).toBeDisabled();

@@ -76,7 +76,7 @@ export function AskAgentLine({
   );
 }
 
-/** The other agents behind a ⌄, one step away: a small menu, never a dialog; `foot` under a rule. */
+/** The other agents behind a ⌄, one step away: a small menu, never a dialog. */
 export function OtherAgents({
   agents,
   label,
@@ -84,8 +84,6 @@ export function OtherAgents({
   onContinue,
   testId,
   className = "text-accent hover:bg-hover",
-  name: named,
-  foot,
 }: {
   agents: readonly AgentPairing[];
   label(agent: string): string;
@@ -97,13 +95,10 @@ export function OtherAgents({
   onContinue?(): void;
   testId: string;
   className?: string;
-  /** The ⌄'s name, where its menu holds more than agents. */
-  name?: string;
-  foot?: { label: string; testId: string; onClick(): void };
 }) {
   const t = useT();
   const menu = usePopoverMenu({ focus: "first" });
-  const name = named ?? t(onContinue ? "agents.ask.more" : "agents.ask.others");
+  const name = t(onContinue ? "agents.ask.more" : "agents.ask.others");
   return (
     <>
       <button
@@ -150,23 +145,6 @@ export function OtherAgents({
               {label(agent.name)}
             </button>
           ))}
-        {menu.open && foot && (
-          <>
-            {agents.length > 0 && <div className={menuRuleClass} />}
-            <button
-              type="button"
-              role="menuitem"
-              data-testid={foot.testId}
-              className={`${menuItemClass} pl-2`}
-              onClick={() => {
-                menu.close();
-                foot.onClick();
-              }}
-            >
-              {foot.label}
-            </button>
-          </>
-        )}
       </div>
     </>
   );

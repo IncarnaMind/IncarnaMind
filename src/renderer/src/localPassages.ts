@@ -9,14 +9,6 @@ const FOUND_PASSAGES = 4;
 
 const NONE: Found = { passages: [], failed: false };
 
-/** Where a Question waiting in the composer stands: the turn whose wall the core judges (#1934). */
-export function useWaitingPlace(
-  mindId: string | null,
-  conversationId: string | null,
-): PassageSearchPlace {
-  return { kind: "turn", mindId, conversationId };
-}
-
 /** Where a Question already asked stands: its Note now, else the Folder recorded with it. */
 export function useQuestionPlace(
   question: {

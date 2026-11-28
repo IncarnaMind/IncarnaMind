@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { ChatProvider } from "../../../../core/api";
 import { ComputerLineIcon } from "../icons";
-import { PROVIDER_LOGOS } from "./providerLogos";
+import { type LogoPath, PROVIDER_LOGOS } from "./providerLogos";
 
 /** A plan shows its company's logo. */
 export const logoIdOf = (provider: ChatProvider): string | null =>
@@ -32,24 +32,37 @@ export function ProviderLogo({
       }`}
     >
       {paths ? (
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          fillRule="evenodd"
-          className={large ? "size-6" : "size-[18px]"}
-        >
-          {paths.map((path) =>
-            typeof path === "string" ? (
-              <path key={path} d={path} />
-            ) : (
-              <path key={path.d} d={path.d} fillOpacity={path.opacity} />
-            ),
-          )}
-        </svg>
+        <LogoDrawing paths={paths} className={large ? "size-6" : "size-[18px]"} />
       ) : (
         (fallback ?? <ComputerLineIcon data-size="18" />)
       )}
     </span>
+  );
+}
+
+/** A logo's monochrome drawing, in the text's colour. */
+export function LogoDrawing({
+  paths,
+  className,
+}: {
+  paths: readonly LogoPath[];
+  className: string;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      fillRule="evenodd"
+      className={className}
+    >
+      {paths.map((path) =>
+        typeof path === "string" ? (
+          <path key={path} d={path} />
+        ) : (
+          <path key={path.d} d={path.d} fillOpacity={path.opacity} />
+        ),
+      )}
+    </svg>
   );
 }

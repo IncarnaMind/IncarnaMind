@@ -5,7 +5,7 @@
  * check fails once, or what a kept result rests on changes or leaves the agent's reach.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -24,6 +24,7 @@ import { PNG } from "../helpers/citedPages";
 import { startCore } from "../helpers/core";
 import {
   addAndProcess,
+  createSourceFolder,
   linkWithoutFolder,
   waitForDocuments,
   waitForProcessing,
@@ -307,6 +308,161 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     await waiting.keptAll(document.id, hashBytes(changed), 1);
   });
 
+  // protects=a new item refused after its check, of the agent's Word file in a Linked folder, ends with the file a source again: the Not cited the hand-over gave it goes once no item is the agent's file there, and the file stays in its folder (#3751); fails_when=the file stays Not cited with no item holding it, so the User's own file is never evidence again
+  it("leaves a Linked folder's file a source again when a refused hand-over takes back its new item", async () => {
+    const waiting = await waitingHandOver({ linked: true, name: "Harbour review.docx" });
+    const { core, path } = waiting;
+    await writeFile(path, wordFile({ body: paragraph(OFFICE) }));
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    expect(document?.notCited).toBe(true);
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const now = (await core.listDocuments()).find((each) => each.id === document?.id);
+    expect(now).toMatchObject({ path, notCited: false });
+    expect((await core.listMinds()).map((each) => each.title)).not.toContain(
+      en("verify.mindTitle", { name: "Harbour review" }),
+    );
+  });
+
+  // protects=a Linked folder's file a hand-over made Not cited, in a try that failed part way, is a source again when the next try of it goes on from there and is refused: the take-back undoes what either try set (#3751); fails_when=the file stays Not cited with no item holding it
+  it("leaves a Linked folder's file a source again when a try that failed goes on and is refused", async () => {
+    const waiting = await waitingHandOver({ linked: true, name: "Harbour review.docx" });
+    const { core, path, dataDir } = waiting;
+    await writeFile(path, wordFile({ body: paragraph(OFFICE) }));
+    const mend = refuseChangesOf(dataDir, "agent_file_versions", "mind_id");
+    try {
+      expect((await waiting.handOver()).isError).toBe(true);
+    } finally {
+      mend();
+    }
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    expect(document?.notCited).toBe(true);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const now = (await core.listDocuments()).find((each) => each.id === document?.id);
+    expect(now).toMatchObject({ path, notCited: false });
+  });
+
+  // protects=a Linked folder's file the agent wrote and the User made Not cited before it was handed over stays Not cited when a refused hand-over takes back its new item: the take-back undoes only what the hand-over set (#3751); fails_when=the refusal makes the User's Not cited file a source again
+  it("keeps a Linked folder's file Not cited by the User when a refused hand-over takes back its new item", async () => {
+    const waiting = await waitingHandOver({ linked: true, name: "Harbour review.docx" });
+    const { core, path } = waiting;
+    await writeFile(path, wordFile({ body: paragraph(OFFICE) }));
+    await core.reconcileDocuments();
+    const found = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!found) throw new Error("The Linked folder didn't read the agent's file");
+    await core.setNotCited(found.id, true);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const now = (await core.listDocuments()).find((each) => each.id === found.id);
+    expect(now).toMatchObject({ path, notCited: true });
+  });
+
+  // protects=two agents handing over one file at once, by two paths to it, take turns: the second waits for the first to end, so a first refused and taken back leaves the file to the second, as one after it would (#3751); fails_when=the second call runs beside the first and is refused as a file the Library holds already, by a Document the first's refusal then takes back
+  it("takes calls of one file by two agents and two paths to it in turn", async () => {
+    const waiting = await waitingHandOver();
+    const { core, coast, path, files } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const linked = join(await createSourceFolder(), "link");
+    await symlink(files, linked);
+    const second = await core.connectAgent({
+      name: "Gemini CLI",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const other = await connectLegacyAgent(second.launch);
+    const beside = handOver(other, {
+      path: join(linked, "Harbour review.pptx"),
+      folderId: coast.id,
+    });
+    // While the first call's check runs, the second waits its turn rather than answering.
+    const answered = await Promise.race([
+      beside.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000)),
+    ]);
+    expect(answered).toBe(false);
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const handed = structured<Handed>(await beside);
+    expect(handed).toMatchObject({ version: 1, folder: "Coast", status: "checked" });
+    const document = (await core.listDocuments()).filter((each) => each.name === "Harbour review");
+    expect(document).toHaveLength(1);
+    expect(await core.listDeleted()).toEqual([]);
+  });
+
+  // protects=two agents handing over one file at once, by its path and a hard link to it, take turns as by two paths to it: the second waits for the first to end, so a first refused and taken back leaves the file to the second, as one after it would (#3751); fails_when=the second call runs beside the first and is refused as a file the Library holds already, by a Document the first's refusal then takes back
+  it("takes calls of one file by two agents and a hard link to it in turn", async () => {
+    const waiting = await waitingHandOver();
+    const { core, coast, path } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const linked = join(await createSourceFolder(), "Harbour review.pptx");
+    await link(path, linked);
+    const second = await core.connectAgent({
+      name: "Gemini CLI",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const other = await connectLegacyAgent(second.launch);
+    const beside = handOver(other, {
+      path: linked,
+      folderId: coast.id,
+    });
+    // While the first call's check runs, the second waits its turn rather than answering.
+    const answered = await Promise.race([
+      beside.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000)),
+    ]);
+    expect(answered).toBe(false);
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const handed = structured<Handed>(await beside);
+    expect(handed).toMatchObject({ version: 1, folder: "Coast", status: "checked" });
+    const document = (await core.listDocuments()).filter((each) => each.name === "Harbour review");
+    expect(document).toHaveLength(1);
+    expect(await core.listDeleted()).toEqual([]);
+  });
+
+  // protects=a version's check rests only on what the agent reaches once its Note is made: a Folder the User takes away while the version is written is no evidence for a file in no Folder, which is checked against all the agent reaches (#3751); fails_when=the check sends the model the Folder's Documents as the agent reached them before the wait
+  it("checks a version against what the agent reaches after its Note is made", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, files, dataDir } = await started(calls);
+    const cursor = await core.connectAgent({
+      name: "Cursor",
+      folderIds: [coast.id, NOT_IN_A_FOLDER_ID],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(cursor.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const first = structured<Handed>(await handOver(agent, { path, folderId: NOT_IN_A_FOLDER_ID }));
+    expect(first).toMatchObject({ status: "checked", supported: 1 });
+
+    await writeFile(path, DECK);
+    next.rename.set(join(dataDir, "Handed files", first.fileId, "v2", "Harbour review.pptx"), () =>
+      core
+        .updateAgent(cursor.pairing.id, { folderIds: [NOT_IN_A_FOLDER_ID] })
+        .then(() => undefined),
+    );
+    const before = calls.length;
+    const second = structured<Handed>(await handOver(agent, { path }));
+    expect(second).toMatchObject({
+      version: 2,
+      status: "not-checked",
+      why: en("agents.handOver.notChecked.no-documents"),
+    });
+    expect(sentAfter(calls, before)).toEqual(new Set());
+  });
+
   // protects=the copy of a version taken back that a quit left in the data folder before the take-back's last step is removed at the next start, and the item's own copies stay (#3751); fails_when=the copy stays where nothing shows it or can remove it, or the start removes a copy a version that stands holds
   it("removes at the next start the copy of a version taken back that a quit left", async () => {
     const waiting = await waitingHandOver();
@@ -426,8 +582,8 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     ).toEqual([1]);
   });
 
-  // protects=a hand-over refused after another connection of the same agent made the item's next version while its check ran keeps that version, its Document and both check Notes, and nothing goes to Recently deleted or is deleted for good (#3751); fails_when=the refusal ends the item with the other call's version in it
-  it("keeps the next version another call made while a refused hand-over's check ran", async () => {
+  // protects=another connection of the same agent handing over the same file while a call's check runs waits for that call to end, and makes the item's next version after it: the first, refused once the User moved its check Note, keeps its version and both check Notes, and nothing goes to Recently deleted or is deleted for good (#3751); fails_when=the other call makes its version while the first's check runs, or the refusal ends the item with the other call's version in it
+  it("makes another connection's next version of the file once a refused hand-over ends", async () => {
     const waiting = await waitingHandOver();
     const { core, path } = waiting;
     await writeFile(path, DECK);
@@ -439,11 +595,13 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     if (!checkNote) throw new Error("The check Note wasn't made.");
     const next = plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]);
     await writeFile(path, next);
-    // The other call records its version, then waits for the first call's check to end.
     const other = handOver(await connectLegacyAgent(waiting.writer.launch), { path });
-    await vi.waitFor(async () =>
-      expect((await core.handedFileOf(checkNote.id))?.versions).toHaveLength(2),
-    );
+    const answered = await Promise.race([
+      other.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000)),
+    ]);
+    expect(answered).toBe(false);
+    expect((await core.handedFileOf(checkNote.id))?.versions).toHaveLength(1);
     // The first call alone is refused: its check Note is moved where the agent doesn't reach.
     const board = await core.createLibraryGroup({ name: "Board only", description: "" });
     await core.moveToFolder({ mindIds: [checkNote.id], folderId: board.id });

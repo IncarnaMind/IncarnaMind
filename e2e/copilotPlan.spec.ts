@@ -17,10 +17,10 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
-  openDirectoryEntry,
-  openPlanPage,
+  openProviderRow,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   urlsOpened,
@@ -67,19 +67,30 @@ const copilotAccount = (window: Page) =>
     return (await bridge.getCopilot()).account;
   });
 
-async function askFirstQuestion(window: Page): Promise<Locator> {
+/**
+ * A Copilot plan saved through the bridge, as none is added in IncarnaMind (#3767), its sign-in
+ * not there: its own page, from Settings › AI's Accounts and keys, and the plan's row on it.
+ */
+async function openSavedCopilot(window: Page): Promise<Locator> {
+  const providerId = await saveProvider(window, {
+    kind: "copilot",
+    modelId: LISTED_MODELS[0]?.id ?? "",
+  });
+  const settings = await openProviderRow(window, providerId);
+  const row = settings.getByTestId("plans-copilot");
+  await expect(row).toBeVisible();
+  return row;
+}
+
+async function askInANote(window: Page, question: string): Promise<void> {
   await newMind(window);
   await window.getByTestId("mind-editor").click();
   await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("What does my plan cover?");
+  await window.keyboard.type(question);
   await window.keyboard.press("Enter");
-  const card = window.getByTestId("model-setup");
-  await expect(card).toBeVisible();
-  await pointAndClick(window, card.getByTestId("setup-other"));
-  return card;
 }
 
-test("first run: Use my Copilot plan says what it costs and sends before anything is sent, shows GitHub's code, and Cancel keeps nothing; signed in, the Question is answered", async () => {
+test("the saved plan's Sign in says what it costs and sends before anything is sent, shows GitHub's code, and Cancel keeps nothing; signed in, a Question is answered", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     copilot: github.origin,
@@ -89,24 +100,21 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
   await setWindowSize(app, window, 900, 900);
   await acceptPlainTextKeys(window);
   await catchCopies(window);
-  const card = await askFirstQuestion(window);
+  const row = await openSavedCopilot(window);
+  const settings = window.getByTestId("settings");
 
-  const row = card.getByTestId("way-copilot");
-  await checkWidths(app, window, row, "setup-copilot-row");
-  await expect(row).toContainText("Use my Copilot plan");
-  await expect(row).toContainText("Pro, Pro+ or Business");
+  await checkWidths(app, window, row, "settings-copilot-row");
   await expect(row).not.toContainText("Experimental");
-  await expect(row).toHaveAttribute("aria-expanded", "false");
-  await pointAndClick(window, row);
+  await pointAndClick(window, row.getByTestId("plans-copilot-sign-in"));
 
-  const notice = card.getByTestId("copilot-notice");
+  const notice = row.getByTestId("copilot-notice");
   await expect(notice.getByRole("listitem")).toHaveText([
     "Answers count toward your Copilot plan’s usage limits.",
     "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to GitHub. · Details",
   ]);
   await expect(notice.getByTestId("copilot-sign-in")).toBeFocused();
   expect(github.requests).toEqual([]);
-  await checkWidths(app, window, notice, "setup-copilot-notice");
+  await checkWidths(app, window, notice, "settings-copilot-notice");
 
   await notice.getByTestId("copilot-notice-sends-details").click();
   await expect(notice.getByTestId("copilot-notice-sends-list")).toHaveText(
@@ -115,7 +123,7 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
 
   await notice.getByTestId("copilot-sign-in").focus();
   await window.keyboard.press("Enter");
-  const waiting = card.getByTestId("copilot-waiting");
+  const waiting = row.getByTestId("copilot-waiting");
   await expect(waiting.getByTestId("copilot-code")).toHaveText(USER_CODE);
   await expect(waiting.getByTestId("copilot-copy-code")).toBeFocused();
   await expect(waiting).toContainText("Enter this code on GitHub’s page");
@@ -130,16 +138,20 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
     client_id: "Ov23liF4c8fKcl0K4ziJ",
     scope: "read:user",
   });
-  await checkWidths(app, window, waiting, "setup-copilot-code");
+  await checkWidths(app, window, waiting, "settings-copilot-code");
 
   await waiting.getByTestId("copilot-cancel").focus();
   await window.keyboard.press("Enter");
-  await expect(card.getByTestId("copilot-notice")).toBeVisible();
+  await expect(row.getByTestId("copilot-notice")).toBeVisible();
   expect(await copilotAccount(window)).toEqual({ state: "signed-out" });
 
-  await pointAndClick(window, card.getByTestId("copilot-sign-in"));
-  await expect(card.getByTestId("copilot-code")).toHaveText(USER_CODE);
+  await pointAndClick(window, row.getByTestId("copilot-sign-in"));
+  await expect(row.getByTestId("copilot-code")).toHaveText(USER_CODE);
   github.approve();
+  await expect(row.getByTestId("plans-copilot-sign-out")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await askInANote(window, "What does my plan cover?");
   await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
     timeout: 15_000,
   });
@@ -151,38 +163,38 @@ test("first run: Use my Copilot plan says what it costs and sends before anythin
   await app.close();
 });
 
-test("first run: declining GitHub approval offers retry and an API key, in English and Chinese", async () => {
+test("declining GitHub approval says so where it signs in and offers Try again, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 900);
   await acceptPlainTextKeys(window);
-  const card = await askFirstQuestion(window);
-  await pointAndClick(window, card.getByTestId("way-copilot"));
+  const row = await openSavedCopilot(window);
+  await pointAndClick(window, row.getByTestId("plans-copilot-sign-in"));
+  await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
   await window.keyboard.press("Enter");
-  await expect(card.getByTestId("copilot-code")).toBeVisible();
+  await expect(row.getByTestId("copilot-code")).toBeVisible();
   github.deny();
 
-  const failure = card.getByTestId("copilot-failure");
+  const failure = row.getByTestId("copilot-failure");
   await expect(failure).toContainText("You declined on GitHub’s page");
-  await expect(failure.getByRole("button")).toHaveText(["Try again", "Use an API key instead"]);
+  await expect(failure.getByRole("button").first()).toHaveText("Try again");
   await expect(failure.getByTestId("copilot-way-back-try-again")).toBeFocused();
   expect(await copilotAccount(window)).toEqual({ state: "signed-out" });
-  await checkWidths(app, window, failure, "setup-copilot-declined");
+  await checkWidths(app, window, failure, "settings-copilot-declined");
   await setLanguage(window, "zh-CN");
   await expect(failure).toContainText("你在 GitHub 页面上拒绝了授权");
-  await expect(failure.getByRole("button")).toHaveText(["重试", "改用 API 密钥"]);
+  await expect(failure.getByRole("button").first()).toHaveText("重试");
   await setLanguage(window, "en");
   await failure.getByTestId("copilot-way-back-try-again").focus();
   await window.keyboard.press("Enter");
-  await expect(card.getByTestId("copilot-code")).toBeVisible();
+  await expect(row.getByTestId("copilot-code")).toBeVisible();
   github.deny();
   await expect(failure).toBeVisible();
-  await pointAndClick(window, failure.getByTestId("copilot-way-back-paste-api-key"));
-  await expect(card.getByTestId("setup-key")).toBeFocused();
+  expect(await copilotAccount(window)).toEqual({ state: "signed-out" });
   await app.close();
 });
 
-test("first run: an account GitHub says has no Copilot plan is told so where it signs in, in English and Chinese, and nothing is kept", async () => {
+test("an account GitHub says has no Copilot plan is told so where it signs in, in English and Chinese, and nothing is kept", async () => {
   github.modelsRefusal = {
     status: 403,
     body: { error: { message: "No access to GitHub Copilot found.", code: "no_copilot_access" } },
@@ -191,15 +203,15 @@ test("first run: an account GitHub says has no Copilot plan is told so where it 
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 900);
   await acceptPlainTextKeys(window);
-  const card = await askFirstQuestion(window);
-  await pointAndClick(window, card.getByTestId("way-copilot"));
+  const row = await openSavedCopilot(window);
+  await pointAndClick(window, row.getByTestId("plans-copilot-sign-in"));
+  await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
   await window.keyboard.press("Enter");
-  await expect(card.getByTestId("copilot-code")).toBeVisible();
+  await expect(row.getByTestId("copilot-code")).toBeVisible();
   github.approve();
 
-  const failure = card.getByTestId("copilot-failure");
+  const failure = row.getByTestId("copilot-failure");
   await expect(failure).toContainText("Your GitHub account has no Copilot plan");
-  await expect(failure.getByRole("button").first()).toHaveText("Use an API key instead");
   expect(await copilotAccount(window)).toEqual({ state: "signed-out" });
   await setLanguage(window, "zh-CN");
   await expect(failure).toContainText("你的 GitHub 账号没有 Copilot 订阅");
@@ -207,7 +219,7 @@ test("first run: an account GitHub says has no Copilot plan is told so where it 
   await app.close();
 });
 
-test("Settings › AI: the Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
+test("Settings › AI: the saved Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     copilot: github.origin,
@@ -225,8 +237,9 @@ test("Settings › AI: the Copilot plan opens its notice before signing in, then
   await window.keyboard.press("Enter");
   const settings = window.getByTestId("settings");
   await expect(settings).toHaveAttribute("data-page", "ai");
-  await openDirectoryEntry(settings, "plan:copilot");
-  const row = settings.getByTestId("ai-entry-page").getByTestId("plans-copilot");
+  await window.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  const row = await openSavedCopilot(window);
   await expect(row).toContainText("GitHub Copilot Pro, Pro+, Business or Enterprise");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
 
@@ -270,55 +283,12 @@ test("Settings › AI: the Copilot plan opens its notice before signing in, then
   await app.close();
 });
 
-test("Settings › AI: signed in but with no model listed, the row says so with Try again, and isn't ready until a model is chosen", async () => {
-  github.listedModels = [];
-  const { app, window } = await launchApp(dataDir, {
-    fakeChat: true,
-    copilot: github.origin,
-    ollama: NO_OLLAMA,
-  });
-  await interceptOpenExternal(app);
-  await setWindowSize(app, window, 900, 760);
-  await acceptPlainTextKeys(window);
-  const row = await openPlanPage(window, "copilot");
-  await expect(row).toContainText("Answers count toward your plan’s limits.");
-  await row.getByTestId("plans-copilot-sign-in").focus();
-  await window.keyboard.press("Enter");
-  await expect(row.getByTestId("copilot-sign-in")).toBeFocused();
-  await window.keyboard.press("Enter");
-  await expect(row.getByTestId("copilot-code")).toBeVisible();
-  github.approve();
-
-  const failure = row.getByTestId("copilot-failure");
-  await expect(failure).toContainText("GitHub Copilot listed no models for this account");
-  await expect(failure.getByRole("button")).toHaveText(["Try again", "Use an API key instead"]);
-  await expect(row.getByTestId("plans-copilot-account")).toHaveText(
-    `Signed in to GitHub as ${LOGIN}`,
-  );
-  await expect(row).not.toContainText("Answers count toward your plan’s usage limits.");
-  await screenshot(row, "settings-copilot-no-models");
-
-  github.listedModels = LISTED_MODELS;
-  await pointAndClick(window, failure.getByTestId("copilot-way-back-try-again"));
-  await expect(failure).toBeHidden();
-  await expect(row).toContainText("Answers count toward your plan’s usage limits.");
-  await expect
-    .poll(() =>
-      window.evaluate(async () => {
-        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        return (await bridge.listChatProviders()).map((provider) => provider.kind);
-      }),
-    )
-    .toContain("copilot");
-  await app.close();
-});
-
 test("own sign-in: refusal, cancel and retry; the API-selected experimental profile still answers", async () => {
   const { app, window } = await launchApp(dataDir, { copilot: github.origin, ollama: NO_OLLAMA });
   await interceptOpenExternal(app);
   await setWindowSize(app, window, 900, 760);
   await acceptPlainTextKeys(window);
-  const row = await openPlanPage(window, "copilot");
+  const row = await openSavedCopilot(window);
   const settings = window.getByTestId("settings");
   await expect(row).toContainText("Answers count toward your plan’s limits.");
   await row.getByTestId("plans-copilot-sign-in").focus();
@@ -345,14 +315,15 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "failed", { timeout: 15_000 });
   const line = answer.getByTestId("answer-error");
+  // No key is added in IncarnaMind (#3767): Sign in again is the line's one way back.
   await expect(line).toHaveText(
-    "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again · Use an API key instead",
+    "GitHub didn’t let IncarnaMind use your Copilot plan · Sign in again",
   );
 
   await checkWidths(app, window, line, "answer-copilot-refused");
   await setLanguage(window, "zh-CN");
   await expect(line).toContainText("GitHub 不允许 IncarnaMind 使用你的 Copilot 订阅");
-  await expect(line).toContainText("改用 API 密钥");
+  await expect(line).not.toContainText("改用 API 密钥");
   await setLanguage(window, "en");
   await line.getByTestId("answer-error-action").focus();
   await window.keyboard.press("Enter");

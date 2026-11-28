@@ -14,7 +14,6 @@ import {
   motionSettled,
   newMind,
   noteCheck,
-  openPageMenu,
   paletteOffers,
   pointAndClick,
   removeDataFolder,
@@ -201,15 +200,15 @@ test("after a check only what needs a look is marked; the sentences written befo
   await expect(shownMarks(window)).toHaveCount(4);
   for (const each of await marks(window).all()) await expect(each).toBeVisible();
 
-  // Kept with the Note: a restart shows every result again, and the ⋯ menu's switch says so.
+  // Kept with the Note: a restart shows every result again, and the check card's switch says so.
   await app.close();
   const restarted = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(restarted.app, restarted.window, 1440, 900);
   await pointAndClick(restarted.window, restarted.window.getByTestId("mind-row").first());
   await expect(marks(restarted.window)).toHaveCount(4);
   await expect(shownMarks(restarted.window)).toHaveCount(4);
-  const menu = await openPageMenu(restarted.window);
-  const item = menu.getByRole("menuitemcheckbox", { name: "Show every check result" });
+  const card = await checkCard(restarted.window);
+  const item = card.getByRole("switch", { name: "Show every check result" });
   await expect(item).toHaveAttribute("aria-checked", "true");
   await pointAndClick(restarted.window, item);
   await restarted.window.keyboard.press("Escape");

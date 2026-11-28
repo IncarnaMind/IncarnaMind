@@ -28,7 +28,7 @@ const CASES = {
       "Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to Anthropic, each time you organize.",
     allow: "Allow and organize",
     notNow: "Not now",
-    needsModel: "Choose an AI model to sort your Documents.",
+    needsAi: "Organizing needs your AI",
   },
   "zh-CN": {
     title: "允许 Anthropic 读取你的文档？",
@@ -36,7 +36,7 @@ const CASES = {
       "允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 Anthropic。",
     allow: "允许并整理",
     notNow: "以后再说",
-    needsModel: "选好 AI 模型，就能整理文档。",
+    needsAi: "整理需要你的 AI",
   },
 } as const;
 
@@ -107,8 +107,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("library-organize-allow")).toHaveText(words.allow);
       await expect(card.getByTestId("library-organize-dismiss")).toHaveText(words.notNow);
       await expect(card.getByTestId("library-organize-declined")).toHaveCount(0);
-      await expect(library.getByTestId("library-organize-needs-model")).toHaveCount(0);
-      await expect(library).not.toContainText(words.needsModel);
+      await expect(library.getByTestId("library-organize-needs-ai")).toHaveCount(0);
+      await expect(library).not.toContainText(words.needsAi);
       expect(await modelRequests(window)).toBe(0);
 
       // Not now: nothing reached Anthropic, nothing was recorded, nothing waits to be confirmed.

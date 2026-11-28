@@ -16,6 +16,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -612,8 +613,12 @@ test('"@" in a Note puts in a Document chip that opens the viewer, by mouse or k
     await expect(mindTab.getByTestId("tab-title")).toHaveText("See Tides and Moons today");
     await mindTab.click();
     await expect(chips).toHaveCount(2);
-    await pointAndClick(window, editor.locator("p").first());
-    await expect(editor).toBeFocused();
+    // Past the line's end, where no chip lies, however narrow the Note's half is.
+    const line = await editor.locator("p").first().boundingBox();
+    if (!line) throw new Error("The line isn't laid out.");
+    await window.mouse.move(line.x + line.width - 4, line.y + line.height / 2, { steps: 8 });
+    await window.mouse.click(line.x + line.width - 4, line.y + line.height / 2);
+    await focusSettled(window, editor);
     await window.keyboard.press("End");
     // One key at a time, each read by the editor before the next, until the chip is selected.
     const selected = editor.locator(".ProseMirror-selectednode");
@@ -665,6 +670,8 @@ test("a Document dragged from the sidebar onto the composer joins the Question's
     await writeFile(join(sources, "Moons.txt"), "The Moon orbits the Earth.");
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    // With no model and no AI there is no composer to drop on (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1280, 760);
     await addDocuments(window, [join(sources, "Tides.txt"), join(sources, "Moons.txt")]);
     await newMind(window);

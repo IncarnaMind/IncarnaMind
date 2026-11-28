@@ -18,7 +18,7 @@ export function SidebarSearch() {
         onClick={() => usePalette.getState().show()}
         className={rowButtonClass}
       >
-        <SearchLineIcon className={rowIconClass(false)} />
+        <SearchLineIcon className={rowIconClass} />
         <span className="min-w-0 flex-1 truncate">{t("sidebar.search")}</span>
         <kbd className="shrink-0 rounded-sm bg-chip px-1 font-sans text-small leading-4 text-ink-meta">
           {shortcutLabel("palette.open")}

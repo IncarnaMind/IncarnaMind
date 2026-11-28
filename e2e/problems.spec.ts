@@ -174,21 +174,25 @@ test("a failed Answer says so under itself with one action: the key's page in Se
   }
 });
 
-test("asking without a chat model says what to set up at the top of the Mind, and the first Question waits for the setup card, which takes that line's place", async () => {
+test("asking with no model and no AI says what it needs at the Note's foot, read as a status, and its action opens Settings › AI; nothing else offers to ask (#3767)", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await newMind(window);
 
-  // At the top of the Mind: what asking needs and how to connect or install, read as a status.
-  const top = window.getByTestId("chat-readiness");
-  const connect = top.getByTestId("chat-readiness-connect-ai");
-  await expect(top).toContainText("Asking needs your AI");
+  // At the Note's foot, where the way to ask stands once an AI is connected: what asking needs and
+  // how to connect, read as a status. No line over the page, no assistant and no model to set up.
+  const foot = window.getByTestId("note-ask-no-ai");
+  const connect = foot.getByTestId("note-ask-connect");
+  await expect(foot).toHaveText("Asking needs your AI · Connect your AI");
   await expect(connect).toHaveText("Connect your AI");
-  await expect(top.getByTestId("readiness-install-claude-code")).toHaveText("Install Claude Code");
-  await expect(window.getByRole("status").filter({ has: top })).toHaveCount(0);
+  await expect(foot).toHaveRole("status");
+  await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
+  await expect(window.getByTestId("assistant")).toBeHidden();
+  await expect(window.getByTestId("ask-pill")).toHaveCount(0);
+  await expect(window.getByTestId("model-setup")).toHaveCount(0);
   await screenshot(window, "needs-chat-model-en");
 
-  // The notice's action opens Settings on AI, by keyboard too.
+  // The line's action opens Settings on AI, by keyboard too.
   await nameMind(window, "Tides");
   await window.keyboard.press("End");
   await connect.focus();
@@ -199,23 +203,18 @@ test("asking without a chat model says what to set up at the top of the Mind, an
 
   // In Chinese.
   await bridge(window).settings("zh-CN");
-  await expect(top).toContainText("提问需要连接你的 AI");
+  await expect(foot).toHaveText("提问需要你的 AI · 连接你的 AI");
   await expect(connect).toHaveText("连接你的 AI");
-  await expect(top.getByTestId("readiness-install-claude-code")).toHaveText("安装 Claude Code");
   await screenshot(window, "needs-chat-model-zh");
   await bridge(window).settings("en");
 
-  // Asked from the composer, the Question waits in the conversation and the composer becomes the
-  // setup card, not a line; nothing is written into the note, and the line above steps aside.
+  // ⌘J from the page leads to that line, and nothing is asked or written into the note.
   await window.getByTestId("mind-editor").click();
   await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("Is anyone there?");
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("model-setup")).toBeVisible();
+  await expect(connect).toBeFocused();
+  await expect(window.getByTestId("composer-input")).toBeHidden();
   await expect(window.getByTestId("mind-editor").getByTestId("question")).toHaveCount(0);
   await expect(window.locator("dialog[open]")).toHaveCount(0);
-  await expect(top).toHaveCount(0);
-  await screenshot(window, "needs-chat-model-composer-en");
   await app.close();
 });
 

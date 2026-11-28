@@ -1,9 +1,8 @@
 /**
- * With no model set up and the User's own AI connected (#3612), the assistant panel is never
- * shown: nothing offers it, and every way that opened it either hands the request to that AI or
- * isn't offered. A User with a model, and one with neither a model nor an AI, keep what they had.
- * One who disconnected their AI keeps the panel out of sight, and the Note's foot says what asking
- * needs (#3764). Each test is a row of the pull request's case table.
+ * With no model set up (#3612, #3767), the assistant panel is never shown: nothing offers it, and
+ * every way that opened it either hands the request to the User's own AI or isn't offered. A User
+ * with a model keeps what they had. One who disconnected their AI, or never connected one, has the
+ * Note's foot say what asking needs (#3764). Each test is a row of the pull request's case table.
  */
 import { Editor } from "@tiptap/core";
 import { DOMParser } from "linkedom";
@@ -69,7 +68,7 @@ const bridge = {
   agentsOn: false,
   getAgents: async () => ({ enabled: bridge.agentsOn, pairings: [] }),
   /** Whether the User's command-line AI runs on this computer, so a Note has its own input. */
-  runsHere: false,
+  runsHere: [] as string[],
   ownAiRunsHere: async () => bridge.runsHere,
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
@@ -133,7 +132,6 @@ const { assistantHandle, composerHandle, noteHandle } = await import(
 const { focusComposer } = await import("../../src/renderer/src/commands/assistant");
 const { useAppStore } = await import("../../src/renderer/src/store");
 const { useComposer } = await import("../../src/renderer/src/composer");
-const { useModelSetup } = await import("../../src/renderer/src/modelSetup");
 const { openConversation } = await import("../../src/renderer/src/conversations");
 const { requestEdit, useEdits } = await import("../../src/renderer/src/editWithAi");
 const { explainSelection } = await import("../../src/renderer/src/editor/explainSelection");
@@ -142,14 +140,8 @@ const { putQuoteInComposer } = await import("../../src/renderer/src/viewer/selec
 const { askGroup } = await import("../../src/renderer/src/palette");
 const { askHelpInAssistant } = await import("../../src/renderer/src/meetingHelp");
 const { useMeetings } = await import("../../src/renderer/src/meetings");
-const {
-  setUpModelInstead,
-  useFoldForOwnAi,
-  useHiddenForOwnAi,
-  useNoAiConnected,
-  useNoAiForNote,
-  useOwnAiPillAt,
-} = await import("../../src/renderer/src/ownAiPanel");
+const { useFoldForOwnAi, useHiddenForOwnAi, useNoAiConnected, useNoAiForNote, useOwnAiPillAt } =
+  await import("../../src/renderer/src/ownAiPanel");
 const { useQuietAssistant } = await import("../../src/renderer/src/quietAssistant");
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
 const menuLinePath = "../../src/renderer/src/editor/useMenuEditLine.ts";
@@ -323,14 +315,13 @@ const PANEL_COMMANDS = [
 
 beforeEach(() => {
   bridge.asked = [];
-  bridge.runsHere = false;
+  bridge.runsHere = [];
   bridge.editWithAi.mockClear();
   bridge.getConversation.mockClear();
   bridge.showMeetingPanel.mockClear();
   assistantHandle.current = { openHistory: () => undefined };
   composerHandle.current = { addFiles: () => undefined } as never;
   useEdits.setState({ pending: {}, problems: {} });
-  useModelSetup.setState({ waiting: null, wanted: false, ready: false });
   useComposer.setState({ focusWanted: false } as never);
   useAgentAsked.setState({ byKey: {} });
 });
@@ -342,7 +333,7 @@ afterEach(async () => {
 });
 
 describe("the panel itself", () => {
-  // protects=rows 1 and 2: with only their own AI the panel is out of sight whatever place was kept, open by the User or folded, so no rail, header or menu of it shows and a window that had it open shows the Note alone; with a model, or with neither, it shows as before; fails_when=any kept place shows it to the own-AI User, or hides it from the others
+  // protects=rows 1 and 2: with no model the panel is out of sight whatever place was kept, open by the User or folded, their AI connected, disconnected or never connected (#3767), so no rail, header or menu of it shows and a window that had it open shows the Note alone; with a model it shows; fails_when=any kept place shows it to a User with no model, or hides it from one with a model
   test.each([
     ["kept as it starts", DEFAULT_ASSISTANT],
     ["opened by the User before", { ...DEFAULT_ASSISTANT, folded: false, foldedBy: "user" }],
@@ -355,14 +346,14 @@ describe("the panel itself", () => {
     expect(await shown()).toMatchObject({ hidden: false, quiet: false });
     await unmount?.();
     user("neither", { assistant });
-    expect(await shown()).toMatchObject({ hidden: false, quiet: false });
+    expect(await shown()).toMatchObject({ hidden: true, quiet: true });
     await unmount?.();
     user("disconnected", { assistant });
     expect(await shown()).toMatchObject({ hidden: true, quiet: true });
   });
 
-  // protects=#3764: their AI disconnected, the panel stays out of sight, folded for it, and the Note's foot says what asking needs; a User who never connected one keeps the panel and no such line, and one connected has no such line; fails_when=the panel comes back on disconnect, or the line shows beside an AI that reads the Note
-  test("their AI disconnected: no panel, and the Note's foot says what asking needs", async () => {
+  // protects=#3764, #3767: their AI disconnected or never connected, the panel stays out of sight and the Note's foot says what asking needs; one connected has no such line; fails_when=the panel shows with no model, or the line shows beside an AI that reads the Note
+  test("no AI of theirs: no panel, and the Note's foot says what asking needs", async () => {
     user("disconnected", { assistant: { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "agent" } });
     expect(await shown()).toMatchObject({
       hidden: true,
@@ -377,7 +368,8 @@ describe("the panel itself", () => {
     expect(await shown()).toMatchObject({ noAi: false, noneConnected: false });
     await unmount?.();
     user("neither");
-    expect(await shown()).toMatchObject({ hidden: false, noAi: false, noneConnected: false });
+    expect(await shown()).toMatchObject({ hidden: true, noAi: true, noneConnected: true });
+    for (const id of PANEL_COMMANDS) expect([id, offered(id)]).toEqual([id, false]);
   });
 
   // protects=turning a model on brings the panel, its toggle and its commands back, and the fold made for their own AI goes; fails_when=the panel stays hidden, a command stays unoffered, or it stays folded for an AI the User no longer needs for it
@@ -515,7 +507,7 @@ describe("⌘J", () => {
 
   // protects=#3764: with their own AI running on this computer, ⌘J puts the caret in the Note's own input, the words selected kept as its quote, and opens no other app; fails_when=it hands the words to their AI's app, or the input isn't focused
   test("a Note with its own input: the caret goes there, the words still selected", async () => {
-    bridge.runsHere = true;
+    bridge.runsHere = ["claude-code"];
     user("own AI");
     await shown();
     const { editor } = selectedNote();
@@ -528,7 +520,7 @@ describe("⌘J", () => {
 
   // protects=#3764: Edit with AI… and Translate… from ⌘K, with nothing said yet, put the caret in the Note's own input, where the User says it; fails_when=either hands the words over by a link, which opens a terminal for Claude Code
   test.each(["edit.withAi", "edit.translate"] as const)("%s with its own input", async (id) => {
-    bridge.runsHere = true;
+    bridge.runsHere = ["claude-code"];
     user("own AI");
     await shown();
     selectedNote();
@@ -594,7 +586,7 @@ describe("Improve, Shorten, Translate, Edit with AI… and Explain", () => {
     expect(useEdits.getState().problems[MIND]).toBeUndefined();
   });
 
-  // protects=row 5: Explain asks the own AI to explain the words in its reply, opens nothing in IncarnaMind and closes the selection as a change handed over does, so selecting the words again opens the menu; with neither, it waits in the panel for a model as before; fails_when=the panel is asked to answer, the own AI isn't asked, or the words stay selected under a menu kept closed
+  // protects=row 5: Explain asks the own AI to explain the words in its reply, opens nothing in IncarnaMind and closes the selection as a change handed over does, so selecting the words again opens the menu; with no AI at all, it says what it needs where the menu was and waits for no model (#3767); fails_when=the panel is asked to answer, the own AI isn't asked, the words stay selected under a menu kept closed, or a model's setup is waited for
   test("Explain", async () => {
     user("own AI");
     await shown();
@@ -608,15 +600,14 @@ describe("Improve, Shorten, Translate, Edit with AI… and Explain", () => {
       },
     ]);
     expect(editor.state.selection.empty).toBe(true);
-    expect(useModelSetup.getState().waiting).toBeNull();
     await unmount?.();
 
     user("neither");
     await shown();
     const asked = selectedNote();
-    expect(await explainSelection(asked.editor, MIND, asked.doc)).toBe(true);
+    await explainSelection(asked.editor, MIND, asked.doc);
     expect(bridge.asked).toHaveLength(1);
-    expect(useModelSetup.getState().waiting?.text).toBe(`Explain “${SELECTED}”`);
+    expect(useEdits.getState().problems[MIND]).toMatchObject({ kind: "not-ready" });
   });
 
   // protects=row 5: with no AI of theirs that reads the Note, each action leaves one line saying what it needs where the menu was, with Set up, as a Check does; fails_when=it asks an AI that can't read the Note, or says nothing
@@ -706,22 +697,10 @@ describe("a Note's Ask", () => {
     sideBySide();
     expect(await shown()).toMatchObject({ pill: null, otherPill: null, examplePill: null });
   });
-
-  // protects=row 8: "Use a model in IncarnaMind…" opens Settings › AI and never the panel; fails_when=the panel is unfolded on its setup card
-  test("Use a model in IncarnaMind… opens Settings › AI at the model (#3645)", async () => {
-    user("own AI", { assistant: { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "agent" } });
-    await shown();
-    const openSettings = vi.fn();
-    useAppStore.setState({ openSettings } as never);
-    setUpModelInstead();
-    expect(openSettings).toHaveBeenCalledWith("ai", "model");
-    expect(useAppStore.getState().layout?.assistant.folded).toBe(true);
-    expect(useModelSetup.getState().wanted).toBe(false);
-  });
 });
 
 describe("asking from elsewhere", () => {
-  // protects=row 11, #3764: with only their own AI, connected or disconnected, ⌘K has no Ask row: the Note's own input is the one place to ask; with a model, or with neither, the row asks in the panel as before; fails_when=⌘K offers a second way to ask, or loses the row where the panel is
+  // protects=row 11, #3764, #3767: with no model, an AI of theirs connected, disconnected or never connected, ⌘K has no Ask row: the Note's foot is the one place to ask; with a model, the row asks in the panel; fails_when=⌘K offers a way to ask that can't answer, or loses the row where the panel is
   test("⌘K's typed Ask", async () => {
     const rows = () =>
       askGroup("What did fuel cost?", "New chat", (key, params) => translate("en", key, params));
@@ -731,7 +710,7 @@ describe("asking from elsewhere", () => {
       user(kind);
       await shown();
       const names = rows().flatMap((group) => group.items.map((item) => item.name));
-      const asks = kind === "model" || kind === "neither";
+      const asks = kind === "model";
       expect([kind, names]).toEqual([kind, asks ? ["Ask “What did fuel cost?”"] : []]);
     }
   });

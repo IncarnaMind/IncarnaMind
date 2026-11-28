@@ -428,10 +428,8 @@ describe("IncarnaMind's own GitHub OAuth App (#876)", () => {
     const words = SIGN_IN_ROUTES.copilot.problems.refused;
     if (!words) throw new Error("Copilot has no words for a refusal.");
     expect(translate("en", words.line)).toBe("GitHub didn’t let IncarnaMind use your Copilot plan");
-    expect(words.waysBack).toContain("paste-api-key");
-    expect(translate("en", wayBackLabel("copilot", "paste-api-key"))).toBe(
-      "Use an API key instead",
-    );
+    expect(words.waysBack).toEqual(["sign-in-again"]);
+    expect(translate("en", wayBackLabel("copilot", "sign-in-again"))).toBe("Sign in again");
     expect(translate("zh-CN", words.line)).not.toBe(words.line);
 
     await signIn(setup, "editor");
@@ -915,10 +913,10 @@ describe("Failures", () => {
       expect(problems[problem]?.waysBack).toContain("use-another-model");
     }
     expect(problems["sign-in-expired"]?.waysBack[0]).toBe("sign-in-again");
-    // Every failure, of a sign-in or a request, has a way back to an API key.
+    // No failure offers a key in place of the plan: no model is added in IncarnaMind (#3767).
     const signIn = Object.values(COPILOT_SIGN_IN_PROBLEMS);
     for (const words of [...Object.values(problems), ...signIn]) {
-      expect(words.waysBack).toContain("paste-api-key");
+      expect(words.waysBack).not.toContain("paste-api-key");
     }
     for (const language of ["en", "zh-CN"] as const) {
       for (const { line } of signIn) expect(translate(language, line)).not.toBe(line);

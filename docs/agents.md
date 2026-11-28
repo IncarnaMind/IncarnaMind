@@ -58,7 +58,7 @@ IncarnaMind keeps the file Claude installs until Claude has connected, so there 
 Click **Connect**: IncarnaMind adds itself to Claude Code's settings file, `~/.claude.json`, and shows first what it adds (under **Details**). Everything else in that file stays as it is, and a copy of the file as it was is kept beside it until you disconnect. Start a new Claude Code session; `/mcp` lists IncarnaMind. If IncarnaMind can't read or change the file, it leaves it alone and copies the line to run in a terminal instead.
 
 <a id="codex"></a>
-### ChatGPT app and Codex
+### ChatGPT (desktop app and Codex)
 
 One setting serves both. Click **Connect**: IncarnaMind adds itself to Codex's settings file (`~/.codex/config.toml`), and shows you first what it adds. Start a new Codex session. The ChatGPT desktop app shares this configuration ([docs](https://learn.chatgpt.com/docs/extend/mcp)); ChatGPT on the web takes only servers on the internet, so it can't reach IncarnaMind. Right after connecting, **Undo** takes the change back.
 

@@ -1,10 +1,9 @@
 /**
- * The assistant for a User whose own AI is the way to ask and who set up no model (#3373, #3612):
- * its panel is never shown, whatever it was before, and a Note asks their own AI from its foot.
- * Their AI is the way once they connected one, and stays it after they disconnect it, so the
- * panel never comes back for that (#3764). The one exception is a Conversation they already have,
- * opened to be read: the panel shows it until they fold it. Folded for their AI, it opens as it
- * was once a model is set up.
+ * The assistant for a User who set up no model in IncarnaMind (#3373, #3612, #3767): their own AI
+ * is the way to ask, connected or not yet, so its panel is never shown, whatever place was kept,
+ * and a Note asks their own AI from its foot, or says there how to connect one (#3764). The one
+ * exception is a Conversation they already have, opened to be read: the panel shows it until they
+ * fold it. Folded for their AI, it opens as it was once a model is set up.
  */
 import { useEffect } from "react";
 import { create } from "zustand";
@@ -20,51 +19,18 @@ import {
   useReadAgentsToAsk,
 } from "./askYourAi";
 import { useClaudeCodeInstallAvailability } from "./claudeCodeInstall";
-import { core } from "./core";
 import { assistantTabOf, documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useAppStore } from "./store";
 import { useGroupsMerged } from "./useWindowWidth";
 
-/**
- * Connecting the User's own AI is on: connecting one turns it on, and disconnecting it leaves it
- * on; null until read.
- */
-const useAgentsOn = create<{ on: boolean | null }>(() => ({ on: null }));
-
-function useReadAgentsOn(): void {
-  useEffect(() => {
-    let current = true;
-    // A change heard before the first read answers is newer than that answer.
-    let heard = false;
-    core.getAgents().then((settings) => {
-      if (current && !heard) useAgentsOn.setState({ on: settings.enabled });
-    }, useAppStore.getState().reportError);
-    const stop = core.on("agents.changed", (settings) => {
-      heard = true;
-      useAgentsOn.setState({ on: settings.enabled });
-    });
-    return () => {
-      current = false;
-      stop();
-    };
-  }, []);
-}
-
-/**
- * Only their own AI asks for the User: no model in IncarnaMind, and an AI of theirs connected
- * now or before; null until all three are known.
- */
+/** Only their own AI asks for the User: no model in IncarnaMind; null until that is known. */
 export function useOwnAiOnly(): boolean | null {
   const known = useAppStore((state) => state.chatReadiness !== null);
   const without = useNoModel();
-  const agents = useAgentsToAskRead(null);
-  const on = useAgentsOn((state) => state.on);
-  if (!known || agents === null || on === null) return null;
-  return without && (agents.length > 0 || on);
+  return known ? without : null;
 }
 
-export const ownAiOnlyNow = (): boolean =>
-  noModel() && (agentsToAsk(null).length > 0 || useAgentsOn.getState().on === true);
+export const ownAiOnlyNow = (): boolean => noModel();
 
 /** A Conversation the User opened to read, which the panel shows until they fold it. */
 const useReading = create<{ reading: boolean }>(() => ({ reading: false }));
@@ -80,11 +46,6 @@ export function useHiddenForOwnAi(): boolean {
 
 export const hiddenForOwnAiNow = (): boolean => ownAiOnlyNow() && !useReading.getState().reading;
 
-/** IncarnaMind's own model, from the pill's ⌄: set up in Settings › AI, where the panel comes back once it works. */
-export function setUpModelInstead(): void {
-  useAppStore.getState().openSettings("ai", "model");
-}
-
 /**
  * Folds the assistant for a User with only their own AI, unless they are reading a Conversation
  * in it, so a window opened again doesn't show it before their AI is known (#3612), and ends the
@@ -92,7 +53,6 @@ export function setUpModelInstead(): void {
  */
 export function useFoldForOwnAi(): void {
   useReadAgentsToAsk(null);
-  useReadAgentsOn();
   useReadAskedOn();
   useClaudeCodeInstallAvailability();
   const only = useOwnAiOnly();
@@ -158,14 +118,14 @@ const askedOnOf = (merged: boolean): AskedOn => {
  * An agent IncarnaMind can run in the background, its command line on this computer: a Note it can
  * read has its own input (#3627).
  */
-export const runsInBackground = (pairing: AgentPairing, runsHere: boolean): boolean =>
-  runsHere && pairing.client === "claude-code";
+export const runsInBackground = (pairing: AgentPairing, runsHere: readonly string[]): boolean =>
+  pairing.client !== null && runsHere.includes(pairing.client);
 
 const pillOf = (
   hidden: boolean,
   on: AskedOn,
   agents: readonly AgentPairing[],
-  runsHere: boolean,
+  runsHere: readonly string[],
 ): OwnAiPill | null =>
   hidden &&
   (on.mindId !== null || on.documentId !== null) &&

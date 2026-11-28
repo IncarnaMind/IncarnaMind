@@ -31,12 +31,7 @@ const FILES = [
 ];
 const FOLDERS = ["agents", "ai", "connectors", "providers", "settings"];
 /** First-run screens in those folders: not Settings. */
-const NOT_SETTINGS = new Set([
-  "ModelSetupCard.tsx",
-  "SetupWays.tsx",
-  "GetOllama.tsx",
-  "OllamaCard.tsx",
-]);
+const NOT_SETTINGS = new Set(["GetOllama.tsx", "OllamaCard.tsx"]);
 
 function sources(): { name: string; text: string }[] {
   const files = FILES.map((name) => join(COMPONENTS, name));
@@ -98,13 +93,10 @@ const CONSENT_FACTS = [
   "agents.connect.codexInstructions",
   // One-press Claude Code install disclosure, browser sign-in security fact, and plan fallback (#3638).
   "agents.install.disclosure",
-  "agents.install.firstRun.detail",
   "agents.install.settings.detail",
   "agents.install.progress.detail",
   "agents.install.signIn.detail",
   "agents.install.signIn.notYet",
-  "agents.install.noPlan.detail.named",
-  "agents.install.noPlan.detail.desktop",
   // What the leave to write allows: a check of its notes goes to the User's AI model (#3317), and
   // IncarnaMind copies the files it names for a Canvas (#3406).
   "agents.propose.hint",
@@ -126,13 +118,9 @@ const CONSENT_FACTS = [
   "rerank.settings.sends",
   // A page loaded as a browser would reach every host it loads anything from (#2553).
   "webPages.keepLook.body",
-  // What first run's key field and sorting choice send, and where (ADR-0022).
-  "setup.key.sends",
   // What is sent where a service is chosen, and the GitHub sign-in's notice (#2900).
   "providers.sendsLine",
   "copilot.notice.sends",
-  "needsModel.compare",
-  "needsModel.help",
   "setup.sorting.here",
   "setup.sorting.chatHere",
   "setup.sorting.sendsWhenOn",

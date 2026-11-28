@@ -90,7 +90,7 @@ test("a Question asked in the assistant gets an Answer that streams in there, an
   await second.app.close();
 });
 
-test("a Note switched out of Question context looks muted, and asking without a chat model says why", async () => {
+test("a Note switched out of Question context looks muted, and asking with no AI says what it needs (#3767)", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await newMind(window);
@@ -106,17 +106,17 @@ test("a Note switched out of Question context looks muted, and asking without a 
   await toggle.click();
   await expect(sideNote).toHaveClass(/context-off/);
 
-  // Asking from the composer without a chat model waits: the Question stays in the conversation
-  // while the composer becomes the setup card; nothing is written into the Mind.
+  // With no model and no AI of the User's, there is no assistant to ask in: ⌘J leads to the
+  // Note's foot line, which says what asking needs, and nothing is written into the Mind.
   await sideNote.click();
   await window.keyboard.press("ControlOrMeta+j");
-  await window.keyboard.type("Is anyone there?");
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("model-setup")).toBeVisible();
-  await expect(window.getByTestId("assistant-waiting-model")).toBeVisible();
+  await expect(window.getByTestId("assistant")).toBeHidden();
+  await expect(window.getByTestId("composer-input")).toBeHidden();
+  await expect(window.getByTestId("note-ask-no-ai")).toHaveText(
+    "Asking needs your AI · Connect your AI",
+  );
+  await expect(window.getByTestId("note-ask-connect")).toBeFocused();
   await expect(editor.getByTestId("question")).toHaveCount(0);
-  await window.getByTestId("setup-later").click();
-  await expect(window.getByTestId("composer-input")).toHaveValue("Is anyone there?");
   await app.close();
 });
 

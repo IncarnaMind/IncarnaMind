@@ -21,6 +21,7 @@ import {
   removeDataFolder,
   renameInTab,
   runCommand,
+  saveProvider,
   setLanguage,
   setMotionSpeed,
   setWindowSize,
@@ -113,6 +114,8 @@ async function madeQuietly(window: Page, make: () => Promise<void>): Promise<str
 
 test("Ask about a Document with no Mind to ask in, New note here, ⌘N, + and Start a Mind from a Document: each makes a Mind with no line and nothing for ⌘Z to take back", async () => {
   const { window } = await startWithADocument();
+  // With no model and no AI, Ask goes to the User's own AI and makes no Mind (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
 
   // With no Mind, asking about a Document makes one.
   await madeQuietly(window, () => documentMenuCommand(window, "Tides", "document.ask"));

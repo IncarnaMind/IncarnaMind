@@ -24,7 +24,7 @@ import { useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
-import { ChevronDownLineIcon, ChevronRightLineIcon, CopyLineIcon } from "../icons";
+import { CopyLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { buttonStyle } from "../ui";
@@ -41,15 +41,11 @@ const PLAN_NAMES: Record<CopilotPlan, MessageKey> = {
 
 const NO_MODELS: RouteProblemWords = {
   line: "copilot.signIn.noModels",
-  waysBack: ["try-again", "paste-api-key"],
+  waysBack: ["try-again"],
 };
 
 const failureWords = (failure: CopilotFailure): RouteProblemWords =>
   failure.kind === "no-models" ? NO_MODELS : COPILOT_SIGN_IN_PROBLEMS[failure.kind];
-
-const linkClass = "self-start text-ui leading-5 text-accent underline-offset-2 hover:underline";
-
-type Place = "setup" | "settings";
 
 export function useOfferedWay(): { status: CopilotStatus; experimental: boolean } | null {
   const status = useCopilotStatus();
@@ -63,50 +59,6 @@ function ExperimentalTag() {
     <span className="rounded-sm bg-chip px-1.5 text-small leading-5 text-ink-secondary">
       {t("copilot.experimental")}
     </span>
-  );
-}
-
-/** `onKey` opens the key form, the way back to an API key. */
-export function CopilotSetupWay({ onKey }: { onKey(): void }) {
-  const t = useT();
-  const offered = useOfferedWay();
-  const open = useCopilot((state) => state.open);
-  const failure = useCopilot((state) => state.failure);
-  if (!offered) return null;
-  const expanded = open || offered.status.signingIn || failure !== null;
-  const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
-  return (
-    <div
-      data-testid="setup-copilot"
-      className={`flex flex-col rounded-md ${expanded ? "bg-frame" : ""}`}
-    >
-      <button
-        type="button"
-        data-testid="way-copilot"
-        aria-expanded={expanded}
-        onClick={() => (expanded ? closeCopilotNotice() : openCopilotNotice())}
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-hover"
-      >
-        <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-          <span className="flex flex-wrap items-center gap-x-2 text-ui text-ink">
-            {t("copilot.way.title")}
-            {offered.experimental && <ExperimentalTag />}
-          </span>
-          <span className="text-ui leading-5 text-ink-secondary">{t("copilot.way.line")}</span>
-        </span>
-        <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
-      </button>
-      {expanded && (
-        <div className="px-2 pt-1 pb-2">
-          <SignInPanel
-            place="setup"
-            status={offered.status}
-            experimental={offered.experimental}
-            onKey={onKey}
-          />
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -214,39 +166,19 @@ export function CopilotPlanRow() {
         ) : undefined
       }
     >
-      {expanded && (
-        <SignInPanel place="settings" status={status} experimental={offered.experimental} />
-      )}
+      {expanded && <SignInPanel status={status} experimental={offered.experimental} />}
     </SettingsRow>
   );
 }
 
-function SignInPanel({
-  place,
-  status,
-  experimental,
-  onKey,
-}: {
-  place: Place;
-  status: CopilotStatus;
-  experimental: boolean;
-  onKey?: () => void;
-}) {
+function SignInPanel({ status, experimental }: { status: CopilotStatus; experimental: boolean }) {
   const failure = useCopilot((state) => state.failure);
   if (status.signingIn) return <Waiting status={status} />;
-  if (failure) return <Failure failure={failure} place={place} onKey={onKey} />;
-  return <Notice place={place} experimental={experimental} onKey={onKey} />;
+  if (failure) return <Failure failure={failure} />;
+  return <Notice experimental={experimental} />;
 }
 
-function Notice({
-  place,
-  experimental,
-  onKey,
-}: {
-  place: Place;
-  experimental: boolean;
-  onKey: (() => void) | undefined;
-}) {
+function Notice({ experimental }: { experimental: boolean }) {
   const t = useT();
   const signIn = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -273,7 +205,7 @@ function Notice({
           ref={signIn}
           type="button"
           data-testid="copilot-sign-in"
-          onClick={() => void signInWithCopilot({ keepDefault: place === "settings" })}
+          onClick={() => void signInWithCopilot({ keepDefault: true })}
           className={buttonStyle("primary", "sm")}
         >
           {t("copilot.wayBack.signIn")}
@@ -288,11 +220,6 @@ function Notice({
           {t("copilot.cancel")}
         </button>
       </div>
-      {onKey && (
-        <button type="button" data-testid="copilot-use-key" onClick={onKey} className={linkClass}>
-          {t("signInRoute.wayBack.pasteApiKey")}
-        </button>
-      )}
     </div>
   );
 }
@@ -368,15 +295,7 @@ function Waiting({ status }: { status: CopilotStatus }) {
   );
 }
 
-function Failure({
-  failure,
-  place,
-  onKey,
-}: {
-  failure: CopilotFailure;
-  place: Place;
-  onKey: (() => void) | undefined;
-}) {
+function Failure({ failure }: { failure: CopilotFailure }) {
   const t = useT();
   const openSettings = useAppStore((state) => state.openSettings);
   const first = useRef<HTMLButtonElement>(null);
@@ -384,26 +303,20 @@ function Failure({
     first.current?.focus();
   }, []);
   const words = failureWords(failure);
-  const keepDefault = place === "settings";
-  const signIn = () => void signInWithCopilot({ keepDefault });
+  const signIn = () => void signInWithCopilot({ keepDefault: true });
   const anotherModel = () => {
     closeCopilotNotice();
-    if (place === "settings") openSettings("ai", "chat-model");
+    openSettings("ai", "chat-model");
   };
   const run: Record<RouteWayBack, (() => void) | undefined> = {
     "sign-in": signIn,
     "sign-in-again": signIn,
     // Signed in already, a plan that listed no model needs only its list read again.
     "try-again":
-      failure.kind === "no-models" ? () => void chooseCopilotPlan({ keepDefault }) : signIn,
+      failure.kind === "no-models" ? () => void chooseCopilotPlan({ keepDefault: true }) : signIn,
     "use-another-model": anotherModel,
-    "paste-api-key": place === "setup" ? onKey : anotherModel,
   };
-  // First run has no other model yet: there, leaving the route is choosing another way.
-  const label = (wayBack: RouteWayBack) =>
-    place === "setup" && wayBack === "use-another-model"
-      ? t("copilot.chooseAnotherWay")
-      : t(wayBackLabel("copilot", wayBack));
+  const label = (wayBack: RouteWayBack) => t(wayBackLabel("copilot", wayBack));
   const actions = words.waysBack.flatMap((wayBack) => {
     const onClick = run[wayBack];
     return onClick ? [{ wayBack, onClick }] : [];
