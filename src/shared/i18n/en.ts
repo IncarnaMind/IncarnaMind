@@ -1498,7 +1498,8 @@ export const en = {
     "The quote doesn’t state the currency, unit or scale for this figure.",
   "claim.unsupported.unitsDiffer":
     "The quote gives another currency, unit or scale for this figure.",
-  "claim.unsupported.signDiffers": "The Document gives the opposite sign for this figure.",
+  "claim.unsupported.signDiffers":
+    "The Document and this sentence disagree on whether this figure is positive or negative.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
   "claim.currencyClause": "The Document states the currency ({source}): {quote}",
@@ -1696,7 +1697,7 @@ export const en = {
   "claim.reason.sign-word.unknown":
     "A word nearby may make an amount here negative, so it wasn’t checked.",
   "claim.reason.sign-unclear":
-    "The Document doesn’t settle whether this bracketed amount is positive or negative.",
+    "The Document doesn’t settle this bracketed amount’s sign, so it wasn’t checked.",
   "claim.reason.two-readings.unknown":
     "A figure here could be read more than one way, so it wasn’t checked.",
   "claim.reason.readings-unsettled": "“{detail}” could be read several ways, so it wasn’t checked.",

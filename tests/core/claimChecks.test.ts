@@ -2242,19 +2242,64 @@ describe("Stated Sign lowering and no-model behaviour (#2578)", () => {
     expect(unclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
   });
 
-  test("parses same-line Units + Sign, ignores prose Sign: labels, fails open on unknown/omitted, and leaves non-Supported untouched", async () => {
-    const sameLine = await runCheck({
-      text: "Verdict: supported Units: SAME Sign: DIFFERS Explanation: Opposite sign. Evidence: [1]",
+  test("lowers Contradicted (not Unsupported) to Not checked when Sign is unclear", async () => {
+    const contradictedUnclear = await runCheck({
+      text: "Verdict: contradicted\nUnits: same\nSign: unclear\nExplanation: Might be negative.\nEvidence: [1]",
     });
-    expect(sameLine).toMatchObject({ verdict: "unsupported", unsupported: { kind: "sign" } });
+    expect(contradictedUnclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
 
-    const quotedSignInExplanation = await runCheck({
-      text: "Verdict: supported\nUnits: same\nSign: none\nExplanation: The label reads “Exit Sign: differs”.\nEvidence: [1]",
+    const unsupportedUnclear = await runCheck({
+      text: "Verdict: not found\nUnits: same\nSign: unclear\nExplanation: Not stated.\nEvidence: []",
     });
-    expect(quotedSignInExplanation.verdict).toBe("supported");
-    if (quotedSignInExplanation.verdict === "supported") {
-      expect(quotedSignInExplanation.says).toBe("The label reads “Exit Sign: differs”.");
+    expect(unsupportedUnclear.verdict).toBe("unsupported");
+  });
+
+  test("parses inline Units and Sign after any field, trailing Sign notes, curly quotes, unknown JSON, and prose colons", async () => {
+    for (const inlineUnits of [
+      "Verdict: supported\nExplanation: x.\nEvidence: [1] Units: another",
+      "Verdict: supported\nExplanation: The Passage gives pounds. Units: another\nEvidence: [1]",
+      "Verdict: supported\nExplanation: x.\nEvidence: [1]\nWorking: none Units: another",
+      "Details: a Verdict: supported Explanation: x. Evidence: [1] Units: another",
+    ]) {
+      const lowered = await runCheck({ text: inlineUnits });
+      expect(lowered, inlineUnits).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { kind: "units", units: "another" },
+      });
     }
+
+    for (const inlineSign of [
+      "Verdict: supported\nExplanation: x.\nEvidence: [1] Sign: differs",
+      "Verdict: supported\nExplanation: The Passage gives a loss. Sign: differs\nEvidence: [1]",
+      "Verdict: supported\nExplanation: x.\nEvidence: [1]\nWorking: none Sign: differs",
+      "Details: a Verdict: supported Explanation: x. Evidence: [1] Sign: differs",
+      "Verdict: supported Units: SAME Sign: DIFFERS Explanation: Opposite sign. Evidence: [1]",
+    ]) {
+      const lowered = await runCheck({ text: inlineSign });
+      expect(lowered, inlineSign).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { kind: "sign" },
+      });
+    }
+
+    for (const trailingDiffers of [
+      "Sign: differs — the Document says the figure is negative.",
+      "Sign: differs (heading says loss)",
+      "Sign: “differs”",
+    ]) {
+      const lowered = await runCheck({
+        text: `Verdict: supported\nUnits: same\n${trailingDiffers}\nExplanation: Matches.\nEvidence: [1]`,
+      });
+      expect(lowered, trailingDiffers).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { kind: "sign" },
+      });
+    }
+
+    const trailingUnclear = await runCheck({
+      text: "Verdict: supported\nUnits: same\nSign: unclear, the heading may apply\nExplanation: Matches.\nEvidence: [1]",
+    });
+    expect(trailingUnclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
 
     const unknownJsonSign = await runCheck({
       text: '{"verdict":"supported","units":"same","sign":"unclear-ish","says":"Matches.","evidence":[1]}',

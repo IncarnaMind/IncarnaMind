@@ -19,6 +19,7 @@ import type {
   ClaimCheckAttributes,
   ClaimCheckFailure,
   ClaimCheckPart,
+  UnsupportedReason,
 } from "../../src/core/api";
 import { modelName } from "../../src/shared/modelName";
 
@@ -64,6 +65,7 @@ const part = (sentence: string, words: string, more: Partial<ClaimCheckPart>): C
 /** How the sentence's check stands: a verdict, still running, or ended with no verdict and why. */
 type Standing =
   | { state: "supported" | "checking" }
+  | { state: "unsupported"; unsupported: UnsupportedReason }
   | { state: "not-checked"; reason: ClaimCheckFailure; detail: string | null };
 
 const checkOf = (
@@ -78,7 +80,7 @@ const checkOf = (
   text: sentence,
   evidence: parts[0]?.evidence[0] ?? null,
   says: null,
-  unsupported: null,
+  unsupported: standing.state === "unsupported" ? standing.unsupported : null,
   calculation: null,
   reason: standing.state === "not-checked" ? standing.reason : null,
   detail: standing.state === "not-checked" ? standing.detail : null,
@@ -490,3 +492,69 @@ describe.each(["en", "zh-CN"] as const)("the card of a first reading (%s)", (lan
     expect(judged.one("claim-quote")?.textContent).toContain(LINE);
   });
 });
+
+describe.each(["en", "zh-CN"] as const)(
+  "sign-mismatch Unsupported card and part row (#2578) (%s)",
+  (language) => {
+    const sentence = `${FIRST}, and ${SECOND}.`;
+
+    test("translates kind: sign on the whole-sentence card under the generic Unsupported label", async () => {
+      const { translate } = await import("../../src/shared/i18n");
+      const shown = await card(
+        language,
+        sentence,
+        [],
+        { kind: "none" },
+        {
+          state: "unsupported",
+          unsupported: {
+            kind: "sign",
+            reason: "stored-in-other-language",
+            covered: null,
+            uncovered: null,
+            found: true,
+            quoted: passage(LINE),
+          },
+        },
+      );
+      expect(shown.heading).toBe(translate(language, "claim.state.unsupported"));
+      expect(shown.one("claim-why")?.textContent).toBe(
+        translate(language, "claim.unsupported.signDiffers"),
+      );
+    });
+
+    test("translates kind: sign on a part row", async () => {
+      const { translate } = await import("../../src/shared/i18n");
+      const signPart = part(sentence, SECOND, {
+        verdict: "unsupported",
+        unsupported: {
+          kind: "sign",
+          reason: "stored-in-other-language",
+          covered: null,
+          uncovered: null,
+          found: true,
+          quoted: passage(OTHER),
+        },
+      });
+      const shown = await card(
+        language,
+        sentence,
+        [part(sentence, FIRST, { evidence: [passage(LINE)] }), signPart],
+        { kind: "none" },
+        {
+          state: "unsupported",
+          unsupported: {
+            kind: "sign",
+            reason: "stored-in-other-language",
+            covered: null,
+            uncovered: null,
+            found: true,
+          },
+        },
+      );
+      expect(shown.one("claim-part-reason")?.textContent).toBe(
+        translate(language, "claim.unsupported.signDiffers"),
+      );
+    });
+  },
+);

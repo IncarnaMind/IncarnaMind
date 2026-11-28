@@ -53,7 +53,7 @@ export const verdictRules = (calls: boolean, cites = true): string[] => [
   "Read the sentence whole, as a careful reader does, in its paragraph: every figure, date, name, party, condition, comparison and direction it states.",
   "- A number inside a name (58.com, Boeing 737, 3M) is part of that name, not an amount.",
   '- An amount is its number together with its unit, currency and scale. A table\'s caption, heading row or unit line gives them to its cells ("in thousands", "(£m)", "单位：万元"). The same amount written another way is the same amount: 1.2 million and 1,200,000; 5% and five per cent; 3.5亿 and 350 million. A sentence that writes a cell\'s digits without the scale its table gives them, or with another unit or currency, states another amount.',
-  `- An amount's sign (positive or negative) is part of what it states. In a financial table or statement, an amount in brackets is negative (accounting notation). In prose, an amount written in brackets after the same amount in words or with a scale takes its sign from what the Document says about that same item: when its section heading (including the Passage's location attribute) or text elsewhere in that Document says that same item is negative, overdrawn, a loss, a deficit or a deduction, the bracketed amount is negative (so writing it with a minus sign or naming it as a loss is supported, and stating it as a plain positive amount contradicts the Document); when nothing about that same item makes it negative (ignoring unrelated clauses about something else), the bracket restates a positive amount.${cites ? " Where a Passage shows such a bracketed amount without settling its sign, check the Passage's location heading and search that Document for context on that item before deciding." : ""} Never mark a plain positive statement supported when the Document states elsewhere that the same item is negative or a loss (if it is genuinely unclear whether that statement applies to the figure, give Sign: unclear). A sentence that names a loss, deficit or deduction carries that negative sign in its words; one that states the item without saying it is negative or a loss states a positive amount.`,
+  `- An amount's sign (positive or negative) is part of what it states. In a financial table or statement, an amount in brackets or parentheses (...) is negative. In prose, an amount in brackets or parentheses (...)/(（...）) after the same amount in words or a scale takes its sign from what the Document says about that same item—including its section heading (the Passage's location) or elsewhere in that Document—ignoring unrelated items. Whenever that heading or another passage characterizes that same item as negative (less than zero, owing, or an adverse financial position, balance or result, in any wording or language), that bracketed figure IS negative—even when that heading or passage gives no number and the figure's own sentence has no minus sign—so writing it with a minus sign or naming that adverse nature in words is supported, and stating it as a plain positive figure contradicts the Document (never mark a plain positive statement supported).${cites ? " Such a prose amount never settles its sign on its own: check its location heading and search or read the rest of that Document for context on that item before deciding." : ""} Otherwise it is positive.`,
   "- The change between two percentages (of a rate, a share, a margin) is a number of percentage points (个百分点). Written as a percent (rose or fell so many %, 上升或下降百分之几), a percentage's change is a change by that share of itself, the points divided by the earlier percentage: another amount, not the points written another way, so a sentence that gives the points as a percent states another amount.",
   "- A word for which way something went or which is more (up, down, rose, fell, more than, 上升, 下降) is part of what the sentence states: work out which way the Document's own figures go.",
   "- Where a Document limits what it states (to a condition, within a limit, with an exception, to the party it applies to or the time it holds for), that limit is part of what it says, not a detail a sentence may leave out: a sentence that states it without the limit, or of someone the Document doesn't say it of, says more than the Document does, even when each word it has is the Document's.",
@@ -74,10 +74,10 @@ export const verdictRules = (calls: boolean, cites = true): string[] => [
   ...(calls ? [CALL_MARKS] : []),
 ];
 
-const rules = (calls: boolean) => [...NOTE_FRAMING, ...verdictRules(calls)];
+const rules = (calls: boolean, cites = true) => [...NOTE_FRAMING, ...verdictRules(calls, cites)];
 
 /** The rules alone, for a judge that is told elsewhere how to gather evidence and reply (#3342). */
-export const judgingRules = (): string => rules(false).join("\n");
+export const judgingRules = (): string => rules(false, true).join("\n");
 
 const QUOTE =
   "a short quote copied exactly from the Passage, the words that decide it, as one unbroken stretch without an ellipsis";
@@ -98,14 +98,14 @@ const VERDICTS = [
 const UNITS_RULE =
   '"none" when neither the sentence nor its heading or unit line states a currency, unit or scale; "same" when the Passages state the same currency, unit and scale for those figures — including the same amount written at another scale or in a unit it converts to exactly, or a figure worked out from amounts whose units the Passages state; "another" when the Passages state a different currency, unit or scale (not an exact conversion); "unstated" only when the Passages you have read, including table headers and unit lines, never state one for that figure or state one only for another table.';
 
-/** Shared Sign classification rule for both the reply form and the cite tool schema (#2578). */
+/** Sign classification rule for the check's reply form (#2578). */
 const SIGN_RULE =
-  '"none" only when the sentence states no amount whose sign is in question and no Passage writes that amount in brackets; "same" when the sentence and the Document agree on each amount\'s sign (including a negative amount stated with a minus sign or named as a loss, deficit or deduction in the sentence\'s words, or a prose bracketed repeat when nothing in the Document says that same item is negative or a loss); "differs" when the Document makes the amount negative (by accounting brackets, a minus sign, or a section heading — including the Passage\'s location — or text about that same item) and the sentence states it as positive without saying it is negative or a loss, or vice versa; "unclear" when a Passage writes that amount in brackets and another part of the Document says that same item is negative or a loss without settling whether it applies to the same figure or date.';
+  '"none" only when no Passage writes an amount in brackets/parentheses (...)/(（...）) and no sign is at issue; "same" when sentence and Document agree on every amount\'s sign; "differs" when one makes an amount negative (via brackets/parentheses, heading or context) and the other states it positive; "unclear" when a bracketed amount\'s context leaves open whether an adverse statement applies to that figure or date.';
 
 const reply = (language: Language) =>
   [
     "Reply in exactly this form, the verdict word in English:",
-    'Details: what the sentence states, one thing after another (each figure with its sign, unit and scale — for a bracketed amount, note the Passage\'s location heading and any context on that item\'s sign — each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
+    'Details: what the sentence states, one thing after another (each figure with its sign, unit and scale—for any amount in brackets/parentheses in a Passage, check its location heading and sign context—each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
     `Verdict: ${VERDICTS.slice(0, -1).join(", ")} or ${VERDICTS.at(-1)}`,
     `Units: ${STATED_UNITS.slice(0, -1).join(", ")}, or ${STATED_UNITS.at(-1)} — ${UNITS_RULE}`,
     `Sign: ${STATED_SIGNS.slice(0, -1).join(", ")}, or ${STATED_SIGNS.at(-1)} — ${SIGN_RULE}`,
@@ -156,7 +156,7 @@ export function checkInstructions(
       ].join("\n");
     case "structured-output":
       return [
-        ...rules(calls),
+        ...rules(calls, false),
         "",
         "Passages found in the User's Documents for this sentence:",
         passages,
@@ -168,7 +168,7 @@ export function checkInstructions(
       ].join("\n");
     case "none":
       return [
-        ...rules(calls),
+        ...rules(calls, false),
         "",
         "Passages found in the User's Documents for this sentence:",
         passages,
@@ -176,9 +176,13 @@ export function checkInstructions(
         REPLY,
       ].join("\n");
     case "no-documents":
-      return [...rules(calls), "", "The User has no Documents to check against.", "", REPLY].join(
-        "\n",
-      );
+      return [
+        ...rules(calls, false),
+        "",
+        "The User has no Documents to check against.",
+        "",
+        REPLY,
+      ].join("\n");
   }
 }
 
@@ -365,26 +369,20 @@ const UNITS_LINE = new RegExp(
  * phrase such as "Exit Sign: same hall" never matches (#2578).
  */
 const SIGN_LINE = new RegExp(
-  `^[\\s>*_#\`"'“”-]*sign[\\s*_]*[:：][\\s*_"'“”\`]*(${SIGN_WORDS})[\\s*_"'”\`.,;。，；]*$`,
+  `^[\\s>*_#\`"'“”-]*sign[\\s*_]*[:：][\\s*_"'“”\`]*(${SIGN_WORDS})\\b`,
   "i",
 );
 /**
  * Where a field's label stands after other words on its line. Only the labels the reply form
  * gives: a Chinese label's word followed by a colon is ordinary prose inside an explanation
- * ("这是作者的判断：…"), so it names a field only at a line's start.
+ * ("这是作者的判断：…"), so it names a field only at a line's start. "Units:" and "Sign:" start a
+ * field only after whitespace when one of their four words stands alone as its value.
  */
-const FIELD_START = new RegExp(`(?<=\\S)[ \\t]*(?=${NEXT_FIELD})`, "gm");
-/**
- * Inline "Units:" / "Sign:" qualifiers standing after another qualifier on a non-prose line. Kept
- * separate from prose fields so a quoted label inside Explanation ("Exit Sign: differs") is never
- * split out as a field (#2578).
- */
-const QUALIFIER_START = new RegExp(
-  `(?<=\\s)(?=${UNITS_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${SIGN_BARE})))|(?<=\\s)(?=${SIGN_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${UNITS_BARE})))`,
-  "g",
+const TRAILING = `[\\s*_"'”\`.,;。，；]*(?:\\[\\^\\d{1,4}\\][\\s*_"'”\`.,;。，；]*)*`;
+const FIELD_START = new RegExp(
+  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=${UNITS_BARE}${TRAILING}(?:$|[ \\t]+(?=${NEXT_FIELD}|${SIGN_BARE})))|(?<=\\s)(?=${SIGN_BARE}${TRAILING}(?:$|[ \\t]+(?=${NEXT_FIELD}|${UNITS_BARE})))`,
+  "gm",
 );
-const PROSE_FIELD =
-  /^[\s>*_#`"'“”-]*(?:details|explanation|evidence|working|change\s*1?|to\s*1?|说明|解释|依据|推算|算式)[\s*_]*[:：]/i;
 
 type Finer = NonNullable<UnsupportedReason["word"]>;
 
@@ -444,9 +442,6 @@ export function readVerdict(reply: string): ReadVerdict | null {
     // written after a turn's own words follows them with no break.
     .replace(FIELD_START, "\n")
     .split("\n")
-    .flatMap((line) =>
-      PROSE_FIELD.test(line) ? [line] : line.replace(QUALIFIER_START, "\n").split("\n"),
-    )
     .map((line) => line.trim())
     .filter((line) => line !== "");
   const field = (of: RegExp) => of.exec(lines.findLast((line) => of.test(line)) ?? "")?.[1];
@@ -534,7 +529,8 @@ export const CITE_REPLY: CiteReply = {
     sign: {
       type: "string",
       enum: [...STATED_SIGNS],
-      description: `What your reply's Sign line would say: ${SIGN_RULE}`,
+      description:
+        "What your reply's Sign line would say: none only if no Passage writes an amount in brackets/parentheses; same; differs if one is negative and the other positive; unclear if context leaves sign open.",
     },
     ...Object.fromEntries(
       Object.entries(CARRIED_LINES).map(([field, label]) => [

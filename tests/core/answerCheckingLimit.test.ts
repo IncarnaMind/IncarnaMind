@@ -357,27 +357,27 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
   test("on a model whose rooms for thinking would pass the Answer's $0.25, its batches share what the limit leaves in equal parts (#2962)", async () => {
     // Claude Fable 5 at $10 in and $50 out a million tokens: 7,400 tokens out is $0.37 alone. Beside
-    // both records' rooms, the $0.25 leaves 552 tokens: 276 each.
+    // both records' rooms, the $0.25 leaves 588 tokens: 294 each.
     const { answer, batches } = await answered(9, { modelId: "claude-fable-5" });
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_676],
-        [1, 576],
+        [8, 2_694],
+        [1, 594],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
   });
 
   test("a model whose own most is under the room, as GPT-4 Turbo's 4,096 tokens, is held to it, never to less than its records' room", async () => {
-    // At $10 in and $30 out, both batches at 4,096 would pass $0.25: the batch of eight takes its
-    // part up to its own 4,096, and the batch of one the rest.
+    // At $10 in and $30 out, both batches at 4,096 would pass $0.25: each takes its part of what
+    // the limit leaves beyond its records' room, under 4,096.
     const { answer, batches } = await answered(9, { kind: "openai", modelId: "gpt-4-turbo" });
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 4_051],
-        [1, 1_952],
+        [8, 4_075],
+        [1, 1_976],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -506,8 +506,8 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 6_426],
-        [1, 4_326],
+        [8, 6_444],
+        [1, 4_344],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -519,13 +519,13 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
       model: "Claude Sonnet 5.5",
       modelId: "claude-sonnet-5-5",
       count: 48,
-      rooms: [3_171, 3_170, 3_170, 3_170, 3_170, 3_170],
+      rooms: [3_188, 3_188, 3_188, 3_188, 3_188, 3_187],
     },
     {
       model: "Claude Opus 5.5",
       modelId: "claude-opus-5-5",
       count: 24,
-      rooms: [3_225, 3_224, 3_224],
+      rooms: [3_242, 3_242, 3_242],
     },
   ])(
     "$count sentences on $model: every batch is out before the first settles, as on main, each with an equal part",
@@ -620,7 +620,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
       .filter((each) => each.currency === "USD")
       .reduce((total, each) => total + each.amount, 0);
     // $0.025 left: 5,300 tokens out on Sonnet ($10 a million) is $0.053, 300 is $0.003. The cap counts
-    // a batch out twice, so half of what it leaves, less the records' room, is 128 tokens more.
+    // a batch out twice, so half of what it leaves, less the records' room, is 145 tokens more.
     await core.updateSettings({
       user: { monthlyCap: { amount: spent + 0.025, currency: "USD" } },
     });
@@ -629,7 +629,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
     const again = await answerJudged(core, answer.conversationId, answer.id);
 
-    expect(roomsOf(batches)).toEqual([428]);
+    expect(roomsOf(batches)).toEqual([445]);
     expect(checksOf(again.citations)).toEqual(["found"]);
   });
 });
@@ -682,7 +682,7 @@ describe("a batch a limit kept below its room for thinking, cut short there (#29
     [...citations].sort((a, b) => a.marker - b.marker).map((citation) => citation.checkReason);
 
   test("the Answer's limit held it: Not checked, naming that limit, never ✓ or asked again, and the next batch still goes", async () => {
-    // Claude Fable 5: the batch of eight has 2,676 tokens, under the 3,500 its model writes.
+    // Claude Fable 5: the batch of eight has 2,694 tokens, under the 3,500 its model writes.
     const { answer, batches } = await answered(9, {
       modelId: "claude-fable-5",
       writes: (sentences) => (sentences === 8 ? 3_500 : 200),
@@ -690,8 +690,8 @@ describe("a batch a limit kept below its room for thinking, cut short there (#29
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_676],
-        [1, 576],
+        [8, 2_694],
+        [1, 594],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual([...Array(8).fill("not-checked"), "found"]);

@@ -7907,9 +7907,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   (#3088): "¥" as yuan or yen, or a separator the interface language alone reads where the other
  *   reading would agree with the source; its detail is the figure and its readings, as
  *   `src/shared/twoReadings.ts` writes them.
- * - "sign-word": an amount that a word for a loss or a deduction in another sentence nearby may
- *   give a minus, which the text doesn't settle (#3228); its detail is the amount and the word, as
- *   `src/shared/signWord.ts` writes them. A reading the model gives doesn't settle it.
+ * - "sign-word": legacy reason from marks made before #2578 (#3228), kept so stored marks still
+ *   render with their amount and word (`src/shared/signWord.ts`).
  * - "sign-unclear": the check's model left a bracketed amount's sign unsettled (#2578).
  * - "readings-unsettled": a figure of the sentence reads more ways than one choice names, such as
  *   a sign and a scale both unsettled (#3088); its detail is the figure as the sentence writes it.

@@ -1847,8 +1847,6 @@ describe("a statement line's bracket that repeats its amount (#2576)", () => {
     expect(readFigures(far, EN).map((each) => each.value)).toEqual([3600000, -3600000]);
   });
 
-  // Code confirms only exact structural matches; prose sign words and distance windows no longer
-  // negate a restated amount in brackets (#2578, #3462).
   test.each([
     [
       "The operator bears no liability for consequential loss. The storage fee is forty-eight thousand dollars ($48,000.00).",
