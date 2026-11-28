@@ -130,7 +130,21 @@ import {
   type ReadDeckToolInput,
 } from "./deckEdits";
 import { type AgentHandedFile, createHandedFileTool, type HandedFileToolDeps } from "./handedFiles";
+import {
+  findInlineQuoteTags,
+  type ParsedInlineTag,
+  rewriteInlineQuoteTags,
+  SENTENCE_REF_INNER,
+  SENTENCE_REF_TAG,
+} from "./inlineCitations";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
+import {
+  createPassageCiteRegistry,
+  formatCitedTimedText,
+  formatCitedWindow,
+  type PassageCiteRegistry,
+  sentenceSpansOf,
+} from "./passageCites";
 import {
   HELD_PICTURE,
   holdPictures,
@@ -176,6 +190,8 @@ export interface AgentSearchInput {
   folderIds?: string[];
   /** Which page of results, from 1. */
   page?: number;
+  /** Prefix each complete sentence with a pairing-scoped `[cite:…]` handle for one-call Note writing (#3753). */
+  cited?: boolean;
 }
 
 /**
@@ -214,6 +230,8 @@ export interface AgentReadInput {
   before?: number;
   /** Passages after `passageId` to read too; more than `MAX_AROUND` reads `MAX_AROUND`. */
   after?: number;
+  /** Prefix each complete sentence with a pairing-scoped `[cite:…]` handle for one-call Note writing (#3753). */
+  cited?: boolean;
 }
 
 export interface AgentReadResult {
@@ -268,6 +286,8 @@ export interface AgentCheckedCitation {
   quote: string | null;
   /** The Document changed since it was cited: it was checked against its text now. */
   changed: boolean;
+  /** Plain-words detail when an inline citation wasn't attached, with Passage text when available (#3753). */
+  text?: string;
 }
 
 export interface AgentCheckResult {
@@ -406,7 +426,7 @@ export interface AgentProposed {
 export interface AgentCreateInput {
   /** The Note's name. */
   title: string;
-  /** Its text, as Markdown, cited only with IncarnaMind's tokens. */
+  /** Its text, as Markdown, cited with `[cite:passageId: exact quote]` or IncarnaMind's tokens. */
   markdown: string;
   /**
    * The Folder to make it in, of the pairing's, or `NOT_IN_A_FOLDER_ID` for none; may be left
@@ -660,6 +680,8 @@ export interface AgentAccess {
   readDeck(input: ReadDeckToolInput): Promise<object>;
   /** Proposes targeted changes to named shapes, cells, notes or chart series of a deck (#149 part 2). */
   proposeDeckChanges(input: ProposeDeckChangesInput): Promise<object>;
+  /** Resolves confirmed sentence handles in a completed Note reply into durable Citation tokens (#3753). */
+  persistReplyCitations(reply: string): string;
 }
 
 export { AgentRefusedError } from "./refusals";
@@ -726,6 +748,11 @@ const SUMMARY_CHARS = 300;
 const READY_QUOTE_CHARS = 300;
 /** The longest explanation of a check's result kept: one sentence, which the card shows whole. */
 const EXPLANATION_CHARS = 1_000;
+
+const WORKINGS_NOT_CITED =
+  "That Passage is from the User's own working file, which is read but never cited.";
+/** Token budget for Passage excerpts carried on unconfirmed inline citations (#3753). */
+const INLINE_EXCERPT_BUDGET = Math.floor(READ_PART_TOKENS / 2);
 
 /** The line `next` gives for each reason a change wasn't kept, in this order. */
 const NOT_KEPT_LINES: readonly (readonly [ChangeNotKept, MessageKey])[] = [
@@ -912,6 +939,8 @@ export interface AgentAccessDeps {
    * built on an older version is refused for its true cause, the agent's own change or another's.
    */
   versions: Map<string, string>;
+  /** Pairing-scoped sentence Citation handles shared across connections (#3753). */
+  passageCites?: PassageCiteRegistry;
   /** `CHECK_WAIT_MS`, unless a test waits less. */
   checkWaitMs?: number;
   /** Whether what is written is checked as it lands (Settings › AI), else it waits for the User's Check. */
@@ -1041,19 +1070,9 @@ const READ_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 const clip = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 
-const sentenceSegmenter = new Intl.Segmenter(undefined, { granularity: "sentence" });
-
 /** A text's sentences, each trimmed, line by line: a heading or list item is one of its own. */
-export function sentencesOf(text: string): string[] {
-  const sentences: string[] = [];
-  for (const line of text.split(/\n+/)) {
-    for (const { segment } of sentenceSegmenter.segment(line)) {
-      const sentence = segment.trim();
-      if (sentence !== "") sentences.push(sentence);
-    }
-  }
-  return sentences;
-}
+export const sentencesOf = (text: string): string[] =>
+  sentenceSpansOf(text).map((each) => each.text);
 
 const HAN = /\p{Script=Han}/gu;
 
@@ -1729,6 +1748,7 @@ export function createAgentAccess(
     lentExamples(reach, pairing, { grant }),
   );
   const deps: AgentAccessDeps = { ...reach, lent };
+  const passageCites = deps.passageCites ?? createPassageCiteRegistry();
   const t: Say = (key, params) => deps.say(key, params);
   /**
    * The requests of this run whose changes the window that asked applies once the request ends
@@ -2011,7 +2031,12 @@ export function createAgentAccess(
    * without what it repeats of the one before (Passages overlap), as many as fit in
    * `READ_PART_TOKENS` as the result is sent, and always one.
    */
-  const partOf = (documentId: string, position: number): AgentReadResult => {
+  const partOf = (
+    pairing: AdmittedPairing,
+    documentId: string,
+    position: number,
+    cited: boolean,
+  ): AgentReadResult => {
     const passages: AgentReadResult["passages"] = [];
     let behind = position > 0 ? deps.passagesBetween(documentId, position - 1, position - 1) : [];
     const previous = behind[0]?.passageId ?? null;
@@ -2042,15 +2067,32 @@ export function createAgentAccess(
         withoutOverlap([...behind, ...batch]).map((each) => [each.passageId, each.text]),
       );
       for (const passage of batch) {
-        const text = shown.get(passage.passageId);
-        if (text === undefined) continue;
+        const rawText = shown.get(passage.passageId);
+        if (rawText === undefined) continue;
+        const window = {
+          start: passage.text.length - rawText.length,
+          end: passage.text.length,
+        };
+        const reading = passageReading(passage, window);
+        let textShown = rawText;
+        let timedShown = reading.timedText;
+        if (cited && !deps.notCited(passage.passageId)) {
+          const indexed = passageCites.indexPassage(
+            pairing.id,
+            passage.passageId,
+            passage.contentHash,
+            passage.text,
+          );
+          textShown = formatCitedWindow(passage.text, window.start, window.end, indexed);
+          if (timedShown !== undefined) {
+            timedShown = formatCitedTimedText(timedShown, indexed);
+          }
+        }
         const entry = {
           passageId: passage.passageId,
-          text,
-          ...passageReading(passage, {
-            start: passage.text.length - text.length,
-            end: passage.text.length,
-          }),
+          location: reading.location,
+          ...(timedShown !== undefined && { timedText: timedShown }),
+          text: textShown,
         };
         const cost = estimateTokens(JSON.stringify(entry)) + 1;
         if (passages.length > 0 && size + cost > READ_PART_TOKENS) {
@@ -2072,8 +2114,10 @@ export function createAgentAccess(
 
   /** The first part of a Document the pairing reaches. */
   const readStart = async (
+    pairing: AdmittedPairing,
     reach: ReadonlySet<string>,
     given: unknown,
+    cited: boolean,
   ): Promise<AgentReadResult> => {
     const documentId = text(given, "passageId or documentId", 200);
     if (!reach.has(documentId)) throw new NotReachedError(t("agents.problem.not-found"));
@@ -2082,7 +2126,7 @@ export function createAgentAccess(
       await refresh;
       stillReaching([documentId]);
     }
-    return partOf(documentId, 0);
+    return partOf(pairing, documentId, 0, cited);
   };
 
   /**
@@ -2090,11 +2134,16 @@ export function createAgentAccess(
    * has new Passages, so the one named is no longer live: that is said, to read it again from its
    * start, rather than read on in another version of it.
    */
-  const readOn = (reach: ReadonlySet<string>, given: unknown): AgentReadResult => {
+  const readOn = (
+    pairing: AdmittedPairing,
+    reach: ReadonlySet<string>,
+    given: unknown,
+    cited: boolean,
+  ): AgentReadResult => {
     const from = text(given, "from", 200);
     const passage = deps.passage(from);
     if (passage && reach.has(passage.documentId))
-      return partOf(passage.documentId, passage.position);
+      return partOf(pairing, passage.documentId, passage.position, cited);
     const earlier = passage ? null : deps.citationSource(from);
     if (earlier && !earlier.documentDeleted && reach.has(earlier.documentId)) {
       throw new AgentRefusedError(
@@ -2143,23 +2192,43 @@ export function createAgentAccess(
    * A Passage as a search result: its text around the sentence that best matches the search, and
    * that sentence's Location when the check finds it there. No Citation: `cite` makes each one.
    */
-  const asResult = (passage: WindowedPassage, terms: readonly string[]): AgentPassage => {
+  const asResult = (
+    pairing: AdmittedPairing,
+    passage: WindowedPassage,
+    terms: readonly string[],
+    cited: boolean,
+  ): AgentPassage => {
     const sentence = bestSentence(passage.text, terms);
     const citation =
       sentence && !deps.notCited(passage.passageId)
         ? deps.citing.citeQuote(passage.passageId, sentence)
         : null;
     const found = citation?.check === "found" ? citation : null;
-    const reading = passageReading(passage, excerptWindow(passage.text, found?.quote ?? null));
+    const window = excerptWindow(passage.text, found?.quote ?? null);
+    const reading = passageReading(passage, window);
+    let textShown = excerpt(passage.text, found?.quote ?? null);
+    let timedShown = reading.timedText;
+    if (cited && !deps.notCited(passage.passageId)) {
+      const indexed = passageCites.indexPassage(
+        pairing.id,
+        passage.passageId,
+        passage.contentHash,
+        passage.text,
+      );
+      textShown = formatCitedWindow(passage.text, window.start, window.end, indexed, true);
+      if (timedShown !== undefined) {
+        timedShown = formatCitedTimedText(timedShown, indexed);
+      }
+    }
     return {
       passageId: passage.passageId,
       documentId: passage.documentId,
       document: passage.documentName,
-      ...reading,
+      ...(timedShown !== undefined && { timedText: timedShown }),
       location: found
         ? label(found.location, found.pageFrom, found.pageTo, passage.documentId, found.quote)
         : reading.location,
-      text: excerpt(passage.text, found?.quote ?? null),
+      text: textShown,
     };
   };
 
@@ -2276,6 +2345,371 @@ export function createAgentAccess(
       }
     }
     return tokens;
+  };
+
+  const inlineTagKey = (tag: ParsedInlineTag) => {
+    if (tag.kind === "sentence") return `sentence\u0000${tag.handle}\u0000${tag.index}`;
+    if (tag.kind === "sentence-list" || tag.kind === "malformed") {
+      return `${tag.kind}\u0000${tag.raw}`;
+    }
+    return `${tag.kind}\u0000${tag.ref}\u0000${tag.quote}`;
+  };
+
+  interface ResolvedInlineFiles {
+    foundTags: ParsedInlineTag[];
+    byKey: Map<string, string | null>;
+    failedReports: AgentCheckedCitation[];
+    mintedFiles: { key: string; token: string; raw: string; document: string; quote: string }[];
+    read: string[];
+  }
+
+  /**
+   * Resolves any async file-path inline citations (`[cite:path: exact quote]`) before the final
+   * synchronous admission check, so nothing awaits between re-admission and writing the Note (#3753).
+   */
+  const resolveInlineFileCitations = async (
+    texts: readonly string[],
+  ): Promise<ResolvedInlineFiles> => {
+    const foundTags = findInlineQuoteTags(texts);
+    const byKey = new Map<string, string | null>();
+    const failedReports: AgentCheckedCitation[] = [];
+    const mintedFiles: ResolvedInlineFiles["mintedFiles"] = [];
+    const read: string[] = [];
+    if (!foundTags.some((each) => each.kind === "file")) {
+      return { foundTags, byKey, failedReports, mintedFiles, read };
+    }
+    if (grant) {
+      throw new AgentRefusedError(
+        "invalid",
+        t(grant.kind === "check" ? "agents.problem.checkRunPath" : "agents.problem.runNoPath"),
+      );
+    }
+    const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
+    let fileChecked = 0;
+    for (const tag of foundTags) {
+      if (tag.kind !== "file") continue;
+      const key = inlineTagKey(tag);
+      if (byKey.has(key)) continue;
+      if (tag.ref === "" || tag.quote === "" || tag.quote.length > MAX_QUOTE_CHARS) {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: tag.quote || null,
+          changed: false,
+          text: t("agents.propose.citationNotFoundShort"),
+        });
+        continue;
+      }
+      if (fileChecked >= MAX_CITES) {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: tag.quote,
+          changed: false,
+          text: t("agents.propose.citationTooManyFiles", { max: MAX_CITES }),
+        });
+        continue;
+      }
+      fileChecked += 1;
+      const before = deps.admit(pairingId);
+      if (!before.propose) {
+        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+      }
+      const filed = await deps.citeFile(
+        text(tag.ref, "path", MAX_PATH_CHARS),
+        tag.quote,
+        before.name,
+        (documentId) => reachNow().has(documentId),
+      );
+      const after = deps.admit(pairingId);
+      read.push(filed.documentId);
+      const found = filed.citation;
+      if (found && deps.notCited(found.passageId)) {
+        throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
+      }
+      if (found) {
+        const minted = mint(after, found);
+        byKey.set(key, citeTag(minted.token));
+        mintedFiles.push({
+          key,
+          token: minted.token,
+          raw: tag.raw,
+          document: filed.name,
+          quote: tag.quote,
+        });
+      } else {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: filed.name,
+          location: null,
+          quote: tag.quote,
+          changed: false,
+          text: t("agents.propose.citationNotFoundFile"),
+        });
+      }
+    }
+    return { foundTags, byKey, failedReports, mintedFiles, read };
+  };
+
+  /**
+   * Synchronously confirms sentence handles (`[cite:<handle>.<n>]`, lists, ranges), inline Passage
+   * quotes (`[cite:passageId: exact quote]`), and previously awaited file-path tokens against live
+   * post-admission state, stripping malformed or unconfirmed tags cleanly (#3753).
+   */
+  const resolveInlineCitations = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    texts: readonly string[],
+    files: ResolvedInlineFiles,
+  ): {
+    texts: string[];
+    extraReports: AgentCheckedCitation[];
+    read: string[];
+  } => {
+    const { foundTags, byKey, failedReports, mintedFiles, read } = files;
+    if (foundTags.length === 0) {
+      return { texts: [...texts], extraReports: [], read: [] };
+    }
+    let cachedNotShared: string | null | undefined;
+    const extraNotShared = () => {
+      if (cachedNotShared === undefined) cachedNotShared = notShared();
+      return cachedNotShared;
+    };
+    let excerptTokens = 0;
+
+    // Re-verify any file tokens minted before the final await so no stale `found` attributes persist.
+    for (const item of mintedFiles) {
+      const kept = deps.citations.find(pairing.id, item.token);
+      if (!kept || !usable(inScope, kept.documentId) || recheckKept(kept).check !== "found") {
+        byKey.set(item.key, null);
+        failedReports.push({
+          cite: clip(item.raw, 120),
+          check: "not-found",
+          document: item.document,
+          location: null,
+          quote: item.quote,
+          changed: false,
+          text: t("agents.propose.citationNotFoundFile"),
+        });
+      }
+    }
+
+    const recordPassageCitation = (
+      raw: string,
+      passage: WindowedPassage,
+      citation: Citation,
+    ): string | null => {
+      read.push(passage.documentId);
+      const check =
+        citation.check === "found" || citation.check === "cant-check"
+          ? citation.check
+          : "not-found";
+      if (check === "found") {
+        return citeTag(mint(pairing, citation).token);
+      }
+      const where = label(
+        citation.location,
+        citation.pageFrom,
+        citation.pageTo,
+        passage.documentId,
+        citation.quote,
+      );
+      const passageText = excerpt(passage.text, null);
+      const cost = estimateTokens(passageText);
+      const includeExcerpt = excerptTokens + cost <= INLINE_EXCERPT_BUDGET;
+      if (includeExcerpt) excerptTokens += cost;
+      const detail =
+        check === "cant-check"
+          ? includeExcerpt
+            ? `${t("agents.propose.citationCantCheck")}\n${passageText}`
+            : t("agents.propose.citationCantCheckShort")
+          : includeExcerpt
+            ? `${t("agents.propose.citationNotFound")}\n${passageText}`
+            : t("agents.propose.citationNotFoundShort");
+      failedReports.push({
+        cite: clip(raw, 120),
+        check,
+        document: citation.documentName,
+        location: where,
+        quote: citation.quote,
+        changed: false,
+        text: detail,
+      });
+      return null;
+    };
+
+    const resolveSentenceRef = (handle: string, index: number, raw: string): string | null => {
+      const singleKey = `sentence\u0000${handle}\u0000${index}`;
+      if (byKey.has(singleKey)) return byKey.get(singleKey) ?? null;
+      const looked = passageCites.lookup(pairing.id, handle, index);
+      if (!looked) {
+        byKey.set(singleKey, null);
+        failedReports.push({
+          cite: clip(raw, 120),
+          check: "unknown",
+          document: null,
+          location: null,
+          quote: null,
+          changed: false,
+          text: t("agents.propose.citationUnknownHandle"),
+        });
+        return null;
+      }
+      const passage = findPassageInScope(pairing, inScope, looked.passageId);
+      if (passage && deps.notCited(passage.passageId)) {
+        throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
+      }
+      if (!passage) {
+        byKey.set(singleKey, null);
+        const extra = extraNotShared();
+        failedReports.push({
+          cite: clip(raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: null,
+          changed: false,
+          text: [t("agents.propose.citationHandleOutOfReach"), ...(extra ? [extra] : [])].join(" "),
+        });
+        return null;
+      }
+      const citation = deps.citing.citeQuote(passage.passageId, looked.quote);
+      if (!citation) {
+        byKey.set(singleKey, null);
+        const extra = extraNotShared();
+        failedReports.push({
+          cite: clip(raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: null,
+          changed: false,
+          text: [t("agents.propose.citationHandleOutOfReach"), ...(extra ? [extra] : [])].join(" "),
+        });
+        return null;
+      }
+      const replacement = recordPassageCitation(raw, passage, citation);
+      byKey.set(singleKey, replacement);
+      return replacement;
+    };
+
+    for (const tag of foundTags) {
+      if (tag.kind === "file") continue;
+      const key = inlineTagKey(tag);
+      if (byKey.has(key)) continue;
+      if (tag.kind === "malformed") {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "unknown",
+          document: null,
+          location: null,
+          quote: null,
+          changed: false,
+          text: t("agents.propose.citationMalformed"),
+        });
+        continue;
+      }
+      if (tag.kind === "sentence") {
+        resolveSentenceRef(tag.handle, tag.index, tag.raw);
+        continue;
+      }
+      if (tag.kind === "sentence-list") {
+        const minted: string[] = [];
+        const seenTokens = new Set<string>();
+        for (const ref of tag.refs) {
+          const token = resolveSentenceRef(
+            ref.handle,
+            ref.index,
+            `[cite:${ref.handle}.${ref.index}]`,
+          );
+          if (token && !seenTokens.has(token)) {
+            seenTokens.add(token);
+            minted.push(token);
+          }
+        }
+        byKey.set(key, minted.length > 0 ? minted.join(" ") : null);
+        continue;
+      }
+      if (tag.ref === "" || tag.quote === "" || tag.quote.length > MAX_QUOTE_CHARS) {
+        byKey.set(key, null);
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: tag.quote || null,
+          changed: false,
+          text: t("agents.propose.citationNotFoundShort"),
+        });
+        continue;
+      }
+      const passage = findPassageInScope(pairing, inScope, tag.ref);
+      if (passage && deps.notCited(passage.passageId)) {
+        throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
+      }
+      const citation = passage ? deps.citing.citeQuote(passage.passageId, tag.quote) : null;
+      if (!passage || !citation) {
+        byKey.set(key, null);
+        const extra = extraNotShared();
+        failedReports.push({
+          cite: clip(tag.raw, 120),
+          check: "not-found",
+          document: null,
+          location: null,
+          quote: tag.quote,
+          changed: false,
+          text: [
+            t("agents.propose.citationUnknownPassage", { passageId: clip(tag.ref, 200) }),
+            ...(extra ? [extra] : []),
+          ].join(" "),
+        });
+        continue;
+      }
+      byKey.set(key, recordPassageCitation(tag.raw, passage, citation));
+    }
+    return {
+      texts: rewriteInlineQuoteTags(texts, (tag) => byKey.get(inlineTagKey(tag)) ?? null),
+      extraReports: failedReports,
+      read,
+    };
+  };
+
+  /**
+   * Resolves a pairing-scoped sentence handle (`handle.index`) against live reach and `citeQuote`,
+   * shared by `propose_deck_changes`, `check_citations`, `show_citation`, `report_check`, and
+   * conversation reply citations (#3753).
+   */
+  const resolveLiveSentenceHandle = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    handle: string,
+    index: number,
+  ): {
+    status: "found" | "cant-check" | "not-found" | "out-of-scope" | "unknown";
+    passage: WindowedPassage | null;
+    citation: Citation | null;
+    changed: boolean;
+  } => {
+    const looked = passageCites.lookup(pairing.id, handle, index);
+    if (!looked) return { status: "unknown", passage: null, citation: null, changed: false };
+    const passage = findPassageInScope(pairing, inScope, looked.passageId);
+    if (!passage || deps.notCited(passage.passageId)) {
+      return { status: "out-of-scope", passage: null, citation: null, changed: false };
+    }
+    const citation = deps.citing.citeQuote(passage.passageId, looked.quote);
+    if (!citation) return { status: "out-of-scope", passage: null, citation: null, changed: false };
+    const status =
+      citation.check === "found" || citation.check === "cant-check" ? citation.check : "not-found";
+    return { status, passage, citation, changed: passage.contentHash !== looked.contentHash };
   };
 
   /** A new Note's name as `create_mind` takes it: text, short enough, none of the call's markup. */
@@ -2653,16 +3087,26 @@ export function createAgentAccess(
     draftText,
     draftBlocks: async (title, written) => {
       const visuals = await visualsFor([written]);
-      // What the User grants may have changed while the pictures were read.
-      const pairing = deps.admit(pairingId);
-      const tokens = tokensIn(pairing, new Set(scopeOf(pairing, undefined)), [written]);
-      const made = draftBlocks(written, tokens, visuals);
+      const inlineFiles = await resolveInlineFileCitations([written]);
+      // What the User grants may have changed while the pictures and cited files were read.
+      const pairing =
+        inlineFiles.read.length > 0
+          ? stillReaching(inlineFiles.read.filter((documentId) => !deps.citedOutside(documentId)))
+          : deps.admit(pairingId);
+      const inScope = new Set(scopeOf(pairing, undefined));
+      const inline = resolveInlineCitations(pairing, inScope, [written], inlineFiles);
+      const resolved = inline.texts[0] ?? "";
+      const tokens = tokensIn(pairing, inScope, [resolved]);
+      const made = draftBlocks(resolved, tokens, visuals);
       const cited = [...tokens.values()];
       return {
         nodes: underItsTitle(title, made.nodes).nodes,
-        citations: cited.map((each) => each.report),
+        citations: [...cited.map((each) => each.report), ...inline.extraReports],
         refused: leftOut(made.refused),
-        documentIds: cited.flatMap((each) => (each.cited ? [each.cited.minted.documentId] : [])),
+        documentIds: [
+          ...cited.flatMap((each) => (each.cited ? [each.cited.minted.documentId] : [])),
+          ...inline.read,
+        ],
       };
     },
     wordFile: (source, at, reaches) => deps.wordFile(source, at, reaches),
@@ -2714,6 +3158,18 @@ export function createAgentAccess(
     },
     resolveCitation: (pairing, token) => {
       const inScope = new Set(scopeOf(pairing, undefined));
+      const sentence = SENTENCE_REF_INNER.exec(token);
+      if (sentence?.[1] && sentence[2]) {
+        const resolved = resolveLiveSentenceHandle(
+          pairing,
+          inScope,
+          sentence[1],
+          Number(sentence[2]),
+        );
+        return resolved.status === "found" && resolved.citation
+          ? mint(pairing, resolved.citation)
+          : null;
+      }
       const kept = deps.citations.find(pairing.id, token);
       if (!kept || !usable(inScope, kept.documentId)) return null;
       return kept;
@@ -3012,7 +3468,8 @@ export function createAgentAccess(
         );
         const shown = ranked.slice(SEARCH_PAGE_SIZE * (page - 1), SEARCH_PAGE_SIZE * page);
         const terms = keywordTerms(words);
-        const passages = shown.map((passage) => asResult(passage, terms));
+        const cited = input?.cited === true;
+        const passages = shown.map((passage) => asResult(granted, passage, terms, cited));
         // Told with every page: only the agent can tell whether its Passages answer the User.
         const line = holdsMore(deps, granted) ? t("agents.notShared") : null;
         return {
@@ -3031,11 +3488,12 @@ export function createAgentAccess(
     readPassages(input) {
       return call("read_passages", "", [READ_DOCUMENTS], async (pairing) => {
         const reach = new Set(scopeOf(pairing, undefined));
+        const cited = input?.cited === true;
         if (input?.passageId === undefined) {
           const result =
             input?.from !== undefined
-              ? readOn(reach, input.from)
-              : await readStart(reach, input?.documentId);
+              ? readOn(pairing, reach, input.from, cited)
+              : await readStart(pairing, reach, input?.documentId, cited);
           // The Document it read, by its name: what the Note's line says it is reading (#3677).
           return {
             result,
@@ -3064,11 +3522,29 @@ export function createAgentAccess(
           result: {
             documentId,
             document: first.documentName,
-            passages: inRange.map((passage) => ({
-              passageId: passage.passageId,
-              text: passage.text,
-              ...passageReading(passage),
-            })),
+            passages: inRange.map((each) => {
+              const reading = passageReading(each);
+              let textShown = each.text;
+              let timedShown = reading.timedText;
+              if (cited && !deps.notCited(each.passageId)) {
+                const indexed = passageCites.indexPassage(
+                  pairing.id,
+                  each.passageId,
+                  each.contentHash,
+                  each.text,
+                );
+                textShown = formatCitedWindow(each.text, 0, each.text.length, indexed);
+                if (timedShown !== undefined) {
+                  timedShown = formatCitedTimedText(timedShown, indexed);
+                }
+              }
+              return {
+                passageId: each.passageId,
+                location: reading.location,
+                ...(timedShown !== undefined && { timedText: timedShown }),
+                text: textShown,
+              };
+            }),
             previous,
             next,
           },
@@ -3152,10 +3628,7 @@ export function createAgentAccess(
             read.push(filed.documentId);
             const found = filed.citation;
             if (found && deps.notCited(found.passageId)) {
-              throw new AgentRefusedError(
-                "invalid",
-                "That Passage is from the User's own working file, which is read but never cited.",
-              );
+              throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
             }
             const minted = found ? mint(pairing, found) : null;
             const answer: AgentCited = {
@@ -3180,10 +3653,7 @@ export function createAgentAccess(
           const quote = text(record.quote, "quote", MAX_QUOTE_CHARS);
           const passage = findPassageInScope(pairing, inScope, id);
           if (passage && deps.notCited(passage.passageId)) {
-            throw new AgentRefusedError(
-              "invalid",
-              "That Passage is from the User's own working file, which is read but never cited.",
-            );
+            throw new AgentRefusedError("invalid", WORKINGS_NOT_CITED);
           }
           const citation = passage ? deps.citing.citeQuote(passage.passageId, quote) : null;
           // Each quote is answered on its own so one unknown passageId never loses the rest (#3597).
@@ -3254,9 +3724,84 @@ export function createAgentAccess(
         return now;
       };
       return tokens.map((token) => {
+        const sentence = SENTENCE_REF_INNER.exec(token);
+        if (sentence?.[1] && sentence[2]) {
+          const resolved = resolveLiveSentenceHandle(
+            pairing,
+            inScope,
+            sentence[1],
+            Number(sentence[2]),
+          );
+          if (resolved.status === "found" && resolved.citation && resolved.passage) {
+            return {
+              report: {
+                cite: citeTag(token),
+                check: "found" as const,
+                document: resolved.citation.documentName,
+                location: label(
+                  resolved.citation.location,
+                  resolved.citation.pageFrom,
+                  resolved.citation.pageTo,
+                  resolved.passage.documentId,
+                  resolved.citation.quote,
+                ),
+                quote: resolved.citation.quote,
+                changed: resolved.changed,
+              },
+              citation: resolved.citation,
+            };
+          }
+          return {
+            report: {
+              cite: citeTag(token),
+              check: "unknown" as const,
+              document: null,
+              location: null,
+              quote: null,
+              changed: false,
+            },
+            citation: null,
+          };
+        }
         const { report, found } = checkToken(pairing, inScope, live, token, recheck);
         return { report, citation: found };
       });
+    },
+
+    /**
+     * Resolves any confirmed sentence handles in a completed Note conversation reply into durable
+     * SQLite-backed Citation tokens before the reply is persisted (#3753).
+     */
+    persistReplyCitations(reply: string): string {
+      if (!reply.includes("[cite:")) return reply;
+      const pairing = deps.reachOf(pairingId);
+      const inScope = new Set(scopeOf(pairing, undefined));
+      return (
+        rewriteInlineQuoteTags([reply], (tag) => {
+          if (tag.kind === "sentence") {
+            const resolved = resolveLiveSentenceHandle(pairing, inScope, tag.handle, tag.index);
+            return resolved.status === "found" && resolved.citation
+              ? citeTag(mint(pairing, resolved.citation).token)
+              : tag.raw;
+          }
+          if (tag.kind === "sentence-list") {
+            const minted: string[] = [];
+            const seenTokens = new Set<string>();
+            for (const ref of tag.refs) {
+              const resolved = resolveLiveSentenceHandle(pairing, inScope, ref.handle, ref.index);
+              if (resolved.status === "found" && resolved.citation) {
+                const tok = citeTag(mint(pairing, resolved.citation).token);
+                if (!seenTokens.has(tok)) {
+                  seenTokens.add(tok);
+                  minted.push(tok);
+                }
+              }
+            }
+            return minted.length > 0 ? minted.join(" ") : tag.raw;
+          }
+          return tag.raw;
+        })[0] ?? reply
+      );
     },
 
     documentNamed({ documentId, passageId }) {
@@ -3316,7 +3861,74 @@ export function createAgentAccess(
             changed: now.contentHash !== null && now.contentHash !== kept.contentHash,
           });
         }
-        const uncited = uncitedIn([draft], () => true);
+        const confirmedHandles = new Set<string>();
+        const checkOneHandle = (handle: string, index: number, raw: string): boolean => {
+          if (seen.has(raw)) return confirmedHandles.has(raw);
+          seen.add(raw);
+          const resolved = resolveLiveSentenceHandle(pairing, inScope, handle, index);
+          if (resolved.status === "unknown") {
+            citations.push({
+              cite: raw,
+              check: "unknown",
+              document: null,
+              location: null,
+              quote: null,
+              changed: false,
+            });
+            return false;
+          }
+          if (resolved.status === "out-of-scope" || !resolved.citation || !resolved.passage) {
+            citations.push({
+              cite: raw,
+              check: "not-found",
+              document: null,
+              location: null,
+              quote: null,
+              changed: false,
+            });
+            return false;
+          }
+          if (resolved.status === "found") confirmedHandles.add(raw);
+          citations.push({
+            cite: raw,
+            check: resolved.status,
+            document: resolved.citation.documentName,
+            location: label(
+              resolved.citation.location,
+              resolved.citation.pageFrom,
+              resolved.citation.pageTo,
+              resolved.passage.documentId,
+              resolved.citation.quote,
+            ),
+            quote: resolved.citation.quote,
+            changed: resolved.changed,
+          });
+          return resolved.status === "found";
+        };
+        const inlineTags = findInlineQuoteTags([draft]);
+        for (const tag of inlineTags) {
+          if (tag.kind === "sentence") {
+            checkOneHandle(tag.handle, tag.index, tag.raw);
+          } else if (tag.kind === "sentence-list") {
+            for (const ref of tag.refs) {
+              checkOneHandle(ref.handle, ref.index, `[cite:${ref.handle}.${ref.index}]`);
+            }
+          }
+        }
+        const draftForUncited =
+          rewriteInlineQuoteTags([draft], (tag) => {
+            if (tag.kind === "sentence") {
+              return confirmedHandles.has(tag.raw) ? "[cite:00000000]" : "[cite:00000001]";
+            }
+            if (tag.kind === "sentence-list") {
+              const anyFound = tag.refs.some((ref) =>
+                confirmedHandles.has(`[cite:${ref.handle}.${ref.index}]`),
+              );
+              return anyFound ? "[cite:00000000]" : "[cite:00000001]";
+            }
+            return tag.raw;
+          })[0] ?? draft;
+        const uncited = uncitedIn([draftForUncited], (token) => token !== "00000001");
         return {
           result: { citations, uncited },
           count: citations.length,
@@ -3331,6 +3943,48 @@ export function createAgentAccess(
       const given = typeof input?.cite === "string" ? input.cite : "";
       return call("show_citation", given, [READ_DOCUMENTS], (pairing) => {
         const tag = text(input?.cite, "cite", 100);
+        const sentence = SENTENCE_REF_TAG.exec(tag) ?? SENTENCE_REF_INNER.exec(tag);
+        if (sentence?.[1] && sentence[2]) {
+          const inScope = new Set(scopeOf(pairing, undefined));
+          const resolved = resolveLiveSentenceHandle(
+            pairing,
+            inScope,
+            sentence[1],
+            Number(sentence[2]),
+          );
+          if (resolved.status !== "found" || !resolved.citation || !resolved.passage) {
+            throw new NotReachedError(t("agents.problem.not-found"));
+          }
+          const location = resolved.citation.location;
+          const where = label(
+            location,
+            resolved.citation.pageFrom,
+            resolved.citation.pageTo,
+            resolved.passage.documentId,
+            resolved.citation.quote,
+          );
+          deps.show({
+            documentId: resolved.passage.documentId,
+            ...(resolved.citation.pageFrom !== null && { pageFrom: resolved.citation.pageFrom }),
+            ...(resolved.citation.pageTo !== null && { pageTo: resolved.citation.pageTo }),
+            quote: resolved.citation.quote,
+            citation: {
+              check: "found",
+              ...(where && { label: where }),
+              contentHash: resolved.passage.contentHash,
+              ...(location && { location }),
+            },
+          });
+          return {
+            result: {
+              shown: true as const,
+              document: resolved.citation.documentName,
+              location: where,
+            },
+            count: 1,
+            documentIds: [resolved.passage.documentId],
+          };
+        }
         const token = [...tag.matchAll(CITATION_TOKEN)][0]?.[1] ?? tag;
         const kept = deps.citations.find(pairing.id, token);
         if (!kept || !usable(new Set(scopeOf(pairing, undefined)), kept.documentId)) {
@@ -3694,20 +4348,33 @@ export function createAgentAccess(
           grant?.kind === "conversation" && grant.front.mindId === mind.id
             ? { ...grant.front }
             : null;
-        const visuals = await visualsFor(
-          asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
-        );
-        // What the User grants may have changed while the pictures were read.
-        const pairing = deps.admit(pairingId);
+        const rawTexts = asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text]));
+        const visuals = await visualsFor(rawTexts);
+        const inlineFiles = await resolveInlineFileCitations(rawTexts);
+        // What the User grants may have changed while the pictures and cited files were read.
+        const pairing =
+          inlineFiles.read.length > 0
+            ? stillReaching(inlineFiles.read.filter((documentId) => !deps.citedOutside(documentId)))
+            : deps.admit(pairingId);
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         mindInScope(pairing, mind.id);
         const inScope = new Set(scopeOf(pairing, undefined));
+        const inline = resolveInlineCitations(pairing, inScope, rawTexts, inlineFiles);
+        let textAt = 0;
+        const resolvedAsked: AskedChange[] = asked.map((change) => {
+          if (change.kind === "remove") return change;
+          const nextText = (inline.texts[textAt++] ?? "").trim();
+          if (nextText === "") {
+            throw new AgentRefusedError("invalid", t("agents.propose.text", { name: change.name }));
+          }
+          return { ...change, text: nextText };
+        });
         const tokens = tokensIn(
           pairing,
           inScope,
-          asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
+          resolvedAsked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
         );
         // A copy of a Note the agent wrote is the User's: its changes wait there (#3371).
         const own = wrote(pairing, mind.id);
@@ -3732,7 +4399,7 @@ export function createAgentAccess(
           if (note.paragraphs.length === 0 && waitingChanges(blocks, forUser) > 0) {
             throw new AgentRefusedError("waiting", t("agents.propose.firstWaiting"));
           }
-          const placed = placeChanges(asked, note, t);
+          const placed = placeChanges(resolvedAsked, note, t);
           askedHere =
             front !== null &&
             (front.selection === null || insideSelection(placed, note, front.selection));
@@ -3830,7 +4497,10 @@ export function createAgentAccess(
             step,
           });
         }
-        const citations = [...tokens.values()].map((each) => each.report);
+        const citations = [
+          ...[...tokens.values()].map((each) => each.report),
+          ...inline.extraReports,
+        ];
         const { markdown, nextOffset } = page(mind, written.now.text, 0);
         const left = own
           ? deps.checkTask(mind.id, inScope, false, libraryVersionOf(pairing, mind.id))
@@ -3854,9 +4524,12 @@ export function createAgentAccess(
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
           count: own || askedHere ? null : written.waiting,
-          documentIds: [...tokens.values()].flatMap((each) =>
-            each.cited ? [each.cited.minted.documentId] : [],
-          ),
+          documentIds: [
+            ...[...tokens.values()].flatMap((each) =>
+              each.cited ? [each.cited.minted.documentId] : [],
+            ),
+            ...inline.read,
+          ],
         };
       });
     },
@@ -3869,16 +4542,20 @@ export function createAgentAccess(
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         const title = draftTitle(input?.title);
-        const written = draftText(input?.markdown);
+        const writtenInput = draftText(input?.markdown);
         placeToWriteIn(admitted, input?.folderId);
-        const visuals = await visualsFor([written]);
-        // What the User grants may have changed while the pictures were read.
-        const pairing = deps.admit(pairingId);
+        const visuals = await visualsFor([writtenInput]);
+        const inlineFiles = await resolveInlineFileCitations([writtenInput]);
+        // What the User grants may have changed while the pictures and cited files were read.
+        const pairing =
+          inlineFiles.read.length > 0
+            ? stillReaching(inlineFiles.read.filter((documentId) => !deps.citedOutside(documentId)))
+            : deps.admit(pairingId);
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         const folder = placeToWriteIn(pairing, input?.folderId);
-        // Counted once the pictures are read: from here the Note is written without a wait.
+        // Counted once the pictures and cited files are read: from here the Note is written without a wait.
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
           throw new AgentRefusedError(
@@ -3887,6 +4564,11 @@ export function createAgentAccess(
           );
         }
         const inScope = new Set(scopeOf(pairing, undefined));
+        const inline = resolveInlineCitations(pairing, inScope, [writtenInput], inlineFiles);
+        const written = (inline.texts[0] ?? "").trim();
+        if (written === "") {
+          throw new AgentRefusedError("invalid", t("agents.create.emptyText"));
+        }
         const tokens = tokensIn(pairing, inScope, [written]);
         const made = draftBlocks(written, tokens, visuals);
         const placed = underItsTitle(title, made.nodes);
@@ -3924,7 +4606,7 @@ export function createAgentAccess(
             mindId: mind.id,
             title: (listed && mindName(listed)) || title,
             folder: folder.name,
-            citations: [...tokens.values()].map((each) => each.report),
+            citations: [...[...tokens.values()].map((each) => each.report), ...inline.extraReports],
             uncited: uncitedIn(
               [proseOf(written)],
               (token) => tokens.get(token)?.cited?.citable === true,
@@ -3933,9 +4615,12 @@ export function createAgentAccess(
             next: leftToCheck(left.ok ? left.value.sentences.length : 0, true),
           },
           count: 1,
-          documentIds: [...tokens.values()].flatMap((each) =>
-            each.cited ? [each.cited.minted.documentId] : [],
-          ),
+          documentIds: [
+            ...[...tokens.values()].flatMap((each) =>
+              each.cited ? [each.cited.minted.documentId] : [],
+            ),
+            ...inline.read,
+          ],
           effects: [READ_DOCUMENTS, { action: "write", scope: { kind: "mind", mindId: mind.id } }],
         };
       });
@@ -4045,7 +4730,21 @@ export function createAgentAccess(
         const workings: string[] = [];
         const confirmed = new Map<string, Citation | null>();
         const citationOfToken = (given: string): Citation | null => {
-          const token = [...given.matchAll(CITATION_TOKEN)][0]?.[1] ?? given.trim();
+          const trimmed = given.trim();
+          const sentence = SENTENCE_REF_TAG.exec(trimmed) ?? SENTENCE_REF_INNER.exec(trimmed);
+          if (sentence?.[1] && sentence[2]) {
+            if (!confirmed.has(trimmed)) {
+              const resolved = resolveLiveSentenceHandle(
+                pairing,
+                inScope,
+                sentence[1],
+                Number(sentence[2]),
+              );
+              confirmed.set(trimmed, resolved.status === "found" ? resolved.citation : null);
+            }
+            return confirmed.get(trimmed) ?? null;
+          }
+          const token = [...given.matchAll(CITATION_TOKEN)][0]?.[1] ?? trimmed;
           if (!confirmed.has(token)) {
             const kept = deps.citations.find(pairing.id, token);
             confirmed.set(

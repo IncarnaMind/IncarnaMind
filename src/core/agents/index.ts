@@ -75,6 +75,7 @@ import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
 import { createHandOverTurns } from "./handedFiles";
 import type { AgentChallengeSession, OpenedAgentConnection, ServedConnection } from "./mcp";
+import { createPassageCiteRegistry } from "./passageCites";
 import { createAgentRequests, type KeptRequest } from "./requests";
 import {
   AgentEndpointError,
@@ -678,6 +679,7 @@ export function createAgents(options: AgentsOptions) {
     workings: createAgentWorkings(),
     handOverTurns: createHandOverTurns(),
     versions: new Map(),
+    passageCites: createPassageCiteRegistry(),
     citations,
     requests: {
       ofPairing: requests.ofPairing,
@@ -1322,6 +1324,26 @@ export function createAgents(options: AgentsOptions) {
           ? [{ token, documentName: report.document, quote: report.quote, citation }]
           : [];
       });
+    },
+
+    /**
+     * Resolves confirmed sentence handles in a completed Note conversation reply into durable
+     * SQLite-backed Citation tokens before saving the reply (#3753).
+     */
+    persistReplyCitations(pairingId: string, reply: string): string {
+      if (!reply.includes("[cite:")) return reply;
+      let access = replyCitations.get(pairingId);
+      if (!access) {
+        access = createAgentAccess(accessDeps, pairingId);
+        replyCitations.set(pairingId, access);
+      }
+      try {
+        return access.persistReplyCitations(reply);
+      } catch (error) {
+        if (!(error instanceof AgentRefusedError)) throw error;
+        replyCitations.delete(pairingId);
+        return reply;
+      }
     },
 
     /**

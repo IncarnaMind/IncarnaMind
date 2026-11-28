@@ -8891,6 +8891,27 @@ export const en = {
   "agents.propose.text": "Give the text for {name}.",
   "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
   "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.citationNotFound":
+    "Not attached: this quote wasn’t found word for word in that passage. Copy the exact words from the passage below and update the note:",
+  "agents.propose.citationNotFoundShort":
+    "Not attached: this quote wasn’t found word for word in that passage.",
+  "agents.propose.citationNotFoundFile":
+    "Not attached: this quote wasn’t found word for word in that file.",
+  "agents.propose.citationCantCheck":
+    "Not attached: this quote couldn’t be checked in that passage. Copy a longer exact phrase from the passage below and update the note:",
+  "agents.propose.citationCantCheckShort":
+    "Not attached: this quote couldn’t be checked in that passage.",
+  "agents.propose.citationUnknownPassage":
+    "Not attached: there is no passage “{passageId}” in the Folders shared with this agent. Give the passageId exactly as search or read_passages returned it.",
+  "agents.propose.citationUnknownHandle":
+    "Not attached: unknown or expired sentence handle. Read the passage again with cited: true.",
+  "agents.propose.citationHandleOutOfReach":
+    "Not attached: that passage is no longer shared or available. Read the document again with cited: true.",
+  "agents.propose.citationMalformed":
+    "Not attached: malformed citation tag. Use a sentence handle from cited: true, [cite:passageId: exact quote], or a token from cite.",
+  "agents.propose.citationTooManyFiles":
+    "Not attached: at most {max} file citations are checked in one call. Cite the rest in a follow-up call.",
+  "agents.create.emptyText": "Give the note’s text.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
   "agents.propose.ownOutsideSelection":

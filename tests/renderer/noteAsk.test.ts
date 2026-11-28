@@ -106,6 +106,7 @@ const {
   useNoteColumns,
   useNoteConversations,
   withGivenBack,
+  withoutCitations,
 } = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
@@ -582,5 +583,14 @@ describe("words given back to the input", () => {
       words: "and where\nand who",
       after: true,
     });
+  });
+
+  // protects=live pill text strips minted tokens, sentence handles, inline quote tags (with nested brackets), and partial streaming tags (#3753); fails_when=raw citation tags flash in the Note pill
+  test("strips complete and streaming citation tags from reply previews", () => {
+    expect(withoutCitations("Output rose 4% [cite:abcd1234].")).toBe("Output rose 4%.");
+    expect(withoutCitations("Output rose 4% [cite:k3x9a.2].")).toBe("Output rose 4%.");
+    expect(
+      withoutCitations("Clocks run [cite:p-1: 06:00 [winter schedule]] and hold [cite:k3x9"),
+    ).toBe("Clocks run and hold");
   });
 });

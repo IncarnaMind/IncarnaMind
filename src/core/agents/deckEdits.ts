@@ -18,7 +18,8 @@ import { isRecord, NotFoundError, TranslatableError } from "../errors";
 import type { DeckChange, DeckCitationRecord } from "../exports/pptxPatch/deckChanges";
 import type { ShapeBox } from "../exports/pptxPatch/shapeEdit";
 import type { AdmittedPairing } from "./access";
-import { type AgentCitation, CITATION_TOKEN } from "./citations";
+import type { AgentCitation } from "./citations";
+import { CITATION_OR_HANDLE_EXACT, CITATION_OR_HANDLE_TAG } from "./inlineCitations";
 import { AgentRefusedError } from "./refusals";
 
 const READS_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
@@ -153,7 +154,7 @@ function validateBoxesInSlide(
 
 function extractToken(raw: string): string {
   const trimmed = raw.trim();
-  const match = /^\[cite:([a-z0-9]{1,32})\]$/.exec(trimmed);
+  const match = CITATION_OR_HANDLE_EXACT.exec(trimmed);
   return match?.[1] ?? trimmed;
 }
 
@@ -262,7 +263,7 @@ function resolveChangeCitations(
   const tokens: string[] = [];
   const cleaned = paragraphs.map((paragraph) =>
     paragraph
-      .replace(CITATION_TOKEN, (_full, token: string) => {
+      .replace(CITATION_OR_HANDLE_TAG, (_full, token: string) => {
         tokens.push(token);
         return "";
       })

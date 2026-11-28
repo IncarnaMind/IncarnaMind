@@ -51,7 +51,7 @@ import {
 import { InvalidInputError, isRecord, TranslatableError } from "../errors";
 import type { Database } from "../storage";
 import type { ConversationHears, ConversationRun, RunCall, SelectedInBlock } from "./askedChecks";
-import { CITATION_TOKEN } from "./citations";
+import { CITATION_OR_HANDLE_TAG } from "./inlineCitations";
 
 /**
  * A control character in a model's name, which reaches the agent's command line as `--model`: on
@@ -67,7 +67,7 @@ const INSTRUCTIONS = [
   "In this session you work for the User inside IncarnaMind, their app for their Documents and notes. Each message is already the User's full request from a Note's conversation, whose first line gives the Note's mindId (never a waiting handoff, so never call read_request), and the words they selected in it, if any.",
   "Read and change their notes and Documents through IncarnaMind's Tools (its server, incarnamind), never as files.",
   "The Note the conversation is in and the selection are the request's context, not its limit: use the User's other Notes and Documents when the request needs them or names them.",
-  "When the request asks for writing (a summary, draft, report, brief, outline, rewrite, or edit), write it into a Note rather than answering only in the conversation, citing claims from their Documents with cite ([cite:…]): if the User asks for a new Note, create it with create_mind; if the request asks to write into another Note by name (a different title from the first line's), find its mindId with list_minds, read it with read_mind (named: true) and write there with propose_changes (in a Note you wrote, changes apply at once; in any other, they wait for the User); in either case, never change the note whose mindId the first line gives. Otherwise write into the note whose mindId the first line gives (the Note the conversation is in) with read_mind (named: true) and propose_changes (your changes in the Note the conversation is in apply at once).",
+  "When the request asks for writing (a summary, draft, report, brief, outline, rewrite, or edit), write it into a Note rather than answering only in the conversation: pass cited: true to search or read_passages so each source sentence comes with its [cite:…] token, and put those tokens directly after each claim in propose_changes or create_mind (no separate cite call needed). When writing from their Documents, state only what the cited sentences say — keep exact figures, dates, qualifiers, and conditions, and omit uncited takeaways or editorializing. If the User asks for a new Note, create it with create_mind; if the request asks to write into another Note by name (a different title from the first line's), find its mindId with list_minds, read it with read_mind (named: true) and write there with propose_changes (in a Note you wrote, changes apply at once; in any other, they wait for the User); in either case, never change the note whose mindId the first line gives. Otherwise write into the note whose mindId the first line gives (the Note the conversation is in) with read_mind (named: true) and propose_changes (your changes in the Note the conversation is in apply at once).",
   "Where to write in a Note: with words selected, change those words and nothing else, unless the User asks for more; in an empty Note, write with ¶0+; otherwise where the User's cursor is, if the request says, else at the end.",
   "Answer a plain question, lookup, or explanation directly in the conversation without changing any Note.",
   "When the request needs them, you may also use your own tools: commands, files, the web, and the skills and servers the User set up for you. Work in your current folder, which is this conversation's own. Your own settings decide what you may do; the User answers your questions in IncarnaMind.",
@@ -158,6 +158,8 @@ export interface OwnAiConversationsOptions {
   askable(mindId: string): AgentPairing[];
   /** Of `tokens`, the Citations IncarnaMind gave this connection, found in their Document now. */
   citationsOf(pairingId: string, tokens: readonly string[]): NoteCitation[];
+  /** Replaces confirmed sentence handles in a completed reply with durable Citation tokens (#3753). */
+  persistReplyCitations?(pairingId: string, reply: string): string;
   /** The name of a Document the connection reaches, by its id or one of its Passages; else null. */
   documentNamed?(
     pairingId: string,
@@ -293,10 +295,10 @@ function meetingLines(meeting: OwnAiLiveMeeting | null): string[] {
         ? `Its Transcript (documentId: ${meeting.documentId})`
         : `Its Transcript is “${meeting.transcript}” (documentId: ${meeting.documentId})`;
     return [
-      `This note is for a recorded meeting. ${transcript}. Read it with read_document before writing notes.`,
+      `This note is for a recorded meeting. ${transcript}. Read it with read_passages (cited: true) before writing notes.`,
       "When writing notes from the Transcript: “Me” is the User, “Them” is the other side, and numbered speakers (Speaker 2, 发言人 2) are unnamed — never invent a name, currency or unit not spoken.",
       "State only what the Transcript says: keep offers, suggestions, plans, wishes and conditions (“can do”, “will”, “would like”, “if …”) as such instead of writing them as settled decisions or completed facts, and never add “no deadline” or “unanswered” unless a line says so.",
-      "Cite every sentence and bullet with [cite:…] tokens for every transcript line it draws on: every figure, date, owner, speaker, condition and agreement the sentence states must appear in its cited lines together. For a decision or agreement, cite both what was agreed and, when on another line, the line that agrees to it — never a bare agreement alone. In a summary or overview sentence, name only topics and outcomes shown in its cited lines.",
+      "Cite every sentence and bullet with the [cite:…] sentence tokens from read_passages (cited: true) (or existing [cite:…] tokens) for every transcript line it draws on: every figure, date, owner, speaker, condition and agreement the sentence states must appear in its cited lines together. For a decision or agreement, cite both what was agreed and, when on another line, the line that agrees to it — never a bare agreement alone. In a summary or overview sentence, name only topics and outcomes shown in its cited lines.",
     ];
   }
   const transcript =
@@ -571,7 +573,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     rest: Partial<Omit<NoteTurnEvent, "state" | "problem">> = {},
   ) => {
     if (options.lifetime.aborted) return;
-    const reply = rest.reply ?? "";
+    const reply =
+      rest.reply && options.persistReplyCitations
+        ? options.persistReplyCitations(turn.pairingId, rest.reply)
+        : (rest.reply ?? "");
     // Only immediate applied changes in this turn's Note count as "Changed N paragraphs": waiting
     // Proposals elsewhere or here are never called "Changed" (#3731).
     const appliedCount = (rest.applied ?? [])
@@ -1957,7 +1962,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     }
     const tokensOf = (reply: string) => [
       ...new Set(
-        [...reply.matchAll(CITATION_TOKEN)].flatMap(([, token]) => (token ? [token] : [])),
+        [...reply.matchAll(CITATION_OR_HANDLE_TAG)].flatMap(([, token]) => (token ? [token] : [])),
       ),
     ];
     // One look at every token of the conversation, each against its Document as it is now.

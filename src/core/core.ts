@@ -7696,6 +7696,7 @@ export function createCore(adapters: CoreAdapters): Core {
     conversationGrant: (pairingId, front, hears) =>
       agents.conversationGrant(pairingId, front, hears),
     citationsOf: (pairingId, tokens) => agents.citationsOf(pairingId, tokens),
+    persistReplyCitations: (pairingId, reply) => agents.persistReplyCitations(pairingId, reply),
     documentNamed: (pairingId, ref) => agents.documentNamed(pairingId, ref),
     consented: (pairing) => hostedConsent(pairing, HOSTED_FLOW_SENDS),
     heldBack: hostedHeldBack,
