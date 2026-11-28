@@ -37,7 +37,7 @@ import {
  * 2. Hidden tab when a turn ends: the write lands on that tab's kept undo stack as one step,
  *    newest first, never lost when the User undoes something elsewhere.
  * 3. A Note the AI made (both via Note input and via outside MCP): undo runs newest first.
- * 4. History saves a pre-AI version ("before AI edits" / "接受修订前") for Note-input writes,
+ * 4. History saves a pre-AI version ("before AI edits" / "AI 修改前") for Note-input writes,
  *    Accept change, Change to, and Fix the sentence alike.
  * 5. Words typed just before or just after an AI write never join its undo step.
  */

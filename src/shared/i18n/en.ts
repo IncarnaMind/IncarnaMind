@@ -9089,7 +9089,7 @@ export const en = {
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
   "agents.pairing.readsAll": "Reads all your Documents and notes, and what you add later",
-  "agents.pairing.proposes": "Writes notes, Canvases and files there; proposes changes to yours",
+  "agents.pairing.proposes": "Writes notes, Canvases and files; edits notes; proposes deck changes",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
@@ -9266,8 +9266,8 @@ export const en = {
     "Your Documents aren’t in Folders yet, so these are all of them. To share some, put them in a Folder first.",
   "agents.connect.noneYet": "No Documents yet: it reads those added outside a Folder.",
   "agents.connect.pickOne": "Choose at least one Folder.",
-  "agents.propose.label": "Let it write notes and propose changes in these Folders",
-  "agents.propose.label.all": "Let it write notes and propose changes",
+  "agents.propose.label": "Let it write and edit notes in these Folders",
+  "agents.propose.label.all": "Let it write and edit notes",
   "agents.propose.hint":
     "Its notes and note changes appear at once. Changes to a deck wait until you confirm them. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
@@ -9312,8 +9312,8 @@ export const en = {
   "agents.connectAll.reads.walled":
     "What each reads goes to its AI model. A Folder that keeps its work inside it is shared only on its own.",
   "agents.connectAll.folders": "What they may read",
-  "agents.connectAll.propose": "Let them write notes and propose changes",
-  "agents.connectAll.proposeFolders": "Let them write notes and propose changes in these Folders",
+  "agents.connectAll.propose": "Let them write and edit notes",
+  "agents.connectAll.proposeFolders": "Let them write and edit notes in these Folders",
   "agents.connectAll.apps": "Apps to connect",
   "agents.connectAll.pickApp": "Choose at least one app.",
   "agents.connectAll.eachOwn": "Each gets its own connection to pause or disconnect anytime.",

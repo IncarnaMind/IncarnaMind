@@ -159,7 +159,7 @@ describe("History's comparison of two versions", () => {
       /^Friday 9 Oct, 10:42( am)?, before AI edits on the left, Now on the right$/,
     );
     expect(comparedLabel({ left: accepted, right: null }, now, "zh-CN", zh)).toMatch(
-      /^左侧为10月9日星期五 (上午)?10:42、接受修订前，右侧为当前版本$/,
+      /^左侧为10月9日星期五 (上午)?10:42、AI 修改前，右侧为当前版本$/,
     );
   });
 

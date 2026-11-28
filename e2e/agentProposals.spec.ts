@@ -128,13 +128,13 @@ test("an agent's small change lands at once with Undo, and a rewrite of most of 
     await dialog.getByTestId("agent-folder").check();
     const propose = dialog.getByTestId("agent-propose");
     await expect(propose).toBeChecked();
-    await expect(dialog).toContainText("Let it write notes and propose changes in these Folders");
+    await expect(dialog).toContainText("Let it write and edit notes in these Folders");
     await propose.check();
     await shot(window, "agent-proposals-connect");
     await dialog.getByTestId("connect-agent-allow").click();
     const row = page.locator('[data-testid="agent-pairing"][data-name="Research assistant agent"]');
     await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
-      "Writes notes, Canvases and files there; proposes changes to yours",
+      "Writes notes, Canvases and files; edits notes; proposes deck changes",
     );
     await shot(window, "agent-proposals-row");
     const settings = JSON.parse(await copied(window)) as {

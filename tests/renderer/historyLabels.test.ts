@@ -30,7 +30,7 @@ describe("History's labels", () => {
     expect(versionLabel(accepted, now, "en", en)).toMatch(/^Friday 9 Oct, 10:42( am)?$/);
     expect(reasonLabel(accepted, en)).toBe("before AI edits");
     expect(versionLabel(accepted, now, "zh-CN", zh)).toMatch(/^10月9日星期五 (上午)?10:42$/);
-    expect(reasonLabel(accepted, zh)).toBe("接受修订前");
+    expect(reasonLabel(accepted, zh)).toBe("AI 修改前");
     const idle = checkpoint("b", new Date(2026, 9, 9, 10, 31), "idle");
     expect(reasonLabel(idle, en)).toBeNull();
     // Last year's says its year.

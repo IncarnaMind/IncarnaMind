@@ -179,7 +179,7 @@ test("in Chinese, at a narrow window: an empty History, then by the keyboard fro
   await openHistoryFromTabMenu(window, window.getByRole("tab", { selected: true }).first());
   await window.keyboard.press("Enter");
   await expect(history).toBeVisible();
-  await expect(history.getByTestId("history-picker-left")).toContainText("接受修订前");
+  await expect(history.getByTestId("history-picker-left")).toContainText("AI 修改前");
   await expect(history.getByTestId("history-picker-right")).toHaveText("当前版本");
   await expect(history.getByTestId("history-restore")).toHaveText("恢复此版本");
   const changed = history.locator('[data-testid="history-row"][data-changed]');
