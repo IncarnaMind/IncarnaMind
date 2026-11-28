@@ -52,8 +52,8 @@ No Document says how many Documents your Library holds, what they are called or 
 - The lists stay on this computer: the model gets back only the numbers its code gives.
 - A Folder that keeps its work inside it is counted only for a Note in that Folder.
 - When your Library changes afterwards, the sentence reads `Needs a look · Needs re-check`.
-- The lists hold names, kinds, Folders and Tags only. They settle no sentence about what a Document says.
-- The contradiction check after a new version of a Document doesn't count it, and neither can a model that can't run code or a computer without Python. There such a sentence reads `Needs a look · Not found`.
+- The lists hold names, kinds, Folders and Tags only. In a check that counts the lists, or a check run on your own AI, a sentence about your Library that they can't settle, such as what its files cover or an unstored file property, reads `Not checked`, with the reason “Only your Library’s counts, names and kinds can be checked.”, rather than `Needs a look · Not found`.
+- The contradiction check after a new version of a Document doesn't count the lists, and neither can a model that can't run code or a computer without Python in IncarnaMind's own check. There such a sentence reads `Needs a look · Not found`.
 
 ### A table or figure from an Analysis
 
