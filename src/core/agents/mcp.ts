@@ -342,7 +342,7 @@ export function createAgentServer(
     (input) => answer(() => access.showCitation(input)),
   );
 
-  const choice = z.object({ id: z.string(), name: z.string() });
+  const choice = z.object({ id: z.string(), name: z.string(), description: z.string().optional() });
   server.registerTool(
     tool("list_sorting"),
     {
@@ -352,10 +352,13 @@ export function createAgentServer(
       inputSchema: z.object({ after: z.string().optional() }),
       outputSchema: z.object({
         documents: z.array(
-          choice.extend({
+          z.object({
+            id: z.string(),
+            name: z.string(),
             kind: z.string(),
             version: z.string(),
             folderId: z.string().nullable(),
+            outline: z.string().optional(),
             text: z.string(),
           }),
         ),

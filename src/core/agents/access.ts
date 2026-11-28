@@ -763,7 +763,13 @@ export interface AgentAccessDeps {
    */
   reachOf(pairingId: string): AdmittedPairing;
   /** The live Folders. */
-  folders(): { id: string; name: string; parentId: string | null; keepInside: boolean }[];
+  folders(): {
+    id: string;
+    name: string;
+    description?: string;
+    parentId: string | null;
+    keepInside: boolean;
+  }[];
   /** The walled Folder a Folder is behind, or is; null outside every wall. */
   wallOf(folderId: string): string | null;
   /** The Folder ids a pairing may be granted after Folder walls are applied. */
@@ -1782,7 +1788,11 @@ export function createAgentAccess(
       folders: deps
         .folders()
         .filter((f) => reached.has(f.id))
-        .map(({ id, name }) => ({ id, name })),
+        .map(({ id, name, description }) => ({
+          id,
+          name,
+          ...(description && description.trim() !== "" && { description: description.trim() }),
+        })),
     };
   }
 

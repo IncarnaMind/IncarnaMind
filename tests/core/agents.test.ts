@@ -13,6 +13,7 @@ import { SORTING_MOST, type SortingBatch } from "../../src/core/agents/sorting";
 import { estimateTokens } from "../../src/core/answers/context";
 import { ALL_SHARED_ID } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
+import { KIND_MEANINGS } from "../../src/core/tags/kinds";
 import { translate } from "../../src/shared/i18n";
 import {
   agentsAdapter,
@@ -732,6 +733,64 @@ describe("outside agents", () => {
     expect(renewed.tags).toContainEqual({ id: shared.id, name: shared.name });
     expect(renewed.tags.map((t) => t.id)).not.toContain(hidden.id);
     expect((await useTag(hidden.id)).isError).toBe(true);
+  });
+
+  // protects=list_sorting sends each kind Tag's meaning, any Folder or user Tag description, and a deck's or workbook's outline (slide titles / sheet names), omitting empty descriptions and non-deck/workbook outlines (#1569); fails_when=kind Tags lack descriptions, Folder/Tag descriptions are dropped, or decks/workbooks lose their outlines
+  it("gives list_sorting kind meanings, non-empty Folder and Tag descriptions, and deck or workbook outlines", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    const noteFile = await writeSourceFile(sources, "Harbour memo.md", "# Memo\n\nBerth 2 update.");
+    const fixturesDir = join(process.cwd(), "tests", "fixtures", "formats");
+    const docs = await addAndProcess(core, [
+      noteFile,
+      join(fixturesDir, "Quarterly Research Update.pptx"),
+      join(fixturesDir, "Regional Revenue.xlsx"),
+    ]);
+    const noteDoc = docs.find((d) => d.name === "Harbour memo");
+    const deckDoc = docs.find((d) => d.name === "Quarterly Research Update");
+    const sheetDoc = docs.find((d) => d.name === "Regional Revenue");
+    if (!noteDoc || !deckDoc || !sheetDoc) throw new Error("Expected all three Documents.");
+    const described = await core.createLibraryGroup({
+      name: "Harbour",
+      description: "Port operations and soundings",
+    });
+    const plainFolder = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const describedTag = await core.createTag({
+      name: "Dredging",
+      description: "Berth depth and silt clearance",
+    });
+    const plainTag = await core.createTag({ name: "Internal" });
+    await core.addDocumentTag(noteDoc.id, describedTag.id);
+    await core.addDocumentTag(noteDoc.id, plainTag.id);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const agent = await connectLegacyAgent(launch);
+
+    const batch = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(batch.folders).toContainEqual({
+      id: described.id,
+      name: "Harbour",
+      description: "Port operations and soundings",
+    });
+    expect(batch.folders).toContainEqual({ id: plainFolder.id, name: "Archive" });
+    expect(batch.tags).toContainEqual({
+      id: "kind:report",
+      name: translate("en", "tags.kind.report"),
+      description: KIND_MEANINGS.report,
+    });
+    expect(batch.tags).toContainEqual({
+      id: describedTag.id,
+      name: "Dredging",
+      description: "Berth depth and silt clearance",
+    });
+    expect(batch.tags).toContainEqual({ id: plainTag.id, name: "Internal" });
+
+    const byId = new Map(batch.documents.map((d) => [d.id, d]));
+    expect(byId.get(noteDoc.id)?.outline).toBeUndefined();
+    expect(byId.get(deckDoc.id)?.outline).toMatch(/slides?:/);
+    expect(byId.get(sheetDoc.id)?.outline).toMatch(/sheets?:/);
   });
 
   // protects=with no Folder yet and no model set up, an agent suggests a Folder and a Tag by name; nothing is made, filed or tagged before Confirm; one name given in two calls is one Folder; a Document nothing fits gets nothing; a name the Library can't take is refused in its own form's words with nothing of the call kept; Confirm makes them and files and tags the Documents (#3610); fails_when=a new name is refused, something is made or filed before Confirm, one name gives two Folders, or a bad name fails as IncarnaMind's own error

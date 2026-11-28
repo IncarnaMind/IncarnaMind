@@ -4,12 +4,18 @@ import { estimateTokens } from "../answers/context";
 import type { DocumentKind } from "../api";
 import { InvalidInputError } from "../errors";
 import type { Language } from "../language";
-import { ORGANIZE_PASSAGES } from "../library/excerpt";
+import {
+  documentOutline,
+  ORGANIZE_PASSAGES,
+  type OrganizeUnit,
+  ROUTING_PAGE_CHARACTERS,
+  ROUTING_PAGES,
+} from "../library/excerpt";
 import type { OrganizeReviewProposal, OrganizeReviewRun } from "../organizeReview";
 import type { Database } from "../storage";
 import { offeredKinds } from "../tags/about";
 import { BATCH_EXCERPT_TOKENS, excerptFromPassages, kindId, kindOfId } from "../tags/classify";
-import { kindName } from "../tags/kinds";
+import { KIND_MEANINGS, kindName } from "../tags/kinds";
 import { READ_PART_TOKENS } from "./access";
 import { AgentRefusedError } from "./refusals";
 
@@ -20,8 +26,14 @@ import { AgentRefusedError } from "./refusals";
  */
 export const SORTING_MOST = 40;
 
-type Choice = { id: string; name: string };
-type Waiting = Choice & { kind: DocumentKind; version: string; folderId: string | null };
+type Choice = { id: string; name: string; description?: string };
+type Waiting = {
+  id: string;
+  name: string;
+  kind: DocumentKind;
+  version: string;
+  folderId: string | null;
+};
 type Scope = { documents: string[]; folders: Choice[]; shareTagNames: boolean };
 
 /** What propose_sorting took: how many wait now, and, past `SORTING_MOST`, what to send again. */
@@ -31,7 +43,7 @@ export interface SortingTaken {
 }
 
 export interface SortingBatch {
-  documents: (Waiting & { text: string })[];
+  documents: (Waiting & { outline?: string; text: string })[];
   /** How many wait in all, on every page (#3610). */
   total: number;
   folders: Choice[];
@@ -85,15 +97,33 @@ export function createAgentSorting(
     const kinds = offeredKinds(db).map((kind) => ({
       id: kindId(kind),
       name: kindName(kind, language()),
+      description: KIND_MEANINGS[kind],
     }));
     if (!scope.shareTagNames) return kinds;
-    const tags = db.all<Choice>(
-      `SELECT DISTINCT t.id, t.name FROM tags t JOIN document_tags dt ON dt.tag_id = t.id
-       WHERE dt.document_id IN (SELECT value FROM json_each(?)) AND dt.deleted_at IS NULL
-         AND t.deleted_at IS NULL AND t.kind IS NULL ORDER BY t.name, t.id`,
-      [JSON.stringify(scope.documents)],
-    );
+    const tags = db
+      .all<{ id: string; name: string; description: string }>(
+        `SELECT DISTINCT t.id, t.name, t.description FROM tags t JOIN document_tags dt ON dt.tag_id = t.id
+         WHERE dt.document_id IN (SELECT value FROM json_each(?)) AND dt.deleted_at IS NULL
+           AND t.deleted_at IS NULL AND t.kind IS NULL ORDER BY t.name, t.id`,
+        [JSON.stringify(scope.documents)],
+      )
+      .map(({ id, name, description }) => ({
+        id,
+        name,
+        ...(description.trim() !== "" && { description: description.trim() }),
+      }));
     return [...kinds, ...tags];
+  }
+
+  function outlineOf(id: string, kind: DocumentKind, contentHash: string | null): string | null {
+    if (kind !== "pptx" && kind !== "xlsx" && kind !== "csv") return null;
+    const units = db
+      .all<{ page: number; kind: OrganizeUnit["kind"]; label: string | null; text: string }>(
+        "SELECT page, kind, label, CASE WHEN page <= ? THEN substr(text, 1, ?) ELSE '' END AS text FROM document_pages WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL ORDER BY page LIMIT 400",
+        [BigInt(ROUTING_PAGES), BigInt(ROUTING_PAGE_CHARACTERS), id, contentHash],
+      )
+      .map((row) => ({ ...row, label: row.label ? JSON.parse(row.label) : null }));
+    return documentOutline({ kind, units });
   }
 
   return {
@@ -110,13 +140,15 @@ export function createAgentSorting(
         JSON.stringify({ total, folders: scope.folders, tags, next: rows[0]?.id ?? "" }),
       );
       const documents: SortingBatch["documents"] = [];
-      for (const { content_hash: _, ...row } of rows.slice(0, SORTING_MOST)) {
+      for (const { content_hash, ...row } of rows.slice(0, SORTING_MOST)) {
         const passages = db.all<{ text: string }>(
           "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT ?",
           [row.id, BigInt(ORGANIZE_PASSAGES)],
         );
+        const outline = outlineOf(row.id, row.kind, content_hash);
         const doc = {
           ...row,
+          ...(outline ? { outline } : {}),
           text: excerptFromPassages(
             passages.map((p) => p.text),
             BATCH_EXCERPT_TOKENS,
