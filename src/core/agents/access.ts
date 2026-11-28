@@ -937,6 +937,8 @@ export interface AgentAccessDeps {
   handedNote(fileId: string): string | null;
   handOver: HandedFileToolDeps["handOver"];
   handedCheck: HandedFileToolDeps["handedCheck"];
+  /** Hand-overs taking turns, shared by every connection (`createHandOverTurns`). */
+  handOverTurns: HandedFileToolDeps["handOverTurns"];
   /**
    * A Word file as Export › Word writes one, with the User's choices for it, dated `at` (#3751),
    * unless it would name a Document `reaches` says the agent can't read.
@@ -2486,12 +2488,34 @@ export function createAgentAccess(
    * token, to keep or cite again, and the others as handles that only keep them. `cited`
    * hears the Documents.
    */
-  const namedWords = (pairing: AdmittedPairing, inScope: ReadonlySet<string>, cited: string[]) => ({
+  const namedWords = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    cited: string[],
+    live: readonly LiveDocument[] = deps.liveDocuments(),
+  ) => ({
     citation: (attributes: Record<string, unknown>) => {
-      const documentId = typeof attributes.documentId === "string" ? attributes.documentId : "";
-      if (!inScope.has(documentId)) return null;
-      const citation = citationOf(attributes);
-      if (citation.check !== "found" || citation.passageId === "") return null;
+      const kept = citationOf(attributes);
+      // A Document deleted and added again is its Citations' source, as read_mind names it: the
+      // token is of its Passage that holds the quote.
+      const documentId = liveDocumentOf(kept, live)?.id ?? kept.documentId;
+      if (!inScope.has(documentId) || kept.check !== "found" || kept.passageId === "") return null;
+      const replacement =
+        documentId === kept.documentId
+          ? null
+          : deps
+              .passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER)
+              .find((passage) => kept.quote !== "" && passage.text.includes(kept.quote));
+      if (replacement === undefined) return null;
+      const citation = replacement
+        ? {
+            ...kept,
+            documentId,
+            passageId: replacement.passageId,
+            documentName: replacement.documentName,
+            contentHash: replacement.contentHash,
+          }
+        : kept;
       cited.push(documentId);
       return citeTag(mint(pairing, citation).token);
     },
@@ -3500,7 +3524,7 @@ export function createAgentAccess(
         if (input?.named === true) {
           const naming = namingOf(own);
           const note = deps.mindBlocks(mind.id, (blocks) =>
-            namedNote(blocks, namedWords(pairing, inScope, cited), naming),
+            namedNote(blocks, namedWords(pairing, inScope, cited, live), naming),
           );
           return {
             result: { ...page(mind, note.text, offset), version: note.version, next },
@@ -3509,23 +3533,26 @@ export function createAgentAccess(
           };
         }
         const markdown = deps.mindMarkdown(mind.id, (attributes) => {
-          const documentId = typeof attributes.documentId === "string" ? attributes.documentId : "";
+          const citation = withShownName(citationOf(attributes), live);
+          // A Document deleted and added again is its Citations' source, as Export › Word names it.
+          const documentId = liveDocumentOf(citation, live)?.id ?? citation.documentId;
           if (!inScope.has(documentId)) {
             return { source: t("agents.mind.outsideCitation"), unverified: false };
           }
-          const citation = withShownName(citationOf(attributes), live);
           const where = label(
             citation.location,
             citation.pageFrom,
             citation.pageTo,
-            citation.documentId,
+            documentId,
             citation.quote,
           );
           const source = where ? `${citation.documentName}, ${where}` : citation.documentName;
           if (citation.check !== "found") return { source, unverified: true };
           cited.push(documentId);
-          // Made before Citations kept their Passage: checked, but nothing to mint from.
-          if (citation.passageId === "") return { source, unverified: false };
+          // Made before Citations kept their Passage, or of a Document deleted since, whose Passage
+          // went with it: checked, but nothing to mint from.
+          if (citation.passageId === "" || documentId !== citation.documentId)
+            return { source, unverified: false };
           return {
             agentCite: citeTag(mint(pairing, citation).token),
             source,

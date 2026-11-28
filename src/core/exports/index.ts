@@ -900,6 +900,7 @@ export function createExports(deps: ExportsDependencies) {
                 })),
                 unknownParts: [],
                 keptFurniture: [],
+                furnitureParts: [],
               },
         needsDetails: [...thin.documents],
         ...(files.length > 0 && { files }),
