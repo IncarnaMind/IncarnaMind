@@ -2566,33 +2566,58 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(asked).toHaveLength(1);
   });
 
-  // protects=deleting a Note permanently no longer deletes conversations; deleting the conversation from History purges the agent's copy and scrubs IncarnaMind's record (#3731); fails_when=deleting a Note destroys a conversation, or deleting a conversation leaves text on disk
-  it("keeps conversations when a Note is deleted permanently, and deletes them from History", async () => {
+  // protects=permanently deleting a Note deletes and purges a conversation that touched only that Note, keeps a conversation shared with another Note (with mindDeleted: true), and deletes both copies when deleted from History or when its last remaining Note is purged (#3731); fails_when=a single-Note conversation survives its Note's permanent deletion, a shared conversation is destroyed while another Note still exists, or text stays on disk after deletion
+  it("purges a single-Note conversation when its Note is deleted permanently, while keeping shared ones", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "Done." }));
-    const { core, mindId, dataDir, ended } = await written(run.adapter);
-    const convId = convOf(
+    const { core, mindId, otherId, dataDir, ended } = await written(run.adapter);
+    const singleConv = convOf(
       await core.askInNote({ mindId, words: "shorter", quote: "212,000 passengers" }),
     );
-    await ended();
+    await ended(1);
+    const sharedConv = convOf(
+      await core.askInNote({ mindId, words: "compare notes", conversationId: null }),
+    );
+    await ended(2);
+    await core.askInNote({
+      mindId: otherId,
+      words: "check second note",
+      conversationId: sharedConv,
+    });
+    await ended(3);
+
+    // Moving the Note to Recently deleted keeps both conversations so Restore brings them back.
     await core.deleteMind(mindId);
-    await core.deletePermanently([{ kind: "mind", id: mindId }]);
     expect(run.purged).toEqual([]);
-    expect((await core.noteConversations()).map((c) => c.id)).toEqual([convId]);
-    expect((await core.noteConversation(convId))[0]).toMatchObject({
-      request: "shorter",
+    expect((await core.noteConversations()).map((c) => c.id).sort()).toEqual(
+      [singleConv, sharedConv].sort(),
+    );
+
+    // Permanently deleting mindId purges singleConv (touched only mindId) and keeps sharedConv.
+    await core.deletePermanently([{ kind: "mind", id: mindId }]);
+    expect(run.purged).toEqual([singleConv]);
+    expect((await core.noteConversations()).map((c) => c.id)).toEqual([sharedConv]);
+    expect(await core.noteConversation(singleConv)).toEqual([]);
+    expect((await core.noteConversation(sharedConv))[0]).toMatchObject({
+      request: "compare notes",
       mindDeleted: true,
     });
-    await core.deleteNoteConversation(convId);
-    expect(run.purged).toEqual([run.runs[0]?.conversation?.key]);
-    expect(await core.noteConversation(convId)).toEqual([]);
+
+    // Deleting sharedConv from History scrubs and purges it too.
+    await core.deleteNoteConversation(sharedConv);
+    expect(run.purged).toEqual([singleConv, sharedConv]);
+    expect(await core.noteConversation(sharedConv)).toEqual([]);
     expect(await core.noteConversations()).toEqual([]);
     // What the User typed and selected, the reply, and touched Note titles are scrubbed from SQLite.
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     try {
       expect(db.all("SELECT request, selection, reply, mind_title FROM own_ai_turns")).toEqual([
         { request: "", selection: "", reply: "", mind_title: "" },
+        { request: "", selection: "", reply: "", mind_title: "" },
+        { request: "", selection: "", reply: "", mind_title: "" },
       ]);
       expect(db.all("SELECT mind_title FROM own_ai_conversation_notes")).toEqual([
+        { mind_title: "" },
+        { mind_title: "" },
         { mind_title: "" },
       ]);
     } finally {
@@ -3387,72 +3412,294 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
     expect(run.purged).toEqual([convId]);
   });
 
-  // protects=a database written by main's pre-#3731 schema (migration 165, one conversation per Note) upgrades cleanly with zero data loss: every pre-upgrade conversation appears in History with its Note, latestNoteConversation finds it, and continuing across another Note works (#3731); fails_when=existing conversations vanish, lose their Note attribution, or fail to continue
-  it("upgrades a pre-#3731 per-Note database with zero data loss", async () => {
+  // protects=while a conversation runs on Note A, an explicit mid-run follow-up from Note B (intoRunning: true) records on A and keeps the grant's front on A (edits to A apply at once, edits to B wait), whereas a request for Note B without intoRunning (such as Write notes) returns busy and never touches A (#3731); fails_when=Write notes hijacks A's run, a mid-run follow-up records B, or the grant's front moves to B
+  it("locks a running conversation to its originating Note and refuses non-follow-up calls from another Note", async () => {
+    const release = gate();
+    let otherId = "";
+    const statuses: { onA?: string; onB?: string } = {};
+    const run = runner(async (agent, request) => {
+      const sent = meanwhileOf(request);
+      release.reached();
+      await release.shut;
+      const queued = sent[0];
+      if (!queued) return { kind: "finished", reply: "No follow-up." };
+      request.progress?.({ kind: "taken", id: queued.id });
+      const aId = mindIdOf(request);
+      const onA = (await rewrite(agent, aId, [[FARES, "Fares rose by a tenth."]])) as {
+        status: string;
+      };
+      const onB = (await rewrite(agent, otherId, [[FARES, "B should wait."]])) as {
+        status: string;
+      };
+      statuses.onA = onA.status;
+      statuses.onB = onB.status;
+      return { kind: "finished", reply: "Updated A and proposed for B." };
+    });
+    const paired = await written(run.adapter);
+    const { core, mindId, ended } = paired;
+    otherId = paired.otherId;
+
+    const convId = convOf(await core.askInNote({ mindId, words: "summarise the ferry note" }));
+    await release.at;
+
+    // Write notes (no intoRunning) from another Note must be refused as busy, never joining A's run.
+    const meetingCall = await core.askInNote({
+      mindId: otherId,
+      conversationId: convId,
+      words: "Write the notes of this call.",
+    });
+    expect(meetingCall.kind).toBe("busy");
+
+    // Explicit mid-run follow-up from Note B joins A's run, recording on A and keeping front on A.
+    const followUp = await core.askInNote({
+      mindId: otherId,
+      conversationId: convId,
+      words: "also shorten the fares",
+      intoRunning: true,
+    });
+    expect(followUp).toMatchObject({ kind: "sent", conversationId: convId });
+
+    release.open();
+    await ended(2);
+
+    expect(statuses).toEqual({ onA: "applied", onB: "waiting" });
+    const turns = await core.noteConversation(convId);
+    expect(turns.map((t) => [t.mindId, t.request, t.changedCount])).toEqual([
+      [mindId, "summarise the ferry note", 0],
+      [mindId, "also shorten the fares", 1],
+    ]);
+  });
+
+  // protects=one conversation is never resumed by two Claude Code processes and one Note never runs two requests at once: an unseeded window on B whose latest conversation X is running on A gets busy, and New conversation or another conversation on A while X runs on A gets busy (ADR-0034, #3731); fails_when=a second Claude Code process starts for X or a second run starts on A
+  it("never resumes one conversation twice or starts a second run on a busy Note", async () => {
+    const hold = gate();
+    let holdActive = false;
+    const run = runner(async (agent, request) => {
+      if (!holdActive) return { kind: "finished", reply: "Seeded." };
+      hold.reached();
+      await hold.shut;
+      return untilStopped(agent, request);
+    });
+    const { core, mindId, otherId, ended } = await written(run.adapter);
+    // Conversation X touches A then B so latestNoteConversation(B) === X; second conversation Y on A.
+    const convX = convOf(await core.askInNote({ mindId, words: "first on A" }));
+    await ended(1);
+    await core.askInNote({ mindId: otherId, words: "touch B", conversationId: convX });
+    await ended(2);
+    const convY = convOf(
+      await core.askInNote({ mindId, words: "separate conv", conversationId: null }),
+    );
+    await ended(3);
+    expect(await core.latestNoteConversation(otherId)).toBe(convX);
+
+    // Now run X on A and hold it open.
+    holdActive = true;
+    await core.askInNote({ mindId, words: "working on A", conversationId: convX });
+    await hold.at;
+    expect(run.runs).toHaveLength(4);
+
+    // Unseeded second window omits conversationId on B: resolves to X (running on A) -> busy, no 2nd process!
+    expect((await core.askInNote({ mindId: otherId, words: "from second window" })).kind).toBe(
+      "busy",
+    );
+    // New conversation (null) on A while X runs on A -> busy, never silently joins X or starts a 2nd run.
+    expect(
+      (await core.askInNote({ mindId, words: "fresh while busy", conversationId: null })).kind,
+    ).toBe("busy");
+    // Another conversation Y on A while X runs on A -> busy, never two runs on A.
+    expect(
+      (await core.askInNote({ mindId, words: "switch while busy", conversationId: convY })).kind,
+    ).toBe("busy");
+    expect(run.runs).toHaveLength(4);
+
+    await core.stopInNote(convX);
+    hold.open();
+    await ended(4);
+  });
+
+  // protects=changedCount counts only immediate applied changes in turn.mindId (never waiting Proposals), and latestNoteConversation filters by pairingId (#3731); fails_when=waiting Proposals count as Changed or latestNoteConversation returns another pairing's conversation
+  it("never counts waiting Proposals as changed paragraphs and filters latestNoteConversation by pairing", async () => {
+    let otherId = "";
+    const run = runner(async (agent, request) => {
+      if (request.prompt.includes("propose on other")) {
+        await rewrite(agent, otherId, [[FARES, "Waiting proposal on other."]]);
+      }
+      return { kind: "finished", reply: "Proposed." };
+    });
+    const paired = await written(run.adapter);
+    const { core, mindId, claude, ended } = paired;
+    otherId = paired.otherId;
+    const folderId = (await core.listMinds()).find((m) => m.id === mindId)?.folderId ?? "";
+    const secondPairing = await core.connectAgent({
+      name: "Second Claude",
+      client: "claude-code",
+      folderIds: folderId ? [folderId] : [],
+      propose: true,
+    });
+    await core.allowDataFlow("hosted-agents", `agent:${secondPairing.pairing.id}`);
+
+    const conv1 = convOf(
+      await core.askInNote({ mindId, words: "propose on other", pairingId: claude.pairing.id }),
+    );
+    await ended(1);
+    const conv2 = convOf(
+      await core.askInNote({
+        mindId,
+        words: "on second pairing",
+        pairingId: secondPairing.pairing.id,
+        conversationId: null,
+      }),
+    );
+    await ended(2);
+
+    // Waiting Proposals on otherId never count as "Changed N paragraphs" on turn.mindId.
+    expect((await core.noteConversation(conv1))[0]?.changedCount).toBe(0);
+    // latestNoteConversation scopes to the requested pairingId.
+    expect(await core.latestNoteConversation(mindId, claude.pairing.id)).toBe(conv1);
+    expect(await core.latestNoteConversation(mindId, secondPairing.pairing.id)).toBe(conv2);
+  });
+
+  // protects=a database written by main's pre-#3731 schema (migration 165, one conversation per Note) upgrades cleanly with zero data loss: deleted turns stay scrubbed, untitled Notes use auto_title, #3765 new_after/anew boundaries split into separate conversations, every pre-upgrade conversation appears in History with its Note, latestNoteConversation finds it, and continuing across another Note resumes the session (#3731); fails_when=deleted turns regain Note titles, new_after turns stay merged, untitled Notes get empty titles, or continuing across another Note fails
+  it("upgrades a pre-#3731 per-Note database with zero data loss and splits new_after conversations", async () => {
     const { migrations, migrate } = await import("../../src/core/storage/migrations");
+    const { ensureWorkspace } = await import("../../src/core/workspace");
+    const { AGENT_FLOW_SENDS, HOSTED_FLOW_SENDS } = await import("../../src/core/agents");
     const dataDir = await createTempDataFolder();
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     const pre3731 = migrations.filter((m) => m.version <= 165);
     migrate(db, pre3731);
-    const now = "2026-11-26T10:00:00.000Z";
-    const earlier = "2026-11-25T09:00:00.000Z";
+    const t0 = "2026-11-24T09:00:00.000Z";
+    const t1 = "2026-11-25T09:00:00.000Z";
+    const t2 = "2026-11-26T10:00:00.000Z";
+    const t3 = "2026-11-26T11:00:00.000Z";
+    ensureWorkspace(db, () => t0);
     db.transaction(() => {
       db.run(
-        "INSERT INTO minds (id, title, created_at, updated_at) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
-        ["m-pier", "Pier inspection", earlier, now, "m-harbour", "Harbour notes", earlier, now],
+        `INSERT INTO library_groups (id, name, description, created_at, updated_at)
+         VALUES ('f-legacy', 'Kestrel Bay', '', ?, ?)`,
+        [t0, t0],
       );
       db.run(
-        `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)`,
-        [
-          "conv-pier",
-          "m-pier",
-          "p-legacy",
-          "sess-pier",
-          earlier,
-          now,
-          "conv-harbour",
-          "m-harbour",
-          "p-legacy",
-          "sess-harbour",
-          earlier,
-          earlier,
-        ],
+        `INSERT INTO agent_pairings (id, name, folder_ids, client, propose, created_at, updated_at)
+         VALUES ('p-legacy', 'Claude Code', '["f-legacy"]', 'claude-code', 1, ?, ?)`,
+        [t0, t0],
       );
       db.run(
-        `INSERT INTO own_ai_turns (id, conversation_id, request, selection, reply, outcome, created_at, updated_at)
-         VALUES (?, ?, ?, '', ?, 'landed', ?, ?), (?, ?, ?, '', ?, 'landed', ?, ?)`,
-        [
-          "t-pier",
-          "conv-pier",
-          "Which piles need replacing?",
-          "Piles P7, P8 and P15.",
-          now,
-          now,
-          "t-harbour",
-          "conv-harbour",
-          "Summarise the survey",
-          "Berth 2 is 5.9 m.",
-          earlier,
-          earlier,
-        ],
+        `INSERT INTO data_flow_consents
+           (id, flow, service_id, service_name, decision, data_kinds, chosen, created_at, updated_at)
+         VALUES
+           ('c-ag', 'agents', 'agent:p-legacy', 'Claude Code', 'accepted', ?, 1, ?, ?),
+           ('c-ho', 'hosted-agents', 'agent:p-legacy', 'Claude Code', 'accepted', ?, 1, ?, ?)`,
+        [JSON.stringify(AGENT_FLOW_SENDS), t0, t0, JSON.stringify(HOSTED_FLOW_SENDS), t0, t0],
+      );
+      db.run(
+        `INSERT INTO device_settings (id, key, value, created_at, updated_at)
+         VALUES ('ds-ag', 'agentsEnabled', 'true', ?, ?)`,
+        [t0, t0],
+      );
+      db.run(
+        `INSERT INTO minds (id, title, auto_title, folder_id, created_at, updated_at)
+         VALUES
+           ('m-pier', 'Pier inspection', '', 'f-legacy', ?, ?),
+           ('m-harbour', 'Harbour notes', '', 'f-legacy', ?, ?),
+           ('m-auto', '', 'Auto ferry notes', 'f-legacy', ?, ?),
+           ('m-anew', 'Anew note', '', 'f-legacy', ?, ?)`,
+        [t0, t2, t0, t2, t0, t2, t0, t2],
+      );
+      db.run(
+        `INSERT INTO own_ai_conversations
+           (id, mind_id, pairing_id, session_id, anew, created_at, updated_at, deleted_at)
+         VALUES
+           ('conv-pier', 'm-pier', 'p-legacy', 'sess-pier', 0, ?, ?, NULL),
+           ('conv-auto', 'm-auto', 'p-legacy', 'sess-auto-new', 0, ?, ?, NULL),
+           ('conv-anew', 'm-anew', 'p-legacy', 'sess-anew', 1, ?, ?, NULL),
+           ('conv-deleted', 'm-harbour', 'p-legacy', 'sess-del', 0, ?, ?, ?)`,
+        [t2, t2, t0, t3, t1, t1, t0, t0, t1],
+      );
+      db.run(
+        `INSERT INTO own_ai_turns
+           (id, conversation_id, request, selection, reply, outcome, new_after, created_at, updated_at, deleted_at)
+         VALUES
+           ('t-pier', 'conv-pier', 'Which piles need replacing?', '', 'Piles P7, P8 and P15.', 'landed', 0, ?, ?, NULL),
+           ('t-auto-old', 'conv-auto', 'Old question', '', 'Old reply', 'landed', 1, ?, ?, NULL),
+           ('t-auto-scrubbed', 'conv-auto', '', '', '', 'unsent', 0, ?, ?, ?),
+           ('t-auto-new', 'conv-auto', 'Fresh question', '', 'Fresh reply', 'landed', 0, ?, ?, NULL),
+           ('t-anew-1', 'conv-anew', 'Before restart', '', 'Earlier reply', 'landed', 1, ?, ?, NULL),
+           ('t-del-conv', 'conv-deleted', '', '', '', 'landed', 0, ?, ?, ?)`,
+        [t2, t2, t0, t0, t1, t1, t1, t3, t3, t1, t1, t0, t0, t1],
       );
     });
     db.close();
 
     // Open through createCore (runs migration 166 automatically).
-    const run = runner(async () => ({ kind: "finished", reply: "Continued." }));
+    const run = runner(async () => ({ kind: "finished", reply: "Continued on harbour." }));
     const core = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    const done = (() => {
+      const ends: NoteTurnEvent[] = [];
+      core.on("agents.noteTurn", (event) => {
+        if (event.state !== "working") ends.push(event);
+      });
+      return () =>
+        vi.waitFor(() => {
+          expect(ends.length).toBeGreaterThanOrEqual(1);
+          return ends[0];
+        });
+    })();
     try {
+      // Soft-deleted turns must stay scrubbed and never regain Note titles.
+      const checkDb = openDatabase(join(dataDir, DATABASE_FILE));
+      try {
+        expect(
+          checkDb.all(
+            "SELECT id, mind_id, mind_title FROM own_ai_turns WHERE deleted_at IS NOT NULL ORDER BY id",
+          ),
+        ).toEqual([
+          { id: "t-auto-scrubbed", mind_id: "", mind_title: "" },
+          { id: "t-del-conv", mind_id: "", mind_title: "" },
+        ]);
+        // Earlier split segment has a fresh session_id and anew=1; latest segment keeps sess-auto-new & anew=0.
+        const autoConvs = checkDb.all<{
+          id: string;
+          session_id: string;
+          anew: number;
+          created_at: string;
+          updated_at: string;
+        }>(
+          "SELECT id, session_id, anew, created_at, updated_at FROM own_ai_conversations WHERE mind_id = 'm-auto' AND deleted_at IS NULL ORDER BY created_at ASC",
+        );
+        expect(autoConvs).toHaveLength(2);
+        expect(autoConvs[0]?.id).not.toBe("conv-auto");
+        expect(autoConvs[0]?.session_id).not.toBe("sess-auto-new");
+        expect(autoConvs[0]?.anew).toBe(1);
+        expect(autoConvs[0]?.created_at).toBe(t0);
+        expect(autoConvs[1]).toEqual({
+          id: "conv-auto",
+          session_id: "sess-auto-new",
+          anew: 0,
+          created_at: t3,
+          updated_at: t3,
+        });
+        // conv-anew had only a trailing new_after=1 turn: kept resumable on sess-anew (anew=0).
+        expect(
+          checkDb.get<{ anew: number }>(
+            "SELECT anew FROM own_ai_conversations WHERE id = 'conv-anew'",
+          ),
+        ).toEqual({ anew: 0 });
+      } finally {
+        checkDb.close();
+      }
+
+      // History lists all 4 live conversations (split conv-auto gives 2), untitled uses auto_title,
+      // and soft-deleted conv-deleted is absent.
       const list = await core.noteConversations();
-      expect(
-        list.map((c) => [c.id, c.firstRequest, c.notes.map((n) => [n.mindId, n.title])]),
-      ).toEqual([
-        ["conv-pier", "Which piles need replacing?", [["m-pier", "Pier inspection"]]],
-        ["conv-harbour", "Summarise the survey", [["m-harbour", "Harbour notes"]]],
+      expect(list.map((c) => [c.firstRequest, c.notes.map((n) => [n.mindId, n.title])])).toEqual([
+        ["Fresh question", [["m-auto", "Auto ferry notes"]]],
+        ["Which piles need replacing?", [["m-pier", "Pier inspection"]]],
+        ["Before restart", [["m-anew", "Anew note"]]],
+        ["Old question", [["m-auto", "Auto ferry notes"]]],
       ]);
-      expect(await core.latestNoteConversation("m-pier")).toBe("conv-pier");
-      expect(await core.latestNoteConversation("m-harbour")).toBe("conv-harbour");
+      expect(await core.latestNoteConversation("m-pier", "p-legacy")).toBe("conv-pier");
+      expect(await core.latestNoteConversation("m-auto", "p-legacy")).toBe("conv-auto");
       const pierTurns = await core.noteConversation("conv-pier");
       expect(pierTurns).toHaveLength(1);
       expect(pierTurns[0]).toMatchObject({
@@ -3463,6 +3710,22 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
         request: "Which piles need replacing?",
         reply: "Piles P7, P8 and P15.",
       });
+
+      // Continuing the migrated conversation across another Note resumes its original session_id.
+      const continued = await core.askInNote({
+        mindId: "m-harbour",
+        conversationId: "conv-pier",
+        words: "Compare with harbour",
+      });
+      expect(continued).toMatchObject({ kind: "started", conversationId: "conv-pier" });
+      await done();
+      expect(run.runs[0]?.conversation).toEqual({
+        key: "conv-pier",
+        sessionId: "sess-pier",
+        resume: true,
+      });
+      const updated = (await core.noteConversations()).find((c) => c.id === "conv-pier");
+      expect(updated?.notes.map((n) => n.mindId)).toEqual(["m-harbour", "m-pier"]);
     } finally {
       await core.close();
     }

@@ -96,6 +96,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const { pairing, conversationId, seeded, ask } = useActiveConversation(mindId);
   const pairingId = pairing?.id ?? "";
   const words = useNoteColumns((state) => state.draft);
+  // What the input holds now, for a send that comes back after the User typed again.
   const typedNow = useRef(words);
   typedNow.current = words;
   const carry = useRef<InputCarry | null>(null);
@@ -106,6 +107,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const tabId = useTabPlace()?.tabId;
   const place = useNoteColumns((state) => state.place);
   const { slot, followed } = useWindowColumn();
+  // With no column to open in, or none that fits beside the groups, it opens upward.
   const upward = place === "upward" || slot === null;
 
   useEffect(listen, []);
@@ -121,6 +123,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     }
   }, [mindId, pairingId, seeded]);
 
+  // A window opened while a request runs hears of it, and of what its AI asks, from the record.
   useEffect(() => {
     if (!conversationId) return;
     seedRunning(conversationId).catch((error: unknown) =>
@@ -130,16 +133,21 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
 
   const working = ask?.state === "working";
   const going = isGoing(ask);
+  // Read again as a conversation changes in ways no request's state shows.
   const changed = useNoteColumns((state) => state.changed);
   const turns = useOpenConversation(
     conversationId,
     open,
     `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${ask?.queued.join(",") ?? ""}:${changed}`,
   );
-  // Upward, it opens once its turns are read, whole in one step: a blank conversation is [] at once.
+  // Upward, it opens once its turns are read, whole in one step: an empty box growing a moment
+  // later would cover what the User had scrolled into view, and a change's bar docked above it.
   const shownOpen = open && (!upward || turns !== null);
   const [question] = ask?.state === "working" ? ask.questions : [];
+  // Folded, a question shows its card in the box, which grows over the Note as the conversation
+  // does upward, and goes back once it is answered (#3653).
   const asking = question !== undefined && !open;
+  // An AI set to ask nothing says so once in the box too, where the User sees it (#3653).
   const unasking = working && !open && ASKS_NOTHING.has(ask?.mode ?? "") ? ask?.mode : undefined;
   const floating = (upward && shownOpen) || asking || unasking !== undefined;
   const historyCount = useNoteConversations((state) =>
@@ -147,6 +155,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       ? state.list.filter((each) => each.pairingId === pairingId).length
       : state.list.length,
   );
+  // With no conversation yet there is nothing to open: no handle, and the box is its input row.
   const kept = historyCount > 0 || conversationId !== null;
 
   const workingMind = ask?.mindId ? minds.find((each) => each.id === ask.mindId) : undefined;
@@ -158,6 +167,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   useEffect(() => {
     const follow = ({ transaction }: { transaction: Transaction }) => {
       setQuote(selectedForRequest(editor.state)?.quote ?? "");
+      // Only the User's own selecting brings a quote back: the selection a change to the text moves
+      // is still the one sent or put away.
       if (!transaction.docChanged) setWhole(false);
     };
     editor.on("selectionUpdate", follow);
@@ -166,6 +177,9 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     };
   }, [editor]);
 
+  // A sent request's Edit: its words come back to change, about the whole Note, for the words it
+  // was about may be gone; the keyboard is at their end. Words the User is typing stay: the
+  // request's Copy still gives its words.
   const edited = useEditedRequests((state) => state.pending);
   useEffect(() => {
     if (edited === null) return;
@@ -184,10 +198,17 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const send = async () => {
     const typed = words.trim();
     if (typed === "") return;
+    // Sent into a run going, it is about the whole Note: its AI takes no new selection mid-run, so
+    // the input shows no quote meanwhile (#3765). While the working chip names another Note, keep
+    // sending to that originating Note even if the run finishes moments before the core hears this.
+    const targetMindId = going && ask?.mindId ? ask.mindId : mindId;
     const selected = whole || going ? null : selectedForRequest(editor.state);
     setDraftWords("");
     typedNow.current = "";
+    // The quote goes with the words, as they leave the input.
     setWhole(true);
+    // A request that didn't go keeps what the User typed for sending again, unless they have typed
+    // another meanwhile: a failed one's line still sends it again.
     const giveBack = () => {
       if (typedNow.current.trim() !== "") return;
       setDraftWords(typed);
@@ -195,7 +216,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     };
     try {
       const went = await askInNote(
-        mindId,
+        targetMindId,
         {
           words: typed,
           quote: selected?.quote ?? "",
@@ -206,14 +227,16 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
           ...(tabId !== undefined && { tabId }),
           ...(seeded && { conversationId }),
           ...(pairingId !== "" && { pairingId }),
+          ...(going && { intoRunning: true }),
         },
       );
       if (went === "problem" || went === "busy") giveBack();
       if (
         went === "link" &&
-        (await askFirstAgent(mindId, { kind: "question", text: typed })) !== "asked"
+        (await askFirstAgent(targetMindId, { kind: "question", text: typed })) !== "asked"
       )
         giveBack();
+      // It shows in the conversation as sent, waiting for the AI to take it.
       if (went === "sent") setColumnOpen(true);
     } catch (error) {
       giveBack();
@@ -244,6 +267,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
         return;
       }
     }
+    // The card never takes the focus: Shift+Tab from the input reaches its answers, on Deny (#3653).
     if (event.key === "Tab" && event.shiftKey && question) {
       const deny = document.querySelector<HTMLButtonElement>(
         `[data-testid="own-ask-card"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="own-ask-deny"]`,
@@ -266,6 +290,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     void send();
   };
 
+  // Upward, the box keeps the folded box's height in the Note's foot and grows over the Note, so
+  // nothing in the Note moves; a press on the Note outside it folds it.
   const foot = useRef<HTMLDivElement>(null);
   const folded = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -273,6 +299,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   });
   const toggle = () => setColumnOpen(!open);
 
+  // Grown over the Note's foot, it gives the Note's end as much more room, so the Note's last line
+  // still scrolls up above it.
   useLayoutEffect(() => {
     const box = foot.current ? drawnNoteAskBox(foot.current) : null;
     const scroller = foot.current
@@ -298,6 +326,10 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     const fold = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node) || foot.current?.contains(target)) return;
+      // A menu's popover; Show conversation at the Note's top right, which folds it itself: folding
+      // here first would have its press open it again; and what stands above or beside the box, a
+      // change's bar, a meeting's control and the cards over it: folding would move it from under
+      // the press.
       if (
         target instanceof Element &&
         target.closest(
@@ -317,12 +349,15 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       mindId={mindId}
       editor={editor}
       onOpen={() => {
+        // The pressed line goes as the conversation opens: the keyboard goes to the input.
         focusNoteAsk(mindId);
         if (upward) toggle();
         else openColumnAt(ask.turnId);
       }}
     />
   ) : null;
+  // Open, the conversation shows the line's reply and a failure of its request; a request that
+  // failed before it began has no turn there, so its line stays above the input.
   const shownLine = shownOpen && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
   const agent = ask?.agent || pairing?.name || "Claude Code";
   const input = (
@@ -338,7 +373,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       words={words}
       onWords={(typed) => {
         setDraftWords(typed);
-        clearNoteAsk(conversationId, mindId);
+        clearNoteAsk(conversationId, mindId, pairingId);
       }}
       quote={whole || going ? "" : quote}
       onWholeNote={() => setWhole(true)}
@@ -347,6 +382,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       onStop={() => void stopInNote(stopKey)}
       onKeyDown={onKeyDown}
       carry={carry}
+      // Folded, the box says how to see the conversation again in words, wherever it opens; open,
+      // only a line the conversation can't show stays above the input.
       line={
         shownOpen ? (
           shownLine
@@ -383,6 +420,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
             />
             <NoteConversationBody
               mindId={mindId}
+              pairingId={pairingId}
               conversationId={conversationId}
               editor={editor}
               agent={agent}
@@ -549,8 +587,9 @@ function useOpenConversation(
 }
 
 /**
- * Show conversation, at the Note's top right beside its menu (#3677). Toggles the window's
- * conversation open or folded.
+ * Show conversation, at the Note's top right beside its menu, as the User's AI app has Show chat in
+ * its page's header (#3677). It shows wherever the Note has its input, since the conversation is a
+ * place to ask too.
  */
 export function NoteConversationButton({ mindId }: { mindId: string }) {
   const t = useT();
@@ -565,6 +604,7 @@ export function NoteConversationButton({ mindId }: { mindId: string }) {
       aria-expanded={open}
       aria-label={t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
       title={t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
+      // The input keeps the focus as it moves between the Note's foot and the conversation.
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => setColumnOpen(!open)}
       className="note-conversation-button"

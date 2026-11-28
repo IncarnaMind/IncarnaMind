@@ -21,7 +21,7 @@ import {
   useMeetingNoteView,
   useMeetingViewFocus,
 } from "../../meetingViews";
-import { setColumnOpen } from "../../ownAiInNote";
+import { isGoing, setColumnOpen, useActiveConversation } from "../../ownAiInNote";
 import { useRequests } from "../../requests";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { closeTip, useFeatureTip } from "../../tips";
@@ -207,10 +207,13 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   useAudioQuestionInSheet(meeting, tabId, open);
   const writable = !live && meeting.fill?.state === "own-ai";
   const notesAsked = useNotesAsked(meeting, writable);
+  const { ask: activeAsk } = useActiveConversation(mindId);
+  const conversationBusy = isGoing(activeAsk);
   // Pressed and gone nowhere: the line above the input says why, or, where the AI chosen for the
   // notes can't read them, the card over the control does.
   const [unsent, setUnsent] = useState(false);
   const writeNotes = () => {
+    if (conversationBusy) return;
     setSheet(tabId, mindId, false);
     writeMeetingNotes(meeting, t("meetings.foot.writeNotesRequest"))
       .then((went) => setUnsent(!went))
@@ -296,6 +299,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
         <button
           type="button"
           data-testid="meeting-write-notes"
+          disabled={conversationBusy}
           onClick={writeNotes}
           className={buttonStyle("primary")}
         >

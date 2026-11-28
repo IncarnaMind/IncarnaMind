@@ -24,7 +24,10 @@ const isOffered = (mode: string): mode is NoteMode =>
 
 /**
  * Whether the User's own AI asks before it acts or works on its own, by the input after the model
- * (#3765, #3731). Follows the conversation across Notes.
+ * (#3765, #3731). It starts on the User's own settings for the AI and names the mode they say,
+ * whichever it is; a choice holds for this conversation only (following across Notes) and writes
+ * nothing into the AI's own settings, and while a request runs the AI takes it from its next step.
+ * Nothing until a request has named the AI's mode.
  */
 export function NoteModeChoice({
   mindId,
@@ -38,7 +41,8 @@ export function NoteModeChoice({
     useNoteAsks((state) =>
       conversationId !== null
         ? state.byConversation[conversationId]?.agent
-        : state.pendingByMind[mindId]?.agent,
+        : (Object.values(state.pendingByPairing).find((each) => each.mindId === mindId)?.agent ??
+          state.pendingByPairing[mindId]?.agent),
     ) || "Claude Code";
   const menu = usePopoverMenu({ align: "end", side: "above" });
   const [seen, setSeen] = useState<{
@@ -47,10 +51,12 @@ export function NoteModeChoice({
     refused: string | null;
   }>({ mode: null, chosen: false, refused: null });
   const [reads, setReads] = useState(0);
+  // The mode a running request is in, as it names it, and each request's end bring it again.
   const running = useNoteAsks((state) => {
     const ask = conversationId !== null ? state.byConversation[conversationId] : undefined;
     return ask?.state === "working" ? (ask.mode ?? "") : null;
   });
+  // A choice in another window, or the running request's answer to one, is read here too.
   useEffect(
     () =>
       core.on("agents.noteMode", (changed) => {

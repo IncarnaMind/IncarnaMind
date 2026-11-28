@@ -5,8 +5,9 @@
  * follows the User across Notes until they start a new one or pick an earlier one from History.
  * IncarnaMind keeps each conversation's id and its own record of each request and reply; it never
  * reads the agent's transcript, and deletes both copies when the User deletes the conversation
- * from History, removes the connection or takes the consent back. Deleting a Note no longer
- * deletes conversations. The agent keeps its own abilities, on the User's own settings for it:
+ * from History, deletes its only Note (or every Note it touched) for good, removes the connection
+ * or takes the consent back. A conversation shared with another Note stays when one of its Notes
+ * is deleted for good. The agent keeps its own abilities, on the User's own settings for it:
  * what it asks before it uses one waits on the User's answer here, and what it does with them
  * shows as steps (#3653). A request typed while one runs goes into that run at once, a turn of its
  * own once the agent takes it (#3765).
@@ -181,10 +182,10 @@ export interface OwnAiConversationsOptions {
   /** The list or titles of own-AI conversations changed: every window refreshes History. */
   changed?(conversationId?: string): void;
   titleOf(mindId: string): string;
-  /** Live Note title, or fallback with `deleted: true` when the Note is deleted or purged. */
-  noteStatus?(mindId: string, fallback: string): { title: string; deleted: boolean };
+  /** Builds a per-call lookup of live Note titles so History and turns never scan all Notes per row. */
+  noteStatus(): (mindId: string, fallback: string) => { title: string; deleted: boolean };
   /** Display name of a connection, for History rows and permanent-delete prompts. */
-  agentName?(pairingId: string): string;
+  agentName(pairingId: string): string;
   /** The Note's meeting while it records or is paused; null for a Note with none. */
   liveMeeting?(mindId: string): OwnAiLiveMeeting | null;
   /** The interface's language, by its English name, for the lines the User reads. */
@@ -431,7 +432,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   const stop = (key: string) => {
     const run = running.get(key);
     if (run) run.stop.abort();
-    else for (const each of checking.get(key) ?? []) each.abort();
+    for (const each of checking.get(key) ?? []) each.abort();
   };
 
   const createConversation = (mindId: string, pairingId: string): ConversationRow => {
@@ -482,13 +483,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   ) => {
     if (options.lifetime.aborted) return;
     const reply = rest.reply ?? "";
-    const appliedCount = (rest.applied ?? []).reduce(
-      (sum, each) => sum + each.changed + each.added,
-      0,
-    );
-    const waitingHere =
-      (rest.waiting ?? []).find((each) => each.mindId === turn.mindId)?.count ?? 0;
-    const changedCount = Math.max(0, appliedCount > 0 ? appliedCount : waitingHere);
+    // Only immediate applied changes in this turn's Note count as "Changed N paragraphs": waiting
+    // Proposals elsewhere or here are never called "Changed" (#3731).
+    const appliedCount = (rest.applied ?? [])
+      .filter((each) => each.mindId === turn.mindId)
+      .reduce((sum, each) => sum + each.changed + each.added, 0);
+    const changedCount = Math.max(0, appliedCount);
     try {
       finishTurn(
         turn.turnId,
@@ -599,6 +599,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         : input.conversationId === null
           ? null
           : words(input.conversationId, 200);
+    if (input.intoRunning !== undefined && typeof input.intoRunning !== "boolean") {
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
+    }
+    const intoRunning = input.intoRunning === true;
     if (input.mode !== undefined && !(NOTE_MODES as readonly string[]).includes(input.mode)) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
@@ -613,7 +617,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     }
 
     // A request typed while one runs goes into that run, staying on the Note the run started on
-    // (#3765, #3731). One about words selected doesn't: its AI takes no new selection mid-run.
+    // (#3765, #3731). One about words selected doesn't: its AI takes no new selection mid-run, so
+    // it waits for Stop.
     const into = (run: Running): NoteRequestStart => {
       if (options.lifetime.aborted || options.heldBack(run.pairing, run.mindId))
         return { kind: "link" };
@@ -634,17 +639,44 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       options.changed?.(run.conversationId);
       return { kind: "sent", pairing: run.pairing, conversationId: run.conversationId, turnId };
     };
-    const runningForRequest = (): Running | undefined => {
-      if (typeof requestedConversation === "string") return running.get(requestedConversation);
+    const runOnMind = (id: string): Running | undefined => {
       for (const each of running.values()) {
-        if (each.mindId === mindId && (pairingId === undefined || each.pairing.id === pairingId)) {
-          return each;
-        }
+        if (each.mindId === id) return each;
       }
       return undefined;
     };
-    const already = runningForRequest();
-    if (already) return into(already);
+    const joinOrBusy = (run: Running): NoteRequestStart => {
+      if (pairingId !== undefined && run.pairing.id !== pairingId) {
+        return { kind: "busy", pairing: run.pairing };
+      }
+      // Only join a run locked to another Note when the caller explicitly targets it; callers like
+      // Write notes or selection actions never hijack another Note's run (#3731).
+      if (run.mindId !== mindId && !intoRunning) {
+        return { kind: "busy", pairing: run.pairing };
+      }
+      return into(run);
+    };
+    const checkRunning = (): NoteRequestStart | null => {
+      if (typeof requestedConversation === "string") {
+        const onConv = running.get(requestedConversation);
+        if (onConv) return joinOrBusy(onConv);
+        const onMind = runOnMind(mindId);
+        if (onMind) return { kind: "busy", pairing: onMind.pairing };
+        return null;
+      }
+      if (requestedConversation === null) {
+        // Explicit New conversation never silently joins an existing run, and ADR-0034 keeps at
+        // most one run per Note.
+        const onMind = runOnMind(mindId);
+        if (onMind) return { kind: "busy", pairing: onMind.pairing };
+        return null;
+      }
+      const onMind = runOnMind(mindId);
+      if (onMind) return joinOrBusy(onMind);
+      return null;
+    };
+    const already = checkRunning();
+    if (already) return already;
 
     const { runner } = options;
     const existing =
@@ -659,12 +691,17 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         )
       : askable.find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
     if (!runner || !pairing) return { kind: "link" };
+    if (typeof requestedConversation === "string" && !existing) {
+      return { kind: "problem", pairing, problem: "failed" };
+    }
 
-    const checkKey =
-      existing?.id ?? (typeof requestedConversation === "string" ? requestedConversation : mindId);
+    const checkKeys =
+      existing?.id && existing.id !== mindId ? [existing.id, mindId] : [existing?.id ?? mindId];
     const stopped = new AbortController();
-    const checks = checking.get(checkKey) ?? new Set<AbortController>();
-    checking.set(checkKey, checks.add(stopped));
+    for (const key of checkKeys) {
+      const set = checking.get(key) ?? new Set<AbortController>();
+      checking.set(key, set.add(stopped));
+    }
     let status: OwnAiStatus;
     try {
       if (!(await runner.installed("claude-code"))) return { kind: "link" };
@@ -672,8 +709,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (!(await options.consented(pairing))) return { kind: "link" };
       status = await runner.status("claude-code");
     } finally {
-      checks.delete(stopped);
-      if (checks.size === 0) checking.delete(checkKey);
+      for (const key of checkKeys) {
+        const set = checking.get(key);
+        set?.delete(stopped);
+        if (set?.size === 0) checking.delete(key);
+      }
     }
     if (status.kind === "missing" || status.kind === "unsupported") return { kind: "link" };
     if (status.kind === "signed-out") return { kind: "problem", pairing, problem: "signed-out" };
@@ -686,8 +726,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         versions: { found: status.found, lowest: status.lowest },
       };
     }
-    const meanwhile = runningForRequest();
-    if (meanwhile) return into(meanwhile);
+    const meanwhile = checkRunning();
+    if (meanwhile) return meanwhile;
     // The consent can wait as long as the User does: what it found may no longer hold.
     if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
 
@@ -695,13 +735,21 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     if (requestedConversation === null) {
       conversation = createConversation(mindId, pairing.id);
     } else if (typeof requestedConversation === "string") {
-      conversation =
-        conversationById(requestedConversation) ?? createConversation(mindId, pairing.id);
+      const stillThere = conversationById(requestedConversation);
+      if (!stillThere) return { kind: "problem", pairing, problem: "failed" };
+      conversation = stillThere;
     } else {
       const latestId = latestConversationId(mindId, pairing.id);
       conversation =
         (latestId && conversationById(latestId)) || createConversation(mindId, pairing.id);
     }
+    // ADR-0034: never resume one conversation in two Claude Code processes, and never run two
+    // requests on one Note at once. Re-check after resolving `conversation` (e.g. an unseeded
+    // second window whose Note's latest conversation is already running on another Note).
+    const activeOnConv = running.get(conversation.id);
+    if (activeOnConv) return joinOrBusy(activeOnConv);
+    const activeOnMind = runOnMind(mindId);
+    if (activeOnMind) return { kind: "busy", pairing: activeOnMind.pairing };
     const pending = requestedMode ?? pendingModes.get(pairing.id);
     if (requestedConversation === null || !hasEarlierTurns(conversation.id, "")) {
       if (pending !== undefined && !chosenModes.has(conversation.id)) {
@@ -1579,16 +1627,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     for (const each of going ? next : rest) carried.live.send(each.turnId, each.words);
   }
 
-  const noteStatusOf = (mindId: string, fallback: string) =>
-    options.noteStatus
-      ? options.noteStatus(mindId, fallback)
-      : { title: fallback || options.titleOf(mindId), deleted: false };
-
   const hydrateTurns = (
     rows: readonly TurnRow[],
     pairingIdByConversation: ReadonlyMap<string, string>,
   ): NoteTurn[] => {
     if (rows.length === 0) return [];
+    const statusOf = options.noteStatus();
     const turnIds = rows.map((row) => row.id);
     const closed = new Map<string, NoteAction[]>();
     for (const each of db.all<{
@@ -1615,6 +1659,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         [...reply.matchAll(CITATION_TOKEN)].flatMap(([, token]) => (token ? [token] : [])),
       ),
     ];
+    // One look at every token of the conversation, each against its Document as it is now.
     const foundByPairing = new Map<string, Map<string, NoteCitation>>();
     for (const pairingId of new Set(pairingIdByConversation.values())) {
       const tokens = [
@@ -1633,7 +1678,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       const pairingId = pairingIdByConversation.get(row.conversation_id) ?? "";
       const found = foundByPairing.get(pairingId);
       const now = running.get(row.conversation_id);
-      const note = noteStatusOf(row.mind_id, row.mind_title);
+      const note = statusOf(row.mind_id, row.mind_title);
       return {
         id: row.id,
         mindId: row.mind_id,
@@ -1758,6 +1803,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
          ORDER BY last_at DESC, c.updated_at DESC`,
       );
       if (rows.length === 0) return [];
+      const statusOf = options.noteStatus();
       const ids = rows.map((row) => row.id);
       const notesByConversation = new Map<string, NoteConversationNote[]>();
       for (const each of db.all<{
@@ -1771,7 +1817,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
          ORDER BY touched_at DESC, rowid DESC`,
         ids,
       )) {
-        const note = noteStatusOf(each.mind_id, each.mind_title);
+        const note = statusOf(each.mind_id, each.mind_title);
         const list = notesByConversation.get(each.conversation_id) ?? [];
         list.push({ mindId: each.mind_id, title: note.title, deleted: note.deleted });
         notesByConversation.set(each.conversation_id, list);
@@ -1779,7 +1825,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       return rows.map((row) => ({
         id: row.id,
         pairingId: row.pairing_id,
-        agent: options.agentName ? options.agentName(row.pairing_id) : "Claude Code",
+        agent: options.agentName(row.pairing_id),
         title: row.title,
         firstRequest: row.first_request ?? "",
         notes: notesByConversation.get(row.id) ?? [],
@@ -1788,9 +1834,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       }));
     },
 
-    /** The newest live conversation that touched `mindId`, or null when none has (#3731). */
-    latestFor(mindId: string): string | null {
-      return latestConversationId(mindId);
+    /** The newest live conversation that touched `mindId` (for `pairingId` when given), or null (#3731). */
+    latestFor(mindId: string, pairingId?: string): string | null {
+      return latestConversationId(mindId, pairingId);
     },
 
     /** Sets the conversation's user-chosen name; a blank name changes nothing (#3731). */
@@ -1910,11 +1956,43 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     },
 
     /**
-     * Deleting a Note permanently no longer deletes conversations (#3731, ADR-0034): conversations
-     * stay in History until deleted there, or when their connection or consent is removed.
+     * Deletes conversations whose Notes have all been deleted for good: a conversation another
+     * non-purged Note shares stays; one that touched only purged Note(s) goes with them,
+     * transcript included (#3731, ADR-0034).
      */
     async dropPurged(): Promise<void> {
-      return;
+      const doomed = db.all<{ id: string }>(
+        `SELECT c.id FROM own_ai_conversations c
+         WHERE c.deleted_at IS NULL
+           AND (
+             (
+               EXISTS (
+                 SELECT 1 FROM own_ai_conversation_notes n
+                 JOIN minds m ON m.id = n.mind_id
+                 WHERE n.conversation_id = c.id
+                   AND n.deleted_at IS NULL
+                   AND m.purged_at IS NOT NULL
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM own_ai_conversation_notes n
+                 LEFT JOIN minds m ON m.id = n.mind_id
+                 WHERE n.conversation_id = c.id
+                   AND n.deleted_at IS NULL
+                   AND (m.id IS NULL OR m.purged_at IS NULL)
+               )
+             )
+             OR (
+               NOT EXISTS (
+                 SELECT 1 FROM own_ai_conversation_notes n
+                 WHERE n.conversation_id = c.id AND n.deleted_at IS NULL
+               )
+               AND c.mind_id IN (SELECT id FROM minds WHERE purged_at IS NOT NULL)
+             )
+           )`,
+      );
+      if (doomed.length === 0) return;
+      await forget(doomed);
+      options.changed?.();
     },
 
     /** Deletes a connection's conversations: it was removed, or its consent taken back. */

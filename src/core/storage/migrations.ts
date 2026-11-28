@@ -3540,13 +3540,95 @@ export const migrations: readonly Migration[] = [
         (SELECT c.mind_id FROM own_ai_conversations c WHERE c.id = own_ai_turns.conversation_id),
         ''
       )
-      WHERE mind_id = '';
+      WHERE mind_id = '' AND deleted_at IS NULL;
       UPDATE own_ai_turns
       SET mind_title = COALESCE(
-        (SELECT m.title FROM minds m WHERE m.id = own_ai_turns.mind_id),
+        (SELECT COALESCE(NULLIF(m.title, ''), m.auto_title, '') FROM minds m WHERE m.id = own_ai_turns.mind_id),
         ''
       )
-      WHERE mind_title = '' AND mind_id != '';
+      WHERE mind_title = '' AND mind_id != '' AND deleted_at IS NULL;
+      -- Split conversations restarted with #3765's inline New conversation (new_after / anew) so
+      -- each earlier segment becomes its own conversation in History and the active conversation
+      -- keeps only the turns its Claude Code session remembers (#3731).
+      CREATE TEMP TABLE _own_ai_turn_split AS
+      SELECT
+        t.id AS turn_id,
+        t.conversation_id AS old_id,
+        COALESCE(
+          SUM(CASE WHEN t.new_after = 1 THEN 1 ELSE 0 END) OVER (
+            PARTITION BY t.conversation_id
+            ORDER BY t.created_at ASC, t.rowid ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+          ),
+          0
+        ) AS seg
+      FROM own_ai_turns t
+      JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
+      WHERE t.deleted_at IS NULL;
+      CREATE TEMP TABLE _own_ai_seg_map AS
+      WITH bounds AS (
+        SELECT old_id, MAX(seg) AS max_seg
+        FROM _own_ai_turn_split
+        GROUP BY old_id
+      )
+      SELECT
+        s.old_id,
+        s.seg,
+        ${UUID_V4_SQL} AS new_id,
+        ${UUID_V4_SQL} AS new_session_id,
+        MIN(t.created_at) AS min_created_at,
+        MAX(t.updated_at) AS max_updated_at
+      FROM _own_ai_turn_split s
+      JOIN bounds b ON b.old_id = s.old_id
+      JOIN own_ai_turns t ON t.id = s.turn_id
+      WHERE s.seg < b.max_seg
+      GROUP BY s.old_id, s.seg;
+      INSERT INTO own_ai_conversations
+        (id, mind_id, pairing_id, session_id, title, renewed, anew, created_at, updated_at)
+      SELECT
+        m.new_id, c.mind_id, c.pairing_id, m.new_session_id, NULL, 0, 1,
+        m.min_created_at, m.max_updated_at
+      FROM _own_ai_seg_map m
+      JOIN own_ai_conversations c ON c.id = m.old_id;
+      UPDATE own_ai_turns
+      SET conversation_id = (
+        SELECT m.new_id
+        FROM _own_ai_turn_split s
+        JOIN _own_ai_seg_map m ON m.old_id = s.old_id AND m.seg = s.seg
+        WHERE s.turn_id = own_ai_turns.id
+      )
+      WHERE id IN (
+        SELECT s.turn_id
+        FROM _own_ai_turn_split s
+        JOIN _own_ai_seg_map m ON m.old_id = s.old_id AND m.seg = s.seg
+      );
+      UPDATE own_ai_conversations
+      SET
+        created_at = COALESCE(
+          (SELECT MIN(t.created_at) FROM own_ai_turns t
+           WHERE t.conversation_id = own_ai_conversations.id AND t.deleted_at IS NULL),
+          created_at
+        ),
+        updated_at = COALESCE(
+          (SELECT MAX(t.updated_at) FROM own_ai_turns t
+           WHERE t.conversation_id = own_ai_conversations.id AND t.deleted_at IS NULL),
+          updated_at
+        )
+      WHERE id IN (SELECT DISTINCT old_id FROM _own_ai_seg_map);
+      UPDATE own_ai_conversations
+      SET anew = 0
+      WHERE deleted_at IS NULL
+        AND anew = 1
+        AND id NOT IN (SELECT new_id FROM _own_ai_seg_map)
+        AND EXISTS (
+          SELECT 1 FROM own_ai_turns t
+          WHERE t.conversation_id = own_ai_conversations.id
+            AND t.deleted_at IS NULL
+            AND t.new_after = 1
+        );
+      UPDATE own_ai_turns SET new_after = 0 WHERE new_after != 0 AND deleted_at IS NULL;
+      DROP TABLE _own_ai_seg_map;
+      DROP TABLE _own_ai_turn_split;
       CREATE INDEX own_ai_turns_by_mind ON own_ai_turns (mind_id, created_at)
         WHERE deleted_at IS NULL;
       -- Every Note a conversation asked from, changed or created, so History groups by Note.
@@ -3566,7 +3648,7 @@ export const migrations: readonly Migration[] = [
         ON own_ai_conversation_notes (mind_id, touched_at) WHERE deleted_at IS NULL;
       INSERT INTO own_ai_conversation_notes
         (id, conversation_id, mind_id, mind_title, touched_at, created_at, updated_at)
-      SELECT ${UUID_V4_SQL}, c.id, c.mind_id, COALESCE(m.title, ''),
+      SELECT ${UUID_V4_SQL}, c.id, c.mind_id, COALESCE(NULLIF(m.title, ''), m.auto_title, ''),
         MAX(t.created_at), c.created_at, MAX(t.updated_at)
       FROM own_ai_conversations c
       JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL

@@ -12,10 +12,13 @@ import type { askInNote, NoteAsk, turnApplied } from "../../src/renderer/src/own
 type Asks = {
   byConversation: Readonly<Record<string, Partial<NoteAsk>>>;
   lastByMind: Readonly<Record<string, Partial<NoteAsk>>>;
+  endedByTurn: Readonly<
+    Record<string, { state: "landed" | "failed" | "stopped"; changed: number }>
+  >;
 };
 
 const asks = vi.hoisted(() => {
-  let state: Asks = { byConversation: {}, lastByMind: {} };
+  let state: Asks = { byConversation: {}, lastByMind: {}, endedByTurn: {} };
   const listeners = new Set<(next: Asks) => void>();
   return {
     getState: () => state,
@@ -66,6 +69,10 @@ const told = (turnId: string, state: NoteAsk["state"], changed = 0) => {
   asks.setState({
     byConversation: { [CONVERSATION_ID]: entry },
     lastByMind: { [meeting.mindId]: entry },
+    endedByTurn:
+      state === "working"
+        ? asks.getState().endedByTurn
+        : { ...asks.getState().endedByTurn, [turnId]: { state, changed } },
   });
 };
 
@@ -82,7 +89,7 @@ async function pressed() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  asks.setState({ byConversation: {}, lastByMind: {} });
+  asks.setState({ byConversation: {}, lastByMind: {}, endedByTurn: {} });
   asks.listeners.clear();
   check.mockResolvedValue(undefined);
   applied.mockResolvedValue(undefined);
@@ -188,5 +195,27 @@ describe("Write notes", () => {
     expect(await writeMeetingNotes(meeting, WORDS)).toBe(false);
     expect(link).not.toHaveBeenCalled();
     expect(check).not.toHaveBeenCalled();
+  });
+
+  // protects=when a follow-up takes the conversation's visible slot before the Meeting turn ends, Write notes still resolves by turnId and runs the Check once (#3731); fails_when=Write notes hangs forever waiting for byConversation to show the Meeting turn again
+  test("resolves and runs the Check even when a follow-up replaces the visible ask", async () => {
+    const { press } = await pressed();
+    // Follow-up takes over the conversation's visible slot while "turn" finishes in the background.
+    asks.setState({
+      byConversation: {
+        [CONVERSATION_ID]: {
+          conversationId: CONVERSATION_ID,
+          mindId: meeting.mindId,
+          turnId: "followup",
+          state: "working",
+          changed: 0,
+        },
+      },
+      lastByMind: asks.getState().lastByMind,
+      endedByTurn: { turn: { state: "landed", changed: 2 } },
+    });
+    expect(await press).toBe(true);
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledWith(meeting.mindId);
   });
 });

@@ -353,12 +353,13 @@ export function FailureLine({
   // stopped part way is sent again from its line.
   const again =
     ask.turnId !== null && RETRIED.has(ask.problem ?? "failed") ? askedAgain(ask, turn) : null;
+  const retryMindId = ask.mindId || mindId;
   const action: ProblemAction | undefined = readOnly
     ? {
         label: t("noteAsk.allow"),
         testId: "note-ask-allow",
         onClick: () =>
-          void allowAndAskAgain(mindId, ask.conversationId, turn).catch(
+          void allowAndAskAgain(retryMindId, ask.conversationId, turn).catch(
             useAppStore.getState().reportError,
           ),
       }
@@ -373,7 +374,7 @@ export function FailureLine({
             label: t("noteAsk.tryAgain"),
             testId: "note-ask-try-again",
             onClick: () =>
-              void askAgainInNote(mindId, again, ask.conversationId).catch(
+              void askAgainInNote(retryMindId, again, ask.conversationId).catch(
                 useAppStore.getState().reportError,
               ),
           }

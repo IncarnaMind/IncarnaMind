@@ -7651,17 +7651,14 @@ export function createCore(adapters: CoreAdapters): Core {
     const mind = minds.list().find((each) => each.id === mindId);
     return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
   };
-  const hostedNoteStatus = (mindId: string, fallback: string) => {
-    const mind = minds.list().find((each) => each.id === mindId);
-    if (mind) {
-      return {
-        title: mindName(mind) || translate(settings.get().language, "mind.untitled"),
-        deleted: false,
-      };
-    }
-    return {
-      title: fallback || translate(settings.get().language, "mind.untitled"),
-      deleted: true,
+  const hostedNoteStatus = () => {
+    const untitled = translate(settings.get().language, "mind.untitled");
+    const byId = new Map(minds.list().map((each) => [each.id, mindName(each) || untitled]));
+    return (mindId: string, fallback: string) => {
+      const live = byId.get(mindId);
+      return live !== undefined
+        ? { title: live, deleted: false }
+        : { title: fallback || untitled, deleted: true };
     };
   };
   const ownAiChecks = createOwnAiChecks({
@@ -10281,10 +10278,10 @@ export function createCore(adapters: CoreAdapters): Core {
       return ownAiConversations.turnsForMind(mindId);
     },
     noteConversations: async () => ownAiConversations.list(),
-    latestNoteConversation: async (mindId) => {
-      if (typeof mindId !== "string")
+    latestNoteConversation: async (mindId, pairingId) => {
+      if (typeof mindId !== "string" || (pairingId !== undefined && typeof pairingId !== "string"))
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      return ownAiConversations.latestFor(mindId);
+      return ownAiConversations.latestFor(mindId, pairingId);
     },
     renameNoteConversation: async (conversationId, title) => {
       if (typeof conversationId !== "string" || typeof title !== "string")

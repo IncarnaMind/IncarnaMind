@@ -10,8 +10,10 @@ import { usePopoverMenu } from "../usePopoverMenu";
 import { shortModel } from "./NoteColumn";
 
 /**
- * The model this conversation runs on, inside its input before Send (#3677, #3731): follows the
- * conversation across Notes. Nothing until a request has run since IncarnaMind started.
+ * The model this conversation runs on, inside its input before Send (#3677, #3731), from the list
+ * the User's AI gave a request's run: follows the conversation across Notes, and shows nothing
+ * until a request has run since IncarnaMind started. While a request runs it shows the model and
+ * can't be changed.
  */
 export function NoteModelChoice({
   mindId,
@@ -25,9 +27,12 @@ export function NoteModelChoice({
   const t = useT();
   const modelKey = conversationId ?? "";
   const [models, setModels] = useState<readonly NoteModel[]>([]);
+  // The model this conversation last ran on, as the core holds it for every window.
   const [ran, setRan] = useState<string | null>(null);
   const chosen = useNoteColumns((state) => state.model[modelKey]);
   const menu = usePopoverMenu({ align: "end", side: "above" });
+  // A run hears the list before it names its model, so each run that names one, and each that
+  // ends, may bring a list.
   const runsNamed = useNoteTrails(
     (state) => Object.values(state.byTurn).filter((trail) => trail.model !== null).length,
   );
@@ -43,6 +48,7 @@ export function NoteModelChoice({
       setRan(last);
       const { model } = useNoteColumns.getState();
       const kept = model[modelKey];
+      // A model no longer offered isn't sent: the agent's own default answers instead.
       if (kept !== undefined && !listed.some((each) => each.value === kept)) {
         const { [modelKey]: _gone, ...rest } = model;
         useNoteColumns.setState({ model: rest });
@@ -53,6 +59,8 @@ export function NoteModelChoice({
     };
   }, [mindId, conversationId, modelKey, runsNamed, ended]);
   if (models.length === 0) return null;
+  // With none chosen, the model that last ran here, and none until one has: the User's own setting
+  // may name another than the list's first, which is the agent's general default.
   const picked = models.find((each) => each.value === chosen);
   const current = picked ?? models.find((each) => ran !== null && each.resolvedModel === ran);
   const label = picked

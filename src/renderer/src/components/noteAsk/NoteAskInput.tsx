@@ -22,7 +22,10 @@ export interface InputCarry {
  * rows lay out inside it on the same left and right edges: the conversation when it opens upward,
  * the top row while the AI has a line, and the input row (a chip naming the Note this request is
  * about—plus selected text, or "Working in …" locked to the running Note while viewing another—
- * the words, the model, the mode, and Send/Stop).
+ * the words, the model, the mode, and Send, which is Stop while a request runs and nothing is
+ * typed: words typed then go into its run, #3765). It is at the Note's foot, or at the column's
+ * foot while the column is open, drawn anew in each place, so it takes the focus and the caret
+ * along with the words its owner keeps.
  */
 export function NoteAskInput({
   mindId,
@@ -80,6 +83,9 @@ export function NoteAskInput({
     }
     return () => {
       if (!element) return;
+      // A composition the IME hasn't ended can't move with the box: its letters would stay as
+      // typed and the IME's end would add its characters after them. The words go back to what
+      // they were before it, and the IME's end writes into the input in its new place.
       const open = composing.current;
       carry.current = {
         focused: document.activeElement === element,
@@ -90,6 +96,7 @@ export function NoteAskInput({
       if (open) wordsTo.current(open.words);
     };
   }, [carry]);
+  // Once the words are back to what they were, the caret goes to where the composition began.
   useLayoutEffect(() => {
     const after = caretAfter.current;
     if (after === null || after.words !== words || !input.current) return;

@@ -224,6 +224,7 @@ export function NoteColumn({
       </header>
       <NoteConversationBody
         mindId={mindId}
+        pairingId={pairingId}
         conversationId={conversationId}
         editor={editor}
         agent={agent}
@@ -250,6 +251,7 @@ const roomForNewest = (element: HTMLElement) => {
   if (!last?.hasAttribute("data-newest")) return;
   if (element.scrollHeight <= element.clientHeight) return;
   const style = getComputedStyle(element);
+  // Its height once it has grown as far as it may: opened upward, it grows with its turns.
   const most = Number.parseFloat(style.maxHeight);
   const room =
     (Number.isNaN(most) ? element.clientHeight : Math.max(most, element.clientHeight)) -
@@ -265,6 +267,7 @@ const roomForNewest = (element: HTMLElement) => {
  */
 export function NoteConversationBody({
   mindId,
+  pairingId,
   conversationId,
   editor,
   agent,
@@ -272,6 +275,7 @@ export function NoteConversationBody({
   className,
 }: {
   mindId: string;
+  pairingId: string;
   conversationId: string | null;
   editor: Editor;
   agent: string;
@@ -281,17 +285,24 @@ export function NoteConversationBody({
   const t = useT();
   const waiting = useWaitingInNote(editor);
   const ask = useNoteAsks((state) =>
-    conversationId !== null ? state.byConversation[conversationId] : state.pendingByMind[mindId],
+    conversationId !== null
+      ? state.byConversation[conversationId]
+      : ((pairingId ? state.pendingByPairing[pairingId] : undefined) ??
+        state.pendingByPairing[mindId]),
   );
   const working = ask?.state === "working";
   const going = isGoing(ask);
   const trails = useNoteTrails((state) => state.byTurn);
+  // The last request that ran: a request sent meanwhile may stand after it, waiting or never sent.
   const ranAt =
     turns
       ?.map((turn) => turn.outcome !== "waiting" && turn.outcome !== "unsent")
       .lastIndexOf(true) ?? -1;
   const at = useNoteColumns((state) => state.at);
   const body = useRef<HTMLDivElement>(null);
+  // Once in the conversation, above the first step the AI took with a tool of its own, a line says
+  // it does so (#3653), unless that step asked, whose card said it already; and once, at the first
+  // request its own mode asks nothing in.
   const firstStep = turns
     ?.flatMap((turn) =>
       (trails[turn.id]?.steps ?? []).flatMap((step) =>
@@ -304,6 +315,7 @@ export function NoteConversationBody({
     turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
 
   const atEnd = useRef(true);
+  // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
   // biome-ignore lint/correctness/useExhaustiveDependencies: follows what it shows.
   useLayoutEffect(() => {
     const element = body.current;
@@ -320,12 +332,17 @@ export function NoteConversationBody({
     markScrolled(element);
   }, [turns, trails, waiting, at, ask?.questions]);
 
+  // With the newest in view, it stays in view in the same frame as anything above it grows or
+  // shrinks (a turn above settling, say), not a moment later: a card's answers never move under a
+  // press on its way to them.
   const sizes = useRef<ResizeObserver | null>(null);
   useEffect(() => {
     const element = body.current;
     if (!element) return;
     let was = element.scrollTop;
     const scrolled = () => {
+      // Only the User scrolling up leaves the end: content that grows before this hears of a scroll
+      // makes the end look farther, though nothing moved.
       if (element.scrollHeight - element.scrollTop - element.clientHeight <= 2)
         atEnd.current = true;
       else if (element.scrollTop < was - 1) atEnd.current = false;
@@ -373,7 +390,8 @@ export function NoteConversationBody({
             index === turns.length - 1 &&
             (ask?.turnId === turn.id || (ask?.queued.includes(turn.id) ?? false))
           }
-          // Accept all and Undo appear only when the edited Note is the one in front (#3731).
+          // The reply's one action, Accept all or Undo, is under the last reply, as the line's is,
+          // and appears only when the edited Note is the one in front (#3731).
           accept={
             index === ranAt && !going && ask && ask.turnId === turn.id && turn.mindId === mindId ? (
               <EndAction ask={ask} mindId={mindId} editor={editor} named />
@@ -416,9 +434,11 @@ function Turn({
   questions: readonly NoteQuestion[];
   first: boolean;
   modeLine: boolean;
+  /** The last turn, and the request sent from this window: it starts under the top row. */
   newest: boolean;
   accept: ReactNode;
   changedInTurn: number;
+  /** The request, while this turn is its newest and failed: its line has the one thing to do. */
   failed: NoteAsk | null;
 }) {
   const t = useT();
@@ -426,6 +446,7 @@ function Turn({
   const [open, setOpen] = useState(false);
   const state = trail?.state ?? (turn.outcome === "working" ? "working" : turn.outcome);
   const steps = (trail?.steps ?? []).filter(
+    // The reply's own words come as a line too: the reply shows them.
     (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
   );
   const made = steps.filter((step) => madeKind(step) !== null);
@@ -433,6 +454,8 @@ function Turn({
   const turnNoteTitle = (liveTurnMind && mindName(liveTurnMind)) || turn.mindTitle;
   const editedElsewhere =
     state === "landed" && turn.mindId !== "" && turn.mindId !== mindId && changedInTurn > 0;
+  // A step that didn't run for the stop already says it stopped: the line goes, unless it says
+  // what the run had read.
   const stopSaid =
     steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
   const elsewhereCard = editedElsewhere ? (
@@ -677,6 +700,12 @@ function ChangedElsewhereCard({
   );
 }
 
+/**
+ * Under a sent request, shown while it is pointed at or holds the focus (#3765): when it was sent,
+ * then Send again, Edit and Copy. Send again is there for a request on the whole Note: the words
+ * another was about can't be selected again for it, as Ask again has it; while a run goes it goes
+ * into that run. Edit puts the words back in the input to change and send as a new request.
+ */
 function SentActions({
   mindId,
   conversationId,
@@ -751,6 +780,10 @@ function CopyRequest({ words }: { words: string }) {
   );
 }
 
+/**
+ * Under a request sent while another ran, until its AI takes it (#3765). Copy is all it offers:
+ * the AI has it already, so it can't be changed or taken back.
+ */
 function Waiting({ words }: { words: string }) {
   const t = useT();
   return (
@@ -768,6 +801,11 @@ function Waiting({ words }: { words: string }) {
   );
 }
 
+/**
+ * Under a request sent while another ran whose run ended before its AI took it (#3765): it never
+ * reached the AI. Send asks it as a new request, in its place; Edit gives it back to the input;
+ * Discard removes it.
+ */
 function NotSent({
   mindId,
   conversationId,

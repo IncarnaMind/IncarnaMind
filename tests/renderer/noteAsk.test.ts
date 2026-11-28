@@ -58,7 +58,11 @@ const bridge = {
   conversations: [] as NoteConversationSummary[],
   noteConversations: async () => bridge.conversations,
   latestByMind: {} as Record<string, string | null>,
-  latestNoteConversation: async (mindId: string) => bridge.latestByMind[mindId] ?? null,
+  latestCalls: [] as [string, string | undefined][],
+  latestNoteConversation: async (mindId: string, pairingId?: string) => {
+    bridge.latestCalls.push([mindId, pairingId]);
+    return bridge.latestByMind[mindId] ?? null;
+  },
   deleted: [] as string[],
   deleteNoteConversation: async (conversationId: string) => {
     bridge.deleted.push(conversationId);
@@ -141,8 +145,14 @@ beforeEach(() => {
   bridge.runningTurns = [];
   bridge.conversations = [];
   bridge.latestByMind = {};
+  bridge.latestCalls = [];
   bridge.start = { kind: "started", pairing: claude, conversationId: "c1", turnId: "t1" };
-  useNoteAsks.setState({ byConversation: {}, pendingByMind: {}, lastByMind: {} });
+  useNoteAsks.setState({
+    byConversation: {},
+    pendingByPairing: {},
+    lastByMind: {},
+    endedByTurn: {},
+  });
   useNoteColumns.setState({
     open: false,
     activeByPairing: {},
@@ -152,6 +162,7 @@ beforeEach(() => {
     at: null,
     changed: 0,
     turnsCache: null,
+    historyOpenRequested: false,
   });
   useNoteConversations.setState({ list: [], loaded: false });
   try {
@@ -484,6 +495,7 @@ describe("conversation follows across Notes (#3731)", () => {
     bridge.latestByMind = { "m-pier": "c-pier", "m-harbour": "c-harbour" };
 
     await seedConversationFor("m-pier", "p1");
+    expect(bridge.latestCalls).toEqual([["m-pier", "p1"]]);
     expect(useNoteColumns.getState().activeByPairing.p1).toBe("c-pier");
 
     // Opening Harbour notes does not overwrite the active conversation once seeded.

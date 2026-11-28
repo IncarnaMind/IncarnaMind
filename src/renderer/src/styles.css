@@ -3208,6 +3208,7 @@
     min-width: 0;
     max-width: 55%;
   }
+  /* The target Note chip (and any selection quote), before the words; its × makes it about the whole Note. */
   .note-ask-input-quote {
     display: inline-flex;
     align-items: center;
@@ -3540,9 +3541,7 @@
     gap: 20px;
     min-height: 0;
     overflow: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-rule-strong) transparent;
+    @apply thin-scrollbar;
     padding: var(--scroll-head) 16px var(--scroll-foot);
   }
   .note-column-turn {
@@ -3891,9 +3890,7 @@
     /* About half the Note's visible height at the window sizes the app opens at, under the top row. */
     max-height: 40vh;
     overflow: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-rule-strong) transparent;
+    @apply thin-scrollbar;
     padding: var(--scroll-head) var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
     .note-column-reply-foot {
       min-height: 16px;
@@ -13003,9 +13000,7 @@
     margin: 0;
     padding: 4px;
     overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-rule-strong) transparent;
+    @apply thin-scrollbar;
     list-style: none;
   }
   .assistant-history-row {
@@ -13032,6 +13027,10 @@
     }
     &:focus-visible {
       outline-offset: -2px;
+    }
+    &:disabled {
+      cursor: default;
+      opacity: 0.5;
     }
   }
   .assistant-history-empty {
@@ -13113,6 +13112,10 @@
     color: var(--color-ink);
     &:focus-visible {
       outline-offset: -2px;
+    }
+    &:disabled {
+      cursor: default;
+      opacity: 0.5;
     }
   }
   .note-history-row-title {

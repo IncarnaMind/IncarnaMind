@@ -3786,7 +3786,7 @@ export const zhCN = {
   "consent.flow.edits.purpose": "按你的要求修改选中的文字",
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
   "consent.data.note-requests":
-    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Claude Code 会把每段对话保存在这台电脑上，直到你在历史对话中删除、断开它或在这里撤回；闲置 30 天的对话它也会删除",
+    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Claude Code 会把每段对话保存在这台电脑上，直到你在历史对话中删除、彻底删除它唯一涉及的笔记、断开它或在这里撤回（与其他笔记共用的对话会保留）；闲置 30 天的对话它也会删除",
   "consent.data.own-ai-context":
     "在笔记的对话里，Claude Code 按它自己的设置加入的内容：你的 CLAUDE.md 文件、它的记忆、你的技能，以及你自己的服务器、连接器、命令、文件和网页给它的内容，以它的设置允许的为限",
   "consent.data.source-quotes":
@@ -8931,6 +8931,7 @@ export const zhCN = {
   "noteColumn.changed.other": "修改了 {count} 段",
   "noteColumn.historyCommand": "历史对话",
   "noteColumn.newCommand": "新对话",
+  "noteColumn.deleteCommand": "删除对话",
   // 你的 AI 在笔记对话里用自己的工具前的请求，以及它用这些工具的步骤（#3653）。
   "ownAsk.title.command": "运行命令",
   "ownAsk.title.write": "写入文件",

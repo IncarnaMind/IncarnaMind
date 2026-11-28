@@ -2366,7 +2366,7 @@ test("the conversation follows across Notes at rest and during a run, marks Note
   }
 });
 
-test("History opens from the clock button at both widths, groups conversations touching this Note first, switches, renames inline, permanently deletes with confirmation, and survives deleting a Note permanently, in English and Chinese (#3731)", async () => {
+test("History opens from the clock button and ⌘K when folded, groups conversations touching this Note first (showing other touched Notes), switches, renames inline, permanently deletes with confirmation, and purges single-Note conversations while keeping shared ones, in English and Chinese (#3731)", async () => {
   let { app, window } = await launched();
   let harbour = "";
   let pier = "";
@@ -2388,7 +2388,10 @@ test("History opens from the clock button at both widths, groups conversations t
       await ended(window, mindId, before);
     };
 
-    // Three conversations: two touching Harbour notes, one touching only Pier inspection.
+    // Three conversations:
+    // 1. Shared conversation touching Harbour notes AND Pier inspection.
+    // 2. Single-Note conversation touching only Pier inspection.
+    // 3. Single-Note conversation touching only Harbour notes (active).
     await open(window, harbour);
     await send(harbour, "What does the harbour plan add?", "plan");
     const group = window.locator('[data-testid="tab-group"][data-focused]');
@@ -2399,20 +2402,32 @@ test("History opens from the clock button at both widths, groups conversations t
       "conversation-move-left",
     );
     const column = window.getByTestId("note-column");
+    await open(window, pier);
+    await send(pier, "Check the pier link", "timetable");
 
     await fromConversationMenu(window, column, "conversation-new");
-    await open(window, pier);
     await send(pier, "Check the pier piles", "timetable");
 
     await fromConversationMenu(window, column, "conversation-new");
     await open(window, harbour);
     await send(harbour, "When does the 07:40 leave?", "timetable");
 
-    // History groups Harbour notes's conversations first, then Other conversations.
-    // Pointer opening must not leave a keyboard focus ring on Close, and the current Note's group
-    // shows only the time without repeating its heading.
-    await pointAndClick(window, column.getByTestId("conversation-history-button"));
+    // ⌘K "Conversation history" works even when the conversation is folded (#3731).
+    await fromConversationMenu(window, column, "note-column-close");
+    await expect(column).toHaveCount(0);
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type("Conversation history");
+    await window.keyboard.press("Enter");
     const history = window.getByTestId("note-history-popover");
+    await expect(column).toBeVisible();
+    await expect(history).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(history).toHaveCount(0);
+
+    // History groups Harbour notes's conversations first, then Other conversations.
+    // Pointer opening must not leave a keyboard focus ring on Close; single-Note rows in the
+    // current Note's group show only the time, while multi-Note rows show the OTHER Note(s).
+    await pointAndClick(window, column.getByTestId("conversation-history-button"));
     await expect(history).toBeVisible();
     expect(
       await history
@@ -2429,6 +2444,7 @@ test("History opens from the clock button at both widths, groups conversations t
     await expect(items.nth(0)).toContainText("When does the 07:40 leave?");
     await expect(items.nth(0).locator(".note-history-row-meta")).not.toContainText("Harbour notes");
     await expect(items.nth(1)).toContainText("What does the harbour plan add?");
+    await expect(items.nth(1).locator(".note-history-row-meta")).toContainText("Pier inspection");
     await expect(items.nth(1).locator(".note-history-row-meta")).not.toContainText("Harbour notes");
     await expect(items.nth(2)).toContainText("Check the pier piles");
     await expect(items.nth(2).locator(".note-history-row-meta")).toContainText("Pier inspection");
@@ -2441,6 +2457,7 @@ test("History opens from the clock button at both widths, groups conversations t
     );
     await expect(column.locator(".note-column-bubble")).toHaveText([
       "What does the harbour plan add?",
+      "Check the pier link",
     ]);
 
     // Inline rename from the row ⋯ menu.
@@ -2473,13 +2490,13 @@ test("History opens from the clock button at both widths, groups conversations t
     expect(historyBox.y + historyBox.height).toBeLessThanOrEqual(inputBox.y + 4);
 
     // Delete… opens the permanent-delete confirmation dialog; Cancel keeps, Delete Permanently removes.
-    const pierRow = history.getByTestId("note-history-row").nth(2);
-    await pierRow.hover();
-    await pointAndClick(window, pierRow.getByTestId("note-history-row-menu"));
+    const singleHarbourRow = history.getByTestId("note-history-row").nth(0);
+    await singleHarbourRow.hover();
+    await pointAndClick(window, singleHarbourRow.getByTestId("note-history-row-menu"));
     await pointAndClick(window, window.getByTestId("note-history-delete"));
     const dialog = window.getByTestId("delete-note-conversation-dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("Delete “Check the pier piles” permanently?");
+    await expect(dialog).toContainText("Delete “When does the 07:40 leave?” permanently?");
     await expect(dialog).toContainText("Claude Code");
     await pointAndClick(window, dialog.getByTestId("cancel-delete-note-conversation"));
     await expect(dialog).toBeHidden();
@@ -2487,17 +2504,18 @@ test("History opens from the clock button at both widths, groups conversations t
 
     // Confirm permanent deletion in Chinese too.
     await setLanguage(window, "zh-CN");
-    await pierRow.hover();
-    await pointAndClick(window, pierRow.getByTestId("note-history-row-menu"));
+    await singleHarbourRow.hover();
+    await pointAndClick(window, singleHarbourRow.getByTestId("note-history-row-menu"));
     await pointAndClick(window, window.getByTestId("note-history-delete"));
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("彻底删除“Check the pier piles”？");
+    await expect(dialog).toContainText("彻底删除“When does the 07:40 leave?”？");
     await pointAndClick(window, dialog.getByTestId("confirm-delete-note-conversation"));
     await expect(dialog).toBeHidden();
     await expect(history.getByTestId("note-history-row")).toHaveCount(2);
     await window.keyboard.press("Escape");
 
-    // Permanently deleting a Note never deletes its conversation (#3731).
+    // Permanently deleting Pier inspection deletes its single-Note conversation ("Check the pier
+    // piles") while keeping the shared conversation ("Harbour ramp plan") (#3731).
     await window.evaluate(async (id) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.deleteMind(id);
@@ -2506,7 +2524,10 @@ test("History opens from the clock button at both widths, groups conversations t
     await setLanguage(window, "en");
     await setWindowSize(app, window, 1440, 900);
     await pointAndClick(window, column.getByTestId("conversation-history-button"));
-    await expect(history.getByTestId("note-history-row")).toHaveCount(2);
+    await expect(history.getByTestId("note-history-row")).toHaveCount(1);
+    await expect(history.getByTestId("note-history-row").first()).toContainText(
+      "Harbour ramp plan",
+    );
     await window.keyboard.press("Escape");
   } finally {
     await app.close();

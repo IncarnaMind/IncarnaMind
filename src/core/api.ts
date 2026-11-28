@@ -13546,6 +13546,8 @@ export interface NoteRequestInput {
    * conversation that touched `mindId` or starts one (#3731).
    */
   conversationId?: string | null;
+  /** True when the User explicitly sends into a running conversation while viewing another Note (#3731). */
+  intoRunning?: boolean;
   /** Permission mode chosen on a blank conversation before its first turn (#3731). */
   mode?: NoteMode;
 }
@@ -16585,8 +16587,8 @@ export interface CoreApi {
   noteTurnsForMind(mindId: string): Promise<NoteTurn[]>;
   /** Every live conversation with the User's own AI that has at least one turn, newest first (#3731). */
   noteConversations(): Promise<NoteConversationSummary[]>;
-  /** The newest live conversation that touched `mindId`, or null when none has (#3731). */
-  latestNoteConversation(mindId: string): Promise<string | null>;
+  /** The newest live conversation that touched `mindId` (for `pairingId` when given), or null (#3731). */
+  latestNoteConversation(mindId: string, pairingId?: string): Promise<string | null>;
   /** Sets the conversation's user-chosen name; a blank string changes nothing (#3731). */
   renameNoteConversation(conversationId: string, title: string): Promise<void>;
   /** Permanently deletes a conversation from IncarnaMind and purges the agent's transcript (#3731). */

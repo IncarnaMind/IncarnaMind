@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import {
-  focusNoteAsk,
-  isGoing,
+  consumeNoteHistoryRequest,
   moveConversation,
+  noteConversationTitle,
   setColumnOpen,
   startNewConversation,
-  useNoteAsks,
   useNoteColumns,
   useNoteConversations,
-} from "../../ownAiInNote";
+} from "../../noteConversations";
+import { focusNoteAsk, isGoing, useNoteAsks } from "../../ownAiInNote";
 import {
   ChevronDownLineIcon,
   CloseLineIcon,
@@ -22,13 +22,14 @@ import {
 import { MenuItemParts } from "../MenuItemParts";
 import { menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
-import { NoteHistoryPopover, noteConversationTitle } from "./NoteHistoryPopover";
+import { NoteHistoryPopover } from "./NoteHistoryPopover";
 
 /**
  * The conversation's top row (#3765, #3731): at the left, the conversation's name (first request
  * or user-renamed title, or "New conversation" before its first turn), whose menu starts a new
- * conversation, moves it between the window's column and the Note's foot, and hides it; at the
- * right end, a clock button that opens the History popover.
+ * conversation, moves it between the window's column and the Note's foot where both can stand, and
+ * hides it; at the right end, a clock button that opens the History popover. Each item gives the
+ * keyboard back to the input, where it was before the menu took it.
  */
 export function ConversationMenu({
   mindId,
@@ -50,21 +51,24 @@ export function ConversationMenu({
   const menu = usePopoverMenu({ focus: "first" });
   const historyButton = useRef<HTMLButtonElement>(null);
   const [historyOpen, setHistoryOpen] = useState<false | "pointer" | "keyboard">(false);
-  const historyRequest = useNoteColumns((state) => state.historyRequest);
-  const lastHistoryRequest = useRef(historyRequest);
+  const historyRequested = useNoteColumns((state) => state.historyOpenRequested);
   useEffect(() => {
-    if (historyRequest !== lastHistoryRequest.current) {
-      lastHistoryRequest.current = historyRequest;
-      setHistoryOpen("keyboard");
-    }
-  }, [historyRequest]);
+    if (!historyRequested) return;
+    consumeNoteHistoryRequest();
+    setHistoryOpen("keyboard");
+  }, [historyRequested]);
 
   const summary = useNoteConversations((state) =>
     conversationId ? state.list.find((each) => each.id === conversationId) : undefined,
   );
+  // Not while the core holds a run of the conversation: a request working, its AI waiting on the
+  // User, or one sent meanwhile still to be answered.
   const working = useNoteAsks((state) =>
     isGoing(
-      conversationId !== null ? state.byConversation[conversationId] : state.pendingByMind[mindId],
+      conversationId !== null
+        ? state.byConversation[conversationId]
+        : ((pairingId ? state.pendingByPairing[pairingId] : undefined) ??
+            state.pendingByPairing[mindId]),
     ),
   );
   const title =
@@ -161,6 +165,7 @@ export function ConversationMenu({
           mindId={mindId}
           pairingId={pairingId}
           activeId={conversationId}
+          working={working}
           place={place}
           openedBy={historyOpen}
           onClose={() => setHistoryOpen(false)}

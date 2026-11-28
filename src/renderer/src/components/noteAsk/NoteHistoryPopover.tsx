@@ -6,13 +6,14 @@ import { mindName } from "../../../../shared/naming";
 import { Popover } from "../../editor/Popover";
 import { useLanguage, useT } from "../../i18n";
 import {
-  deleteNoteConversation,
-  focusNoteAsk,
+  noteConversationTitle,
   refreshNoteConversations,
   renameNoteConversation,
   selectConversation,
   useNoteConversations,
-} from "../../ownAiInNote";
+} from "../../noteConversations";
+import { focusNoteAsk } from "../../ownAiInNote";
+import { useRequests } from "../../requests";
 import { useAppStore } from "../../store";
 import {
   CheckLineIcon,
@@ -24,27 +25,10 @@ import {
   TrashLineIcon,
 } from "../icons";
 import { MenuItemParts } from "../MenuItemParts";
-import {
-  buttonClass,
-  dangerButtonClass,
-  dialogActionsClass,
-  dialogBodyClass,
-  dialogClass,
-  dialogTextClass,
-  dialogTitleClass,
-  iconButtonClass,
-  menuClass,
-  menuItemClass,
-  menuRuleClass,
-} from "../ui";
-import { useModal } from "../useModal";
+import { iconButtonClass, menuClass, menuItemClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
-/** Display title of a conversation: user-chosen title, else its first request's words. */
-export const noteConversationTitle = (
-  conversation: Pick<NoteConversationSummary, "title" | "firstRequest">,
-  fallback: string,
-): string => conversation.title?.trim() || conversation.firstRequest.trim() || fallback;
+export { noteConversationTitle };
 
 /**
  * Own-AI conversation history (#3731): opened from the clock button at the right end of the
@@ -57,6 +41,7 @@ export function NoteHistoryPopover({
   mindId,
   pairingId,
   activeId,
+  working,
   place,
   openedBy = "keyboard",
   onClose,
@@ -65,6 +50,7 @@ export function NoteHistoryPopover({
   mindId: string;
   pairingId: string;
   activeId: string | null;
+  working: boolean;
   place: "column" | "upward";
   openedBy?: "pointer" | "keyboard";
   onClose(): void;
@@ -77,7 +63,6 @@ export function NoteHistoryPopover({
   const currentMind = minds.find((each) => each.id === mindId);
   const currentTitle = (currentMind && mindName(currentMind)) || t("mind.untitled");
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<NoteConversationSummary | null>(null);
 
   useEffect(() => {
     void refreshNoteConversations().catch(useAppStore.getState().reportError);
@@ -89,118 +74,119 @@ export function NoteHistoryPopover({
   const others = conversations.filter((each) => !each.notes.some((n) => n.mindId === mindId));
 
   const pick = (conversation: NoteConversationSummary) => {
-    selectConversation(conversation.pairingId, conversation.id);
+    if (working && conversation.id !== activeId) return;
+    if (conversation.id !== activeId) selectConversation(conversation.pairingId, conversation.id);
     onClose();
     requestAnimationFrame(() => focusNoteAsk(mindId));
   };
 
+  const askDelete = (conversation: NoteConversationSummary) => {
+    useRequests.getState().ask({ deleteNoteConversation: conversation });
+  };
+
   return (
-    <>
-      <Popover
-        anchor={anchor}
-        placement={place === "upward" ? "top-end" : "bottom-end"}
-        middleware={() => [offset(6), flip({ crossAxis: false }), shift({ padding: 8 })]}
-        onDismiss={() => {
-          if (confirmDelete === null) onClose();
-        }}
-        initialFocus={openedBy === "keyboard" ? close : panel}
-        returnFocus
-        aria-label={t("noteColumn.history")}
-        data-testid="note-history-popover"
+    <Popover
+      anchor={anchor}
+      placement={place === "upward" ? "top-end" : "bottom-end"}
+      middleware={() => [offset(6), flip({ crossAxis: false }), shift({ padding: 8 })]}
+      onDismiss={() => {
+        if (useRequests.getState().deleteNoteConversation === null) onClose();
+      }}
+      initialFocus={openedBy === "keyboard" ? close : panel}
+      returnFocus
+      aria-label={t("noteColumn.history")}
+      data-testid="note-history-popover"
+    >
+      <section
+        ref={panel}
+        tabIndex={-1}
+        className="assistant-history note-history focus:outline-none"
       >
-        <section
-          ref={panel}
-          tabIndex={-1}
-          className="assistant-history note-history focus:outline-none"
-        >
-          <header className="assistant-history-head">
-            <HistoryLineIcon className="shrink-0 text-ink-meta" />
-            <h2 className="min-w-0 flex-1 truncate">{t("noteColumn.history")}</h2>
-            <button
-              ref={close}
-              type="button"
-              data-testid="note-history-close"
-              aria-label={t("noteColumn.historyClose")}
-              title={t("noteColumn.historyClose")}
-              onClick={onClose}
-              className={iconButtonClass}
-            >
-              <CloseLineIcon />
-            </button>
-          </header>
-          {conversations.length === 0 ? (
-            <p data-testid="note-history-empty" className="assistant-history-empty">
-              {t("noteColumn.historyEmpty")}
-            </p>
-          ) : (
-            <div className="assistant-history-list note-history-list">
-              {thisNote.length > 0 && (
-                <div data-testid="note-history-group-current" className="note-history-group">
-                  <div data-testid="note-history-group-heading" className="note-history-group-head">
-                    <MindLineIcon className="note-history-group-icon" aria-hidden="true" />
-                    <span className="truncate">{currentTitle}</span>
+        <header className="assistant-history-head">
+          <HistoryLineIcon className="shrink-0 text-ink-meta" />
+          <h2 className="min-w-0 flex-1 truncate">{t("noteColumn.history")}</h2>
+          <button
+            ref={close}
+            type="button"
+            data-testid="note-history-close"
+            aria-label={t("noteColumn.historyClose")}
+            title={t("noteColumn.historyClose")}
+            onClick={onClose}
+            className={iconButtonClass}
+          >
+            <CloseLineIcon />
+          </button>
+        </header>
+        {conversations.length === 0 ? (
+          <p data-testid="note-history-empty" className="assistant-history-empty">
+            {t("noteColumn.historyEmpty")}
+          </p>
+        ) : (
+          <div className="assistant-history-list note-history-list">
+            {thisNote.length > 0 && (
+              <div data-testid="note-history-group-current" className="note-history-group">
+                <div data-testid="note-history-group-heading" className="note-history-group-head">
+                  <MindLineIcon className="note-history-group-icon" aria-hidden="true" />
+                  <span className="truncate">{currentTitle}</span>
+                </div>
+                <ul aria-label={currentTitle} className="note-history-rows">
+                  {thisNote.map((conversation) => (
+                    <HistoryRow
+                      key={conversation.id}
+                      conversation={conversation}
+                      active={conversation.id === activeId}
+                      disabled={working && conversation.id !== activeId}
+                      renaming={renamingId === conversation.id}
+                      omitMindId={mindId}
+                      onPick={() => pick(conversation)}
+                      onStartRename={() => setRenamingId(conversation.id)}
+                      onDoneRename={() => setRenamingId(null)}
+                      onAskDelete={() => askDelete(conversation)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+            {others.length > 0 && (
+              <div data-testid="note-history-group-other" className="note-history-group">
+                {thisNote.length > 0 && (
+                  <div
+                    data-testid="note-history-group-heading"
+                    className="note-history-group-head note-history-group-head--other"
+                  >
+                    <span className="truncate">{t("noteColumn.historyOther")}</span>
                   </div>
-                  <ul aria-label={currentTitle} className="note-history-rows">
-                    {thisNote.map((conversation) => (
-                      <HistoryRow
-                        key={conversation.id}
-                        conversation={conversation}
-                        active={conversation.id === activeId}
-                        renaming={renamingId === conversation.id}
-                        showNotes={false}
-                        onPick={() => pick(conversation)}
-                        onStartRename={() => setRenamingId(conversation.id)}
-                        onDoneRename={() => setRenamingId(null)}
-                        onAskDelete={() => setConfirmDelete(conversation)}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {others.length > 0 && (
-                <div data-testid="note-history-group-other" className="note-history-group">
-                  {thisNote.length > 0 && (
-                    <div
-                      data-testid="note-history-group-heading"
-                      className="note-history-group-head note-history-group-head--other"
-                    >
-                      <span className="truncate">{t("noteColumn.historyOther")}</span>
-                    </div>
-                  )}
-                  <ul aria-label={t("noteColumn.historyOther")} className="note-history-rows">
-                    {others.map((conversation) => (
-                      <HistoryRow
-                        key={conversation.id}
-                        conversation={conversation}
-                        active={conversation.id === activeId}
-                        renaming={renamingId === conversation.id}
-                        showNotes
-                        onPick={() => pick(conversation)}
-                        onStartRename={() => setRenamingId(conversation.id)}
-                        onDoneRename={() => setRenamingId(null)}
-                        onAskDelete={() => setConfirmDelete(conversation)}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      </Popover>
-      <DeleteNoteConversationDialog
-        conversation={confirmDelete}
-        onClose={() => setConfirmDelete(null)}
-      />
-    </>
+                )}
+                <ul aria-label={t("noteColumn.historyOther")} className="note-history-rows">
+                  {others.map((conversation) => (
+                    <HistoryRow
+                      key={conversation.id}
+                      conversation={conversation}
+                      active={conversation.id === activeId}
+                      disabled={working && conversation.id !== activeId}
+                      renaming={renamingId === conversation.id}
+                      onPick={() => pick(conversation)}
+                      onStartRename={() => setRenamingId(conversation.id)}
+                      onDoneRename={() => setRenamingId(null)}
+                      onAskDelete={() => askDelete(conversation)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    </Popover>
   );
 }
 
 function HistoryRow({
   conversation,
   active,
+  disabled,
   renaming,
-  showNotes,
+  omitMindId,
   onPick,
   onStartRename,
   onDoneRename,
@@ -208,8 +194,10 @@ function HistoryRow({
 }: {
   conversation: NoteConversationSummary;
   active: boolean;
+  disabled: boolean;
   renaming: boolean;
-  showNotes: boolean;
+  /** In the open Note's group, omit the open Note's own name so only other touched Notes show. */
+  omitMindId?: string;
   onPick(): void;
   onStartRename(): void;
   onDoneRename(): void;
@@ -252,14 +240,13 @@ function HistoryRow({
   };
 
   const separator = language === "zh-CN" ? "、" : ", ";
-  const noteTitles = showNotes
-    ? conversation.notes
-        .map((each) => {
-          const live = minds.find((m) => m.id === each.mindId);
-          return (live && mindName(live)) || each.title;
-        })
-        .filter((each) => each !== "")
-    : [];
+  const noteTitles = conversation.notes
+    .filter((each) => each.mindId !== omitMindId)
+    .map((each) => {
+      const live = minds.find((m) => m.id === each.mindId);
+      return (live && mindName(live)) || each.title;
+    })
+    .filter((each) => each !== "");
   const dateText = formatDateTime(conversation.updatedAt, language);
   const metaLine = noteTitles.length > 0 ? `${noteTitles.join(separator)} · ${dateText}` : dateText;
 
@@ -290,6 +277,7 @@ function HistoryRow({
         <button
           type="button"
           data-testid="note-history-row-pick"
+          disabled={disabled}
           onClick={onPick}
           onDoubleClick={(event) => {
             event.preventDefault();
@@ -373,71 +361,5 @@ function HistoryRow({
         </div>
       )}
     </li>
-  );
-}
-
-/**
- * Permanent-delete confirmation dialog for a conversation, reusing Recently deleted's dialog style:
- * deleting removes both IncarnaMind's record and the agent's transcript and can't be undone (#3731).
- */
-function DeleteNoteConversationDialog({
-  conversation,
-  onClose,
-}: {
-  conversation: NoteConversationSummary | null;
-  onClose(): void;
-}) {
-  const t = useT();
-  const dialog = useModal(conversation !== null);
-  const shown = useRef(conversation);
-  if (conversation) shown.current = conversation;
-  const current = shown.current;
-  const name = current ? noteConversationTitle(current, t("noteColumn.title")) : "";
-  const agent = current?.agent || "Claude Code";
-
-  const confirm = () => {
-    const doomed = conversation;
-    onClose();
-    if (!doomed) return;
-    void deleteNoteConversation(doomed.id).catch(useAppStore.getState().reportError);
-  };
-
-  return (
-    <dialog
-      ref={dialog}
-      onClose={onClose}
-      data-testid="delete-note-conversation-dialog"
-      role="alertdialog"
-      aria-labelledby="delete-note-conversation-title"
-      aria-describedby="delete-note-conversation-body"
-      className={`${dialogClass} w-[26rem]`}
-    >
-      <div className={dialogBodyClass}>
-        <h2 id="delete-note-conversation-title" className={`${dialogTitleClass} break-words`}>
-          {t("noteColumn.delete.title", { name })}
-        </h2>
-        <p id="delete-note-conversation-body" className={`${dialogTextClass} break-words`}>
-          {t("noteColumn.delete.body", { agent })}
-        </p>
-        <div className={dialogActionsClass}>
-          <button
-            type="button"
-            data-testid="cancel-delete-note-conversation"
-            onClick={onClose}
-            className={buttonClass}
-          >
-            {t("deleted.confirm.cancel")}
-          </button>
-          <button
-            type="button"
-            data-testid="confirm-delete-note-conversation"
-            onClick={confirm}
-            className={dangerButtonClass}
-          >
-            {t("deleted.confirm.delete")}
-          </button>
-        </div>
-      </div>
-    </dialog>
   );
 }

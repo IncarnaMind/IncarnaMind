@@ -1,8 +1,9 @@
 /**
- * Conversations with the User's own command-line AI (ADR-0034, #3627, #3731): what is asked, how
- * each request goes as the core tells it ("agents.noteTurn"), the changes it made in the Note it
- * was asked from (applied at once in the window that asked, with Undo), and the active
- * conversation per connected AI that follows the User across Notes.
+ * The input at a Note's foot, for a User whose own AI is a command-line one IncarnaMind runs in
+ * the background (ADR-0034, #3627, #3731): what is asked, how each request goes as the core tells
+ * it ("agents.noteTurn"), and the changes it made in the Note it was asked from, applied at once
+ * in the window that asked, with the applied-edit line and its Undo, as the assistant's are
+ * (`applyTurn`). Active-conversation, History and persistence state live in `./noteConversations`.
  */
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
@@ -11,12 +12,10 @@ import type {
   AgentPairing,
   NoteAnswer,
   NoteChangeApplied,
-  NoteConversationSummary,
   NoteMode,
   NoteQuestion,
   NoteSelectionBlock,
   NoteStep,
-  NoteTurn,
   NoteTurnEvent,
   NoteTurnProblem,
 } from "../../core/api";
@@ -31,9 +30,45 @@ import {
 import type { ChangedMind } from "./changedMinds";
 import { core } from "./core";
 import { currentTabOf } from "./layoutSlice";
+import {
+  connectNoteAskState,
+  consumeNoteHistoryRequest,
+  deleteNoteConversation,
+  moveConversation,
+  noteConversationTitle,
+  openColumnAt,
+  openNoteHistory,
+  refreshNoteConversations,
+  renameNoteConversation,
+  seedConversationFor,
+  selectConversation,
+  setColumnOpen,
+  startNewConversation,
+  useColumnOpen,
+  useNoteColumns,
+  useNoteConversations,
+} from "./noteConversations";
 import { useNotices } from "./notices";
 import { hiddenForOwnAiNow, runsInBackground, useHiddenForOwnAi } from "./ownAiPanel";
 import { useAppStore } from "./store";
+
+export {
+  consumeNoteHistoryRequest,
+  deleteNoteConversation,
+  moveConversation,
+  noteConversationTitle,
+  openColumnAt,
+  openNoteHistory,
+  refreshNoteConversations,
+  renameNoteConversation,
+  seedConversationFor,
+  selectConversation,
+  setColumnOpen,
+  startNewConversation,
+  useColumnOpen,
+  useNoteColumns,
+  useNoteConversations,
+};
 
 /** What the User asked, and what it was about: the words selected, if any. */
 export interface NoteAsked {
@@ -59,7 +94,7 @@ export interface NoteAsk {
   problem: NoteTurnProblem | null;
   versions: { found: string; lowest: string } | null;
   reply: string;
-  /** Paragraphs changed at once in `mindId`. */
+  /** Paragraphs changed at once in the Note asked from (`mindId`). */
   changed: number;
   waiting: NoteTurnEvent["waiting"];
   made: NoteTurnEvent["made"];
@@ -77,16 +112,29 @@ export interface NoteAsk {
   asked: NoteAsked;
 }
 
+/** Terminal outcome of a turn, kept by turnId even when a follow-up takes the visible slot. */
+export interface EndedNoteTurn {
+  state: Exclude<NoteTurnEvent["state"], "working">;
+  changed: number;
+}
+
 export const useNoteAsks = create<{
   byConversation: Readonly<Record<string, NoteAsk>>;
-  /** Brief preflight placeholder while a brand-new conversation waits for its id, keyed by mindId. */
-  pendingByMind: Readonly<Record<string, NoteAsk>>;
+  /**
+   * Brief preflight placeholder while a brand-new conversation waits for its id, keyed by
+   * pairingId (or mindId when no pairing is cached yet) so switching Notes mid-preflight still
+   * sees the pending start (#3731).
+   */
+  pendingByPairing: Readonly<Record<string, NoteAsk>>;
   /** Latest turn started per mindId, for callers such as Write notes. */
   lastByMind: Readonly<Record<string, { conversationId: string; turnId: string }>>;
+  /** Terminal results keyed by turnId so callers waiting on a turn still settle after follow-ups. */
+  endedByTurn: Readonly<Record<string, EndedNoteTurn>>;
 }>(() => ({
   byConversation: {},
-  pendingByMind: {},
+  pendingByPairing: {},
   lastByMind: {},
+  endedByTurn: {},
 }));
 
 /**
@@ -127,249 +175,16 @@ export const useNoteTrails = create<{ byTurn: Readonly<Record<string, NoteTrail>
   byTurn: {},
 }));
 
-/** Cached list of own-AI conversations for History and active headers, newest first (#3731). */
-export const useNoteConversations = create<{
-  list: readonly NoteConversationSummary[];
-  loaded: boolean;
-}>(() => ({ list: [], loaded: false }));
+const sum = (applied: readonly NoteChangeApplied[], field: "changed" | "added" | "tables") =>
+  applied.reduce((total, each) => total + each[field], 0);
 
-/** Where the User last moved the conversation, on this computer: it opens there after a restart. */
-const PLACE_KEY = "incarnamind.noteConversation.place";
-/** Last active conversation per pairing on this computer; absent on first open after upgrade. */
-const ACTIVE_KEY = "incarnamind.noteConversation.active";
-
-function savedPlace(): "upward" | "column" {
-  try {
-    return localStorage.getItem(PLACE_KEY) === "column" ? "column" : "upward";
-  } catch {
-    return "upward";
-  }
-}
-
-function savedActive(): Record<string, string | null> {
-  try {
-    const raw = localStorage.getItem(ACTIVE_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return {};
-    const out: Record<string, string | null> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "string" || value === null) out[key] = value;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function persistActive(activeByPairing: Readonly<Record<string, string | null>>): void {
-  try {
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeByPairing));
-  } catch {
-    // Not remembered across restarts if storage is unavailable.
-  }
-}
-
-/**
- * Window-level conversation state (#3677, #3759, #3731): whether the conversation is open, which
- * conversation is active per connected AI, the chosen model per conversation, draft input carried
- * across Note switches, cached turns so Note switches never flash empty, and where the
- * conversation opens (upward from the Note's foot, or in the window's left column).
- */
-export const useNoteColumns = create<{
-  open: boolean;
-  activeByPairing: Readonly<Record<string, string | null>>;
-  /** Pairings whose first-open-after-upgrade conversation has been chosen in this window. */
-  seeded: Readonly<Record<string, true>>;
-  /** Chosen model per conversationId (or "" for a blank new conversation). */
-  model: Readonly<Record<string, string>>;
-  /** Draft words in the input, kept when switching Notes. */
-  draft: string;
-  /** The reply turnId the conversation opens scrolled to, from clicking the foot line. */
-  at: string | null;
-  place: "upward" | "column";
-  /** Counts each change to the active conversation no request's state tells. */
-  changed: number;
-  /** Last loaded turns for the active conversation, avoiding blank flashes on Note switch. */
-  turnsCache: Readonly<{ conversationId: string; turns: readonly NoteTurn[] } | null>;
-  /** Requests opening the History popover (e.g. from ⌘K). */
-  historyRequest: number;
-}>(() => ({
-  open: false,
-  activeByPairing: {},
-  seeded: {},
-  model: {},
-  draft: "",
-  at: null,
-  place: savedPlace(),
-  changed: 0,
-  turnsCache: null,
-  historyRequest: 0,
-}));
-
-/** Opens the conversation at a reply, as pressing the foot line does. */
-export const openColumnAt = (turnId: string | null) =>
-  useNoteColumns.setState({ open: true, at: turnId });
-
-export const setColumnOpen = (open: boolean) => useNoteColumns.setState({ open });
-
-export const useColumnOpen = (): boolean => useNoteColumns((state) => state.open);
-
-/** Moves the open conversation between its two places; it stays open, and the input goes with it. */
-export function moveConversation(place: "upward" | "column"): void {
-  useNoteColumns.setState({ place });
-  try {
-    localStorage.setItem(PLACE_KEY, place);
-  } catch {
-    // Not remembered, then: it opens upward after the next restart.
-  }
-}
-
-/** Sets the active conversation for a connected AI and keeps it across Note switches. */
-export function selectConversation(pairingId: string, conversationId: string | null): void {
-  useNoteColumns.setState((state) => {
-    const activeByPairing = { ...state.activeByPairing, [pairingId]: conversationId };
-    persistActive(activeByPairing);
-    return {
-      activeByPairing,
-      seeded: { ...state.seeded, [pairingId]: true as const },
-      at: null,
-      turnsCache:
-        conversationId && state.turnsCache?.conversationId === conversationId
-          ? state.turnsCache
-          : null,
-    };
-  });
-}
-
-/** Starts a fresh empty conversation for `pairingId`; the earlier one stays in History (#3731). */
-export function startNewConversation(pairingId: string): void {
-  selectConversation(pairingId, null);
-  useNoteColumns.setState({ open: true, at: null });
-}
-
-/** Requests opening the History popover from outside the column header (e.g. ⌘K). */
-export function openNoteHistory(): void {
-  useNoteColumns.setState((state) => ({
-    open: true,
-    historyRequest: state.historyRequest + 1,
-  }));
-}
-
-/** Renames a conversation and refreshes History. */
-export async function renameNoteConversation(conversationId: string, title: string): Promise<void> {
-  await core.renameNoteConversation(conversationId, title);
-  await refreshNoteConversations();
-}
-
-/** Permanently deletes a conversation from IncarnaMind and purges its agent transcript. */
-export async function deleteNoteConversation(conversationId: string): Promise<void> {
-  await core.deleteNoteConversation(conversationId);
-  useNoteAsks.setState((state) => {
-    const { [conversationId]: _gone, ...byConversation } = state.byConversation;
-    return { byConversation };
-  });
-  useNoteColumns.setState((state) => {
-    const activeByPairing = { ...state.activeByPairing };
-    let changed = false;
-    for (const [pairingId, active] of Object.entries(activeByPairing)) {
-      if (active === conversationId) {
-        activeByPairing[pairingId] = null;
-        changed = true;
-      }
-    }
-    if (changed) persistActive(activeByPairing);
-    const { [conversationId]: _m, ...model } = state.model;
-    return {
-      activeByPairing,
-      model,
-      turnsCache: state.turnsCache?.conversationId === conversationId ? null : state.turnsCache,
-      changed: state.changed + 1,
-    };
-  });
-  await refreshNoteConversations();
-}
-
-let refreshing: Promise<readonly NoteConversationSummary[]> | null = null;
-
-/** Refreshes the cached History list from the core. */
-export function refreshNoteConversations(): Promise<readonly NoteConversationSummary[]> {
-  if (refreshing) return refreshing;
-  refreshing = core
-    .noteConversations()
-    .then((list) => {
-      useNoteConversations.setState({ list, loaded: true });
-      const liveIds = new Set(list.map((each) => each.id));
-      const cols = useNoteColumns.getState();
-      let pruned = false;
-      const activeByPairing = { ...cols.activeByPairing };
-      for (const [pairingId, id] of Object.entries(activeByPairing)) {
-        if (id !== null && !liveIds.has(id) && !useNoteAsks.getState().byConversation[id]) {
-          activeByPairing[pairingId] = null;
-          pruned = true;
-        }
-      }
-      if (pruned) {
-        persistActive(activeByPairing);
-        useNoteColumns.setState({ activeByPairing });
-      }
-      return list;
-    })
-    .finally(() => {
-      refreshing = null;
-    });
-  return refreshing;
-}
-
-const seedingPairings = new Map<string, Promise<void>>();
-
-/**
- * Seeds the active conversation for `pairingId` on the first Note opened after upgrade or launch:
- * shows the newest conversation that touched `mindId` (or a previously remembered conversation on
- * subsequent launches if it still exists). From then on, the conversation follows the User (#3731).
- */
-export function seedConversationFor(mindId: string, pairingId: string): Promise<void> {
-  if (useNoteColumns.getState().seeded[pairingId]) return Promise.resolve();
-  const pending = seedingPairings.get(pairingId);
-  if (pending) return pending;
-  listen();
-  const task = (async () => {
-    const [list, running] = await Promise.all([
-      refreshNoteConversations(),
-      core.noteRunningTurns(),
-    ]);
-    for (const event of running) {
-      if (!useNoteAsks.getState().byConversation[event.conversationId]) heard(event);
-    }
-    if (useNoteColumns.getState().seeded[pairingId]) return;
-    const liveIds = new Set(list.map((each) => each.id));
-    const saved = savedActive();
-    const hasSaved = Object.hasOwn(saved, pairingId);
-    const savedId = saved[pairingId];
-    let chosen: string | null = null;
-    const runningHere = running.find((each) => each.pairingId === pairingId);
-    if (runningHere) {
-      chosen = runningHere.conversationId;
-    } else if (hasSaved) {
-      chosen =
-        savedId !== null && savedId !== undefined && liveIds.has(savedId)
-          ? savedId
-          : savedId === null
-            ? null
-            : await core.latestNoteConversation(mindId);
-    } else {
-      chosen = await core.latestNoteConversation(mindId);
-    }
-    selectConversation(pairingId, chosen);
-  })().finally(() => {
-    seedingPairings.delete(pairingId);
-  });
-  seedingPairings.set(pairingId, task);
-  return task;
-}
+const changedInNote = (event: Pick<NoteTurnEvent, "mindId" | "applied">) => {
+  const here = event.applied.filter((each) => each.mindId === event.mindId);
+  return sum(here, "changed") + sum(here, "added");
+};
 
 function keepTrail(event: NoteTurnEvent): void {
-  const changed = sum(event.applied, "changed") + sum(event.applied, "added");
+  const changed = changedInNote(event);
   useNoteTrails.setState((state) => {
     const was = state.byTurn[event.turnId];
     const ended = event.state !== "working";
@@ -455,7 +270,10 @@ export function useActiveConversation(mindId: string): {
   );
   const seeded = useNoteColumns((state) => (pairingId ? Boolean(state.seeded[pairingId]) : false));
   const ask = useNoteAsks((state) =>
-    conversationId !== null ? state.byConversation[conversationId] : state.pendingByMind[mindId],
+    conversationId !== null
+      ? state.byConversation[conversationId]
+      : ((pairingId ? state.pendingByPairing[pairingId] : undefined) ??
+        state.pendingByPairing[mindId]),
   );
   return { pairing, conversationId, seeded, ask };
 }
@@ -466,19 +284,16 @@ const putConversation = (conversationId: string, ask: NoteAsk | null) =>
     return { byConversation: ask ? { ...rest, [conversationId]: ask } : rest };
   });
 
-const putPending = (mindId: string, ask: NoteAsk | null) =>
+const putPending = (key: string, ask: NoteAsk | null) =>
   useNoteAsks.setState((state) => {
-    const { [mindId]: _gone, ...rest } = state.pendingByMind;
-    return { pendingByMind: ask ? { ...rest, [mindId]: ask } : rest };
+    const { [key]: _gone, ...rest } = state.pendingByPairing;
+    return { pendingByPairing: ask ? { ...rest, [key]: ask } : rest };
   });
 
 const nameOf = (mindId: string, pairingId: string) =>
   agentsToAsk(mindId).find((each) => each.id === pairingId)?.name ??
   useNoteConversations.getState().list.find((each) => each.pairingId === pairingId)?.agent ??
   "Claude Code";
-
-const sum = (applied: readonly NoteChangeApplied[], field: "changed" | "added" | "tables") =>
-  applied.reduce((total, each) => total + each[field], 0);
 
 /** One Note's changes of a turn, as the applied-edit line counts them. */
 const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMind => ({
@@ -498,6 +313,16 @@ const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMi
 
 function heard(event: NoteTurnEvent): void {
   keepTrail(event);
+  const changedHere = changedInNote(event);
+  if (event.state !== "working") {
+    const endedState = event.state;
+    useNoteAsks.setState((state) => ({
+      endedByTurn: {
+        ...state.endedByTurn,
+        [event.turnId]: { state: endedState, changed: changedHere },
+      },
+    }));
+  }
   const was = useNoteAsks.getState().byConversation[event.conversationId];
   // While a request works, the line is its own; the one its AI takes next, sent meanwhile, follows
   // it at once, as the earlier one may end a moment later, once a call of it still running has, and
@@ -540,7 +365,7 @@ function heard(event: NoteTurnEvent): void {
     problem: event.problem,
     versions: null,
     reply: event.reply,
-    changed: sum(event.applied, "changed") + sum(event.applied, "added"),
+    changed: changedHere,
     waiting: event.waiting,
     made: event.made,
     fresh: event.fresh,
@@ -565,7 +390,7 @@ function applyEnded(event: NoteTurnEvent): void {
   const askedTabId = askedTab.get(event.turnId);
   askedTab.delete(event.turnId);
   sentHere.delete(event.turnId);
-  // Claude Code no longer had the conversation, so this request began a new one.
+  // Claude Code no longer had the Note's conversation, so this request began a new one.
   if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
   const byNote = new Map<string, NoteChangeApplied[]>();
   // A change in a Note the agent wrote applied already, with its own Undo there.
@@ -573,8 +398,11 @@ function applyEnded(event: NoteTurnEvent): void {
     byNote.set(each.mindId, [...(byNote.get(each.mindId) ?? []), each]);
   const askedFrom = currentTabOf(useAppStore.getState().layout)?.item ?? null;
   const { turnId } = event;
+  // Loaded when a turn ends: the selection menu's edits load this module, and the assistant's
+  // applied edits load the menu's.
   const applied = import("./askedChanges")
     .then(async ({ applyTurn }) => {
+      // One Note that fails never lets what reads the Notes after the turn start on the rest early.
       const settled = await Promise.allSettled(
         [...byNote].map(([mindId, changes]) => {
           const row = rowOf(mindId, changes);
@@ -605,20 +433,33 @@ export function listen(): void {
   });
 }
 
+connectNoteAskState({
+  listen,
+  hasAsk: (conversationId) => Boolean(useNoteAsks.getState().byConversation[conversationId]),
+  dropAsk: (conversationId) => putConversation(conversationId, null),
+  heard,
+});
+
 export interface AskInNoteOptions {
   tabId?: string;
   /** Explicit conversation to continue; null starts a fresh one; absent uses the active one. */
   conversationId?: string | null;
   pairingId?: string;
   mode?: NoteMode;
+  /** True when the User explicitly typed into a running conversation from another Note (#3731). */
+  intoRunning?: boolean;
 }
 
-/** In-flight first request on a blank conversation so a quick follow-up waits for its id. */
-const startingByMind = new Map<string, Promise<void>>();
+/**
+ * In-flight first request on a blank conversation, keyed by pairingId (or mindId when uncached),
+ * so switching Notes mid-preflight sees the pending start and waits for its conversation id.
+ */
+const startingByPairing = new Map<string, Promise<void>>();
 
 /**
- * Sends a request typed for a Note. "sent": a request of the conversation runs, and this one went
- * into its run (#3765). "busy": one runs, and this one, about words selected, is not sent; a line
+ * Sends a request typed at the Note's foot. "sent": a request of the conversation runs, and this
+ * one went into its run, about the whole Note (#3765). "busy": one runs, and this one, about
+ * words selected or targeting another Note without joining the locked run, is not sent; a line
  * says so. "link": no agent can run it in the background now, and the caller asks by the link.
  */
 export async function askInNote(
@@ -630,25 +471,30 @@ export async function askInNote(
   const opts: AskInNoteOptions =
     typeof optionsOrTab === "string" ? { tabId: optionsOrTab } : (optionsOrTab ?? {});
   const { tabId } = opts;
-  const inflight = startingByMind.get(mindId);
-  if (inflight) await inflight;
   const agent = backgroundAgentNow(mindId);
+  const pendingKey = opts.pairingId ?? agent?.id ?? mindId;
+  const inflight = startingByPairing.get(pendingKey);
+  if (inflight) await inflight;
   const cols = useNoteColumns.getState();
+  const pairingId = opts.pairingId ?? agent?.id;
   const liveActive =
-    agent && cols.seeded[agent.id] ? (cols.activeByPairing[agent.id] ?? null) : undefined;
+    pairingId && cols.seeded[pairingId] ? (cols.activeByPairing[pairingId] ?? null) : undefined;
   const targetConversationId =
     opts.conversationId !== undefined
-      ? (opts.conversationId ?? (inflight && typeof liveActive === "string" ? liveActive : null))
+      ? (opts.conversationId ??
+        (inflight && opts.intoRunning && typeof liveActive === "string" ? liveActive : null))
       : liveActive;
   const modelKey = typeof targetConversationId === "string" ? targetConversationId : "";
   const model = cols.model[modelKey];
   // A new request brings the newest back into view in the column.
   useNoteColumns.setState({ at: null });
 
+  // Sent, the request shows at once, as a chat shows a message sent: the core's answer settles it
+  // once its AI is under way, or puts back the line before it.
   const before =
     typeof targetConversationId === "string"
       ? useNoteAsks.getState().byConversation[targetConversationId]
-      : useNoteAsks.getState().pendingByMind[mindId];
+      : useNoteAsks.getState().pendingByPairing[pendingKey];
   const sending = isGoing(before)
     ? null
     : sendingAsk(
@@ -658,7 +504,7 @@ export async function askInNote(
       );
   if (sending) {
     if (typeof targetConversationId === "string") putConversation(targetConversationId, sending);
-    else putPending(mindId, sending);
+    else putPending(pendingKey, sending);
   }
   const unsent = () => {
     if (!sending) return;
@@ -666,20 +512,21 @@ export async function askInNote(
       if (useNoteAsks.getState().byConversation[targetConversationId] === sending) {
         putConversation(targetConversationId, before ?? null);
       }
-    } else if (useNoteAsks.getState().pendingByMind[mindId] === sending) {
-      putPending(mindId, before ?? null);
+    } else if (useNoteAsks.getState().pendingByPairing[pendingKey] === sending) {
+      putPending(pendingKey, before ?? null);
     }
   };
   let start: Awaited<ReturnType<typeof core.askInNote>>;
   const startingFirst = sending !== null && typeof targetConversationId !== "string";
   const pendingStart = startingFirst ? Promise.withResolvers<void>() : null;
-  if (pendingStart) startingByMind.set(mindId, pendingStart.promise);
+  if (pendingStart) startingByPairing.set(pendingKey, pendingStart.promise);
   try {
     start = await core.askInNote({
       mindId,
       words: asked.words,
       ...(opts.pairingId !== undefined && { pairingId: opts.pairingId }),
       ...(targetConversationId !== undefined && { conversationId: targetConversationId }),
+      ...(opts.intoRunning === true && { intoRunning: true }),
       ...(opts.mode !== undefined && { mode: opts.mode }),
       ...(model && { model }),
       ...(asked.quote !== "" && { quote: asked.quote }),
@@ -689,7 +536,7 @@ export async function askInNote(
   } catch (error) {
     unsent();
     if (pendingStart) {
-      startingByMind.delete(mindId);
+      startingByPairing.delete(pendingKey);
       pendingStart.resolve();
     }
     throw error;
@@ -697,7 +544,7 @@ export async function askInNote(
   if (start.kind === "link" || start.kind === "busy" || start.kind === "sent") unsent();
   if (start.kind === "link" || start.kind === "busy") {
     if (pendingStart) {
-      startingByMind.delete(mindId);
+      startingByPairing.delete(pendingKey);
       pendingStart.resolve();
     }
     if (start.kind === "busy") {
@@ -707,7 +554,7 @@ export async function askInNote(
   }
   if (start.kind === "sent") {
     if (pendingStart) {
-      startingByMind.delete(mindId);
+      startingByPairing.delete(pendingKey);
       pendingStart.resolve();
     }
     if (useNoteColumns.getState().activeByPairing[start.pairing.id] !== start.conversationId) {
@@ -716,6 +563,7 @@ export async function askInNote(
     askedHere.add(start.turnId);
     if (tabId) askedTab.set(start.turnId, tabId);
     sentHere.set(start.turnId, asked);
+    // Shown at once, whether or not the core's word of it came first.
     const running = useNoteAsks.getState().byConversation[start.conversationId];
     if (running && running.turnId !== start.turnId && !running.queued.includes(start.turnId)) {
       putConversation(start.conversationId, {
@@ -734,7 +582,9 @@ export async function askInNote(
       });
     }
     if (sending && typeof targetConversationId !== "string") {
-      if (useNoteAsks.getState().pendingByMind[mindId] === sending) putPending(mindId, null);
+      if (useNoteAsks.getState().pendingByPairing[pendingKey] === sending) {
+        putPending(pendingKey, null);
+      }
     }
     selectConversation(start.pairing.id, start.conversationId);
     askedHere.add(start.turnId);
@@ -775,6 +625,7 @@ export async function askInNote(
     queued: [],
     asked,
   };
+  // An event can arrive before the reply to the request: it wins.
   if (conversationId !== null) {
     const current = useNoteAsks.getState().byConversation[conversationId];
     if (current?.turnId !== base.turnId || base.turnId === null) {
@@ -783,10 +634,10 @@ export async function askInNote(
       putConversation(conversationId, { ...current, asked });
     }
   } else {
-    putPending(mindId, base);
+    putPending(pendingKey, base);
   }
   if (pendingStart) {
-    startingByMind.delete(mindId);
+    startingByPairing.delete(pendingKey);
     pendingStart.resolve();
   }
   return start.kind;
@@ -905,21 +756,24 @@ export async function allowAndAskAgain(
   conversationId: string | null,
   turn?: { request: string; quote: string },
 ): Promise<void> {
+  const state = useNoteAsks.getState();
+  const agent = backgroundAgentNow(mindId);
   const ask =
     conversationId !== null
-      ? useNoteAsks.getState().byConversation[conversationId]
-      : useNoteAsks.getState().pendingByMind[mindId];
+      ? state.byConversation[conversationId]
+      : ((agent ? state.pendingByPairing[agent.id] : undefined) ?? state.pendingByPairing[mindId]);
   if (!ask) return;
   const asked = askedAgain(ask, turn);
   await core.updateAgent(ask.pairingId, { propose: true });
-  if (asked) await askAgainInNote(mindId, asked, conversationId);
-  else clearNoteAsk(conversationId, mindId);
+  if (asked) await askAgainInNote(ask.mindId || mindId, asked, conversationId);
+  else clearNoteAsk(conversationId, mindId, ask.pairingId);
 }
 
 /**
  * What sending the last request again sends: as this window asked it, or from its turn's record.
  * The record keeps the words a request was about, not where they are: sent again without them,
- * its changes would no longer be held to them, so such a request is left for the User to ask.
+ * its changes would no longer be held to them, so such a request is left for the User to ask
+ * (null).
  */
 export const askedAgain = (
   ask: NoteAsk,
@@ -933,7 +787,9 @@ export const askedAgain = (
 
 /**
  * A selection toolbar action sent as a request of the Note's input (ADR-0034), with the words
- * selected as its context.
+ * selected as its context. "link": no agent runs it in the background now, and the caller hands
+ * the selection over by the link as before; "none": nothing is selected; "busy": a request is
+ * still running, and this one is not sent.
  */
 export async function askFromSelection(
   state: EditorState,
@@ -945,16 +801,21 @@ export async function askFromSelection(
   const cols = useNoteColumns.getState();
   const activeId = agent ? (cols.activeByPairing[agent.id] ?? null) : null;
   const lastConvId = asks.lastByMind[mindId]?.conversationId;
+  // Words selected can't go into the run going, whose AI takes no new selection mid-run (#3765):
+  // this one waits for Stop.
   const running =
     (activeId !== null ? asks.byConversation[activeId] : undefined) ??
     (lastConvId ? asks.byConversation[lastConvId] : undefined) ??
-    asks.pendingByMind[mindId];
+    (agent ? asks.pendingByPairing[agent.id] : undefined) ??
+    asks.pendingByPairing[mindId];
   if (running && isGoing(running)) {
     useNotices.getState().confirm("noteAsk.busy", { agent: running.agent }, { look: true });
     return "busy";
   }
   const selected = selectedForRequest(state);
   if (!selected) return "none";
+  // The core sends no request about words selected into a run: a run another window began
+  // meanwhile makes it "busy", never "sent".
   const went = await askInNote(
     mindId,
     {
@@ -981,25 +842,32 @@ export function focusNoteAsk(mindId: string): void {
   field?.focus();
 }
 
-/** Words a sent request's Edit gives back to the input, which takes them once (#3765). */
+/** Words a sent request's Edit gives back to the Note's input, which takes them once (#3765). */
 export const useEditedRequests = create<{ pending: string | null }>(() => ({
   pending: null,
 }));
 
-/** Puts a sent request's words back in the input, to change and send as a new request. */
+/** Puts a sent request's words back in the Note's input, to change and send as a new request. */
 export function editRequest(words: string): void {
   useEditedRequests.setState({ pending: words });
 }
 
 /** The label goes once the User starts the next request, or closes it. */
-export const clearNoteAsk = (conversationId: string | null, mindId: string): void => {
+export const clearNoteAsk = (
+  conversationId: string | null,
+  mindId: string,
+  pairingId?: string,
+): void => {
   if (conversationId !== null) {
     const ask = useNoteAsks.getState().byConversation[conversationId];
     if (ask && !isGoing(ask)) putConversation(conversationId, null);
     return;
   }
-  const pending = useNoteAsks.getState().pendingByMind[mindId];
-  if (pending && !isGoing(pending)) putPending(mindId, null);
+  const keys = pairingId && pairingId !== mindId ? [pairingId, mindId] : [mindId];
+  for (const key of keys) {
+    const pending = useNoteAsks.getState().pendingByPairing[key];
+    if (pending && !isGoing(pending)) putPending(key, null);
+  }
 };
 
 /** The opening words of the paragraph the cursor is in, with nothing selected: where to write. */
@@ -1015,6 +883,11 @@ export function caretOf(state: EditorState): string {
 
 const CARET_WORDS = 80;
 
+/**
+ * An inline node in the text around a selection, as the core reads it there
+ * (src/core/agents/access.ts): a line break as a space, anything else (a Citation, a footnote) as
+ * one mark, so a change that drops it is a change outside the selection.
+ */
 const leafOf = (node: ProseMirrorNode) => (node.type.name === "hardBreak" ? " " : NODE_CHARACTER);
 
 /**

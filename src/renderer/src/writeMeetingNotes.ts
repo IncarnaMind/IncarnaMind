@@ -5,7 +5,7 @@ import { translate } from "../../shared/i18n";
 import { askFirstAgent } from "./askYourAi";
 import { core } from "./core";
 import { checkFromAssistant } from "./mindCheck";
-import { askInNote, type NoteAsk, turnApplied, useNoteAsks } from "./ownAiInNote";
+import { askInNote, turnApplied, useNoteAsks } from "./ownAiInNote";
 import { useAppStore } from "./store";
 
 /** The words Write notes asks with, in either language: the Note's conversation keeps them. */
@@ -32,18 +32,28 @@ function setWriting(meeting: CallStop, asked: boolean): void {
   });
 }
 
-/** The conversation's request once it has ended: what it changed, or null when it didn't land. */
-function landed(conversationId: string, turnId: string): Promise<NoteAsk | null> {
+/**
+ * The Meeting turn once it has ended: what it changed, or null when it didn't land. Keyed by
+ * turnId (through `endedByTurn`) so a follow-up taking the conversation's visible slot never
+ * leaves Write notes hanging (#3731).
+ */
+function landed(conversationId: string, turnId: string): Promise<{ changed: number } | null> {
   return new Promise((resolve) => {
-    const settled = (ask: NoteAsk | undefined) => {
+    const settled = (state: ReturnType<typeof useNoteAsks.getState>) => {
+      const ended = state.endedByTurn?.[turnId];
+      if (ended) {
+        resolve(ended.state === "landed" ? { changed: ended.changed } : null);
+        return true;
+      }
+      const ask = state.byConversation[conversationId];
       if (!ask || ask.turnId !== turnId) return false;
       if (ask.state === "working") return false;
-      resolve(ask.state === "landed" ? ask : null);
+      resolve(ask.state === "landed" ? { changed: ask.changed } : null);
       return true;
     };
-    if (settled(useNoteAsks.getState().byConversation[conversationId])) return;
+    if (settled(useNoteAsks.getState())) return;
     const stop = useNoteAsks.subscribe((state) => {
-      if (settled(state.byConversation[conversationId])) stop();
+      if (settled(state)) stop();
     });
   });
 }
