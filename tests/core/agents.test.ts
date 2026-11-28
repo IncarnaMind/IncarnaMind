@@ -1009,6 +1009,207 @@ describe("outside agents", () => {
     expect((await core.getLibrary()).groups).toEqual([]);
   }, 120_000);
 
+  // protects=a 37-Document mixed English and Chinese Library with long text fits in one list_sorting page within READ_PART_TOKENS so the agent sees every area together (#2737); fails_when=CJK token counting spills the last Documents onto a second page or overflows READ_PART_TOKENS
+  it("fit up to 40 mixed-language Documents on one list_sorting page within the token bound", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    const files: string[] = [];
+    for (let at = 1; at <= 37; at++) {
+      const body =
+        at % 2 === 0
+          ? `# 财务报告 ${at}\n\n${"本季度主营业务收入、毛利率与现金流变动分析详情记录。".repeat(30)}`
+          : `# Contract ${at}\n\n${"Master services agreement governing deliverables, invoices, and renewal notice periods.\n".repeat(25)}`;
+      files.push(await writeSourceFile(sources, `Doc ${at}.md`, body));
+    }
+    await addAndProcess(core, files, 60_000);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const agent = await connectLegacyAgent(launch);
+    const result = await agent.callTool({ name: "list_sorting", arguments: {} });
+    expect(estimateTokens(resultText(result))).toBeLessThanOrEqual(READ_PART_TOKENS);
+    const batch = structured<SortingBatch>(result);
+    expect(batch.documents).toHaveLength(37);
+    expect(batch).toMatchObject({ total: 37, next: null });
+  }, 120_000);
+
+  // protects=past SAMPLE (48) Documents, list_sorting serves a proportional 40-Document sample in one page, propagates unanimous clear clusters locally (Folders and unanimous kind:* Tags) without making anything before Confirm, exposes scoped proposed Folders in Round 2 (never across another pairing's wall), never loops on omitted outliers, and Confirm + one Undo reverts every Document cleanly (#2737); fails_when=large Libraries lose propagation, leak proposed Folders across pairings, loop on skipped Documents, create Folders before Confirm, or fail clean Undo
+  it("sample, propagate clear clusters, reuse scoped proposed Folders, and undo cleanly past 48 Documents", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    const privateFolder = await core.createLibraryGroup({
+      name: "Private wall",
+      description: "",
+    });
+    await core.updateLibraryGroup(privateFolder.id, {
+      name: privateFolder.name,
+      description: "",
+      keepInside: true,
+    });
+    const themes = [
+      {
+        prefix: "Harbour",
+        folder: "Harbour works",
+        kind: "kind:report",
+        body: "harbour quay breakwater dredging tide gauge beacon pier mooring vessel berth seawall",
+      },
+      {
+        prefix: "Orchard",
+        folder: "Orchard care",
+        kind: "kind:paper",
+        body: "orchard apple pruning grafting blossom cider rootstock trellis frost harvest irrigation",
+      },
+      {
+        prefix: "Bakery",
+        folder: "Bakery ledger",
+        kind: "kind:invoice",
+        body: "bakery sourdough yeast flour oven fermentation rye brioche pastry dough hearth",
+      },
+    ];
+    const files: string[] = [];
+    for (const theme of themes) {
+      for (let at = 1; at <= 18; at++) {
+        files.push(
+          await writeSourceFile(
+            sources,
+            `${theme.prefix} ${at}.md`,
+            `# ${theme.prefix} ${at}\n\n${`${theme.body} item${at}. `.repeat(12)}`,
+          ),
+        );
+      }
+    }
+    // Two boundary Documents mixing two themes so they stay below CLEAR and test Round 2 reuse.
+    files.push(
+      await writeSourceFile(
+        sources,
+        "Harbour 19.md",
+        "# Harbour 19\n\nharbour quay breakwater orchard apple pruning blossom tide gauge harvest",
+      ),
+      await writeSourceFile(
+        sources,
+        "Bakery 19.md",
+        "# Bakery 19\n\nbakery sourdough flour harbour quay mooring vessel yeast oven seawall",
+      ),
+    );
+    for (let at = 1; at <= 4; at++) {
+      files.push(
+        await writeSourceFile(
+          sources,
+          `Stray ${at}.md`,
+          `# Stray ${at}\n\nMiscellaneous personal memo ${at} about stargazing and comet trails.`,
+        ),
+      );
+    }
+    const wallFile = await writeSourceFile(
+      sources,
+      "Walled note.md",
+      "# Walled secret\n\nConfidential walled project budget.",
+    );
+    await addAndProcess(core, [...files, wallFile], 120_000);
+    const allDocs = await core.listDocuments();
+    const walledDoc = allDocs.find((d) => d.name === "Walled note");
+    if (!walledDoc) throw new Error("Missing walled Document");
+    await core.assignDocumentGroup(walledDoc.id, privateFolder.id);
+
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const { launch: wallLaunch } = await core.connectAgent({
+      name: "Walled Agent",
+      folderIds: [privateFolder.id],
+    });
+    const agent = await connectLegacyAgent(launch);
+    const walledAgent = await connectLegacyAgent(wallLaunch);
+
+    const round1Res = await agent.callTool({ name: "list_sorting", arguments: {} });
+    expect(estimateTokens(resultText(round1Res))).toBeLessThanOrEqual(READ_PART_TOKENS);
+    const round1 = structured<SortingBatch>(round1Res);
+    expect(round1.total).toBe(60);
+    expect(round1.documents).toHaveLength(SORTING_MOST);
+    expect(round1.next).toBeNull();
+
+    const themeFor = (name: string) => themes.find((t) => name.startsWith(t.prefix));
+    const round1Proposals = round1.documents.flatMap((doc) => {
+      const theme = themeFor(doc.name);
+      return theme
+        ? [
+            {
+              documentId: doc.id,
+              version: doc.version,
+              newFolder: theme.folder,
+              tagIds: [theme.kind],
+            },
+          ]
+        : [];
+    });
+    const taken1 = structured<{ waiting: number; left?: string }>(
+      await agent.callTool({ name: "propose_sorting", arguments: { proposals: round1Proposals } }),
+    );
+    // Propagation wrote more items than the agent submitted directly.
+    expect(taken1.waiting).toBeGreaterThan(round1Proposals.length);
+    expect((await core.getLibrary()).groups.map((g) => g.id)).toEqual([privateFolder.id]);
+
+    // A pairing inside a separate wall never sees proposed Folders from outside its scope.
+    const wallBatch = structured<SortingBatch>(
+      await walledAgent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(wallBatch.folders.map((f) => f.id)).toEqual([privateFolder.id]);
+
+    // Drain any remaining uncertain Documents using offered folderIds; skip Strays without looping.
+    for (let step = 0; step < 4; step++) {
+      const next = structured<SortingBatch>(
+        await agent.callTool({ name: "list_sorting", arguments: {} }),
+      );
+      if (next.documents.length === 0) break;
+      const folderByName = new Map(next.folders.map((f) => [f.name, f.id]));
+      for (const theme of themes) expect(folderByName.has(theme.folder)).toBe(true);
+      const batchProposals = next.documents.flatMap((doc) => {
+        const theme = themeFor(doc.name);
+        if (!theme) return [];
+        const folderId = folderByName.get(theme.folder);
+        return folderId
+          ? [{ documentId: doc.id, version: doc.version, folderId, tagIds: [theme.kind] }]
+          : [];
+      });
+      if (batchProposals.length === 0) {
+        // Explicit leftOut for strays stops them from waiting again.
+        await agent.callTool({
+          name: "propose_sorting",
+          arguments: {
+            proposals: next.documents.map((doc) => ({ documentId: doc.id, version: doc.version })),
+          },
+        });
+      } else {
+        await agent.callTool({
+          name: "propose_sorting",
+          arguments: { proposals: batchProposals },
+        });
+      }
+    }
+    const afterAll = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(afterAll.documents).toEqual([]);
+
+    const review = await core.getOrganizeReview();
+    expect(review.folders.map((f) => f.name).sort()).toEqual(themes.map((t) => t.folder).sort());
+    const confirmed = await core.confirmOrganizeReview(review.items.map((i) => i.id));
+    const afterConfirm = await core.getLibrary();
+    expect(afterConfirm.groups.map((g) => g.name).sort()).toEqual(
+      [...themes.map((t) => t.folder), "Private wall"].sort(),
+    );
+    for (const theme of themes) {
+      const group = afterConfirm.groups.find((g) => g.name === theme.folder);
+      const members = afterConfirm.assignments.filter((a) => a.groupId === group?.id);
+      expect(members).toHaveLength(theme.prefix === "Orchard" ? 18 : 19);
+    }
+
+    if (!confirmed) throw new Error("Expected confirmation result");
+    await core.undoOrganizeReviewConfirmation(confirmed.id);
+    const afterUndo = await core.getLibrary();
+    expect(afterUndo.groups.map((g) => g.id)).toEqual([privateFolder.id]);
+    const stillLoose = afterUndo.assignments.filter((a) => a.documentId !== walledDoc.id);
+    expect(stillLoose.every((a) => a.groupId === null)).toBe(true);
+  }, 180_000);
+
   // protects=a new Folder an agent suggests for a Document in a Folder bound to a folder on disk is proposed inside that Folder, made there only at Confirm, and the Document filed in it, as the Library's own Organize of a Folder makes its subfolders (#3610); fails_when=the new Folder is proposed at the top level, which would take the Document out of its Project, or anything is made before Confirm
   it("suggest a new Folder for a Document in a Project inside the Project", async () => {
     const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
