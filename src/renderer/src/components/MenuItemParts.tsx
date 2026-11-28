@@ -3,8 +3,8 @@ import { CheckLineIcon } from "./icons";
 
 /**
  * What a menu item shows, in every menu (DESIGN.md, Menus; #3761): its icon, its name, its keys at
- * the right in grey, and a switch's tick after them. An item with no icon keeps the icon's room, so
- * names line up.
+ * the right in grey, and a switch's tick after them. A switch shows no icon, as its tick already
+ * marks the row; an item with no icon keeps the icon's room, so names line up.
  */
 export function MenuItemParts({
   icon: Glyph,
@@ -20,7 +20,7 @@ export function MenuItemParts({
 }) {
   return (
     <>
-      {Glyph ? (
+      {Glyph && checked === undefined ? (
         <Glyph className="shrink-0" />
       ) : (
         <span aria-hidden="true" className="size-4 shrink-0" />
