@@ -21,9 +21,9 @@ import {
   motionSettled,
   nameMind,
   newMind,
-  openPageMenu,
   pointAndClick,
   removeDataFolder,
+  runCommandNamed,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -133,10 +133,10 @@ async function chooseStyle(window: Page, search: string, label: string): Promise
   await expect(picker).toBeHidden();
 }
 
-/** Opens the Mind's page from its row, then its Citation style from the page's ⋯ menu. */
+/** Opens the Mind's page from its row, then its Citation style from ⌘K. */
 async function openPickerFromRow(window: Page, row: Locator): Promise<void> {
   await pointAndClick(window, row.getByTestId("mind-list-item"));
-  await pointAndClick(window, (await openPageMenu(window)).getByTestId("mind.citationStyle"));
+  await runCommandNamed(window, "mind.citationStyle", "citationStyle.command");
 }
 
 const holdStyleCatalogue = (window: Page, hold: boolean) =>

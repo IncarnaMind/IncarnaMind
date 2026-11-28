@@ -168,7 +168,7 @@ export function TabStrip({
           </StripButton>
         </span>
       )}
-      {/* A Note shown has one ⋯, its own, which holds the group's items too (#2868, #3765). */}
+      {/* A Note shown has one ⋯, its own; the group's items are in ⌘K and the tab's menu (#2868, #3766). */}
       {shown?.item.kind === "mind" ? (
         <span ref={more} className="contents" />
       ) : (

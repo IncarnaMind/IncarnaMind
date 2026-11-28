@@ -5,6 +5,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  paletteOffers,
   removeDataFolder,
   setGroupBeside,
   setLanguage,
@@ -138,7 +139,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a Note has no row of its own: its controls stand in its tab strip on one line with Export, its one ⋯ holds its counts first, the group's items and its switches last, and with five tabs the tabs fold before any control goes, at 1,440 and 900 px, in ${language}`, async () => {
+  test(`a Note has no row of its own: its controls stand in its tab strip on one line with Export, its one ⋯ holds its counts first and Delete last, the group's items in ⌘K, and with five tabs the tabs fold before any control goes, at 1,440 and 900 px, in ${language}`, async () => {
     const { app, window } = await launchApp(dataDir);
     try {
       await setLanguage(window, language);
@@ -171,11 +172,20 @@ for (const language of ["en", "zh-CN"] as const) {
           "data-testid",
           "page-counts",
         );
-        await expect(menu.getByTestId("tab-menu-split")).toBeVisible();
-        await expect(menu.locator(":scope > *").last()).toContainText(
-          language === "en" ? "Show every check result" : "显示全部核对结果",
+        // About ten rows (#3766): the group's items are in ⌘K and the tab's own menu.
+        await expect(menu.getByTestId("tab-menu-split")).toHaveCount(0);
+        await expect(menu.locator('[role="menuitem"]').last()).toHaveAttribute(
+          "data-testid",
+          "mind.delete",
         );
         await window.keyboard.press("Escape");
+        expect(
+          await paletteOffers(
+            window,
+            "tab.split",
+            language === "en" ? "Split to the right" : "向右拆分",
+          ),
+        ).toBe(1);
       }
 
       for (const name of ["Ramps", "Fares", "Crews", "Docks"]) {

@@ -1,7 +1,9 @@
 /*
  * The sidebar's rows (DESIGN.md, Sidebar): 28px, inset 8px by the sidebar's
- * padding and padded 8px, so every icon sits at x 16 and every text at x 40.
- * A row one level deeper (a Folder's child) moves both by `INDENT_PX`.
+ * padding and padded 8px, so an icon sits at x 16 and its text at x 40. As a
+ * chat app lists its chats, only the fixed places and Folders carry an icon: a
+ * Note's or a Document's row is its name, at x 16, or under its Folder's name.
+ * A row one level deeper (a Folder's child) moves by `INDENT_PX`.
  */
 
 /** One level deeper: a child's icon goes under its parent's text. */
@@ -24,8 +26,8 @@ export const draggedRowClass = "opacity-45";
 
 /**
  * A row's container. Pointed at it's half way to the sheet, and a step darker
- * while pressed; selected it's on the sheet with a strong inset rule, which
- * always reads above the pointer's fill, or, one of several selected, on the
+ * while pressed; selected it's on a soft grey fill, darker than the pointer's,
+ * with its name at the same weight, or, one of several selected, on the
  * accent's wash; one a drag carries is quieter and not washed. Its actions
  * (`rowActionsClass`) sit on its right end and take its
  * background. Names of Documents and Folders are a shade darker than the
@@ -45,7 +47,7 @@ export const rowClass = (
     selected && oneOfMany
       ? "bg-accent-wash text-ink [--row-bg:var(--color-accent-wash)]"
       : selected
-        ? "bg-sheet text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)] [--row-bg:var(--color-sheet)]"
+        ? "bg-press text-ink [--row-bg:var(--color-press)]"
         : dragged
           ? rowTones[tone]
           : `${rowTones[tone]} hover:bg-row-hover has-[:focus-visible]:bg-row-hover has-[.row-main:active]:hover:bg-press`
@@ -83,9 +85,8 @@ export const clearsActions = {
   tagsAndMenu: "actions-shown:pr-[58px]",
 } as const;
 
-/** A row's 16px icon: muted unless the row is selected. */
-export const rowIconClass = (selected: boolean) =>
-  `shrink-0 ${selected ? "text-ink" : "text-ink-meta"}`;
+/** A row's 16px icon, in its text's colour. */
+export const rowIconClass = "shrink-0";
 
 /**
  * A row's actions, over its right end: shown while it is pointed at, is
