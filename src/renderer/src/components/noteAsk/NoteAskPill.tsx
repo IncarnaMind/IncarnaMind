@@ -289,7 +289,10 @@ export function NoteAskPill({
       </div>
     );
   }
-  const words = firstWordsOf(ask.reply);
+  // Its last words say what it would do, which it didn't: the line says that.
+  const words = ask.endedAtAsk
+    ? t("ownAsk.endedAtAsk", { agent: ask.agent })
+    : firstWordsOf(ask.reply);
   return (
     <div data-testid="note-ask-pill" data-state="landed" className="note-ask-pill note-ask-end">
       {words === "" ? (
