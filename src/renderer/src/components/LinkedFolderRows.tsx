@@ -120,7 +120,7 @@ function LinkedFolderRow({
           className={`${rowButtonClass} ${clearsActions.menu}`}
           style={rowPadding(0)}
         >
-          <LinkLineIcon className={rowIconClass(false)} />
+          <LinkLineIcon className={rowIconClass} />
           <span data-testid="row-text" className="min-w-12 flex-1 truncate">
             {name}
           </span>

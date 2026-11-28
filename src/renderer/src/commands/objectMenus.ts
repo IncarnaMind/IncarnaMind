@@ -1,4 +1,4 @@
-import { registerMenu, registerMixedMenu, registerMore } from "./menus";
+import { joinMenuGroups, registerMenu, registerMixedMenu, registerMore } from "./menus";
 import type { CommandContext } from "./registry";
 
 // A feature adds its items with registerMenu, where they belong in the shared order.
@@ -36,6 +36,8 @@ registerMenu("mind", [
   "mind.delete",
 ]);
 registerMore("mind", MIND_MORE, SEVERAL);
+// Move to and Rename are one group, with Style after them in the page's ⋯, apart from Delete.
+joinMenuGroups("mind", ["move", "edit"]);
 
 registerMenu("document", [
   "document.open",
