@@ -1,17 +1,15 @@
 /**
  * Pairing-scoped sentence Citation handles for one-call writing (#3753): when an agent passes
  * `cited: true` to `search` or `read_passages`, every complete sentence of a Passage receives a
- * short, random, pairing-scoped handle (`[cite:k3x9a.2]`). When written in `propose_changes` or
- * `create_mind`, IncarnaMind looks up the exact sentence, verifies reach and runs `citeQuote`
- * against the live Document, and mints a real persistent Citation token — no separate `cite` call,
- * no re-typed quotes, and no SQLite writes on read.
+ * short, random, pairing-scoped handle (`[cite:k3x9a2.2]`). Each handle carries a random per-run
+ * prefix so handles from an earlier run never alias a new Passage after a restart, and each
+ * pairing has its own bounded LRU of Passage entries.
  */
-import { randomBytes } from "node:crypto";
+import { randomCiteCode } from "./citations";
 
-/** Same unambiguous 32-char alphabet as `./citations` (no 0, 1, l or o): 5 bits per char. */
-const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
-const HANDLE_LENGTH = 5;
-const MAX_ENTRIES = 2_000;
+const RUN_PREFIX_LENGTH = 2;
+const PASSAGE_CODE_LENGTH = 4;
+export const MAX_ENTRIES_PER_PAIRING = 2_000;
 const MAX_SENTENCE_CHARS = 1_000;
 
 const HAS_WORD_CHAR = /\p{L}|\p{N}/u;
@@ -39,8 +37,16 @@ export interface PassageCiteLookup {
   quote: string;
 }
 
-/** Splits `fullText` line-by-line into trimmed sentence spans with exact character offsets. */
-export function sentenceSpansOf(fullText: string): PassageSentenceSpan[] {
+/**
+ * Splits `fullText` line-by-line into trimmed non-empty sentence spans with exact character
+ * offsets. Shared between sentence Citation indexing and `sentencesOf` in `access.ts`.
+ */
+export function sentenceSpansOf(
+  fullText: string,
+  options?: { maxChars?: number; requireWord?: boolean },
+): PassageSentenceSpan[] {
+  const maxChars = options?.maxChars ?? Number.POSITIVE_INFINITY;
+  const requireWord = options?.requireWord ?? false;
   const spans: PassageSentenceSpan[] = [];
   let lineStart = 0;
   while (lineStart < fullText.length) {
@@ -53,8 +59,8 @@ export function sentenceSpansOf(fullText: string): PassageSentenceSpan[] {
         const trimmed = segment.trim();
         if (
           trimmed.length === 0 ||
-          trimmed.length > MAX_SENTENCE_CHARS ||
-          !HAS_WORD_CHAR.test(trimmed)
+          trimmed.length > maxChars ||
+          (requireWord && !HAS_WORD_CHAR.test(trimmed))
         ) {
           continue;
         }
@@ -144,78 +150,92 @@ export function formatCitedTimedText(
     .join("\n");
 }
 
-function newHandle(): string {
-  const bytes = randomBytes(HANDLE_LENGTH);
-  let handle = "";
-  for (const byte of bytes) handle += ALPHABET[byte % ALPHABET.length];
-  return handle;
+interface PairingStore {
+  byKey: Map<string, PassageCiteEntry>;
+  byHandle: Map<string, PassageCiteEntry>;
+  /** Every handle allocated for this pairing in this run so evicted handles never alias a new Passage. */
+  allocated: Set<string>;
 }
 
-/** Bounded in-memory LRU registry of pairing-scoped sentence Citation handles (#3753). */
-export function createPassageCiteRegistry() {
-  const byKey = new Map<string, PassageCiteEntry>();
-  const byHandle = new Map<string, PassageCiteEntry>();
-  /** Every `(pairingId, handle)` ever allocated in this session so evicted handles never alias a new Passage. */
-  const allocated = new Set<string>();
+/** Per-pairing bounded LRU registry of sentence Citation handles with a per-run prefix (#3753). */
+export function createPassageCiteRegistry(options?: {
+  maxPerPairing?: number;
+  runPrefix?: string;
+}) {
+  const maxPerPairing = Math.max(1, options?.maxPerPairing ?? MAX_ENTRIES_PER_PAIRING);
+  const runPrefix = options?.runPrefix ?? randomCiteCode(RUN_PREFIX_LENGTH);
+  const perPairing = new Map<string, PairingStore>();
 
-  const keyOf = (pairingId: string, passageId: string, contentHash: string) =>
-    `${pairingId}\u0000${passageId}\u0000${contentHash}`;
-  const handleKeyOf = (pairingId: string, handle: string) => `${pairingId}\u0000${handle}`;
-
-  const touch = (entry: PassageCiteEntry) => {
-    const k = keyOf(entry.pairingId, entry.passageId, entry.contentHash);
-    const hk = handleKeyOf(entry.pairingId, entry.handle);
-    byKey.delete(k);
-    byKey.set(k, entry);
-    byHandle.delete(hk);
-    byHandle.set(hk, entry);
+  const storeOf = (pairingId: string): PairingStore => {
+    let store = perPairing.get(pairingId);
+    if (!store) {
+      store = { byKey: new Map(), byHandle: new Map(), allocated: new Set() };
+      perPairing.set(pairingId, store);
+    }
+    return store;
   };
 
-  const evictIfFull = () => {
-    while (byKey.size > MAX_ENTRIES) {
-      const oldest = byKey.entries().next().value;
+  const keyOf = (passageId: string, contentHash: string) => `${passageId}\u0000${contentHash}`;
+
+  const touch = (store: PairingStore, entry: PassageCiteEntry) => {
+    const k = keyOf(entry.passageId, entry.contentHash);
+    store.byKey.delete(k);
+    store.byKey.set(k, entry);
+    store.byHandle.delete(entry.handle);
+    store.byHandle.set(entry.handle, entry);
+  };
+
+  const evictIfFull = (store: PairingStore) => {
+    while (store.byKey.size > maxPerPairing) {
+      const oldest = store.byKey.entries().next().value;
       if (!oldest) break;
       const [k, entry] = oldest;
-      byKey.delete(k);
-      byHandle.delete(handleKeyOf(entry.pairingId, entry.handle));
+      store.byKey.delete(k);
+      store.byHandle.delete(entry.handle);
     }
   };
 
   return {
+    runPrefix,
+
     indexPassage(
       pairingId: string,
       passageId: string,
       contentHash: string,
       fullText: string,
     ): PassageCiteEntry {
-      const k = keyOf(pairingId, passageId, contentHash);
-      const existing = byKey.get(k);
+      const store = storeOf(pairingId);
+      const k = keyOf(passageId, contentHash);
+      const existing = store.byKey.get(k);
       if (existing) {
-        touch(existing);
+        touch(store, existing);
         return existing;
       }
-      let handle = newHandle();
-      while (allocated.has(handleKeyOf(pairingId, handle))) {
-        handle = newHandle();
+      let handle = `${runPrefix}${randomCiteCode(PASSAGE_CODE_LENGTH)}`;
+      while (store.allocated.has(handle)) {
+        handle = `${runPrefix}${randomCiteCode(PASSAGE_CODE_LENGTH)}`;
       }
       const entry: PassageCiteEntry = {
         handle,
         pairingId,
         passageId,
         contentHash,
-        spans: sentenceSpansOf(fullText),
+        spans: sentenceSpansOf(fullText, { maxChars: MAX_SENTENCE_CHARS, requireWord: true }),
       };
-      allocated.add(handleKeyOf(pairingId, handle));
-      byKey.set(k, entry);
-      byHandle.set(handleKeyOf(pairingId, handle), entry);
-      evictIfFull();
+      store.allocated.add(handle);
+      store.byKey.set(k, entry);
+      store.byHandle.set(handle, entry);
+      evictIfFull(store);
       return entry;
     },
 
     lookup(pairingId: string, handle: string, index: number): PassageCiteLookup | null {
-      const entry = byHandle.get(handleKeyOf(pairingId, handle));
+      if (!handle.startsWith(runPrefix)) return null;
+      const store = perPairing.get(pairingId);
+      if (!store) return null;
+      const entry = store.byHandle.get(handle);
       if (!entry) return null;
-      touch(entry);
+      touch(store, entry);
       const span = entry.spans[index - 1];
       if (!span) return null;
       return {

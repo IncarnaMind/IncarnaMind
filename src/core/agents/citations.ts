@@ -5,13 +5,21 @@
  * random, so an agent can't make one up; checking it again later reads what
  * was kept, against the Document as it is then.
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Citation, CitationLocation } from "../api";
 import type { Database } from "../storage";
 
 /** Lower-case letters and digits that can't be misread (no 0, 1, l or o): 5 bits each. */
-const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
+export const CITE_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
 const TOKEN_LENGTH = 8;
+
+/** Random code over `CITE_ALPHABET`, using Web Crypto so `src/core` stays portable. */
+export function randomCiteCode(length: number): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(length));
+  let code = "";
+  for (const byte of bytes) code += CITE_ALPHABET[byte % CITE_ALPHABET.length];
+  return code;
+}
 
 /** A Citation token as an agent writes it; the capture is the token itself. */
 export const CITATION_TOKEN = /\[cite:([a-z0-9]{1,32})\]/g;
@@ -71,12 +79,7 @@ const toCitation = (row: Row): AgentCitation => ({
   quote: row.quote,
 });
 
-function newToken(): string {
-  const bytes = randomBytes(TOKEN_LENGTH);
-  let token = "";
-  for (const byte of bytes) token += ALPHABET[byte % ALPHABET.length];
-  return token;
-}
+const newToken = (): string => randomCiteCode(TOKEN_LENGTH);
 
 export function createAgentCitations(db: Database, now: () => string) {
   const taken = (token: string): boolean =>

@@ -1,24 +1,92 @@
 /**
- * Inline citations carried inside `propose_changes` and `create_mind` (#3753): an agent writes
- * `[cite:passageId: exact quote]` directly after a claim (or `[cite:path: exact quote]` outside a
- * run grant), saving a separate `cite` round-trip without colliding with Markdown table pipes (`|`)
- * or requiring marker-number indirection. IncarnaMind confirms each quote word for word before
- * minting a token; an unconfirmed quote is never attached and is stripped cleanly so no stray text
- * lands in the Note.
+ * Inline citations carried inside `propose_changes`, `create_mind`, and `save_as_word` (#3753):
+ * - sentence handles from `cited: true` (`[cite:<handle>.<n>]`, plus lists/ranges such as
+ *   `[cite:<handle>.2-3]` or `[cite:<handle>.2, <handle>.3]`)
+ * - inline exact quotes (`[cite:passageId: exact quote]` or `[cite:path: exact quote]`, with
+ *   ASCII or full-width `:`/`：` and `|`/`｜` separators)
+ * Every non-minted `[cite:…]` tag (including malformed or unclosed tags and bare handles without
+ * `.n`) is parsed and either confirmed word-for-word into real minted tokens or stripped cleanly
+ * with a plain-words report so no raw `[cite:…]` text or `[quote not found]` lands in the Note.
  */
+
+export interface SentenceRef {
+  handle: string;
+  index: number;
+}
 
 export type ParsedInlineTag =
   | { kind: "sentence"; handle: string; index: number; raw: string }
+  | { kind: "sentence-list"; refs: readonly SentenceRef[]; raw: string }
   | { kind: "passage"; ref: string; quote: string; raw: string }
-  | { kind: "file"; ref: string; quote: string; raw: string };
+  | { kind: "file"; ref: string; quote: string; raw: string }
+  | { kind: "malformed"; raw: string };
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\n]*)/;
 const WINDOWS_DRIVE = /^[A-Za-z]:[\\/]/;
-export const SENTENCE_REF_INNER = /^([a-z2-9]{5})\.([1-9]\d{0,4})$/;
-export const SENTENCE_REF_TAG = /^\[cite:([a-z2-9]{5})\.([1-9]\d{0,4})\]$/;
+const MINTED_TOKEN_INNER = /^[a-z0-9]{8}$/;
+export const SENTENCE_REF_INNER = /^([a-z2-9]{5,6})\.([1-9]\d{0,4})$/;
+export const SENTENCE_REF_TAG = /^\[cite:([a-z2-9]{5,6})\.([1-9]\d{0,4})\]$/;
+export const SENTENCE_REF_GLOBAL = /\[cite:([a-z2-9]{5,6})\.([1-9]\d{0,4})\]/g;
+export const CITATION_OR_HANDLE_TAG = /\[cite:([a-z0-9]{1,32}|[a-z2-9]{5,6}\.[1-9]\d{0,4})\]/g;
+export const CITATION_OR_HANDLE_EXACT = /^\[cite:([a-z0-9]{1,32}|[a-z2-9]{5,6}\.[1-9]\d{0,4})\]$/;
+
+const LIST_ITEM_WITH_HANDLE =
+  /^([a-z2-9]{5,6})\.([1-9]\d{0,4})(?:\s*[-–—]\s*(?:([a-z2-9]{5,6})\.)?([1-9]\d{0,4}))?$/;
+const LIST_ITEM_SHORTHAND = /^\.?([1-9]\d{0,4})(?:\s*[-–—]\s*\.?([1-9]\d{0,4}))?$/;
+const MAX_RANGE_SPAN = 20;
+const MAX_LIST_REFS = 40;
+const QUOTE_SEPARATORS = new Set([":", "：", "|", "｜"]);
 
 const looksLikePath = (ref: string) =>
   ref.startsWith("/") || ref.startsWith("~") || WINDOWS_DRIVE.test(ref) || ref.includes("\\");
+
+function findQuoteSeparator(inner: string): number {
+  const from = WINDOWS_DRIVE.test(inner) ? 2 : 0;
+  for (let i = from; i < inner.length; i++) {
+    if (QUOTE_SEPARATORS.has(inner[i] ?? "")) return i;
+  }
+  return -1;
+}
+
+function parseSentenceList(inner: string): SentenceRef[] | null {
+  const parts = inner
+    .split(/[,，、;；]+/)
+    .map((each) => each.trim())
+    .filter((each) => each !== "");
+  if (parts.length === 0) return null;
+  const refs: SentenceRef[] = [];
+  let lastHandle: string | null = null;
+  for (const part of parts) {
+    const full = LIST_ITEM_WITH_HANDLE.exec(part);
+    if (full?.[1] && full[2]) {
+      const handle = full[1];
+      const start = Number(full[2]);
+      const endHandle = full[3];
+      const end = full[4] ? Number(full[4]) : start;
+      if (endHandle && endHandle !== handle) return null;
+      if (end < start || end - start + 1 > MAX_RANGE_SPAN) return null;
+      for (let index = start; index <= end; index++) {
+        refs.push({ handle, index });
+        if (refs.length > MAX_LIST_REFS) return null;
+      }
+      lastHandle = handle;
+      continue;
+    }
+    const short = lastHandle ? LIST_ITEM_SHORTHAND.exec(part) : null;
+    if (short?.[1] && lastHandle) {
+      const start = Number(short[1]);
+      const end = short[2] ? Number(short[2]) : start;
+      if (end < start || end - start + 1 > MAX_RANGE_SPAN) return null;
+      for (let index = start; index <= end; index++) {
+        refs.push({ handle: lastHandle, index });
+        if (refs.length > MAX_LIST_REFS) return null;
+      }
+      continue;
+    }
+    return null;
+  }
+  return refs.length > 0 ? refs : null;
+}
 
 function endOfFence(source: string, from: number, char: string, length: number): number {
   let at = from;
@@ -54,25 +122,34 @@ function endOfCodeSpan(source: string, from: number, ticks: number): number {
 }
 
 /**
- * Parses `[cite:<passageId>: <quote>]` (or `[cite:<path>: <quote>]`) starting at `at`, supporting
- * balanced `[...]` inside the quote. Leaves minted `[cite:<token>]` tags (which have no separator
- * after the token) untouched by returning null.
+ * Parses a `[cite:...` tag starting at `at`. Returns `null` only for valid 8-character minted
+ * tokens (`[cite:<token>]`), which `tokensIn` resolves directly. Every other `[cite:...` form —
+ * sentence handles, handle lists/ranges, inline quotes, bare handles without `.n`, malformed tags,
+ * and unclosed tags — returns a `ParsedInlineTag`.
  */
 function matchInlineTag(
   source: string,
   at: number,
-  noCloseBefore: number,
-): { tag: ParsedInlineTag; end: number } | { unclosedUntil: number } | null {
+  lineUnclosedBrackets: number,
+  inTableRow: boolean,
+): { tag: ParsedInlineTag; end: number } | null {
   if (!source.startsWith("[cite:", at)) return null;
-  if (at < noCloseBefore) return null;
   const innerStart = at + "[cite:".length;
   let i = innerStart;
   let depth = 0;
   let end = -1;
   while (i < source.length) {
     const ch = source[i];
-    if (ch === "\n") return { unclosedUntil: i };
+    if (ch === "\n") {
+      const stop = i > at && source[i - 1] === "\r" ? i - 1 : i;
+      return { tag: { kind: "malformed", raw: source.slice(at, stop) }, end: stop };
+    }
     if (ch === "[") {
+      // A new `[cite:` before the current tag closes means the earlier tag had an unbalanced `[`.
+      if (!isEscaped(source, i) && source.startsWith("[cite:", i)) {
+        const raw = source.slice(at, i).trimEnd();
+        return { tag: { kind: "malformed", raw }, end: i };
+      }
       depth++;
     } else if (ch === "]") {
       if (depth === 0) {
@@ -83,8 +160,36 @@ function matchInlineTag(
     }
     i++;
   }
-  if (end === -1) return { unclosedUntil: source.length };
-  const inner = source.slice(innerStart, end - 1);
+  if (end === -1) {
+    return { tag: { kind: "malformed", raw: source.slice(at) }, end: source.length };
+  }
+
+  let inner = source.slice(innerStart, end - 1);
+  if (MINTED_TOKEN_INNER.test(inner)) return null;
+
+  // When a quote itself contains a bare `]`, extend to the last unmatched `]` on this line (when
+  // prose before `[cite:` didn't open a `[` of its own and we don't cross another `[` or a table cell).
+  if (
+    lineUnclosedBrackets === 0 &&
+    !SENTENCE_REF_INNER.test(inner) &&
+    parseSentenceList(inner) === null &&
+    findQuoteSeparator(inner) !== -1
+  ) {
+    let scan = end;
+    let lastRight = -1;
+    while (scan < source.length) {
+      const ch = source[scan];
+      if (ch === "\n" || ch === "[" || (inTableRow && ch === "|")) break;
+      if (ch === "]") lastRight = scan;
+      scan++;
+    }
+    if (lastRight !== -1) {
+      end = lastRight + 1;
+      inner = source.slice(innerStart, end - 1);
+    }
+  }
+
+  const raw = source.slice(at, end);
   const sentenceMatch = SENTENCE_REF_INNER.exec(inner);
   if (sentenceMatch?.[1] && sentenceMatch[2]) {
     return {
@@ -92,32 +197,32 @@ function matchInlineTag(
         kind: "sentence",
         handle: sentenceMatch[1],
         index: Number(sentenceMatch[2]),
-        raw: source.slice(at, end),
+        raw,
       },
       end,
     };
   }
-  // Skip the drive colon in a Windows path (`C:\...`) when finding the ref/quote separator.
-  const searchFrom = WINDOWS_DRIVE.test(inner) ? 2 : 0;
-  const colonAt = inner.indexOf(":", searchFrom);
-  const pipeAt = inner.indexOf("|", searchFrom);
-  let sep = -1;
-  if (colonAt !== -1 && pipeAt !== -1) sep = Math.min(colonAt, pipeAt);
-  else if (colonAt !== -1) sep = colonAt;
-  else if (pipeAt !== -1) sep = pipeAt;
-  if (sep === -1) return null;
-  const ref = inner.slice(0, sep).trim();
-  const quote = inner.slice(sep + 1).trim();
-  if (ref === "" || quote === "") return null;
-  return {
-    tag: {
-      kind: looksLikePath(ref) ? "file" : "passage",
-      ref,
-      quote,
-      raw: source.slice(at, end),
-    },
-    end,
-  };
+  const list = parseSentenceList(inner);
+  if (list) {
+    return { tag: { kind: "sentence-list", refs: list, raw }, end };
+  }
+  const sep = findQuoteSeparator(inner);
+  if (sep !== -1) {
+    const ref = inner.slice(0, sep).trim();
+    const quote = inner.slice(sep + 1).trim();
+    if (ref !== "" && quote !== "") {
+      return {
+        tag: {
+          kind: looksLikePath(ref) ? "file" : "passage",
+          ref,
+          quote,
+          raw,
+        },
+        end,
+      };
+    }
+  }
+  return { tag: { kind: "malformed", raw }, end };
 }
 
 function isEscaped(source: string, at: number): boolean {
@@ -135,7 +240,14 @@ function scanOne(
   let out = "";
   let at = 0;
   let lineStart = true;
-  let noCloseBefore = -1;
+  let lineUnclosedBrackets = 0;
+  let inTableRow = false;
+
+  const resetLine = () => {
+    lineStart = true;
+    lineUnclosedBrackets = 0;
+    inTableRow = false;
+  };
 
   const stripAt = (after: number): number => {
     const atLineEnd =
@@ -145,9 +257,18 @@ function scanOne(
     let trimmed = out.length;
     while (trimmed > 0 && (out[trimmed - 1] === " " || out[trimmed - 1] === "\t")) trimmed--;
     const trailing = out.slice(trimmed);
-    // Preserve Markdown hard breaks (two or more trailing spaces immediately before a newline).
-    if (!(atLineEnd && /^ {2,}$/.test(trailing))) {
+    const keepHardBreak = atLineEnd && /^ {2,}$/.test(trailing);
+    const followedByNextTag = after < source.length && source.startsWith("[cite:", after);
+    if (!keepHardBreak) {
       out = out.slice(0, trimmed);
+      if (
+        followedByNextTag &&
+        trailing.length > 0 &&
+        out.length > 0 &&
+        out[out.length - 1] !== "\n"
+      ) {
+        out += " ";
+      }
     }
     let next = after;
     if (out.length === 0 || out[out.length - 1] === "\n") {
@@ -171,10 +292,11 @@ function scanOne(
               : endOfFence(source, bodyStart, mark[0] ?? "`", mark.length);
           out += source.slice(at, end);
           at = end;
-          lineStart = true;
+          resetLine();
           continue;
         }
       }
+      inTableRow = /^ {0,3}\|/.test(source.slice(at, at + 4));
     }
     const ch = source[at];
     if (ch === "`") {
@@ -183,7 +305,8 @@ function scanOne(
       const close = endOfCodeSpan(source, at + ticks, ticks);
       if (close !== -1) {
         out += source.slice(at, close);
-        lineStart = source[close - 1] === "\n";
+        if (source[close - 1] === "\n") resetLine();
+        else lineStart = false;
         at = close;
         continue;
       }
@@ -193,13 +316,11 @@ function scanOne(
       continue;
     }
     if (ch === "[" && !isEscaped(source, at) && source.startsWith("[cite:", at)) {
-      const matched = matchInlineTag(source, at, noCloseBefore);
-      if (matched && "unclosedUntil" in matched) {
-        noCloseBefore = matched.unclosedUntil;
-      } else if (matched) {
+      const matched = matchInlineTag(source, at, lineUnclosedBrackets, inTableRow);
+      if (matched) {
         if (replace === null) {
           found.push(matched.tag);
-          out += matched.tag.raw;
+          out += source.slice(at, matched.end);
           at = matched.end;
           lineStart = false;
         } else {
@@ -216,8 +337,14 @@ function scanOne(
         continue;
       }
     }
+    if (ch === "[" && !isEscaped(source, at)) {
+      lineUnclosedBrackets++;
+    } else if (ch === "]" && !isEscaped(source, at) && lineUnclosedBrackets > 0) {
+      lineUnclosedBrackets--;
+    }
     out += ch;
-    lineStart = ch === "\n";
+    if (ch === "\n") resetLine();
+    else lineStart = false;
     at++;
   }
   return out;

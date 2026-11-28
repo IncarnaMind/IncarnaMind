@@ -8340,6 +8340,12 @@ export const zhCN = {
     "未添加：共享给此智能体的文件夹中没有段落“{passageId}”。请原样填写 search 或 read_passages 返回的 passageId。",
   "agents.propose.citationUnknownHandle":
     "未添加：该句引用标识无效或已过期，请带 cited: true 重新读取该段落。",
+  "agents.propose.citationHandleOutOfReach":
+    "未添加：该段落已不再共享或已变更，请带 cited: true 重新读取文档。",
+  "agents.propose.citationMalformed":
+    "未添加：引用标记格式有误。请使用 cited: true 返回的句子引用标识、[cite:passageId: 原文引文]，或 cite 返回的引用标识。",
+  "agents.propose.citationTooManyFiles":
+    "未添加：单次调用最多核对 {max} 处文件引文，请分批补充其余引用。",
   "agents.create.emptyText": "请填写笔记内容。",
   "agents.propose.unchecked.one":
     "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
