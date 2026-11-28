@@ -56,15 +56,16 @@
   }
   /*
    * The name and its Tags take what the other controls leave. The name gives
-   * way first, down to 4rem; then the Tags fold into "+N" (see
-   * `useFittingChips`). The room keeps 6.25rem: that, its 4px margin, the gap
-   * and the 28px Tags button.
+   * way first, down to 3.75rem, which with the 14px controls keeps the Tags in
+   * the bar at 630px in both languages; then the Tags fold into "+N" (see
+   * `useFittingChips`). The room keeps 6rem: that, its 4px margin, the gap and
+   * the 28px Tags button.
    */
   .viewer-name-area {
-    @apply flex min-w-[6.25rem] flex-1 basis-0 items-center gap-1;
+    @apply flex min-w-24 flex-1 basis-0 items-center gap-1;
   }
   .viewer-title {
-    @apply ml-1 min-w-16 shrink truncate text-ui text-ink;
+    @apply ml-1 min-w-15 shrink truncate text-ui text-ink;
   }
   /* Keep open, on a preview: a small secondary button, as on the design. */
   .viewer-keep {
