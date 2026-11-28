@@ -1018,11 +1018,6 @@ function useStatuses(): Status[] {
       full: t("status.planLimit.full", { line }),
       wraps: true,
       needsYou: true,
-      action: {
-        label: t("signInRoute.wayBack.pasteApiKey"),
-        testId: "tagging-paused-use-key",
-        run: () => openSettings("ai", "model"),
-      },
     });
   } else if (taggingWaits && taggingNeedsOk) {
     statuses.push({

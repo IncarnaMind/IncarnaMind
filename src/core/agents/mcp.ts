@@ -626,7 +626,7 @@ export function createAgentServer(
     {
       title: "Hand back your check of a Note",
       description:
-        "Hand back your result for each sentence check_mind_yourself gave. IncarnaMind confirms each Citation or run and marks the Note for the User; a supported or contradicted result with neither is marked Not checked. For a sentence that needs a look, the User sees which quotes say otherwise and the change you give, to accept or not.",
+        "Hand back results for check_mind_yourself's sentences. IncarnaMind confirms each Citation or run and marks the Note; supported or contradicted with neither, or library unsettled, is marked Not checked. For sentences needing a look, the User sees quotes that say otherwise and any change you give.",
       inputSchema: z.object({
         mindId: z.string(),
         task: z.string().describe("The task check_mind_yourself gave."),

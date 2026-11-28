@@ -6580,6 +6580,11 @@ export interface ChatProvider {
   endpoint: string | null;
   /** The server's URL for "openai-compatible" and "ollama"; null for the others. */
   baseUrl: string | null;
+  /**
+   * A key added for meeting transcription and Document search alone (#3767): its models answer
+   * nothing here, and none is offered in a model picker or made a default. Absent otherwise.
+   */
+  jobsOnly?: true;
   /** Whether an API key is stored for it. Keys live in the keychain, never in the database. */
   hasApiKey: boolean;
   /**
@@ -6620,6 +6625,11 @@ export interface SaveChatProviderInput {
    * none. "always": it stays as it is, none included, for a key kept for something else alone.
    */
   keepDefault?: boolean | "always";
+  /**
+   * A key for meeting transcription and Document search alone (`ChatProvider.jobsOnly`). It
+   * applies only to a company not saved yet: one saved before keeps what it is.
+   */
+  jobsOnly?: boolean;
 }
 
 export interface TestChatConnectionInput {
@@ -13648,6 +13658,8 @@ export interface NoteTurn {
   mode: string | null;
   /** The User started a new conversation after this turn: the AI carries none of the turns before (#3765). */
   newAfter: boolean;
+  /** Its AI ended it at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
 }
 
 /**
@@ -13662,7 +13674,10 @@ export interface NoteAction {
   value: string;
   /** For a file: it is in the conversation's own folder. */
   inFolder?: boolean;
+  /** For a web page, or a command that would reach a site: the site. */
   host?: string;
+  /** For a command: the folder it runs in, where that isn't the conversation's own. */
+  folder?: string;
   /** For a tool: the server it is on, and the input it would send, one row per field. */
   server?: string;
   input?: { name: string; value: string }[];
@@ -13679,8 +13694,12 @@ export interface NoteAction {
   change?: string;
   /** For a file it writes: what it writes, whole. */
   content?: string;
-  /** For a file, or a command that names one: one the AI reads as its own (CLAUDE.md, .claude/, .mcp.json). */
-  steers?: true;
+  /**
+   * For a file, or a command that names one: the command-line AI that reads it as its own, which
+   * may not be the one asking (Claude Code's CLAUDE.md, .claude/ and .mcp.json; Codex's .codex/,
+   * .agents/ and its own home).
+   */
+  steers?: "claude-code" | "codex";
   /** For a file: where it really leads can't be told (a loop of links, say), so it is asked about. */
   unsure?: true;
   /** For a command: it keeps running in the background, or runs outside the AI's own sandbox. */
@@ -13688,6 +13707,8 @@ export interface NoteAction {
   unsandboxed?: true;
   /** For a command: what the AI says it does, in its own words, as its own prompt shows them. */
   description?: string;
+  /** For a command: why the AI says it asks, in its own words. */
+  reason?: string;
 }
 
 /**
@@ -13700,7 +13721,7 @@ export type NoteKept = "request" | "conversation" | "everywhere";
 /**
  * What a rule the AI suggests covers: commands that start with `start`, one exact command, pages
  * on a site, one tool of a server, web searches, reading or changing the files in a folder (`""`:
- * the conversation's own); or a rule the card can't say in plain words, as it is.
+ * the conversation's own), changing one file; or a rule the card can't say in plain words, as it is.
  */
 export type NoteRule =
   | { kind: "commands"; start: string }
@@ -13709,6 +13730,7 @@ export type NoteRule =
   | { kind: "tool"; tool: string; server: string }
   | { kind: "searches" }
   | { kind: "files"; change: boolean; folder: string }
+  | { kind: "file"; path: string }
   | { kind: "rule"; rule: string };
 
 /**
@@ -13723,19 +13745,25 @@ export type NoteSuggested =
   | { kind: "other"; kept: NoteKept; text: string };
 
 /**
- * An answer to a question: "deny"; "once"; or "suggested", Claude Code's own "don't ask again",
- * which applies every answer its question suggests, as it gave them.
+ * An answer to a question: "deny"; "once"; "suggested", the AI's own "don't ask again", which
+ * applies every answer its question suggests, as it gave them; or "request", the AI's own "allow
+ * until this request ends" where its question offers one (Codex's "for this session").
  */
-export type NoteAnswer = "deny" | "once" | "suggested";
+export type NoteAnswer = "deny" | "once" | "suggested" | "request";
 
 /** What the User's own AI asks before it does something with a tool of its own (#3653). */
 export interface NoteQuestion {
   id: string;
   action: NoteAction;
-  /** In the card's order: "deny", "suggested" when it suggests any, "once". */
+  /**
+   * In the card's order: "deny", "suggested" when it suggests any, "request" when it offers it,
+   * "once".
+   */
   answers: NoteAnswer[];
   /** The answers its own question suggests, all applied by "suggested". */
   suggested: NoteSuggested[];
+  /** What "request" allows until the request ends; empty where it isn't offered. */
+  forRequest: NoteSuggested[];
 }
 
 /** How a step of the AI's own went with its question: as answered, or ended before it was. */
@@ -13801,6 +13829,8 @@ export interface NoteTurnEvent {
    * oldest first (#3765): while there are any, the run goes on after this request ends.
    */
   queued: string[];
+  /** Ended at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
   /** The messages the User sent meanwhile that IncarnaMind holds for the Note, oldest first (#3765). */
   held: string[];
 }
@@ -16632,10 +16662,10 @@ export interface CoreApi {
    */
   chooseNoteMode(mindId: string, mode: NoteMode | null): Promise<void>;
   /**
-   * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
-   * is on this computer's path (ADR-0034). Looking starts nothing.
+   * The command-line AIs a request at a Note's foot can run on here, by their pairing's client: each
+   * one's command is on this computer's path (ADR-0034). Looking starts nothing.
    */
-  ownAiRunsHere(): Promise<boolean>;
+  ownAiRunsHere(): Promise<("claude-code" | "codex")[]>;
   /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.

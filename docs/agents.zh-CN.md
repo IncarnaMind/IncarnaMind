@@ -60,7 +60,7 @@ Claude 安装用的文件会一直保留到 Claude 连接成功，不必着急�
 点击“连接”：IncarnaMind 会把自己添加到 Claude Code 的设置文件 `~/.claude.json` 中，并先在“详情”里显示添加的内容。文件里的其他内容保持原样，断开连接之前，会在旁边保留一份该文件原来的样子。新开一个 Claude Code 会话，输入 `/mcp` 即可看到 IncarnaMind。如果 IncarnaMind 无法读取或修改这个文件，它不会动这个文件，而是复制一行命令，供你在终端中运行。
 
 <a id="codex"></a>
-### ChatGPT 应用和 Codex
+### ChatGPT（桌面应用和 Codex）
 
 一份设置同时适用于两者。点击“连接”：IncarnaMind 会把自己添加到 Codex 的设置文件（`~/.codex/config.toml`）中，并先让你看到要添加的内容。新开一个 Codex 会话即可使用。ChatGPT 桌面应用共用这份设置（[文档](https://learn.chatgpt.com/docs/extend/mcp)）；网页版 ChatGPT 只能连接互联网上的服务器，因此无法连接 IncarnaMind。连接后可立即点击“撤销”恢复原样。
 

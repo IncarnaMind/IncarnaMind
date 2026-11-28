@@ -1716,4 +1716,124 @@ describe("an outside agent has its Note checked (#3317)", () => {
     const theirs = await reader.core.createMind({ title: "Theirs", folderId: reader.coast.id });
     expect(refusal(await check(reader.agent, theirs.id))).toContain("This agent may only read.");
   });
+
+  // protects=a User-made library-unsettled mark is masked as beyond-reach and never overwritten by an outside agent, while an outside agent's own library-unsettled mark (outside: true) is held on unchanged grant and re-checked once its granted Folder changes (#2525); fails_when=an outside agent reads or overwrites a User's library-unsettled mark, or cannot re-check its own.
+  it("masks and protects a User's library-unsettled mark while allowing an agent to re-check its own", async () => {
+    const CLAIM = "Two of your Documents were added in October.";
+    const calls: ModelCall[] = [];
+    const runtime = createFakeAnalysisRuntime({
+      answer: () => ({
+        output: {
+          results: [
+            { kind: "figure", name: "documents", label: "documents", unit: null, value: 1 },
+          ],
+          printed: "",
+        },
+      }),
+    });
+    const model = scriptedModel(
+      (call) => {
+        if (!isCheckRun(call)) return { text: JSON.stringify({ claims: [CLAIM] }) };
+        calls.push(call);
+        if (!call.results.some((result) => result.tool === "search_documents")) {
+          return { calls: [{ tool: "search_documents", input: { query: "October" } }] };
+        }
+        return {
+          text: "Verdict: not found\nUnits: none\nLibrary: unsettled\nExplanation: Lists do not hold dates added.\nEvidence: []",
+        };
+      },
+      { generate: (call) => ({ text: sortReply(call.prompt) }) },
+    );
+    const { core } = await startAgentsCore(model, { analysisRuntime: runtime });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+
+    const sources = await createSourceFolder();
+    const [secretDoc, publicDoc] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret.md", "# Secret\n\nPrivate file.\n"),
+      await writeSourceFile(sources, "Public.md", "# Public\n\nShared file.\n"),
+    ]);
+    if (!secretDoc || !publicDoc) throw new Error("Missing fixture Documents.");
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    const pub = await core.createLibraryGroup({ name: "Public", description: "" });
+    await core.assignDocumentGroup(secretDoc.id, vault.id);
+    await core.assignDocumentGroup(publicDoc.id, pub.id);
+
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [pub.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+
+    const { mindId: userNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "User unsettled", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    expect(
+      (await core.checkMind({ requestId: "user-u1", mindId: userNote, mode: "all" })).kind,
+    ).toBe("checked");
+
+    // Current User library-unsettled mark: masked as beyond-reach, zero model calls.
+    calls.length = 0;
+    expect(structured<Checked>(await check(agent, userNote))).toMatchObject({
+      status: "checked",
+      notChecked: 1,
+      claims: [{ sentence: CLAIM, result: "not-checked", reason: "beyond-reach" }],
+    });
+    expect(calls).toEqual([]);
+
+    // Once User's Library changes, the agent is refused rather than overwriting the User's mark.
+    const [extraVault] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Secret2.md", "# Secret 2\n\nAnother private file.\n"),
+    ]);
+    if (!extraVault) throw new Error("Missing Secret2.");
+    await core.assignDocumentGroup(extraVault.id, vault.id);
+    calls.length = 0;
+    expect(refusal(await check(agent, userNote))).toContain("outside the Folders");
+    expect(calls).toEqual([]);
+
+    // Agent's own library-unsettled mark (outside: true): held when unchanged, re-checked when grant changes.
+    const { mindId: agentNote } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Agent unsettled", folderId: pub.id, markdown: CLAIM },
+      }),
+    );
+    calls.length = 0;
+    expect(structured<Checked>(await check(agent, agentNote))).toMatchObject({
+      status: "checked",
+      notChecked: 1,
+      claims: [{ sentence: CLAIM, result: "not-checked", reason: "library-unsettled" }],
+    });
+    expect(calls).toHaveLength(1);
+
+    calls.length = 0;
+    expect(structured<Checked>(await check(agent, agentNote))).toMatchObject({
+      status: "checked",
+      notChecked: 1,
+      claims: [{ sentence: CLAIM, result: "not-checked", reason: "library-unsettled" }],
+    });
+    expect(calls).toEqual([]);
+
+    const [extraPub] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Public2.md", "# Public 2\n\nSecond shared file.\n"),
+    ]);
+    if (!extraPub) throw new Error("Missing Public2.");
+    await core.assignDocumentGroup(extraPub.id, pub.id);
+    calls.length = 0;
+    expect(structured<Checked>(await check(agent, agentNote))).toMatchObject({
+      status: "checked",
+      notChecked: 1,
+      claims: [{ sentence: CLAIM, result: "not-checked", reason: "library-unsettled" }],
+    });
+    expect(calls).toHaveLength(1);
+  });
 });

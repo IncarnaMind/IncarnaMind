@@ -237,13 +237,17 @@ export function Thread({
             {"readiness" in blocked ? (
               <p data-testid="help-set-up" className="panel-line">
                 {blocked.readiness.reason === "no-provider" ? (
-                  t("meetings.help.setUp")
+                  t("meetings.help.needsAi")
                 ) : (
                   <ReadinessExplanation readiness={blocked.readiness} inLine />
                 )}
                 <span aria-hidden="true"> · </span>
                 <button type="button" onClick={() => bridge().setUp()} className="panel-link">
-                  {t("providers.readiness.setUp")}
+                  {t(
+                    blocked.readiness.reason === "no-provider"
+                      ? "agents.install.connectYourAi"
+                      : "providers.readiness.setUp",
+                  )}
                 </button>
               </p>
             ) : (

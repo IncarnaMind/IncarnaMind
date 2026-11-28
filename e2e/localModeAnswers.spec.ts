@@ -45,7 +45,7 @@ const bridge = (window: Page) => ({
     ),
 });
 
-test("in local mode a Question to a cloud model isn't sent: one line says so with a local model or turning local mode off, which can be undone; English and Chinese", async () => {
+test("in local mode a Question to a cloud model isn't sent: one line says so with turning local mode off, which can be undone, and no local model to set up (#3767); English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await setWindowSize(app, window, 900, 700);
@@ -75,9 +75,9 @@ test("in local mode a Question to a cloud model isn't sent: one line says so wit
   await window.keyboard.press("Enter");
   const refusal = window.getByTestId("composer").getByTestId("composer-not-ready");
   await expect(refusal).toHaveText(
-    "Not sent to llm.example.com: “Keep everything on this computer” is on · Use a local model · Allow cloud models",
+    "Not sent to llm.example.com: “Keep everything on this computer” is on · Allow cloud models",
   );
-  await expect(refusal.getByRole("button")).toHaveText(["Use a local model", "Allow cloud models"]);
+  await expect(refusal.getByRole("button")).toHaveText(["Allow cloud models"]);
   // One line, and the page didn't move when it appeared.
   await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
   expect(await pageTop()).toBe(before);
@@ -95,18 +95,12 @@ test("in local mode a Question to a cloud model isn't sent: one line says so wit
   // In Chinese.
   await bridge(window).language("zh-CN");
   await expect(refusal).toHaveText(
-    "未发送给 llm.example.com：已开启“所有内容都留在这台电脑上” · 改用本地模型 · 允许使用云端模型",
+    "未发送给 llm.example.com：已开启“所有内容都留在这台电脑上” · 允许使用云端模型",
   );
   await window.getByTestId("composer-model").click();
   await expect(option).toContainText("不可用：已开启“所有内容都留在这台电脑上”");
   await window.keyboard.press("Escape");
   await bridge(window).language("en");
-
-  await refusal.getByTestId("local-mode-use-local").click();
-  await expect(window.getByTestId("local-model-dialog")).toBeVisible();
-  await expect(window.getByTestId("settings")).toBeHidden();
-  await window.keyboard.press("Escape");
-  await expect(window.getByTestId("local-model-dialog")).toBeHidden();
 
   // Allow cloud models: the line goes, and Undo turns it on again.
   await refusal.getByTestId("local-mode-turn-off").click();

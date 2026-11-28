@@ -172,14 +172,12 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
     timeout: 15_000,
   });
 
-  // Note workspace empty states: one-line Composer readiness and Checks panel with disclosure.
+  // Note workspace empty states: no line over the page, the Note's foot line that says what
+  // asking needs (#3767), and the Checks panel with its disclosure.
   await newMind(window);
-  const readiness = window.getByTestId("chat-readiness");
-  await expect(readiness).toContainText("Asking needs your AI");
-  await expect(readiness.getByTestId("readiness-install-claude-code")).toHaveText(
-    "Install Claude Code",
-  );
-  await expect(readiness.getByTestId("chat-readiness-connect-ai")).toHaveText("Connect your AI");
+  await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
+  const readiness = window.getByTestId("note-ask-no-ai");
+  await expect(readiness).toHaveText("Asking needs your AI · Connect your AI");
 
   await window.getByTestId("mind-editor").click();
   await window.keyboard.type("The northern estuary stations showed stable salinity readings.");
@@ -197,7 +195,7 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
 
   await setWindowSize(app, window, 900, 760);
   await setLanguage(window, "zh-CN");
-  await expect(readiness).toContainText("提问需要连接你的 AI");
+  await expect(readiness).toHaveText("提问需要你的 AI · 连接你的 AI");
   await expect(checksProblem).toContainText("核对需要连接你的 AI");
   await assertNoHorizontalOverflow(window);
   await shot(window, "empty-states-zh-900");
@@ -209,9 +207,9 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
   // check, would check again (#3794).
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("check-card")).toHaveCount(0);
-  // Pressing Install Claude Code on the one-line readiness bar opens Settings › AI beside the
-  // disclosure rather than downloading without showing it first.
-  await readiness.getByTestId("readiness-install-claude-code").click();
+  // Connect your AI at the Note's foot opens Settings › AI, where the install offer stands beside
+  // its disclosure, and downloads nothing.
+  await readiness.getByTestId("note-ask-connect").click();
   await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   await expect(window.getByTestId("claude-code-install-offer")).toBeVisible();
   expect(standIn.installCalls).toBe(0);
@@ -235,9 +233,8 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
   // Cancel stops the install and returns cleanly to the Settings › AI offer + Jobs row.
   await progress.getByTestId("claude-code-install-cancel").click();
   await expect(window.getByTestId("claude-code-install-offer")).toBeVisible();
-  await expect(window.getByTestId("claude-code-install-offer")).toContainText(
-    "Install Claude Code for background work",
-  );
+  await expect(window.getByTestId("claude-code-install-offer")).toContainText("Claude Code");
+  await expect(window.getByTestId("install-claude-code")).toHaveText("Install");
   await expect(window.getByTestId("ai-jobs-install-claude-code")).toHaveText("Install Claude Code");
   await shot(window, "settings-offer-en-1440");
 
@@ -317,15 +314,15 @@ test("failure, retry, browser sign-in handoff, plan without Claude Code, and Con
   await signIn.getByTestId("claude-code-install-check-auth").click();
   await expect(window.getByTestId("claude-code-install-signin-not-yet")).toBeVisible();
 
-  // Plan without Claude Code shows plain words and both ways on.
+  // Plan without Claude Code shows plain words and both ways on, and no model to set up in
+  // IncarnaMind (#3767).
   standIn.behavior.auth = "no-plan";
   await signIn.getByTestId("claude-code-install-check-auth").click();
   const noPlan = window.getByTestId("claude-code-install-no-plan");
   await expect(noPlan).toBeVisible();
   await expect(noPlan).toContainText("Your Anthropic plan doesn’t include Claude Code.");
-  await expect(noPlan.getByTestId("claude-code-no-plan-model")).toHaveText(
-    "Set up a model in IncarnaMind",
-  );
+  await expect(noPlan.getByTestId("claude-code-no-plan-model")).toHaveCount(0);
+  await expect(noPlan.getByRole("button")).toHaveCount(2);
   await expect(noPlan.getByTestId("claude-code-no-plan-desktop")).toHaveText(
     "Keep asking through your desktop app",
   );
@@ -336,9 +333,7 @@ test("failure, retry, browser sign-in handoff, plan without Claude Code, and Con
 
   await setLanguage(window, "zh-CN");
   await expect(noPlan).toContainText("你当前的 Anthropic 套餐不包含 Claude Code。");
-  await expect(noPlan.getByTestId("claude-code-no-plan-model")).toHaveText(
-    "在 IncarnaMind 里设置 AI 模型",
-  );
+  await expect(noPlan.getByTestId("claude-code-no-plan-model")).toHaveCount(0);
   await setLanguage(window, "en");
 
   // Try another account -> sign in succeeds -> opens the standard Connect consent card!

@@ -128,6 +128,7 @@ function runner(
     installed: async (client) =>
       typeof installed === "boolean" ? installed : installed.includes(client),
     purge: async () => true,
+    choosesModes: (client: string) => client === "claude-code",
     async status(client) {
       statuses.push(client);
       return status;
@@ -595,6 +596,7 @@ describe("a Check run on the User's own Codex in the background (#3639)", () => 
       installed: async () => true,
       status: async () => ({ kind: "ready" }),
       purge: async () => true,
+      choosesModes: (client: string) => client === "claude-code",
       async run(request) {
         launches.push(request.server);
         return { kind: "failed", reason: "unsupported" };
@@ -628,6 +630,7 @@ describe("a Check run on the User's own Codex in the background (#3639)", () => 
       installed: async () => true,
       status: async () => ({ kind: "ready" }),
       purge: async () => true,
+      choosesModes: (client: string) => client === "claude-code",
       run: async () => ({ kind: "failed", reason: "unreadable" }),
     };
     const unread = await written(before, { codex: true });
@@ -667,6 +670,7 @@ describe("a Check run on the User's own Codex in the background (#3639)", () => 
       installed: async (client) => installed.includes(client),
       status: async () => ({ kind: "ready" }),
       purge: async () => true,
+      choosesModes: (client: string) => client === "claude-code",
       async run(request) {
         runs.push(request.client);
         if (request.client === "codex") {

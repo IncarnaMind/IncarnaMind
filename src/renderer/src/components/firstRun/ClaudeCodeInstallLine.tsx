@@ -150,7 +150,7 @@ function Row({
       className="flex flex-col border-t border-rule first:border-t-0"
     >
       <div className="relative flex min-h-11 min-w-0 items-center gap-3 px-3 py-2">
-        <AppMark name={CLAUDE_CODE} />
+        <AppMark id="claude-code" name={CLAUDE_CODE} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-ui text-ink">{CLAUDE_CODE}</span>
           <span

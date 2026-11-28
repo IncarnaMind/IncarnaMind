@@ -44,8 +44,10 @@ describe("the sidebar's statuses speak plainly (#763, item 25)", () => {
   test("Tags say they need a model, and the whole sentence waits in the tooltip", () => {
     expect(said.en("status.taggingWaiting")).toBe("Tags need an AI model");
     expect(said.zh("status.taggingWaiting")).toBe("打标签需要 AI 模型");
-    expect(said.en("jev.waiting.notice")).toBe("Tags come once you choose an AI model.");
-    expect(said.zh("jev.waiting.notice")).toBe("选择 AI 模型后会自动打标签。");
+    expect(said.en("jev.waiting.notice")).toBe(
+      "Tags come once Organize and Tags has a model it can use.",
+    );
+    expect(said.zh("jev.waiting.notice")).toBe("“整理和标签”有可用的模型后，会自动打标签。");
     expect(said.en("status.choose")).toBe("Choose…");
     expect(said.zh("status.choose")).toBe("选择…");
   });

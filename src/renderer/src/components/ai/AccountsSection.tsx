@@ -392,7 +392,11 @@ function ProviderRow({
   const state = useProviderState(provider, running, olderSearchKey);
   const plan = isPlan(provider);
   const where = plan ? "plan" : provider.service === null ? "local" : "key";
-  const can = catalog ? jobsOf({ kind: "provider", provider: catalog }) : ["answers" as const];
+  const can = catalog
+    ? jobsOf({ kind: "provider", provider: catalog }).filter(
+        (job) => !provider.jobsOnly || job === "transcription" || job === "search",
+      )
+    : ["answers" as const];
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   // A plan and a key that both serve the Answers model: the row not used says which one is.
   const via =

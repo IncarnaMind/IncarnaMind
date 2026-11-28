@@ -9,6 +9,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import { create } from "zustand";
 import type {
+  AgentPairing,
   NoteAnswer,
   NoteChangeApplied,
   NoteHeldEdit,
@@ -19,6 +20,7 @@ import type {
   NoteTurnProblem,
 } from "../../core/api";
 import { NODE_CHARACTER } from "../../shared/proposals";
+import { runnerName } from "./askedAgent";
 import {
   agentsToAsk,
   askFirstAgent,
@@ -69,6 +71,8 @@ export interface NoteAsk {
   mode: string | null;
   /** The requests sent into its run meanwhile that the AI hasn't taken yet (#3765). */
   queued: string[];
+  /** Its AI ended it at a question it was told no to: what it asked didn't run (#3653). */
+  endedAtAsk?: true;
   /** The messages sent meanwhile that IncarnaMind holds until the reply ends, oldest first (#3765). */
   held: string[];
   /** Sent again once the User lets the agent propose changes. */
@@ -220,6 +224,14 @@ export function useNoteAskShown(mindId: string): boolean {
   return hidden && agents.some((each) => runsInBackground(each, runsHere));
 }
 
+/** The name of the agent the Note's input runs on, or "" when none can run here. */
+export function useNoteAgentName(mindId: string): string {
+  const agents = useAgentsToAsk(mindId);
+  const runsHere = useOwnAiRunsHere();
+  const agent = agents.find((each) => runsInBackground(each, runsHere));
+  return agent ? nameIn(agent) : "";
+}
+
 export const noteAskShownNow = (mindId: string): boolean =>
   hiddenForOwnAiNow() &&
   agentsToAsk(mindId).some((each) => runsInBackground(each, ownAiRunsHereNow()));
@@ -230,8 +242,13 @@ const put = (mindId: string, ask: NoteAsk | null) =>
     return { byMind: ask ? { ...rest, [mindId]: ask } : rest };
   });
 
-const nameOf = (mindId: string, pairingId: string) =>
-  agentsToAsk(mindId).find((each) => each.id === pairingId)?.name ?? "";
+/** What a Note's conversation calls the agent that runs it: Codex on a connection still named as listed. */
+const nameIn = (pairing: AgentPairing) => runnerName({ agent: pairing, background: true });
+
+const nameOf = (mindId: string, pairingId: string) => {
+  const pairing = agentsToAsk(mindId).find((each) => each.id === pairingId);
+  return pairing ? nameIn(pairing) : "";
+};
 
 const sum = (applied: readonly NoteChangeApplied[], field: "changed" | "added" | "tables") =>
   applied.reduce((total, each) => total + each[field], 0);
@@ -303,6 +320,7 @@ function heard(event: NoteTurnEvent): void {
     questions: event.state === "working" ? event.questions : [],
     mode: event.state === "working" && event.modeNew ? event.mode : null,
     queued: event.queued,
+    ...(event.endedAtAsk && { endedAtAsk: true }),
     held: event.held,
     // Another turn's words are never this one's: a request another window sent has none here, and
     // its record gives it again.
@@ -404,7 +422,7 @@ export async function askInNote(
   if (start.kind === "link" || start.kind === "busy" || start.kind === "sent") unsent();
   if (start.kind === "link") return "link";
   if (start.kind === "busy") {
-    useNotices.getState().confirm("noteAsk.busy", { agent: start.pairing.name }, { look: true });
+    useNotices.getState().confirm("noteAsk.busy", { agent: nameIn(start.pairing) }, { look: true });
     return "busy";
   }
   if (start.kind === "sent") {
@@ -421,7 +439,7 @@ export async function askInNote(
   const base: NoteAsk = {
     turnId: start.kind === "started" ? start.turnId : null,
     pairingId: start.pairing.id,
-    agent: start.pairing.name,
+    agent: nameIn(start.pairing),
     state: start.kind === "started" ? "working" : "failed",
     doing: null,
     startedAt: start.kind === "started" ? (sending?.startedAt ?? new Date().toISOString()) : null,
@@ -458,7 +476,7 @@ function sendingAsk(mindId: string, asked: NoteAsked): NoteAsk | null {
   return {
     turnId: null,
     pairingId: agent.id,
-    agent: agent.name,
+    agent: nameIn(agent),
     state: "working",
     doing: null,
     startedAt: new Date().toISOString(),

@@ -3,7 +3,13 @@ import { expect, test } from "@playwright/test";
 import * as Y from "yjs";
 import { CONTENT_SCHEMA_VERSION, type CoreBridge } from "../src/core/api";
 import { openDatabase } from "../src/core/storage";
-import { createDataFolder, dismissChatSetup, launchApp, removeDataFolder } from "./app";
+import {
+  createDataFolder,
+  dismissChatSetup,
+  launchApp,
+  removeDataFolder,
+  saveProvider,
+} from "./app";
 
 /*
  * A Mind a newer version wrote opens read-only, with a notice, and is never
@@ -34,6 +40,8 @@ function newerContent(): number[] {
 test("a Mind written by a newer version opens read-only with a notice, and its stored state is unchanged", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // With no model and no AI there is no assistant (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   const mindId = await window.evaluate(async (update) => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const mind = await core.createMind({ title: "From the other computer" });

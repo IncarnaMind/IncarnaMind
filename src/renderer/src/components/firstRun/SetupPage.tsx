@@ -9,49 +9,43 @@ import { ErrorNotices } from "../ErrorNotices";
 import { PanelBoundary } from "../PanelBoundary";
 import { ChatGptWelcomeDialog } from "../providers/ChatGptSignIn";
 import { RequestedDialogs } from "../RequestedDialogs";
-import { AiStep } from "./AiStep";
 import type { SetupStep, StepPlace } from "./SetupPanel";
-import { SortingStep } from "./SortingStep";
 import { TranscriptionStep } from "./TranscriptionStep";
 import { WorkStep } from "./WorkStep";
 import { YourAiStep } from "./YourAiStep";
 
 const FIRST_RUN: readonly SetupStep[] = ["work", "ai", "meetings"];
-export const MODEL_STEPS: readonly SetupStep[] = ["ai", "sorting", "meetings"];
 
 /**
  * The setup's steps one at a time (#3296). `onEnd` follows the last step's press or skip, with
- * the picks of the first step where it is shown; `close`, where the steps can be put away.
+ * the picks of the first step.
  */
-export function SetupSteps({
+function SetupSteps({
   steps,
   first,
   onEnd,
-  close,
 }: {
   steps: readonly SetupStep[];
   /** The first step's order, whether this install sent its picks, and any kept progress (#3819). */
-  first?: {
+  first: {
     workOrder: readonly WorkKind[];
     picksSent: boolean;
     step: FirstRunStep;
     work: readonly WorkKind[];
   };
   onEnd(work: readonly WorkKind[]): void;
-  close?(): void;
 }) {
-  const initialIndex = first ? Math.max(0, steps.indexOf(first.step)) : 0;
+  const initialIndex = Math.max(0, steps.indexOf(first.step));
   const [at, setAt] = useState(initialIndex);
-  const [work, setWork] = useState<WorkKind[]>(() => [...(first?.work ?? [])]);
+  const [work, setWork] = useState<WorkKind[]>(() => [...first.work]);
   const workRef = useRef<WorkKind[]>(work);
   workRef.current = work;
-  const [sent, setSent] = useState(first?.picksSent === true);
+  const [sent, setSent] = useState(first.picksSent);
   const [ending, setEnding] = useState(false);
   // Read on the first step shown, so Your AI has its agents as it opens.
   useAgentClients();
   useAgentPairings();
   const persist = (nextAt: number, nextWork: readonly WorkKind[]) => {
-    if (!first) return;
     const step = steps[nextAt];
     if (step === "work" || step === "ai" || step === "meetings") {
       core
@@ -85,10 +79,9 @@ export function SetupSteps({
         persist(prevAt, workRef.current);
       },
     }),
-    ...(close && { close }),
   };
   const step = steps[at];
-  if (step === "work" && first) {
+  if (step === "work") {
     return (
       <WorkStep
         place={place}
@@ -100,8 +93,7 @@ export function SetupSteps({
       />
     );
   }
-  if (step === "ai") return first ? <YourAiStep place={place} /> : <AiStep place={place} />;
-  if (step === "sorting") return <SortingStep place={place} />;
+  if (step === "ai") return <YourAiStep place={place} />;
   return <TranscriptionStep place={place} />;
 }
 

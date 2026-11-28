@@ -4,25 +4,22 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
+import { createFakeOpenAI } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
   closeSettings,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
-  interceptOpenExternal,
   launchApp,
   ollamaListing,
   openAddSheet,
-  openDirectoryEntry,
-  openPlanPage,
   openSettings,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  urlsOpened,
+  signInWithChatGpt,
 } from "./app";
 
 /*
@@ -106,7 +103,7 @@ const row = (settings: Locator, name: string) =>
 
 const TITLES = {
   en: ["Your AI", "What each job uses", "Accounts and keys", "Limits"],
-  "zh-CN": ["你的 AI", "各项任务使用的模型", "账户和密钥", "限制"],
+  "zh-CN": ["你的 AI", "各项任务用什么", "账户和密钥", "限制"],
 } as const;
 
 const JOBS = {
@@ -398,6 +395,8 @@ for (const language of ["en", "zh-CN"] as const) {
   // protects=the add sheet's directory opens a service's own page, where a key the service refuses is said in plain words and nothing is kept, and the key it takes is kept, chosen for its job and listed as one row; fails_when=a refused key is kept or chosen, the error is the service's code, or the key shows in no row; no_claim=the service's own wording.
   test(`the add sheet adds a key, and says a refused one in plain words (${language})`, async () => {
     const window = await launch();
+    // Accounts and keys, with its Add a key…, shows once a model is set up (#3767).
+    await connectLocalChatModel(window);
     const settings = await openSettings(window, "ai");
     await setLanguage(window, language);
     const sheet = await openAddSheet(settings);
@@ -440,19 +439,16 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// protects=a new User with nothing set up meets Your AI first, then one quiet row for a model, only the jobs that run without one, no Accounts and keys, and the limits, with no dead end (#3645); fails_when=a picker offers a choice that does nothing, a job that needs a model is listed, or a section is missing; no_claim=first run.
-test("with no model at all, a model is one quiet row, only the jobs that run without one are listed, and there is no Accounts and keys", async () => {
+// protects=a new User with nothing set up meets Your AI first, no row to set up a model (#3767), only the jobs that run without one, Organize done by their own AI, no Accounts and keys, and the limits, with no dead end (#3645); fails_when=a row to set up a model shows, a picker offers a choice that does nothing, a job that needs a model is listed, or a section is missing; no_claim=first run.
+test("with no model at all, there is no row to set one up, only the jobs that run without one are listed, and there is no Accounts and keys", async () => {
   // No Ollama answers, whatever runs on this computer: nothing local can sort either.
   const window = await launch({ ollama: "http://127.0.0.1:9" });
   const settings = await openSettings(window, "ai");
-  await expect(settings.getByTestId("ai-use-model-open")).toContainText(
-    "Use a model in IncarnaMind…",
-  );
+  await expect(settings.getByTestId("ai-use-model")).toHaveCount(0);
   const jobs = settings.getByTestId("ai-jobs");
   await expect(jobs.getByTestId("model-default-chatModel")).toHaveCount(0);
-  await expect(jobs.getByTestId("models-sorting").locator("option:checked")).toHaveText(
-    "No model yet",
-  );
+  // With no model, the User's own AI organizes when asked (#3764, #3767).
+  await expect(jobs.getByTestId("models-sorting").locator("option:checked")).toHaveText("Your AI");
   await expect(jobs.getByTestId("ai-organize-automatic")).toHaveCount(0);
   await expect(settings.getByTestId("your-providers")).toHaveCount(0);
   await expect(settings.getByTestId("ai-limits-privacy")).toContainText("No service allowed yet");
@@ -464,14 +460,8 @@ test("a plan and a key for the same model: the key's row says the plan is the on
   const openai = await createFakeOpenAI();
   try {
     const window = await launch({ chatGpt: openai.endpoints.issuer });
-    await interceptOpenExternal(app as ElectronApplication);
-    const plan = await openPlanPage(window, "chatgpt");
-    await plan.getByTestId("chatgpt-continue").click();
-    await expect.poll(() => urlsOpened(app as ElectronApplication)).toHaveLength(1);
-    const [authorize] = await urlsOpened(app as ElectronApplication);
-    expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
-    await window.getByTestId("chatgpt-welcome-ok").click();
-    await expect(plan.getByTestId("chatgpt-in-use")).toBeVisible();
+    // No plan is added in IncarnaMind (#3767): the profile has one saved through the bridge.
+    await signInWithChatGpt(app as ElectronApplication, window, openai);
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.saveChatProvider({
@@ -481,7 +471,6 @@ test("a plan and a key for the same model: the key's row says the plan is the on
         keepDefault: true,
       });
     });
-    await closeSettings(window);
     const settings = await openSettings(window, "ai");
     await expect(row(settings, "ChatGPT plan").getByTestId("provider-row-status")).toHaveText(
       /^Used for Answers/,
@@ -525,7 +514,7 @@ test("a local runtime says “Running”, and “Not running” once it stops", 
   }
 });
 
-// protects=⌘K's Add an account or key opens the sheet, and Esc closes it with nothing changed; fails_when=it opens a page instead, or Esc closes Settings too; no_claim=the directory's groups, tested above.
+// protects=Add a key… opens the sheet, which lists only keys for transcription and reranking (#3767), and Esc closes it with nothing changed; fails_when=it opens a page instead, it lists a chat model or a plan, or Esc closes Settings too; no_claim=the directory's groups, tested above.
 test("Esc closes the add sheet and leaves Settings open", async () => {
   const window = await launch();
   // A model set up, so Accounts and keys holds the button the focus goes back to.
@@ -534,12 +523,20 @@ test("Esc closes the add sheet and leaves Settings open", async () => {
   await settings.getByTestId("models-add-provider").click();
   const sheet = settings.getByTestId("ai-add-sheet");
   await expect(sheet).toBeVisible();
+  const entries = sheet.getByTestId("provider-directory-entry");
+  await expect(entries.first()).toBeVisible();
+  for (const entry of await entries.evaluateAll((each) =>
+    each.map((element) => element.getAttribute("data-entry") ?? ""),
+  )) {
+    expect(entry, entry).toMatch(/^(transcription|rerank|provider):/);
+  }
+  await expect(
+    entries.getByTestId("provider-directory-job").filter({ hasText: "Answers" }),
+  ).toHaveCount(0);
   await window.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
   await expect(settings).toBeVisible();
   await expect(settings.getByTestId("models-add-provider")).toBeFocused();
-  await openDirectoryEntry(settings, "plan:chatgpt");
-  await expect(settings.getByTestId("ai-entry-page").getByTestId("chatgpt-settings")).toBeVisible();
 });
 
 // protects=choosing Cohere for Best results first on the User's Cohere account shows what each search sends, and to whom, before anything is chosen or allowed, and the row says where it sends once chosen; fails_when=the choice is saved or allowed with no line on screen, or the row reads as on this computer; no_claim=the order Cohere gives.

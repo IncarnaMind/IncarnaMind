@@ -9,6 +9,7 @@ import type {
   Document,
 } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import { checkInstructions, citeReply, readVerdict } from "../../src/core/answers/checks/prompt";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
@@ -2103,5 +2104,205 @@ describe("Stated units check (#3806)", () => {
       });
       expect(kept.verdict).toBe("supported");
     }
+  });
+});
+
+describe("Library field in check prompts and replies (#2525)", () => {
+  test("reads standalone, formatted, inline, JSON, and last-wins Library lines", () => {
+    expect(
+      readVerdict(
+        "Verdict: not found\nUnits: none\nLibrary: unsettled\nExplanation: Lists do not hold dates.\nEvidence: []",
+      ),
+    ).toMatchObject({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+    });
+
+    expect(
+      readVerdict(
+        "Verdict: supported\n- **Library:** Settled.\nExplanation: Count matches.\nEvidence: []",
+      ),
+    ).toMatchObject({ verdict: "supported", library: "settled" });
+
+    expect(
+      readVerdict(
+        "Verdict: supported\nLibrary：none。\nExplanation: Stated in Document.\nEvidence: [1]",
+      ),
+    ).toMatchObject({ verdict: "supported", library: "none" });
+
+    expect(
+      readVerdict(
+        "Verdict: not found Units: none Library: unsettled Explanation: Not stored. Evidence: []",
+      ),
+    ).toEqual({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+      says: "Not stored.",
+      evidence: [],
+    });
+
+    expect(
+      readVerdict(
+        "Verdict: not found Library: unsettled Units: none Explanation: Not stored. Evidence: []",
+      ),
+    ).toEqual({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+      says: "Not stored.",
+      evidence: [],
+    });
+
+    expect(readVerdict("Verdict: not found Units: none Library: unsettled")).toMatchObject({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+    });
+
+    expect(
+      readVerdict("Verdict: not found\nLibrary: settled\nLibrary: unsettled\nEvidence: []"),
+    ).toMatchObject({ library: "unsettled" });
+
+    expect(
+      readVerdict("Verdict: not found\nLibrary: unsettled\nLibrary: none\nEvidence: []"),
+    ).toMatchObject({ library: "none" });
+
+    expect(
+      readVerdict(
+        "Verdict: not found\nUnits: none\nLibrary: unsettled (topics not listed)\nExplanation: Nothing found.\nEvidence: []",
+      ),
+    ).toMatchObject({ verdict: "unsupported", word: "not-found", library: "unsettled" });
+
+    expect(
+      readVerdict(
+        "Verdict: supported\nLibrary: settled — matched 2 Documents\nExplanation: Counted.\nEvidence: []",
+      ),
+    ).toMatchObject({ verdict: "supported", library: "settled" });
+
+    expect(
+      readVerdict(
+        "Verdict: not found Units: none Library: unsettled (topics not listed) Explanation: Not stored. Evidence: []",
+      ),
+    ).toEqual({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+      says: "Not stored.",
+      evidence: [],
+    });
+
+    expect(
+      readVerdict(
+        JSON.stringify({
+          verdict: "not found",
+          units: "none",
+          library: "unsettled (topics not listed)",
+          says: "Not in the lists.",
+          evidence: [],
+        }),
+      ),
+    ).toMatchObject({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      library: "unsettled",
+      says: "Not in the lists.",
+      evidence: [],
+    });
+  });
+
+  test("ignores prose labels and unknown Library words", () => {
+    const withYourLibrary = readVerdict(
+      "Verdict: contradicted\nUnits: none\nExplanation: Your Library: 7 Documents, not 9.\nEvidence: []",
+    );
+    expect(withYourLibrary).toMatchObject({
+      verdict: "contradicted",
+      says: "Your Library: 7 Documents, not 9.",
+    });
+    expect(withYourLibrary?.library).toBeUndefined();
+
+    for (const line of [
+      "Library: 7 files",
+      "Library: unknown",
+      "Library: n/a",
+      "Library: 不适用",
+    ]) {
+      const parsed = readVerdict(
+        `Verdict: not found\nUnits: none\n${line}\nExplanation: Nothing found.\nEvidence: []`,
+      );
+      expect(parsed?.library, line).toBeUndefined();
+    }
+
+    const proseInExplanation = readVerdict(
+      "Verdict: not found\nUnits: none\nExplanation: Library: unsettled (topics not stored).\nEvidence: []",
+    );
+    expect(proseInExplanation?.library).toBeUndefined();
+    expect(proseInExplanation?.says).toBe("Library: unsettled (topics not stored).");
+
+    const inlineInExplanation = readVerdict(
+      "Verdict: not found\nUnits: none\nExplanation: Library: unsettled\nEvidence: []",
+    );
+    expect(inlineInExplanation?.library).toBeUndefined();
+    expect(inlineInExplanation?.says).toBe("Library: unsettled");
+
+    const endSpoof = readVerdict(
+      "Verdict: not found\nUnits: none\nLibrary: none\nExplanation: The memo refers to Library: unsettled.\nEvidence: []",
+    );
+    expect(endSpoof?.library).toBe("none");
+    expect(endSpoof?.says).toBe("The memo refers to Library: unsettled.");
+
+    const endOverwrite = readVerdict(
+      "Verdict: not found\nUnits: none\nLibrary: unsettled\nExplanation: Your Library: none.\nEvidence: []",
+    );
+    expect(endOverwrite?.library).toBe("unsettled");
+    expect(endOverwrite?.says).toBe("Your Library: none.");
+
+    const collapsedExplanationSpoof = readVerdict(
+      "Verdict: not found\nExplanation: The memo says Library: unsettled. Evidence: []",
+    );
+    expect(collapsedExplanationSpoof?.library).toBeUndefined();
+    expect(collapsedExplanationSpoof?.says).toBe("The memo says Library: unsettled.");
+
+    const badJson = readVerdict(
+      JSON.stringify({
+        verdict: "not found",
+        library: "unknown reason",
+        says: "No.",
+        evidence: [],
+      }),
+    );
+    expect(badJson?.library).toBeUndefined();
+  });
+
+  test("gates Library instructions and cite schema on library availability", () => {
+    const withLibrary = checkInstructions("tools", "en", "", false, false, false, true);
+    const withoutLibrary = checkInstructions("tools", "en", "", false, false, false, false);
+    const structured = checkInstructions("structured-output", "en", "", false, false, false, true);
+
+    expect(withLibrary).toContain("Library: none, settled, or unsettled —");
+    expect(withLibrary.indexOf("Library: none, settled, or unsettled")).toBeGreaterThan(
+      withLibrary.indexOf("Units: same, none, another, or unstated"),
+    );
+    expect(withoutLibrary).not.toContain("Library: none, settled, or unsettled");
+    expect(structured).not.toContain("Library: none, settled, or unsettled");
+
+    const withCite = citeReply(true);
+    const withoutCite = citeReply(false);
+    expect(withCite.properties).toHaveProperty("library");
+    expect(withoutCite.properties).not.toHaveProperty("library");
+
+    expect(
+      withCite.reply([{ verdict: "not found", units: "none", library: "unsettled" }], [1]),
+    ).toContain("Library: unsettled");
+    expect(
+      withoutCite.reply([{ verdict: "not found", units: "none", library: "unsettled" }], [1]),
+    ).not.toContain("Library:");
   });
 });

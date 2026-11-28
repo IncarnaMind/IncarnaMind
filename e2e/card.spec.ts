@@ -14,6 +14,7 @@ import {
   linkedFolderRow,
   placeAssistant,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   widthOf,
@@ -56,6 +57,8 @@ async function newMind(window: Page, title: string): Promise<void> {
 test("the Mind sits in a card 8px from the sidebar and the window's edges, with its band inside", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // With no model and no AI there is no assistant (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await newMind(window, "Reading notes");
   await newMind(window, "Interview plan");
 
@@ -119,6 +122,7 @@ test("the Mind sits in a card 8px from the sidebar and the window's edges, with 
 test("every pane header's contents sit on the band's centre line and their rules level, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await newMind(window, "Reading notes");
   await newMind(window, "Interview plan");
   await setWindowSize(app, window, 1440, 860);
@@ -234,12 +238,12 @@ test("the + menu in the sidebar header offers New note, Add Documents…, New Fo
   await expect(plus).toHaveAttribute("aria-expanded", "true");
   if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, "shell-menu-en.png") });
 
-  // More opens beside it as the pointer comes onto it, with the rest.
+  // More opens beside it as the pointer comes onto it, with the rest: no Compare Documents…, which
+  // only a model in IncarnaMind can fill (#3767).
   await items.nth(5).hover();
   await expect(more).toBeVisible();
   await expect(more.getByRole("menuitem")).toHaveText([
     /Import a Word file…/,
-    /Compare Documents…/,
     /Check someone else’s file…/,
     /From starter Folders…/,
     /Add a web page…/,
@@ -324,7 +328,6 @@ test("the + menu and the shell speak Chinese too", async () => {
   await window.getByTestId("plus-more").hover();
   await expect(window.getByRole("menu", { name: "更多" }).getByRole("menuitem")).toHaveText([
     /导入 Word 文件…/,
-    /对比文档…/,
     /核对别人的文件…/,
     /从预设文件夹新建…/,
     /添加网页…/,

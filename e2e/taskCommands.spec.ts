@@ -15,6 +15,7 @@ import {
   pointAndClick,
   recordNotifications,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   startScriptedTask,
@@ -362,6 +363,8 @@ test("⌘K acts on the Task the User opened, and a Done Task's block never acts 
   try {
     const { app, window } = await launchApp(dataDir, { scriptedTasks: true });
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1440, 860);
     await newMind(window);
     await window.keyboard.type("Two tasks");

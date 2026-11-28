@@ -8,6 +8,7 @@ import {
   acceptPlainTextKeys,
   agentsToConnect,
   catchCopies,
+  claudeCodeInHome,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
@@ -39,13 +40,17 @@ async function shot(target: Page | Locator, name: string) {
 
 let dataDir: string;
 let sources: string;
+let home: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
   sources = await realpath(await createDataFolder());
+  home = await realpath(await createDataFolder());
+  await claudeCodeInHome(home);
 });
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
   await removeDataFolder(sources);
+  await removeDataFolder(home);
 });
 
 type Language = "en" | "zh-CN";
@@ -172,7 +177,7 @@ for (const width of [900, 1280]) {
   for (const language of ["en", "zh-CN"] as const) {
     const words = WORDS[language];
     test(`all of it is the choice made, in words with no Folder; Choose Folders lists Not in a Folder after them, and Folders… narrows and widens back, at ${width} px in ${LANGUAGE_NAME[language]}`, async () => {
-      const { app, window } = await launchApp(dataDir);
+      const { app, window } = await launchApp(dataDir, { home });
       try {
         await dismissChatSetup(window);
         await setWindowSize(app, window, width, 720);
@@ -358,7 +363,7 @@ for (const width of [900, 1280]) {
 test("a Library that is only a Linked folder's Folder says what it reads, and Allow connects with all of it, those added later too", async () => {
   await writeNote("Tides", "Spring tides come at new moon.");
   await writeNote("Reef", "The reef shelters young coral.");
-  const { app, window } = await launchApp(dataDir);
+  const { app, window } = await launchApp(dataDir, { home });
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 900, 720);
@@ -390,7 +395,7 @@ test("a Library that is only a Linked folder's Folder says what it reads, and Al
 for (const language of ["en", "zh-CN"] as const) {
   test(`with a linked folder's Folder walled, the first line says such a Folder is shared only on its own, in ${LANGUAGE_NAME[language]}`, async () => {
     await writeNote("Quay plan", "The quay plan adds 31 moorings.");
-    const { app, window } = await launchApp(dataDir);
+    const { app, window } = await launchApp(dataDir, { home });
     try {
       await dismissChatSetup(window);
       await setWindowSize(app, window, 1280, 720);

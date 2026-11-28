@@ -275,22 +275,15 @@ export interface AppState extends LayoutSlice {
    * with the order its kinds of work are shown in and whether this install sent its picks; or its
    * model steps again, from Settings › AI or ⌘K, in a dialog over the app. Null when neither shows.
    */
-  setup:
-    | {
-        from: "work";
-        workOrder: WorkKind[];
-        picksSent: boolean;
-        step: FirstRunStep;
-        work: WorkKind[];
-      }
-    | { from: "ai" }
-    | null;
+  setup: {
+    from: "work";
+    workOrder: WorkKind[];
+    picksSent: boolean;
+    step: FirstRunStep;
+    work: WorkKind[];
+  } | null;
 
   load(): Promise<void>;
-  /** Shows the setup's model steps again, in a dialog over the app (#3296). */
-  openSetup(): void;
-  /** Closes the model steps' dialog. */
-  closeSetup(): void;
   /**
    * The first run's setup finished or skipped through: it keeps the picks and opens their example
    * with Get started.
@@ -1344,14 +1337,6 @@ export const useAppStore = create<AppState>()((set, get) => {
       } catch (error) {
         set({ status: { kind: "failed", message: errorMessage(error, t) } });
       }
-    },
-
-    openSetup() {
-      if (!get().setup) set({ setup: { from: "ai" } });
-    },
-
-    closeSetup() {
-      if (get().setup?.from === "ai") set({ setup: null });
     },
 
     async finishSetup(work) {

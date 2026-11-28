@@ -156,7 +156,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Organize says what it does, with no model what it needs, and on a model on this computer runs without asking (${language})`, async () => {
+  test(`Organize says what it does, with no AI that it needs the User's, and on a model on this computer runs without asking (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true, home: library });
     await setWindowSize(app, window, 1440, 900);
     await dismissChatSetup(window);
@@ -181,14 +181,14 @@ for (const language of ["en", "zh-CN"] as const) {
         : "为每个文档建议文件夹和标签，由你决定。",
     );
     await pointAndClick(window, lib.getByTestId("library-organize"));
-    const needs = lib.getByTestId("library-organize-needs-model");
-    // With no model, the User can open Settings or dismiss the prompt.
+    const needs = lib.getByTestId("library-organize-needs-ai");
+    // With no AI, the User can connect theirs or dismiss the prompt; no model is chosen here (#3767).
     await expect(needs.getByTestId("library-organize-use")).toHaveCount(0);
-    await expect(needs.getByTestId("library-organize-set-up")).toBeVisible();
+    await expect(needs.getByTestId("library-organize-connect-ai")).toHaveText(
+      language === "en" ? "Connect your AI" : "连接你的 AI",
+    );
     await expect(needs).toContainText(
-      language === "en"
-        ? "Choose an AI model to sort your Documents."
-        : "选好 AI 模型，就能整理文档。",
+      language === "en" ? "Organizing needs your AI" : "整理需要你的 AI",
     );
     await pointAndClick(window, needs.getByTestId("library-organize-dismiss"));
     await expect(needs).toHaveCount(0);

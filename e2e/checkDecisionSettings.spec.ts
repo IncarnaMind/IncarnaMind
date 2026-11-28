@@ -159,7 +159,7 @@ async function holds(page: Locator, row: Locator): Promise<void> {
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  // protects=without the host's key the switch is off and can't be turned on, one line names the service it needs and Add a key… opens the same add sheet; with the key, where the User's checks go to that service, it is on before they touch it, with the line that says what goes there; off stays off and stores it, on again is the User's own choice of the model, and Local mode turns it off with one line and gives it back; fails_when=the switch can be turned on with no key or in Local mode, shows off where it is on by default, the sends line is missing while it can be turned on, or the row's words run under the switch at a narrow window; no_claim=what a check then does, which the core's tests cover.
+  // protects=without the host's key the switch is off and can't be turned on, one line names the service it needs and no key is added from the row (#3767); with the key, where the User's checks go to that service, it is on before they touch it, with the line that says what goes there; off stays off and stores it, on again is the User's own choice of the model, and Local mode turns it off with one line and gives it back; fails_when=the switch can be turned on with no key or in Local mode, the row offers to add a key, shows off where it is on by default, the sends line is missing while it can be turned on, or the row's words run under the switch at a narrow window; no_claim=what a check then does, which the core's tests cover.
   test(`the switch says what it does and why it is off, at 900 px (${language})`, async () => {
     const window = await launch(true, 900);
     // A model set up, with no key for the decision model's host: the row is listed (#3645).
@@ -178,13 +178,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(toggle).toBeDisabled();
     await expect(toggle).not.toBeChecked();
     await picture(window, `checks-row-no-key-${language}-900`);
-    const addKey = row.getByTestId("check-decision-add-key");
-    await expect(addKey).toHaveText(words.addKey);
-    await pointAndClick(window, addKey);
-    const sheet = settings.getByTestId("ai-add-sheet");
-    await expect(sheet).toBeVisible();
-    await window.keyboard.press("Escape");
-    await expect(sheet).toBeHidden();
+    // No key is added from the row (#3767).
+    await expect(row.getByText(words.addKey)).toHaveCount(0);
 
     await addOpenRouter(window);
     await expect(row).toHaveAttribute("data-reads", "default");
@@ -192,7 +187,6 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(toggle).toBeChecked();
     await expect(row.getByTestId("check-decision-sends")).toHaveText(words.sendsByDefault);
     await expect(row.getByTestId("check-decision-blocked")).toHaveCount(0);
-    await expect(addKey).toHaveCount(0);
     expect(await chosen(window)).toBeNull();
     await holds(page, row);
     await picture(window, `checks-row-on-by-default-${language}-900`);

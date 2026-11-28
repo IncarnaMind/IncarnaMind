@@ -1,9 +1,8 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import type {
   DecisionHostStatus,
   SecretStorageStatus,
   SetDecisionKeyInput,
-  TaggingClassifier,
 } from "../../../../core/api";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
@@ -13,16 +12,9 @@ import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { buttonStyle, fieldLabelClass, hintClass, inputClass } from "../ui";
 import { SecretStorageNotice } from "./ProviderForm";
-import { SortingLine } from "./SortingChoice";
 import { useProviderKey } from "./shared";
 
 const linkClass = "underline underline-offset-2 hover:text-ink";
-
-export const firstModelOf = (host: DecisionHostStatus): TaggingClassifier => ({
-  kind: "decision",
-  host: host.host,
-  modelId: host.models[0]?.id ?? "",
-});
 
 export const hostName = (host: Pick<DecisionHostStatus, "name">, language: string) =>
   host.name[language === "zh-CN" ? "zh" : "en"];
@@ -30,18 +22,14 @@ export const hostName = (host: Pick<DecisionHostStatus, "name">, language: strin
 /**
  * A decision model host's key of its own, and the account it asks for (Cloudflare's account ID,
  * the Model Studio workspace): checked with the host as it is saved, nothing of the User's sent.
- * From the sorting picker (`sorting`), its one button saves them and makes the host's best model
- * what sorts, with the line that says what that sends above it: that press is the consent.
  */
 export function DecisionKeyForm({
   host,
-  sorting,
   onSaved,
   onCancel,
 }: {
   host: DecisionHostStatus;
-  sorting?: { consent: ReactNode; choose(): Promise<boolean> };
-  onSaved(hosts: DecisionHostStatus[], chosen: boolean): void;
+  onSaved(hosts: DecisionHostStatus[]): void;
   onCancel(): void;
 }) {
   const t = useT();
@@ -86,7 +74,7 @@ export function DecisionKeyForm({
       // The User left the form while the key was checked: it is kept, nothing is chosen.
       if (!mounted()) return;
       key.clear();
-      onSaved(hosts, sorting ? await sorting.choose() : false);
+      onSaved(hosts);
     } catch (failure) {
       if (mounted()) setProblem(errorMessage(failure, t));
     } finally {
@@ -102,7 +90,6 @@ export function DecisionKeyForm({
     }
   };
 
-  const fieldClass = sorting ? `${inputClass} max-w-[26rem]` : inputClass;
   return (
     <form
       data-testid={`decision-key-form-${host.host}`}
@@ -129,7 +116,7 @@ export function DecisionKeyForm({
             spellCheck={false}
             aria-invalid={key.stray ? true : undefined}
             aria-describedby={key.stray ? `${id}-stray` : `${id}-get`}
-            className={fieldClass}
+            className={inputClass}
           />
           {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
           <span id={`${id}-get`} className={hintClass}>
@@ -152,7 +139,7 @@ export function DecisionKeyForm({
             autoComplete="off"
             spellCheck={false}
             aria-describedby={`${id}-account`}
-            className={fieldClass}
+            className={inputClass}
           />
           <span id={`${id}-account`} className={hintClass}>
             {t(`decisions.account.hint.${host.account.kind}`)}
@@ -162,16 +149,15 @@ export function DecisionKeyForm({
       {storage && !storage.canSave && (
         <SecretStorageNotice status={storage} onAccept={() => void acceptPlainText()} />
       )}
-      {sorting?.consent}
       {problem && <ProblemLine testId="decision-key-problem">{problem}</ProblemLine>}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="submit"
           data-testid="decision-key-save"
           disabled={!ready || busy}
-          className={buttonStyle("primary", sorting ? "sm" : undefined)}
+          className={buttonStyle("primary")}
         >
-          {t(busy ? "meetings.key.checking" : sorting ? "setup.step.useThis" : "meetings.key.save")}
+          {t(busy ? "meetings.key.checking" : "meetings.key.save")}
         </button>
         <button
           type="button"
@@ -184,59 +170,5 @@ export function DecisionKeyForm({
         </button>
       </div>
     </form>
-  );
-}
-
-/**
- * A host chosen from the sorting picker's foot (#1907): what its best model is, then its key and
- * account, with what choosing it sends above Use this, which keeps them and makes it what sorts.
- */
-export function DecisionSortingSetUp({
-  host,
-  choose,
-  onChosen,
-  onCancel,
-}: {
-  host: DecisionHostStatus;
-  choose(): Promise<boolean>;
-  onChosen(): void;
-  onCancel(): void;
-}) {
-  const t = useT();
-  const language = useLanguage();
-  const name = hostName(host, language);
-  const model = host.models[0];
-  return (
-    <div data-testid="decision-sorting-set-up" className="flex flex-col gap-2">
-      <p data-testid="decision-sorting-line" className={`${hintClass} mt-0`}>
-        {model && model.maker !== name
-          ? t("decisions.setUp.line", { maker: model.maker, provider: name })
-          : t("decisions.setUp.lineOwn", { maker: name })}{" "}
-        <span aria-hidden="true">· </span>
-        <a href={host.pricingUrl} target="_blank" rel="noreferrer" className={linkClass}>
-          {t("providers.form.pricing")} ↗
-        </a>
-      </p>
-      <DecisionKeyForm
-        host={host}
-        sorting={{
-          consent: (
-            <SortingLine
-              option={{
-                classifier: firstModelOf(host),
-                label: model?.name ?? name,
-                provider: name,
-                decisionModel: true,
-              }}
-            />
-          ),
-          choose,
-        }}
-        onSaved={(_hosts, chosen) => {
-          if (chosen) onChosen();
-        }}
-        onCancel={onCancel}
-      />
-    </div>
   );
 }

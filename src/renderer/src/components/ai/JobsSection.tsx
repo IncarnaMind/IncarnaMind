@@ -50,7 +50,6 @@ export function JobsSection({
   onRerank,
   checkDecision,
   noModel,
-  onAddKey,
 }: {
   groups: readonly ChatModelGroup[];
   providers: readonly ChatProvider[];
@@ -60,7 +59,6 @@ export function JobsSection({
   onRerank(rerank: RerankSettings): void;
   checkDecision: CheckDecisionStatus | null;
   noModel: boolean;
-  onAddKey(): void;
 }) {
   const t = useT();
   const id = useId();
@@ -113,9 +111,7 @@ export function JobsSection({
               providers={providers}
               roles={roles}
             />
-            {checkDecision && (
-              <CheckDecisionRow id={`${id}-checks`} status={checkDecision} onAddKey={onAddKey} />
-            )}
+            {checkDecision && <CheckDecisionRow id={`${id}-checks`} status={checkDecision} />}
           </>
         )}
         <CheckWritesRow assistant={!noModel} />
@@ -234,6 +230,7 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
           localOnly={localOnly}
           read={services}
           setUp={setUp.rows}
+          onAddKey={() => useAppStore.getState().openSettings("ai", "add-provider")}
           onChosen={setUp.onChosen}
         />
       }

@@ -9,6 +9,7 @@ import {
   motionSettled,
   placeAssistant,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -89,6 +90,8 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir, { home });
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setLanguage(window, language);
     await setWindowSize(app, window, 1440, 900);
     await importWordFile(app, window, files, "résumé.docx", cvFile());

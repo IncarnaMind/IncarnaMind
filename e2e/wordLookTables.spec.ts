@@ -10,6 +10,7 @@ import {
   launchApp,
   motionSettled,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -90,6 +91,8 @@ test("the résumé's tables as the file draws them: layout tables without lines,
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
+  // With no model and no AI there is no assistant (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await importWordFile(app, window, files, "林晓_简历.docx", resumeFile());
 
   const editor = window.getByTestId("mind-editor");
@@ -176,6 +179,7 @@ test("the contract's tables: the bordered definitions with a shaded heading row 
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await importWordFile(
     app,
     window,

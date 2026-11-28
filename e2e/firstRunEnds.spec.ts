@@ -2,22 +2,23 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
-  ANTHROPIC_KEY,
   acceptPlainTextKeys,
   addDocuments,
-  askFirstQuestion,
   assistantAnswers,
   createDataFolder,
   launchApp,
+  newMind,
   pointAndClick,
   removeDataFolder,
+  useCloudChatModel as setCloudChatModel,
   setLanguage,
   setWindowSize,
 } from "./app";
 
 /*
  * The first run ends at the first checked Answer (#2867): once a model works and the first Answer
- * is there, the assistant asks nothing more to set up, and nothing offers what to try next.
+ * is there, the assistant asks nothing more to set up, and nothing offers what to try next. No
+ * model is set up in the interface (#3767): the profile's is saved through the bridge.
  * Meeting transcription and sorting are set up where they are first used (the record sheet and
  * Organize). In English and Chinese, on a fresh profile.
  */
@@ -58,16 +59,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       const assistant = window.getByTestId("assistant");
 
-      // The first Question waits for a model; a pasted key is the way in, and the Answer comes.
-      const card = await askFirstQuestion(window);
-      await card.getByTestId("setup-key").fill(ANTHROPIC_KEY);
-      await card.getByTestId("setup-key").press("Enter");
+      await setCloudChatModel(window, { cap: false });
+      await newMind(window);
+      const input = window.getByTestId("composer-input");
+      if (!(await input.isVisible())) await window.keyboard.press("ControlOrMeta+Shift+O");
+      await input.click();
+      await window.keyboard.type("What is in my Documents?");
+      await window.keyboard.press("Enter");
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
-      // The composer is back, and the assistant says no more about setting up.
-      await expect(window.getByTestId("composer-input")).toBeVisible();
-      await expect(card).toHaveCount(0);
+      // The composer stays, and the assistant says nothing about setting up.
+      await expect(input).toBeVisible();
       await expect(assistant).not.toContainText(GONE[language].setup);
 
       // A file of their own and the example's first checked Citation: still nothing to set up

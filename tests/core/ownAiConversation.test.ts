@@ -19,6 +19,7 @@ import {
   type AgentLaunch,
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
+  type ConsentRequest,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   type NoteAction,
@@ -33,14 +34,23 @@ import {
 } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { sentenceReasonText } from "../../src/renderer/src/cost";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { checkButtonOf } from "../../src/renderer/src/editor/checkButtonState";
 import { wholeCheckStands } from "../../src/renderer/src/editor/checkCardStage";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { readNoteState } from "../../src/renderer/src/noteState";
-import { translate } from "../../src/shared/i18n";
+import {
+  cantBeChecked,
+  claimCheckShown,
+  saysNotFound,
+  sentenceResultOf,
+} from "../../src/shared/claimChecks";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { versionsWithLibrary } from "../../src/shared/libraryFacts";
 import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
+import { checkRows } from "../../src/shared/noteHealth";
 import { writeOpinionSentences } from "../../src/shared/opinions";
 import { decideProposals, NODE_CHARACTER, recordProposalRequest } from "../../src/shared/proposals";
 import {
@@ -166,6 +176,7 @@ function runner(
     installed: async () => true,
     status: async () => status,
     ...(folders && { folder: async (key: string) => join(folders, key) }),
+    choosesModes: (client: string) => client === "claude-code",
     async purge(key) {
       purged.push(key);
       return true;
@@ -243,6 +254,14 @@ const MODELS = [
   { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "" },
 ];
 
+/** A model Codex lists in its `model/list` answer, as the run hears it. */
+const CODEX_MODEL = {
+  value: "gpt-6.2-sol",
+  resolvedModel: "gpt-6.2-sol",
+  displayName: "GPT-6.2 Sol",
+  description: "",
+};
+
 /**
  * A User with no model set up, a Document in "Harbour", a Note they wrote there and another, and
  * Claude Code connected, allowed to propose changes unless `readOnly`. `cited`: the Note's first
@@ -255,7 +274,14 @@ async function written(
     cited = false,
     quietMs,
     held,
-  }: { readOnly?: boolean; cited?: boolean; quietMs?: number; held?: Gate } = {},
+    client: agentClient = "claude-code",
+  }: {
+    readOnly?: boolean;
+    cited?: boolean;
+    quietMs?: number;
+    held?: Gate;
+    client?: "claude-code" | "codex";
+  } = {},
 ) {
   const files = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
   // `held`: a page's files are written only once it opens, so its call runs until then.
@@ -284,10 +310,17 @@ async function written(
   await core.assignDocumentGroup(report.id, harbour.id);
   await core.setAgentsEnabled(true);
   const claude = await core.connectAgent({
-    name: "Claude Code",
-    client: "claude-code",
+    name: agentClient === "codex" ? "Codex" : "Claude Code",
+    client: agentClient,
     folderIds: [harbour.id],
     propose: !readOnly,
+  });
+  // Connecting Codex agrees to its checks alone: its first request asks for the rest, accepted here.
+  const consents: ConsentRequest[] = [];
+  core.on("consent.requested", (request) => {
+    if (agentClient !== "codex") return;
+    consents.push(request);
+    void core.respondToConsent(request.requestId, true);
   });
   const mind = await core.createMind({ title: "Ferry notes", folderId: harbour.id });
   const client = await connectToMind(core, mind.id);
@@ -351,6 +384,7 @@ async function written(
     turns,
     ended,
     selectionOf,
+    consents,
   };
 }
 
@@ -403,9 +437,9 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   it("says whether the command line can run here", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "" }));
     const here = await written(run.adapter);
-    expect(await here.core.ownAiRunsHere()).toBe(true);
+    expect(await here.core.ownAiRunsHere()).toEqual(["claude-code", "codex"]);
     const away = await written({ ...run.adapter, installed: async () => false });
-    expect(await away.core.ownAiRunsHere()).toBe(false);
+    expect(await away.core.ownAiRunsHere()).toEqual([]);
     expect(await away.core.askInNote({ mindId: away.mindId, words: "shorter" })).toEqual({
       kind: "link",
     });
@@ -1990,6 +2024,32 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=a request its AI ended at a question told no ends finished, its last words kept, and says so in the window and in the conversation read again; a later one that finished says nothing of it (#3653); fails_when=the conversation shows only the AI's words of what it would do, as if it ran, or the request reads as failed
+  it("says a request ended at a question told no ran none of it", async () => {
+    let ask = true;
+    const run = runner(async () =>
+      ask
+        ? { kind: "finished", reply: "I’ll run touch denied.txt.", endedAtAsk: true }
+        : { kind: "finished", reply: "Done." },
+    );
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "make a file" });
+    expect(await ended(1)).toMatchObject({ state: "landed", endedAtAsk: true });
+    ask = false;
+    await core.askInNote({ mindId, words: "say hello" });
+    expect((await ended(2))?.endedAtAsk).toBeUndefined();
+    expect(
+      (await core.noteConversation(mindId)).map(({ outcome, reply, endedAtAsk }) => [
+        outcome,
+        reply,
+        endedAtAsk ?? false,
+      ]),
+    ).toEqual([
+      ["landed", "I’ll run touch denied.txt.", true],
+      ["landed", "Done.", false],
+    ]);
+  });
+
   // protects=Stop ends the run and leaves the Note as it was; fails_when=a stopped request changes the Note or keeps running
   it("stops on Stop, and leaves the Note as it was", async () => {
     const { core, mindId, client, ended } = await written(runner(untilStopped).adapter);
@@ -2838,6 +2898,138 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     } finally {
       await again.close();
     }
+  });
+
+  // protects=a Note's request runs on the User's own Codex as on Claude Code (#3653): with its own abilities, every Tool of IncarnaMind's server and the conversation's own folder; its first request asks the consent in Codex's own words; its models are listed for its picker, and its approval policy is kept, never offered as a mode the input chooses; fails_when=a Codex connection's request goes by the link, runs without its abilities, skips the consent, or shows Claude Code's modes
+  it("runs a Note's request on Codex with its own abilities, in the User's own approval policy", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: [CODEX_MODEL] });
+      request.progress?.({ kind: "mode", mode: "on-request" });
+      return { kind: "finished", reply: "Counted." };
+    });
+    const { core, mindId, ended, consents } = await written(run.adapter, { client: "codex" });
+    expect(await core.ownAiRunsHere()).toEqual(["claude-code", "codex"]);
+    expect((await core.askInNote({ mindId, words: "count the late crossings" })).kind).toBe(
+      "started",
+    );
+    expect(await ended()).toMatchObject({ state: "landed", reply: "Counted.", mode: "on-request" });
+    const [request] = run.runs;
+    expect(request).toMatchObject({ client: "codex", tools: "all" });
+    expect(request?.own).toBeDefined();
+    expect(request?.conversation?.key).toEqual(expect.any(String));
+    expect(request?.modes).toBeUndefined();
+    expect(consents.map((each) => [each.flow.service.agentClient, each.newKinds])).toEqual([
+      ["codex", ["note-requests", "selection", "own-ai-context"]],
+    ]);
+    expect(await core.noteModels(mindId)).toMatchObject({
+      models: [CODEX_MODEL],
+      mode: null,
+      chosen: false,
+    });
+    await core.chooseNoteMode(mindId, "auto");
+    expect((await core.noteModels(mindId)).mode).toBeNull();
+    await core.askInNote({ mindId, words: "and the early ones", model: CODEX_MODEL.value });
+    await ended(2);
+    expect(run.runs[1]).toMatchObject({
+      client: "codex",
+      model: CODEX_MODEL.value,
+      conversation: { resume: true },
+    });
+    expect(run.runs[1]?.modes).toBeUndefined();
+  });
+
+  // protects=Codex's "for this session" answer is offered beside its lasting one, in Codex's order, and goes back to it as the User chose it; fails_when=the card offers fewer answers than Codex's request, or "for this request" reaches Codex as another answer
+  it("offers Codex's answer for this request beside its lasting one, and gives it back", async () => {
+    const FOR_REQUEST: NoteSuggested[] = [
+      { kind: "rules", kept: "request", rules: [{ kind: "command", value: COMMAND.value }] },
+    ];
+    const run = asking({ ...asked("exec-1"), forRequest: FOR_REQUEST });
+    const { core, mindId, turns, ended } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "count the late crossings" });
+    const [question] = await waitingIn(turns);
+    expect(question).toMatchObject({
+      action: COMMAND,
+      answers: ["deny", "suggested", "request", "once"],
+      suggested: SUGGESTED,
+      forRequest: FOR_REQUEST,
+    });
+    await core.answerInNote(mindId, question?.id ?? "", "request");
+    const end = await ended();
+    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "request" });
+    expect(run.answered).toEqual(["request"]);
+  });
+
+  // protects=on Codex, Stop with a question open ends the run at once and the question goes, said stopped; a question open when IncarnaMind closes reads as asked and not run after the next start, so neither hangs the conversation; fails_when=Stop waits on Codex's question, or a question open across a restart reads as still waiting
+  it("stops with Codex's question open, and closes one open across a restart", async () => {
+    let signal: AbortSignal | undefined;
+    const run = asking(asked("exec-1"), (request) => {
+      signal = request.signal;
+    });
+    const { core, mindId, turns, ended, dataDir } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "count the late crossings" });
+    const [question] = await waitingIn(turns);
+    await core.stopInNote(mindId);
+    expect(await ended()).toMatchObject({ state: "stopped" });
+    expect(signal?.aborted).toBe(true);
+    await core.answerInNote(mindId, question?.id ?? "", "once");
+    expect(run.answered).toEqual([]);
+    await core.askInNote({ mindId, words: "count them again" });
+    await expect.poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(1);
+    await core.close();
+    const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    try {
+      expect((await again.noteConversation(mindId)).at(-1)).toMatchObject({
+        request: "count them again",
+        outcome: "stopped",
+        questions: [],
+        closed: [{ kind: "command", value: COMMAND.value }],
+      });
+    } finally {
+      await again.close();
+    }
+  });
+
+  // protects=a deck Codex made in the conversation's own folder reaches the Library by hand_over_file, as Claude Code's does; fails_when=a Codex conversation's folder isn't the one hand_over_file reads from
+  it("hands over a file Codex made in the conversation's folder", async () => {
+    const folders = await realpath(await mkdtemp(join(tmpdir(), "own-ai-folders-")));
+    let handed: unknown;
+    const run = runner(
+      async (agent, request) => {
+        const folder = join(folders, request.conversation?.key ?? "");
+        await mkdir(folder, { recursive: true });
+        const deck = join(folder, "Ferry delays.pptx");
+        await writeFile(deck, plainDeck([{ title: "Ferry delays" }, { lines: [FERRY] }]));
+        const result = (await agent.callTool({
+          name: "hand_over_file",
+          arguments: { path: deck },
+        })) as { structuredContent?: unknown };
+        handed = result.structuredContent;
+        return { kind: "finished", reply: "Handed over." };
+      },
+      { kind: "ready" },
+      connectLegacyAgent,
+      folders,
+    );
+    const { core, mindId, ended } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "make a deck of the delays" });
+    await ended();
+    expect(handed).toMatchObject({ title: "Ferry delays" });
+    expect((await core.listDocuments()).map((each) => each.name)).toContain("Ferry delays");
+  });
+
+  // protects=Codex's own no-ask setting is kept with the request as it names it, so the conversation says it once in plain words; fails_when=Codex set never to ask runs unasked with nothing said
+  it("keeps Codex's never-ask policy with the request", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "mode", mode: "never" });
+      request.progress?.({ kind: "own", id: "exec-1", action: COMMAND, state: "going" });
+      request.progress?.({ kind: "own", id: "exec-1", action: COMMAND, state: "done" });
+      return { kind: "finished", reply: "Counted." };
+    });
+    const { core, mindId, ended } = await written(run.adapter, { client: "codex" });
+    await core.askInNote({ mindId, words: "count the late crossings" });
+    const end = await ended();
+    expect(end).toMatchObject({ mode: "never", modeNew: true });
+    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND });
   });
 
   // protects=the AI's own mode is heard and kept with the request, so the conversation can say once that it asks nothing; fails_when=a mode that asks nothing goes unsaid
@@ -5675,6 +5867,232 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       expect(afterB.health.unchecked).toEqual([]);
       expect(afterB.wholeCheck).toBe(true);
       expect(afterB.button).toMatchObject({ kind: "checked", words: checkedWord });
+    },
+  );
+
+  // protects=#2525 + #3862: with check-as-it-lands on, landing a library-unsettled verdict marks the sentence Not checked (cantBeChecked, no Cut, nothing ticked), leaves no unchecked key or uncheckedBlocks marker (and clears uncheckedBlocks after an AI edit), and flips to Needs re-check when a Document joins the Library (EN and ZH); fails_when=library-unsettled stays in unchecked or uncheckedBlocks, counts as Supported or toCheck, or ignores Library changes
+  it.each([
+    {
+      language: "en" as const,
+      title: "Library coverage note",
+      firstSentence: "Three of your Documents were added in October.",
+      secondSentence: "Most of your files cover marine biology.",
+      reasonLine: "Only your Library’s counts, names and kinds can be checked.",
+      addedFile: "Harbour.md",
+      addedContent: "# Harbour\n\nTwo stone quays.\n",
+    },
+    {
+      language: "zh-CN" as const,
+      title: "资料库覆盖笔记",
+      firstSentence: "你的资料库里有 3 个文档是在十月添加的。",
+      secondSentence: "你的大多数文件都讨论海洋生物。",
+      reasonLine: "只能核对资料库的数量、名称和类型。",
+      addedFile: "海港.md",
+      addedContent: "# 海港\n\n两座石砌码头。\n",
+    },
+  ])(
+    "settles a library-unsettled sentence with check-as-it-lands on, leaves no unchecked markers or ticks, and re-checks on Library change ($language)",
+    async ({
+      language,
+      title,
+      firstSentence,
+      secondSentence,
+      reasonLine,
+      addedFile,
+      addedContent,
+    }) => {
+      let noteId = "";
+      let createNext: string | null = null;
+      const run = runner(async (agent, request) => {
+        if (request.prompt.includes("create-library-note")) {
+          const made = structured<{ mindId: string; next: string | null }>(
+            await agent.callTool({
+              name: "create_mind",
+              arguments: { title, markdown: firstSentence },
+            }),
+          );
+          noteId = made.mindId;
+          createNext = made.next;
+          const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+            await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }),
+          );
+          expect(given.sentences).toEqual([{ n: 1, text: firstSentence }]);
+          const reported = structured<{
+            marked: number;
+            unconfirmed: number[];
+            unreported: number[];
+            next: string | null;
+          }>(
+            await agent.callTool({
+              name: "report_check",
+              arguments: {
+                mindId: noteId,
+                task: given.task,
+                results: [
+                  {
+                    n: 1,
+                    verdict: "library unsettled",
+                    explanation: "The Library lists do not hold dates added.",
+                  },
+                ],
+              },
+            }),
+          );
+          expect(reported).toMatchObject({
+            marked: 1,
+            unconfirmed: [],
+            unreported: [],
+            next: null,
+          });
+          const after = structured<{
+            sentences: unknown[];
+            checked?: { supported: number; needLook: number; notChecked: number };
+          }>(await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }));
+          expect(after.sentences).toEqual([]);
+          expect(after.checked).toMatchObject({ supported: 0, needLook: 0, notChecked: 1 });
+          return { kind: "finished", reply: "Created and checked." };
+        }
+        if (request.prompt.includes("add-second-sentence")) {
+          const read = structured<{ version: string }>(
+            await agent.callTool({ name: "read_mind", arguments: { mindId: noteId, named: true } }),
+          );
+          structured(
+            await agent.callTool({
+              name: "propose_changes",
+              arguments: {
+                mindId: noteId,
+                version: read.version,
+                changes: [{ paragraph: "¶1+", text: secondSentence }],
+              },
+            }),
+          );
+          return { kind: "finished", reply: "Added second sentence." };
+        }
+        const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+          await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }),
+        );
+        expect(given.sentences).toEqual([{ n: 1, text: secondSentence }]);
+        const reported = structured<{
+          marked: number;
+          unconfirmed: number[];
+          unreported: number[];
+          next: string | null;
+        }>(
+          await agent.callTool({
+            name: "report_check",
+            arguments: {
+              mindId: noteId,
+              task: given.task,
+              results: [
+                {
+                  n: 1,
+                  verdict: "library unsettled",
+                  explanation: "The Library lists do not hold document topics.",
+                },
+              ],
+            },
+          }),
+        );
+        expect(reported).toMatchObject({
+          marked: 1,
+          unconfirmed: [],
+          unreported: [],
+          next: null,
+        });
+        return { kind: "finished", reply: "Checked second sentence." };
+      });
+
+      const { core, sources, mindId, ended } = await written(run.adapter);
+      await core.updateSettings({ user: { checkAssistantWrites: true, language } });
+
+      await core.askInNote({ mindId, words: "create-library-note" });
+      await ended(1);
+      expect(createNext).toEqual(expect.any(String));
+
+      const view = await noteCheckView(core, noteId, language);
+      const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+      const shownNow = async () => {
+        await view.client.settled();
+        const versions = versionsWithLibrary(
+          new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash])),
+          await core.libraryListsVersion(noteId),
+        );
+        return claimSpans(readMind(view.client)).map((span) => ({
+          text: span.sentence.text,
+          check: span.check,
+          shown: claimCheckShown(span.check, {
+            footing: "not-yet-known",
+            text: span.sentence.text,
+            versions,
+            folderId: view.folderId,
+            scope: null,
+          }),
+        }));
+      };
+
+      const [first] = await shownNow();
+      expect(first?.check).toMatchObject({
+        state: "not-checked",
+        reason: "library-unsettled",
+        outside: true,
+      });
+      expect(first?.shown).toEqual({ state: "not-checked", reason: "library-unsettled" });
+      if (!first || first.shown.state !== "not-checked") throw new Error("Expected not-checked.");
+      expect(cantBeChecked(first.shown)).toBe(true);
+      expect(saysNotFound(first.shown, first.check, 0)).toBe(false);
+      expect(sentenceResultOf(first.shown, first.check, 0)).toBe("notChecked");
+      expect(sentenceReasonText(t, language, first.shown, first.check)).toBe(reasonLine);
+
+      expect(view.run).not.toBeNull();
+      expect(view.run?.stop).toBeNull();
+      expect(view.run?.unchecked).toBeUndefined();
+      expect(view.run?.uncheckedBlocks).toBeUndefined();
+      expect(view.health.supported).toBe(0);
+      expect(view.health.unchecked).toEqual([]);
+      expect(
+        Object.fromEntries(checkRows(view.health).map(({ row, places }) => [row, places.length])),
+      ).toEqual({ cantCheck: 1 });
+      expect(view.state).toMatchObject({
+        kind: "not-checked",
+        notChecked: 0,
+        mark: "notChecked",
+      });
+      expect(view.button?.kind).not.toBe("checked");
+      expect(view.button?.kind).not.toBe("check");
+      expect(view.button?.mark).toBe("notChecked");
+
+      await core.askInNote({ mindId, words: "add-second-sentence" });
+      await ended(2);
+      const midView = await noteCheckView(core, noteId, language);
+      expect(midView.run?.uncheckedBlocks?.length).toBeGreaterThan(0);
+      expect(midView.health.unchecked).toHaveLength(1);
+
+      await core.askInNote({ mindId, words: "check-second-sentence" });
+      await ended(3);
+      const settledView = await noteCheckView(core, noteId, language);
+      expect(settledView.run?.unchecked).toBeUndefined();
+      expect(settledView.run?.uncheckedBlocks).toBeUndefined();
+      expect(settledView.health.supported).toBe(0);
+      expect(settledView.health.unchecked).toEqual([]);
+      expect(
+        Object.fromEntries(
+          checkRows(settledView.health).map(({ row, places }) => [row, places.length]),
+        ),
+      ).toEqual({ cantCheck: 2 });
+      expect(settledView.button?.kind).not.toBe("checked");
+      expect(settledView.button?.kind).not.toBe("check");
+      expect(settledView.button?.mark).toBe("notChecked");
+
+      const [added] = await addAndProcess(core, [
+        await writeSourceFile(sources, addedFile, addedContent),
+      ]);
+      if (added && view.folderId) await core.assignDocumentGroup(added.id, view.folderId);
+      const afterLibraryChange = await shownNow();
+      expect(afterLibraryChange).toHaveLength(2);
+      expect(afterLibraryChange.map((each) => each.shown)).toEqual([
+        { state: "needs-recheck", why: "library" },
+        { state: "needs-recheck", why: "library" },
+      ]);
     },
   );
 

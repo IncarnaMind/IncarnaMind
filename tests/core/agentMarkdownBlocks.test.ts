@@ -573,6 +573,7 @@ describe("Markdown blocks from the box at a Note's foot (#3747)", () => {
         installed: async () => true,
         status: async () => ({ kind: "ready" }),
         purge: async () => true,
+        choosesModes: (client: string) => client === "claude-code",
         async run(request) {
           request.started?.();
           const agent = await connectLegacyAgent(request.server);

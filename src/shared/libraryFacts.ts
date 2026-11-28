@@ -23,6 +23,13 @@ type LibraryLocation = Extract<CitationLocation, { kind: "library" }>;
 /** The Document id a Citation of the Library's facts carries: the facts are no Document's. */
 export const LIBRARY_FACTS = "library-facts";
 
+/**
+ * The grant-scoped Library lists version stored alongside `LIBRARY_FACTS` on an outside agent's
+ * `library-unsettled` mark (#2525), so an agent's check follows its own grant without leaking
+ * changes outside it while User views follow the User's Library.
+ */
+export const GRANT_LIBRARY_FACTS = "library-facts-grant";
+
 /** Live Document versions with the Library lists' version beside them, for any reader of checks (#2525). */
 export function versionsWithLibrary(
   documents: readonly { id: string; contentHash: string }[] | ReadonlyMap<string, string>,

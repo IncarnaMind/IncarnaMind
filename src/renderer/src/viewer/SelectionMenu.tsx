@@ -29,7 +29,6 @@ import {
 import { holdsQuote, useComposer } from "../composer";
 import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
-import { useSettingUp } from "../modelSetup";
 import { useNoAiConnected } from "../ownAiPanel";
 import { type SelectionReader, selectionEnd } from "./selectedText";
 import {
@@ -117,7 +116,6 @@ export function SelectionMenu({
   reader: SelectionReader;
 }) {
   const t = useT();
-  const settingUp = useSettingUp();
   const noAi = useNoAiConnected();
   const [held, setHeld] = useState<Held | null>(null);
   // The range the menu holds now: a selection change to the same words, as closing the menu moves
@@ -234,7 +232,7 @@ export function SelectionMenu({
       if (!menu.current?.contains(window.document.activeElement)) {
         focusBeforeMenu.current = window.document.activeElement as HTMLElement | null;
       }
-      if (open) ((settingUp || noAi) && !pick ? firstAdd : firstItem).current?.focus();
+      if (open) (noAi && !pick ? firstAdd : firstItem).current?.focus();
       else {
         setFocusWanted(true);
         setOpen(true);
@@ -242,7 +240,7 @@ export function SelectionMenu({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [held, open, settingUp, noAi, pick]);
+  }, [held, open, noAi, pick]);
 
   // Asked about, the words stay drawn while their chip waits in the composer, and go with it.
   useEffect(() => {
@@ -309,13 +307,13 @@ export function SelectionMenu({
 
   const ask = useMemo(
     () =>
-      held && !settingUp && !noAi
+      held && !noAi
         ? () => {
             close();
             void askAboutSelection((heldNow() ?? held).selection).then(setAsked);
           }
         : null,
-    [held, settingUp, noAi, close, heldNow],
+    [held, noAi, close, heldNow],
   );
 
   const colour = useAnnotations((state) => state.colour);
@@ -402,7 +400,7 @@ export function SelectionMenu({
         role="menu"
         aria-label={t("viewer.selection.label")}
         data-testid="viewer-selection-menu"
-        {...(focusWanted && { initialFocus: (settingUp || noAi) && !pick ? firstAdd : firstItem })}
+        {...(focusWanted && { initialFocus: noAi && !pick ? firstAdd : firstItem })}
         onDismiss={close}
         onKeyDown={menuKeys(menu)}
         className="viewer-selection-menu"

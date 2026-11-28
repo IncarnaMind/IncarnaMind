@@ -175,7 +175,11 @@ export function useBackdropClose(
     const element = dialog.current;
     if (!element) return;
     const onPress = (event: MouseEvent) => {
-      if (event.target === element) latest.current();
+      if (event.target !== element) return;
+      // The press's own focus change would take the focus off what the close gave it back to,
+      // when nothing focusable lies under the pointer.
+      event.preventDefault();
+      latest.current();
     };
     element.addEventListener("mousedown", onPress);
     return () => element.removeEventListener("mousedown", onPress);

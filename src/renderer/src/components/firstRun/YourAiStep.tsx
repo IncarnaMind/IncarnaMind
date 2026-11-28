@@ -22,7 +22,6 @@ import { buttonStyle, checkBoxClass, dialogTextClass } from "../ui";
 import { AnotherApp } from "./AnotherApp";
 import { InstallOfferRow } from "./ClaudeCodeInstallLine";
 import { SetupPanel, type StepPlace } from "./SetupPanel";
-import { SortingModelLine } from "./SortingModelLine";
 import { YourAiAfter } from "./YourAiAfter";
 import { YourAiConsent } from "./YourAiConsent";
 import { firstTicked, foundApps, notConnected, shownApps } from "./yourAiList";
@@ -452,8 +451,6 @@ function FoundList({
           {problemLine}
         </p>
       )}
-      {/* The model steps again have a Sorting step of their own next, which this would offer twice. */}
-      {!place.steps.includes("sorting") && <SortingModelLine />}
     </SetupPanel>
   );
 }
@@ -490,7 +487,7 @@ function FoundRow({
   const canOpenAgain = client.setup === "bundle" || client.setup === "link";
   const words = (
     <>
-      <AppMark name={name} />
+      <AppMark id={client.id} name={name} />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-ui text-ink" title={name}>
           {name}

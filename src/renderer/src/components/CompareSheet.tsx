@@ -29,7 +29,6 @@ import { EstimateTip, PricingLink, useEstimateSource } from "./EstimateSource";
 import { ChevronDownLineIcon, PlusLineIcon, RemoveIcon, TableLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import { ReadinessLine, readinessAction } from "./providers/ChatReadinessNotice";
-import { NeedsModelCard } from "./providers/NeedsModelCard";
 import { buttonStyle, menuClass, menuItemClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
@@ -390,24 +389,12 @@ export function CompareSheet({
       />
       {problem &&
         (problem.reason === "not-ready" ? (
-          problem.readiness.reason === "no-provider" ? (
-            <NeedsModelCard
-              line="needsModel.compare"
-              testId="compare-sheet-needs-model"
-              className="compare-sheet-problem"
-              onDone={(_, saved) => {
-                clearCompareProblem(mindId);
-                void requestMake(saved);
-              }}
-            />
-          ) : (
-            <ReadinessLine
-              readiness={problem.readiness}
-              testId="compare-sheet-not-ready"
-              className="compare-sheet-problem"
-              setUpLabel={t("question.setUp")}
-            />
-          )
+          <ReadinessLine
+            readiness={problem.readiness}
+            testId="compare-sheet-not-ready"
+            className="compare-sheet-problem"
+            setUpLabel={t("question.setUp")}
+          />
         ) : (
           <ProblemLine testId="compare-sheet-not-sent" className="compare-sheet-problem">
             {t("answer.error.consent-declined")}

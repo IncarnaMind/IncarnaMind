@@ -321,7 +321,7 @@ function DoneRow({ done, left, onRetry }: { done: Done; left: boolean; onRetry()
       className="flex flex-col border-t border-rule first:border-t-0"
     >
       <div className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-2">
-        <AppMark name={name} />
+        <AppMark id={done.client.id} name={name} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-ui text-ink" title={name}>
             {name}

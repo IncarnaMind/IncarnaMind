@@ -23,6 +23,7 @@ import {
   openManageTags,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   sidebarFolder,
 } from "./app";
 
@@ -424,6 +425,8 @@ test("Remove the examples: made again by ⌘Z, removed again by ⇧⌘Z", async 
 test("⌘Z goes to the note's own undo in the note, to a field's in a field, and to the last change elsewhere; the Edit menu too, naming it", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // With no model and no AI there is no assistant (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   const finance = await read(
     window,
     async (core) => (await core.createLibraryGroup({ name: "Finance", description: "" })).id,
@@ -508,6 +511,7 @@ test("⌘Z goes to the note's own undo in the note, to a field's in a field, and
 test("in the composer, a run of typing is one step to undo and to redo, with ⌘Z and the Edit menu", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await newMind(window);
   const field = window.getByTestId("composer-input");
   await pointAndClick(window, field);

@@ -1,7 +1,7 @@
 /**
  * With only the User's own AI connected and no model set up in IncarnaMind (#3537): Settings lists
- * no Connectors and no Skills, and AI leads with Your AI, a model being one quiet row (#3645); with
- * a model set up nothing is held back. A Connector that is on keeps its page, the one place that
+ * no Connectors and no Skills, and AI leads with Your AI, with no way to set a model up there (#3767);
+ * with a model set up nothing is held back. A Connector that is on keeps its page, the one place that
  * disconnects it.
  */
 import { DOMParser } from "linkedom";
@@ -74,8 +74,6 @@ const {
 }: {
   useAgentsRead(): { settings: AgentSettings | null; failed: boolean; retry(): void };
 } = await import(yourAiPath);
-const useModelPath = "../../src/renderer/src/components/ai/UseModelRow.tsx";
-const { UseModelRow }: { UseModelRow: ComponentType } = await import(useModelPath);
 const menuPath = "../../src/renderer/src/components/AddDocumentsMenu.tsx";
 const { AddDocumentsMenu }: { AddDocumentsMenu: ComponentType } = await import(menuPath);
 
@@ -656,19 +654,5 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     expect(zh.part("agent-setup-done")?.textContent).toContain(
       "请安装刚打开的文件；旧安装现已停用。",
     );
-  });
-
-  test("a model in IncarnaMind, with none set up, is one quiet row that says it is optional", async () => {
-    for (const [language, words] of [
-      ["en", ["Use a model in IncarnaMind…", "Optional: the assistant"]],
-      ["zh-CN", ["在 IncarnaMind 里用一个模型…", "可选：助手、自动整理、会后笔记"]],
-    ] as const) {
-      user(NO_MODEL, false, language);
-      const container = await shown(createElement(UseModelRow));
-      const row = container.querySelector('[data-testid="ai-use-model-open"]');
-      for (const word of words) expect(row?.textContent, language).toContain(word);
-      await unmount?.();
-      unmount = null;
-    }
   });
 });

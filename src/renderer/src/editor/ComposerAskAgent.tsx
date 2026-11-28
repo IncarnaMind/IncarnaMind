@@ -4,12 +4,11 @@ import { askAgent } from "../askYourAi";
 import { AskAgentLine } from "../components/AskAgentLine";
 import { composerKey, useComposer } from "../composer";
 import { useT } from "../i18n";
-import { chooseModelInPlace } from "../modelSetup";
 
 /**
- * A Question pressed with no model in IncarnaMind and the User's own AI connected (#3373): in
- * place of the setup card, one line above the box offers that AI the words, which stay in the box.
- * Its Ask takes the focus, so a second Enter asks it; Set up a model brings the setup card.
+ * A Question pressed with no model in IncarnaMind and the User's own AI connected (#3373): one
+ * line above the box offers that AI the words, which stay in the box. Its Ask takes the focus, so
+ * a second Enter asks it.
  */
 export function ComposerAskAgent({
   agents,
@@ -42,14 +41,6 @@ export function ComposerAskAgent({
       label={(agent) => t("agents.ask.action", { agent })}
       onAsk={(agent) => void ask(agent)}
       onContinue={(agent) => void ask(agent, true)}
-      setUp={{
-        label: t("agents.ask.setUpModel"),
-        testId: "composer-ask-agent-set-up",
-        onClick: () => {
-          done();
-          chooseModelInPlace();
-        },
-      }}
       testId="composer-ask-agent"
       className="composer-problem"
       focusAsk

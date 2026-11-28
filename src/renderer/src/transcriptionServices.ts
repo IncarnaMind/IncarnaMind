@@ -53,6 +53,15 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
   };
 });
 
+// A route with `key: "provider"` uses a saved provider's key, so saving or removing one changes it.
+core.on("chatReadiness.changed", () => {
+  const { services, load } = useTranscriptionServices.getState();
+  if (services === null) return;
+  load().catch((error: unknown) =>
+    console.error("The transcription services couldn't be read again.", error),
+  );
+});
+
 /** What one view knows of the services: the read it owns, which its children draw from. */
 export type ServicesView = Read<TranscriptionServiceStatus[]>;
 
@@ -99,13 +108,13 @@ async function servicesNow(): Promise<TranscriptionServiceStatus[]> {
 /**
  * Where a route's key is changed, in Settings › AI: a key of its own on its row in Your
  * providers, opened to Change key, or the Meeting transcription picker once it is gone; a
- * provider's key in Your providers.
+ * provider's key in Your providers, or Add a key… where none is saved.
  */
 export async function checkTranscriptionKey(route: CloudTranscriptionRoute): Promise<void> {
   const { openSettings } = useAppStore.getState();
   try {
     const service = (await servicesNow()).find((each) => each.route === route);
-    if (service?.key !== "own") openSettings("ai", "model");
+    if (service?.key !== "own") openSettings("ai", service?.providerId ? "model" : "add-provider");
     else openSettings("ai", service.hasKey ? `transcription-key:${route}` : "transcription");
   } catch (error) {
     console.error("The transcription services couldn't be read.", error);

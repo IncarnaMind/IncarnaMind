@@ -1838,7 +1838,15 @@ export type OwnAiProgress =
 
 /** How a run of the User's own AI ended, or one of its requests before the last (#3765). */
 export type OwnAiEnd =
-  | { kind: "finished"; reply: string }
+  | {
+      kind: "finished";
+      reply: string;
+      /**
+       * It ended the request at a question the User denied, or IncarnaMind refused, as Codex's
+       * request does: what it asked didn't run, and it did nothing after (#3653).
+       */
+      endedAtAsk?: true;
+    }
   | { kind: "failed"; reason: OwnAiFailure };
 
 /**
@@ -1850,6 +1858,11 @@ export interface OwnAiAsk {
   action: NoteAction;
   /** The answers its question suggests, in its order, as the card says them. */
   suggested: NoteSuggested[];
+  /**
+   * What its question offers to allow until the request ends, as the agent gave it (Codex's "for
+   * this session", #3653): the card's "request" answer, applied whole.
+   */
+  forRequest?: NoteSuggested[];
 }
 
 /** A model the User's command-line AI offers, as it lists them itself. */
@@ -1867,6 +1880,11 @@ export interface OwnAiModel {
 export interface OwnAiRunner {
   /** Whether the agent's command is on this computer, found without starting anything of it. */
   installed(client: OwnAiClient): Promise<boolean>;
+  /**
+   * Whether a Note's input chooses the agent's permission mode for its conversation (#3765), as a
+   * run's `modes`; where it doesn't, the agent keeps the User's own settings for it.
+   */
+  choosesModes(client: OwnAiClient): boolean;
   status(client: OwnAiClient): Promise<OwnAiStatus>;
   /**
    * One run, resolved when it ends. `server`: IncarnaMind's server as the agent starts it, with a

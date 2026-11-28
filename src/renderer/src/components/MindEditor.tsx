@@ -767,7 +767,13 @@ function MindEditorView({
             if (place === "question") return offered;
             const meeting = useMeetings.getState().meetings.find((item) => item.mindId === mindId);
             const templates = meetingTemplateSlashItems(meeting, all, language);
-            return [...writing, ...noteSlashItems, compare, ...templates, ...offered];
+            return [
+              ...writing,
+              ...noteSlashItems,
+              ...(ownAiOnlyNow() ? [] : [compare]),
+              ...templates,
+              ...offered,
+            ];
           },
         }),
         ScopePicker,

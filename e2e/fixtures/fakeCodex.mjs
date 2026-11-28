@@ -1,4 +1,5 @@
-// Stands in for the User's Codex command line in tests of the check run in the background (#3639):
+// Stands in for the User's Codex command line in tests of the check run in the background (#3639),
+// and, as `app-server`, of a Note's conversation (./fakeCodexAppServer.mjs, #3653):
 // `--version` and `login status` as `codex` answers them, `debug models --bundled` with a small
 // catalog, `debug prompt-input` listing the tools the settings it is given would offer, and `exec`
 // printing Codex's JSON event stream. Like Codex, it starts IncarnaMind's server from its `-c
@@ -48,6 +49,11 @@ if (args[0] === "--version") {
   process.exit(0);
 }
 if (args[0] === "login" && args[1] === "status") process.exit(mode === "signed-out" ? 1 : 0);
+// A Note's conversation (#3653): the app-server, which never returns from here.
+if (args[0] === "app-server") {
+  await import("./fakeCodexAppServer.mjs");
+  await new Promise(() => {});
+}
 
 const CATALOG = {
   models: [
