@@ -21,7 +21,7 @@ import {
   useMeetingNoteView,
   useMeetingViewFocus,
 } from "../../meetingViews";
-import { setColumnOpen } from "../../ownAiInNote";
+import { isGoing, setColumnOpen, useActiveConversation } from "../../ownAiInNote";
 import { useRequests } from "../../requests";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { closeTip, useFeatureTip } from "../../tips";
@@ -81,12 +81,12 @@ export const useSheetOpen = (tabId: string | undefined, mindId: string) =>
   useMeetingNoteView(tabId, mindId) === "transcript";
 
 /** Opened upward the conversation would lie over the sheet; in the window's column it stays beside. */
-function clearSheetOfConversation(mindId: string): void {
-  if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(mindId, false);
+function clearSheetOfConversation(): void {
+  if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(false);
 }
 
 function setSheet(tabId: string, mindId: string, open: boolean): void {
-  if (open) clearSheetOfConversation(mindId);
+  if (open) clearSheetOfConversation();
   useSheet.setState((state) => ({ tipSeen: true, cited: open ? state.cited : null }));
   showMeetingNoteView(tabId, mindId, open ? "transcript" : "notes");
 }
@@ -119,7 +119,7 @@ export function showCitedInTranscript(cited: ViewerTarget): boolean {
           .flatMap((group) => group.tabs)
           .find((each) => each.item.kind === "mind" && each.item.mindId === meeting.mindId);
   if (!tab) return false;
-  clearSheetOfConversation(meeting.mindId);
+  clearSheetOfConversation();
   useSheet.setState((state) => ({
     tipSeen: true,
     cited: { ...cited, request: (state.cited?.request ?? 0) + 1 },
@@ -207,10 +207,13 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   useAudioQuestionInSheet(meeting, tabId, open);
   const writable = !live && meeting.fill?.state === "own-ai";
   const notesAsked = useNotesAsked(meeting, writable);
+  const { ask: activeAsk } = useActiveConversation(mindId);
+  const conversationBusy = isGoing(activeAsk);
   // Pressed and gone nowhere: the line above the input says why, or, where the AI chosen for the
   // notes can't read them, the card over the control does.
   const [unsent, setUnsent] = useState(false);
   const writeNotes = () => {
+    if (conversationBusy) return;
     setSheet(tabId, mindId, false);
     writeMeetingNotes(meeting, t("meetings.foot.writeNotesRequest"))
       .then((went) => setUnsent(!went))
@@ -296,6 +299,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
         <button
           type="button"
           data-testid="meeting-write-notes"
+          disabled={conversationBusy}
           onClick={writeNotes}
           className={buttonStyle("primary")}
         >

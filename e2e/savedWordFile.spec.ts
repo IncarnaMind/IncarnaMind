@@ -154,7 +154,7 @@ for (const language of ["en", "zh-CN"] as const) {
           () =>
             window.evaluate(async (id) => {
               const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-              return (await bridge.noteConversation(id)).at(-1)?.outcome ?? null;
+              return (await bridge.noteTurnsForMind(id)).at(-1)?.outcome ?? null;
             }, mindId),
           { timeout: 30_000 },
         )

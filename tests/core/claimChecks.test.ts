@@ -8,9 +8,11 @@ import type {
   CoreAdapters,
   Document,
 } from "../../src/core";
+import { ChatNotReadyError } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { checkInstructions, citeReply, readVerdict } from "../../src/core/answers/checks/prompt";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
+import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
@@ -2104,6 +2106,304 @@ describe("Stated units check (#3806)", () => {
       });
       expect(kept.verdict).toBe("supported");
     }
+  });
+});
+
+describe("Stated Sign lowering and no-model behaviour (#2578)", () => {
+  const QUOTE =
+    "Spring tides happen at new moon and at full moon, when the Sun and the Moon pull together.";
+
+  const runCheck = async (
+    reply: { text: string } | { citeReply: Record<string, unknown> },
+    language: "en" | "zh-CN" = "en",
+  ) => {
+    const model = scriptedModel((call) => {
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      const passage = shownPassages(search.text)[0];
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passage?.id ?? "P1",
+                    location: passage?.location ?? "§ Tides",
+                    quote: QUOTE,
+                  },
+                ],
+                ...("citeReply" in reply ? reply.citeReply : {}),
+              },
+            },
+          ],
+        };
+      }
+      return "text" in reply ? reply : { text: "" };
+    });
+    const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "test-key",
+      modelId: "claude-haiku-5-5",
+    });
+    await core.updateSettings({ user: { language } });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+    const result = await core.checkClaim({ claim: SUPPORTED });
+    core.close();
+    return result;
+  };
+
+  test("lowers Supported to Unsupported (kind: sign) when Sign is differs, in en and zh-CN", async () => {
+    const enDiffers = await runCheck(
+      {
+        text: "Verdict: supported\nUnits: same\nSign: differs\nExplanation: Matches.\nEvidence: [1]",
+      },
+      "en",
+    );
+    expect(enDiffers).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "sign",
+        reason: translate("en", "claim.unsupported.signDiffers"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+    if (enDiffers.verdict === "unsupported") {
+      expect(readUnsupportedReason(enDiffers.unsupported)).toMatchObject({ kind: "sign" });
+    }
+
+    const zhDiffers = await runCheck(
+      {
+        text: "Verdict: supported\nUnits: same\nSign: differs\nExplanation: 符合。\nEvidence: [1]",
+      },
+      "zh-CN",
+    );
+    expect(zhDiffers).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "sign",
+        reason: translate("zh-CN", "claim.unsupported.signDiffers"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+  });
+
+  test("lowers Supported to Not checked (sign-unclear) when Sign is unclear, in en and zh-CN", async () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      const unclear = await runCheck(
+        {
+          text: "Verdict: supported\nUnits: same\nSign: unclear\nExplanation: Matches.\nEvidence: [1]",
+        },
+        language,
+      );
+      expect(unclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
+      if (unclear.verdict === "not-checked") {
+        expect(
+          reasonText(
+            (key, params) => translate(language, key, params),
+            language,
+            unclear.reason,
+            unclear.detail ?? null,
+          ),
+        ).toBe(translate(language, "claim.reason.sign-unclear"));
+      }
+    }
+  });
+
+  test("handles cite tool carrying sign: differs and sign: unclear", async () => {
+    const differs = await runCheck({
+      citeReply: {
+        verdict: "supported",
+        units: "same",
+        sign: "differs",
+        explanation: "Matches.",
+      },
+    });
+    expect(differs).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { kind: "sign", found: true, quoted: { quote: QUOTE } },
+    });
+
+    const unclear = await runCheck({
+      citeReply: {
+        verdict: "supported",
+        units: "same",
+        sign: "unclear",
+        explanation: "Matches.",
+      },
+    });
+    expect(unclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
+  });
+
+  test("lowers Contradicted (not Unsupported) to Not checked when Sign is unclear", async () => {
+    const contradictedUnclear = await runCheck({
+      text: "Verdict: contradicted\nUnits: same\nSign: unclear\nExplanation: Might be negative.\nEvidence: [1]",
+    });
+    expect(contradictedUnclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
+
+    const unsupportedUnclear = await runCheck({
+      text: "Verdict: not found\nUnits: same\nSign: unclear\nExplanation: Not stated.\nEvidence: []",
+    });
+    expect(unsupportedUnclear.verdict).toBe("unsupported");
+  });
+
+  test("parses inline Units and Sign after any field, trailing Sign notes, curly quotes, unknown JSON, and prose colons", async () => {
+    for (const inlineUnits of [
+      "Verdict: supported\nExplanation: x.\nEvidence: [1] Units: another",
+      "Verdict: supported\nExplanation: The Passage gives pounds. Units: another\nEvidence: [1]",
+      "Verdict: supported\nExplanation: x.\nEvidence: [1]\nWorking: none Units: another",
+      "Details: a Verdict: supported Explanation: x. Evidence: [1] Units: another",
+    ]) {
+      const lowered = await runCheck({ text: inlineUnits });
+      expect(lowered, inlineUnits).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { kind: "units", units: "another" },
+      });
+    }
+
+    for (const inlineSign of [
+      "Verdict: supported\nExplanation: x.\nEvidence: [1] Sign: differs",
+      "Verdict: supported\nExplanation: The Passage gives a loss. Sign: differs\nEvidence: [1]",
+      "Verdict: supported\nExplanation: x.\nEvidence: [1]\nWorking: none Sign: differs",
+      "Details: a Verdict: supported Explanation: x. Evidence: [1] Sign: differs",
+      "Verdict: supported Units: SAME Sign: DIFFERS Explanation: Opposite sign. Evidence: [1]",
+    ]) {
+      const lowered = await runCheck({ text: inlineSign });
+      expect(lowered, inlineSign).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { kind: "sign" },
+      });
+    }
+
+    for (const trailingDiffers of [
+      "Sign: differs — the Document says the figure is negative.",
+      "Sign: differs (heading says loss)",
+      "Sign: “differs”",
+    ]) {
+      const lowered = await runCheck({
+        text: `Verdict: supported\nUnits: same\n${trailingDiffers}\nExplanation: Matches.\nEvidence: [1]`,
+      });
+      expect(lowered, trailingDiffers).toMatchObject({
+        verdict: "unsupported",
+        unsupported: { kind: "sign" },
+      });
+    }
+
+    const trailingUnclear = await runCheck({
+      text: "Verdict: supported\nUnits: same\nSign: unclear, the heading may apply\nExplanation: Matches.\nEvidence: [1]",
+    });
+    expect(trailingUnclear).toMatchObject({ verdict: "not-checked", reason: "sign-unclear" });
+
+    const unknownJsonSign = await runCheck({
+      text: '{"verdict":"supported","units":"same","sign":"unclear-ish","says":"Matches.","evidence":[1]}',
+    });
+    expect(unknownJsonSign.verdict).toBe("supported");
+
+    const proseSign = await runCheck({
+      text: "Verdict: contradicted\nUnits: same\nSign: same\nExplanation: Exit Sign: same hall, not main lobby [^1].\nEvidence: [1]",
+    });
+    expect(proseSign.verdict).toBe("contradicted");
+    if (proseSign.verdict === "contradicted") {
+      expect(proseSign.says).toBe("Exit Sign: same hall, not main lobby.");
+    }
+
+    for (const line of ["Sign: same\n", "Sign: none\n", "Sign: positive\n", ""]) {
+      const kept = await runCheck({
+        text: `Verdict: supported\nUnits: same\n${line}Explanation: Matches.\nEvidence: [1]`,
+      });
+      expect(kept.verdict).toBe("supported");
+    }
+
+    const contradicted = await runCheck({
+      text: "Verdict: contradicted\nUnits: same\nSign: differs\nExplanation: Opposite sign.\nEvidence: [1]\nChange 1: full moon\nTo 1: new moon [^1]",
+    });
+    expect(contradicted.verdict).toBe("contradicted");
+    if (contradicted.verdict === "contradicted") {
+      expect(contradicted.correction).toMatchObject({ from: "full moon" });
+    }
+  });
+
+  test("when no model is set up, checkMind returns not-ready with no guessed marks and checkClaim throws ChatNotReadyError, in en and zh-CN", async () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      const core = startCore(await createTempDataFolder());
+      await core.updateSettings({ user: { language } });
+      const sources = await createTempDataFolder();
+      const docText =
+        language === "en"
+          ? "After the review, the closing reserve is negative.\n\nThe closing reserve stood at eighty-four thousand dollars ($84,000.00)."
+          : "经复核，期末准备金为负。\n\n期末准备金为人民币八万四千元（¥84,000）。";
+      await addAndProcess(core, [await writeSourceFile(sources, "Reserve.md", docText)]);
+      const mind = await core.createMind({ title: "Reserve note" });
+      const client = await connectToMind(core, mind.id);
+      const claim =
+        language === "en" ? "The closing reserve stood at $84,000." : "期末准备金为¥84,000。";
+      writeMind(client, [
+        { type: "paragraph", attrs: { id: "p-1" }, content: [{ type: "text", text: claim }] },
+      ]);
+      await client.settled();
+
+      const mindResult = await core.checkMind({
+        requestId: `req-no-model-${language}`,
+        mindId: mind.id,
+        mode: "all",
+      });
+      expect(mindResult).toEqual({
+        kind: "not-ready",
+        readiness: { ready: false, reason: "no-provider" },
+      });
+      expect(claimSpans(readMind(client))).toEqual([]);
+
+      await expect(core.checkClaim({ claim })).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof ChatNotReadyError && error.readiness.reason === "no-provider",
+      );
+
+      core.close();
+    }
+  });
+
+  test("reads Units, Sign, and Library together inline and in citeReply(true)", () => {
+    expect(
+      readVerdict(
+        "Verdict: supported Units: same Sign: differs Library: none Explanation: Opposite sign. Evidence: [1]",
+      ),
+    ).toMatchObject({
+      verdict: "supported",
+      units: "same",
+      sign: "differs",
+      library: "none",
+      says: "Opposite sign.",
+      evidence: [1],
+    });
+    expect(
+      readVerdict(
+        "Verdict: not found Units: none Sign: none Library: unsettled Explanation: Not stored. Evidence: []",
+      ),
+    ).toMatchObject({
+      verdict: "unsupported",
+      word: "not-found",
+      units: "none",
+      sign: "none",
+      library: "unsettled",
+    });
+
+    const withCite = citeReply(true);
+    expect(withCite.properties).toHaveProperty("sign");
+    expect(withCite.properties).toHaveProperty("library");
+    expect(
+      withCite.reply(
+        [{ verdict: "supported", units: "same", sign: "differs", library: "none" }],
+        [1],
+      ),
+    ).toContain("Sign: differs\nLibrary: none");
   });
 });
 

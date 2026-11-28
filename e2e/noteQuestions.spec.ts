@@ -119,7 +119,7 @@ async function open(window: Page, mindId: string) {
 const outcomesOf = (window: Page, mindId: string) =>
   window.evaluate(async (id) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    return (await bridge.noteConversation(id)).map((turn) => turn.outcome);
+    return (await bridge.noteTurnsForMind(id)).map((turn) => turn.outcome);
   }, mindId);
 
 /**
@@ -161,7 +161,8 @@ async function ended(window: Page, mindId: string, before: number) {
     const state = await window
       .evaluate(async (id) => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        const now = await bridge.noteTurnNow(id);
+        const latest = await bridge.latestNoteConversation(id);
+        const now = latest ? await bridge.noteTurnNow(latest) : null;
         return {
           presses: (globalThis as unknown as { presses?: unknown[] }).presses ?? null,
           waiting: now?.questions.map((question) => question.action.kind) ?? null,
@@ -975,10 +976,10 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     await ended(window, mindId, before);
     await expect(group(window).getByTestId("note-ask-mode")).toHaveCount(0);
     // The User's own setting named Haiku, not the list's default: the box shows the one that ran,
-    // another Note none yet, and a second window the one that ran here.
+    // follows the conversation onto another Note (#3731), and a second window sees it too.
     await expect(group(window).getByTestId("note-ask-model")).toHaveText("Haiku 5.5");
     await open(window, notes.otherId);
-    await expect(group(window).getByTestId("note-ask-model")).toHaveText("Model");
+    await expect(group(window).getByTestId("note-ask-model")).toHaveText("Haiku 5.5");
     const second = await secondWindow(app);
     await open(second, mindId);
     await expect(group(second).getByTestId("note-ask-model")).toHaveText("Haiku 5.5");
@@ -1102,7 +1103,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     expect(
       await window.evaluate(async (id) => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        return (await bridge.noteConversation(id)).at(-1)?.request;
+        return (await bridge.noteTurnsForMind(id)).at(-1)?.request;
       }, mindId),
     ).toBe("Save the table");
   } finally {

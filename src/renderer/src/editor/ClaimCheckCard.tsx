@@ -1817,7 +1817,9 @@ export function ClaimCard({
                               ? "claim.unsupported.unitsDiffer"
                               : "claim.unsupported.unitsNotGiven",
                           )
-                        : check.unsupported?.reason) || t("claim.unsupported.noReason"),
+                        : check.unsupported?.kind === "sign"
+                          ? t("claim.unsupported.signDiffers")
+                          : check.unsupported?.reason) || t("claim.unsupported.noReason"),
                     testId: "claim-why",
                   }
                 : null;

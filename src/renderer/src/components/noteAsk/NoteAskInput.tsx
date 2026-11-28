@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type ReactNode, type RefObject, useLayoutEffect, useRef } from "react";
 import { clearFieldUndoPending, markFieldUndoPending } from "../../commands/edit";
 import { useT } from "../../i18n";
-import { AskArrowIcon, RemoveIcon, StopLineIcon } from "../icons";
+import { AskArrowIcon, MindLineIcon, RemoveIcon, StopLineIcon } from "../icons";
 import { TypingTextarea } from "../TypingTextarea";
 import { NoteModeChoice } from "./NoteModeChoice";
 import { NoteModelChoice } from "./NoteModelChoice";
@@ -18,16 +18,22 @@ export interface InputCarry {
 }
 
 /**
- * The Note's one input (#3677): one rounded box, the only thing that draws its outline. Its rows
- * lay out inside it on the same left and right edges: the conversation when it opens upward, the
- * top row while the AI has a line, and the input row (the selection it is about, the words, the
- * model and Send, which is Stop while a request runs and nothing is typed: words typed then go
- * into its run, #3765). It is at the Note's foot, or at the column's foot while the column is
- * open, drawn anew in each place, so it takes the focus and the caret along with the words its
- * owner keeps.
+ * The Note's one input (#3677, #3731): one rounded box, the only thing that draws its outline. Its
+ * rows lay out inside it on the same left and right edges: the conversation when it opens upward,
+ * the top row while the AI has a line, and the input row (a chip naming the Note this request is
+ * about—plus selected text, or "Working in …" locked to the running Note while viewing another—
+ * the words, the model, the mode, and Send, which is Stop while a request runs and nothing is
+ * typed: words typed then go into its run, #3765). It is at the Note's foot, or at the column's
+ * foot while the column is open, drawn anew in each place, so it takes the focus and the caret
+ * along with the words its owner keeps.
  */
 export function NoteAskInput({
   mindId,
+  conversationId,
+  noteTitle,
+  workingMindId = null,
+  workingNoteTitle = "",
+  onOpenWorkingNote,
   words,
   onWords,
   quote,
@@ -41,6 +47,11 @@ export function NoteAskInput({
   panel = null,
 }: {
   mindId: string;
+  conversationId: string | null;
+  noteTitle: string;
+  workingMindId?: string | null;
+  workingNoteTitle?: string;
+  onOpenWorkingNote?(): void;
   words: string;
   onWords(words: string): void;
   quote: string;
@@ -72,6 +83,9 @@ export function NoteAskInput({
     }
     return () => {
       if (!element) return;
+      // A composition the IME hasn't ended can't move with the box: its letters would stay as
+      // typed and the IME's end would add its characters after them. The words go back to what
+      // they were before it, and the IME's end writes into the input in its new place.
       const open = composing.current;
       carry.current = {
         focused: document.activeElement === element,
@@ -79,9 +93,6 @@ export function NoteAskInput({
         end: open ? open.at : element.selectionEnd,
         composed: open?.words ?? null,
       };
-      // A composition the IME hasn't ended can't move with the box: its letters would stay as
-      // typed and the IME's end would add its characters after them. The words go back to what
-      // they were before it, and the IME's end writes into the input in its new place.
       if (open) wordsTo.current(open.words);
     };
   }, [carry]);
@@ -93,6 +104,8 @@ export function NoteAskInput({
     input.current.setSelectionRange(after.at, after.at);
   }, [words]);
   const placeholder = t("noteAsk.placeholder");
+  const workingElsewhere =
+    working && workingMindId !== null && workingMindId !== "" && workingMindId !== mindId;
   return (
     <div data-testid="note-ask-box" data-mind-id={mindId} className="note-ask-box">
       {panel}
@@ -102,10 +115,35 @@ export function NoteAskInput({
         </div>
       )}
       <div data-testid="note-ask-row" className="note-ask-row">
-        {quote !== "" && (
-          <div className="note-ask-input-about">
+        <div
+          className={`note-ask-input-about ${workingElsewhere ? "note-ask-input-about--working" : quote !== "" ? "note-ask-input-about--quote" : ""}`}
+        >
+          {workingElsewhere ? (
+            <button
+              type="button"
+              data-testid="note-ask-working-note"
+              title={t("noteAsk.workingIn.open", { title: workingNoteTitle })}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={onOpenWorkingNote}
+              className="note-ask-input-quote note-ask-input-chip--working"
+            >
+              <span aria-hidden="true" className="note-ask-dots">
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className="truncate">
+                {t("noteAsk.workingIn", { title: workingNoteTitle })}
+              </span>
+            </button>
+          ) : quote !== "" ? (
             <span data-testid="note-ask-quote" className="note-ask-input-quote">
-              <span className="truncate">“{quote}”</span>
+              <MindLineIcon className="note-ask-chip-icon" aria-hidden="true" />
+              <span className="note-ask-chip-name">{noteTitle}</span>
+              <span aria-hidden="true" className="note-ask-chip-sep">
+                ·
+              </span>
+              <span className="note-ask-chip-quote">“{quote}”</span>
               <button
                 type="button"
                 data-testid="note-ask-quote-remove"
@@ -118,8 +156,17 @@ export function NoteAskInput({
                 <RemoveIcon />
               </button>
             </span>
-          </div>
-        )}
+          ) : (
+            <span
+              data-testid="note-ask-note-chip"
+              title={noteTitle}
+              className="note-ask-input-quote note-ask-input-chip"
+            >
+              <MindLineIcon className="note-ask-chip-icon" aria-hidden="true" />
+              <span className="truncate">{noteTitle}</span>
+            </span>
+          )}
+        </div>
         <TypingTextarea
           ref={input}
           data-testid="note-ask-input"
@@ -151,8 +198,8 @@ export function NoteAskInput({
           onKeyDown={onKeyDown}
           className="note-ask-input-text"
         />
-        <NoteModelChoice mindId={mindId} busy={working} />
-        <NoteModeChoice mindId={mindId} />
+        <NoteModelChoice mindId={mindId} conversationId={conversationId} busy={working} />
+        <NoteModeChoice mindId={mindId} conversationId={conversationId} />
         {working && words.trim() === "" ? (
           <button
             type="button"

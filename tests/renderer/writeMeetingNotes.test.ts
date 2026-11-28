@@ -9,10 +9,16 @@ import type { askInNote, NoteAsk, turnApplied } from "../../src/renderer/src/own
  * through its own app gets the request by its link, with the meeting.
  */
 
-type Asks = { byMind: Readonly<Record<string, Partial<NoteAsk>>> };
+type Asks = {
+  byConversation: Readonly<Record<string, Partial<NoteAsk>>>;
+  lastByMind: Readonly<Record<string, Partial<NoteAsk>>>;
+  endedByTurn: Readonly<
+    Record<string, { state: "landed" | "failed" | "stopped"; changed: number }>
+  >;
+};
 
 const asks = vi.hoisted(() => {
-  let state: Asks = { byMind: {} };
+  let state: Asks = { byConversation: {}, lastByMind: {}, endedByTurn: {} };
   const listeners = new Set<(next: Asks) => void>();
   return {
     getState: () => state,
@@ -49,9 +55,26 @@ const { writeMeetingNotes } = await import("../../src/renderer/src/writeMeetingN
 const meeting = { id: "meeting", mindId: "mind", stoppedAt: "2026-11-25T10:00:00.000Z" };
 const WORDS = "Write the notes of this call.";
 
+const CONVERSATION_ID = "conv-1";
+
 /** The Note's request as the core tells it: `turnId` in `state`, having changed `changed` paragraphs. */
-const told = (turnId: string, state: NoteAsk["state"], changed = 0) =>
-  asks.setState({ byMind: { [meeting.mindId]: { turnId, state, changed } } });
+const told = (turnId: string, state: NoteAsk["state"], changed = 0) => {
+  const entry: Partial<NoteAsk> = {
+    conversationId: CONVERSATION_ID,
+    mindId: meeting.mindId,
+    turnId,
+    state,
+    changed,
+  };
+  asks.setState({
+    byConversation: { [CONVERSATION_ID]: entry },
+    lastByMind: { [meeting.mindId]: entry },
+    endedByTurn:
+      state === "working"
+        ? asks.getState().endedByTurn
+        : { ...asks.getState().endedByTurn, [turnId]: { state, changed } },
+  });
+};
 
 /** Write notes pressed, its request started as turn "turn", and waiting for it to end. */
 async function pressed() {
@@ -66,7 +89,7 @@ async function pressed() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  asks.setState({ byMind: {} });
+  asks.setState({ byConversation: {}, lastByMind: {}, endedByTurn: {} });
   asks.listeners.clear();
   check.mockResolvedValue(undefined);
   applied.mockResolvedValue(undefined);
@@ -172,5 +195,27 @@ describe("Write notes", () => {
     expect(await writeMeetingNotes(meeting, WORDS)).toBe(false);
     expect(link).not.toHaveBeenCalled();
     expect(check).not.toHaveBeenCalled();
+  });
+
+  // protects=when a follow-up takes the conversation's visible slot before the Meeting turn ends, Write notes still resolves by turnId and runs the Check once (#3731); fails_when=Write notes hangs forever waiting for byConversation to show the Meeting turn again
+  test("resolves and runs the Check even when a follow-up replaces the visible ask", async () => {
+    const { press } = await pressed();
+    // Follow-up takes over the conversation's visible slot while "turn" finishes in the background.
+    asks.setState({
+      byConversation: {
+        [CONVERSATION_ID]: {
+          conversationId: CONVERSATION_ID,
+          mindId: meeting.mindId,
+          turnId: "followup",
+          state: "working",
+          changed: 0,
+        },
+      },
+      lastByMind: asks.getState().lastByMind,
+      endedByTurn: { turn: { state: "landed", changed: 2 } },
+    });
+    expect(await press).toBe(true);
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledWith(meeting.mindId);
   });
 });

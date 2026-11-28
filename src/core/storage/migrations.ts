@@ -3550,6 +3550,139 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE chat_providers ADD COLUMN jobs_only INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 170,
+    description: "A Note's conversation follows the User across Notes and keeps history (#3731)",
+    sql: `
+      DROP INDEX own_ai_conversations_live;
+      CREATE INDEX own_ai_conversations_by_pairing
+        ON own_ai_conversations (pairing_id, updated_at) WHERE deleted_at IS NULL;
+      -- User-chosen name; NULL displays the first request's text.
+      ALTER TABLE own_ai_conversations ADD COLUMN title TEXT;
+      -- Legacy split conversations whose shared working folder must be purged once at start-up.
+      ALTER TABLE own_ai_conversations ADD COLUMN purge_pending INTEGER NOT NULL DEFAULT 0;
+      -- The Note each request was asked from, its title snapshot, and its immediate change count.
+      ALTER TABLE own_ai_turns ADD COLUMN mind_id TEXT NOT NULL DEFAULT '';
+      ALTER TABLE own_ai_turns ADD COLUMN mind_title TEXT NOT NULL DEFAULT '';
+      ALTER TABLE own_ai_turns ADD COLUMN changed_count INTEGER NOT NULL DEFAULT 0;
+      UPDATE own_ai_turns
+      SET mind_id = COALESCE(
+        (SELECT c.mind_id FROM own_ai_conversations c WHERE c.id = own_ai_turns.conversation_id),
+        ''
+      )
+      WHERE mind_id = '' AND deleted_at IS NULL;
+      UPDATE own_ai_turns
+      SET mind_title = COALESCE(
+        (SELECT COALESCE(NULLIF(m.title, ''), m.auto_title, '') FROM minds m WHERE m.id = own_ai_turns.mind_id),
+        ''
+      )
+      WHERE mind_title = '' AND mind_id != '' AND deleted_at IS NULL;
+      -- Split conversations restarted with #3765's inline New conversation (new_after / anew) so
+      -- every segment (including the newest) becomes its own History entry with a fresh id, fresh
+      -- session_id and anew = 1. The shared legacy row is tombstoned with purge_pending = 1 so its
+      -- shared folder on disk is purged once at start-up, leaving every split entry with isolated
+      -- transcript storage and deletion; conversations with no inline restart keep their id and
+      -- resume unchanged (#3731).
+      CREATE TEMP TABLE _own_ai_turn_split AS
+      SELECT
+        t.id AS turn_id,
+        t.conversation_id AS old_id,
+        COALESCE(
+          SUM(CASE WHEN t.new_after = 1 THEN 1 ELSE 0 END) OVER (
+            PARTITION BY t.conversation_id
+            ORDER BY t.created_at ASC, t.rowid ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+          ),
+          0
+        ) AS seg
+      FROM own_ai_turns t
+      JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
+      WHERE t.deleted_at IS NULL;
+      CREATE TEMP TABLE _own_ai_seg_map AS
+      WITH bounds AS (
+        SELECT old_id, MAX(seg) AS max_seg
+        FROM _own_ai_turn_split
+        GROUP BY old_id
+      )
+      SELECT
+        s.old_id,
+        s.seg,
+        ${UUID_V4_SQL} AS new_id,
+        ${UUID_V4_SQL} AS new_session_id,
+        MIN(t.created_at) AS min_created_at,
+        MAX(t.updated_at) AS max_updated_at
+      FROM _own_ai_turn_split s
+      JOIN bounds b ON b.old_id = s.old_id
+      JOIN own_ai_turns t ON t.id = s.turn_id
+      WHERE b.max_seg > 0
+      GROUP BY s.old_id, s.seg;
+      INSERT INTO own_ai_conversations
+        (id, mind_id, pairing_id, session_id, title, renewed, anew, purge_pending, created_at, updated_at)
+      SELECT
+        m.new_id, c.mind_id, c.pairing_id, m.new_session_id, NULL, 0, 1, 0,
+        m.min_created_at, m.max_updated_at
+      FROM _own_ai_seg_map m
+      JOIN own_ai_conversations c ON c.id = m.old_id;
+      UPDATE own_ai_turns
+      SET conversation_id = (
+        SELECT m.new_id
+        FROM _own_ai_turn_split s
+        JOIN _own_ai_seg_map m ON m.old_id = s.old_id AND m.seg = s.seg
+        WHERE s.turn_id = own_ai_turns.id
+      )
+      WHERE id IN (
+        SELECT s.turn_id
+        FROM _own_ai_turn_split s
+        JOIN _own_ai_seg_map m ON m.old_id = s.old_id AND m.seg = s.seg
+      );
+      UPDATE own_ai_conversations
+      SET
+        title = NULL,
+        deleted_at = updated_at,
+        purge_pending = 1
+      WHERE id IN (SELECT DISTINCT old_id FROM _own_ai_seg_map);
+      UPDATE own_ai_conversations
+      SET anew = 0
+      WHERE deleted_at IS NULL
+        AND anew = 1
+        AND id NOT IN (SELECT new_id FROM _own_ai_seg_map)
+        AND EXISTS (
+          SELECT 1 FROM own_ai_turns t
+          WHERE t.conversation_id = own_ai_conversations.id
+            AND t.deleted_at IS NULL
+            AND t.new_after = 1
+        );
+      UPDATE own_ai_turns SET new_after = 0 WHERE new_after != 0 AND deleted_at IS NULL;
+      DROP TABLE _own_ai_seg_map;
+      DROP TABLE _own_ai_turn_split;
+      CREATE INDEX own_ai_turns_by_mind ON own_ai_turns (mind_id, created_at)
+        WHERE deleted_at IS NULL;
+      -- Every Note a conversation asked from, changed or created, so History groups by Note.
+      CREATE TABLE own_ai_conversation_notes (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        mind_id TEXT NOT NULL,
+        mind_title TEXT NOT NULL DEFAULT '',
+        touched_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX own_ai_conversation_notes_live
+        ON own_ai_conversation_notes (conversation_id, mind_id) WHERE deleted_at IS NULL;
+      CREATE INDEX own_ai_conversation_notes_by_mind
+        ON own_ai_conversation_notes (mind_id, touched_at) WHERE deleted_at IS NULL;
+      INSERT INTO own_ai_conversation_notes
+        (id, conversation_id, mind_id, mind_title, touched_at, created_at, updated_at)
+      SELECT ${UUID_V4_SQL}, c.id, c.mind_id, COALESCE(NULLIF(m.title, ''), m.auto_title, ''),
+        MAX(t.created_at), c.created_at, MAX(t.updated_at)
+      FROM own_ai_conversations c
+      JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
+      LEFT JOIN minds m ON m.id = c.mind_id
+      WHERE c.deleted_at IS NULL AND c.mind_id != ''
+      GROUP BY c.id;
+    `,
+  },
 ];
 
 /**

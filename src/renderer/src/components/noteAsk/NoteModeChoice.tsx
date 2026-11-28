@@ -24,14 +24,26 @@ const isOffered = (mode: string): mode is NoteMode =>
 
 /**
  * Whether the User's own AI asks before it acts or works on its own, by the input after the model
- * (#3765). It starts on the User's own settings for the AI and names the mode they say, whichever
- * it is; a choice holds for this conversation only and writes nothing into the AI's own settings,
- * and while a request runs the AI takes it from its next step. Nothing until a request has named
- * the AI's mode.
+ * (#3765, #3731). It starts on the User's own settings for the AI and names the mode they say,
+ * whichever it is; a choice holds for this conversation only (following across Notes) and writes
+ * nothing into the AI's own settings, and while a request runs the AI takes it from its next step.
+ * Nothing until a request has named the AI's mode.
  */
-export function NoteModeChoice({ mindId }: { mindId: string }) {
+export function NoteModeChoice({
+  mindId,
+  conversationId,
+}: {
+  mindId: string;
+  conversationId: string | null;
+}) {
   const t = useT();
-  const agent = useNoteAsks((state) => state.byMind[mindId]?.agent) || "Claude Code";
+  const agent =
+    useNoteAsks((state) =>
+      conversationId !== null
+        ? state.byConversation[conversationId]?.agent
+        : (Object.values(state.pendingByPairing).find((each) => each.mindId === mindId)?.agent ??
+          state.pendingByPairing[mindId]?.agent),
+    ) || "Claude Code";
   const menu = usePopoverMenu({ align: "end", side: "above" });
   const [seen, setSeen] = useState<{
     mode: string | null;
@@ -41,27 +53,27 @@ export function NoteModeChoice({ mindId }: { mindId: string }) {
   const [reads, setReads] = useState(0);
   // The mode a running request is in, as it names it, and each request's end bring it again.
   const running = useNoteAsks((state) => {
-    const ask = state.byMind[mindId];
+    const ask = conversationId !== null ? state.byConversation[conversationId] : undefined;
     return ask?.state === "working" ? (ask.mode ?? "") : null;
   });
   // A choice in another window, or the running request's answer to one, is read here too.
   useEffect(
     () =>
       core.on("agents.noteMode", (changed) => {
-        if (changed.mindId === mindId) setReads((count) => count + 1);
+        if (changed.conversationId === conversationId) setReads((count) => count + 1);
       }),
-    [mindId],
+    [conversationId],
   );
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as a run names its mode, as it ends, and as one is chosen.
   useEffect(() => {
     let current = true;
-    core.noteModels(mindId).then(({ mode, chosen, refused }) => {
+    core.noteModels(mindId, conversationId).then(({ mode, chosen, refused }) => {
       if (current) setSeen({ mode, chosen, refused });
     }, useAppStore.getState().reportError);
     return () => {
       current = false;
     };
-  }, [mindId, running, reads]);
+  }, [mindId, conversationId, running, reads]);
   const mode = seen.mode;
   if (mode === null) return null;
   const nameOf = (each: string) =>
@@ -69,7 +81,7 @@ export function NoteModeChoice({ mindId }: { mindId: string }) {
   const choose = (next: NoteMode | null) => {
     menu.close();
     core
-      .chooseNoteMode(mindId, next)
+      .chooseNoteMode(mindId, conversationId, next)
       .then(() => setReads((count) => count + 1))
       .catch(useAppStore.getState().reportError);
   };
@@ -128,7 +140,6 @@ export function NoteModeChoice({ mindId }: { mindId: string }) {
         {menu.open && (
           <>
             <p className={menuTitleClass}>{t("noteAsk.mode.title", { agent })}</p>
-            {/* The User's own setting for the AI, named as itself when it is neither of the two. */}
             {!seen.chosen &&
               !isOffered(mode) &&
               row(

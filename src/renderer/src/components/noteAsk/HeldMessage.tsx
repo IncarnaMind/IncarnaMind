@@ -16,10 +16,12 @@ import { CopyRequest } from "./CopyRequest";
  */
 export function HeldMessage({
   mindId,
+  conversationId,
   turn,
   oldest,
 }: {
   mindId: string;
+  conversationId: string;
   turn: NoteTurn;
   oldest: boolean;
 }) {
@@ -51,19 +53,19 @@ export function HeldMessage({
       now.gone = true;
       const left = now.draft;
       if (left === null || now.closing) return;
-      void editHeldInNote(mindId, turn.id, { kind: "cancel" })
+      void editHeldInNote(conversationId, turn.id, { kind: "cancel" })
         .then((held) => {
           if (!held && left !== now.request) keepInInput(mindId, left);
         })
         .catch(report);
     };
-  }, [mindId, turn.id, report]);
+  }, [mindId, conversationId, turn.id, report]);
   // The editor stays open, its words fixed, until the core has them.
   const close = async (edit: { kind: "cancel" } | { kind: "save"; words: string }) => {
     shown.current.closing = true;
     setSaving(true);
     try {
-      const held = await editHeldInNote(mindId, turn.id, edit);
+      const held = await editHeldInNote(conversationId, turn.id, edit);
       // It went meanwhile, never sent as its run failed: the new words are kept in the input.
       if (!held && edit.kind === "save") keepInInput(mindId, edit.words);
       setDraft(null);
@@ -72,7 +74,7 @@ export function HeldMessage({
       // the message doesn't wait for it.
       if (shown.current.gone && edit.kind === "save") {
         keepInInput(mindId, edit.words);
-        void editHeldInNote(mindId, turn.id, { kind: "cancel" }).catch(report);
+        void editHeldInNote(conversationId, turn.id, { kind: "cancel" }).catch(report);
       }
       report(error);
     } finally {
@@ -82,10 +84,10 @@ export function HeldMessage({
   };
   const openEditor = async () => {
     // Only a message still held opens: one gone meanwhile reads again as sent.
-    if (!(await editHeldInNote(mindId, turn.id, { kind: "open" }))) return;
+    if (!(await editHeldInNote(conversationId, turn.id, { kind: "open" }))) return;
     // Folded away before the core answered: no editor shows, so the message waits for none.
     if (shown.current.gone) {
-      await editHeldInNote(mindId, turn.id, { kind: "cancel" });
+      await editHeldInNote(conversationId, turn.id, { kind: "cancel" });
       return;
     }
     // Drawn at once, out of the press's own event, so its field can take the focus.
@@ -156,7 +158,7 @@ export function HeldMessage({
           data-testid="note-column-discard"
           aria-label={t("noteColumn.discard")}
           title={t("noteColumn.discard")}
-          onClick={() => void discardInNote(mindId, turn.id).catch(report)}
+          onClick={() => void discardInNote(conversationId, turn.id).catch(report)}
           className="note-column-icon"
         >
           <TrashLineIcon />
@@ -168,7 +170,7 @@ export function HeldMessage({
           type="button"
           data-testid="note-column-send-now"
           title={oldest ? `${t("noteColumn.sendNow")} ${keysHere("CmdOrCtrl+Enter")}` : undefined}
-          onClick={() => void sendNowInNote(mindId, turn.id).catch(report)}
+          onClick={() => void sendNowInNote(conversationId, turn.id).catch(report)}
           className="note-column-send-now"
         >
           {t("noteColumn.sendNow")}

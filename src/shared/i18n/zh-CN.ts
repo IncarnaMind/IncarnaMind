@@ -1428,6 +1428,7 @@ export const zhCN = {
   "claim.unsupported.unitsMayDiffer": "单位可能不同：来源为 {amount}",
   "claim.unsupported.unitsNotGiven": "引文未注明这一数字的币种、单位或量级。",
   "claim.unsupported.unitsDiffer": "引文对这一数字给出了不同的币种、单位或量级。",
+  "claim.unsupported.signDiffers": "文档与本句对这一数字是正数还是负数的说法不一致。",
   "claim.unsupported.whichDollar": "“{document}”写的是“{amount}”，没有注明币种",
   "claim.unsupported.yuanSign": "“{document}”写的是“{amount}”，中文里 ¥ 指人民币",
   "claim.currencyClause": "文档注明了币种（{source}）：{quote}",
@@ -1599,6 +1600,7 @@ export const zhCN = {
   "claim.reason.two-readings": "“{shown}”可能是 {first}，也可能是 {second}，所以未核对。",
   "claim.reason.sign-word": "附近的“{word}”可能表示“{amount}”是负数，所以未核对。",
   "claim.reason.sign-word.unknown": "附近的词可能表示这里的数字是负数，所以未核对。",
+  "claim.reason.sign-unclear": "文档未说明这一括号金额的正负号，所以未核对。",
   "claim.reason.two-readings.unknown": "这里的数字有多种读法，所以未核对。",
   "claim.reason.readings-unsettled": "“{detail}”有多种读法，所以未核对。",
   "claim.reason.library-unsettled": "只能核对资料库的数量、名称和类型。",
@@ -3683,9 +3685,9 @@ export const zhCN = {
   "consent.flow.edits.purpose": "按你的要求修改选中的文字",
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
   "consent.data.note-requests":
-    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Claude Code 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回；闲置 30 天的对话它也会删除",
+    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Claude Code 会把每段对话保存在这台电脑上，直到你在历史对话中删除、彻底删除它唯一涉及的笔记、断开它或在这里撤回（与其他笔记共用的对话会保留）；闲置 30 天的对话它也会删除",
   "consent.data.note-requests.codex":
-    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Codex 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回",
+    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Codex 会把每段对话保存在这台电脑上，直到你在历史对话中删除、彻底删除它唯一涉及的笔记、断开它或在这里撤回（与其他笔记共用的对话会保留）",
   "consent.data.own-ai-context.codex":
     "在笔记的对话里，Codex 按它自己的设置加入的内容：你在它自己文件夹里的 AGENTS.md、你的技能，以及你自己的服务器、应用、命令、文件和网页给它的内容，以它的设置允许的为限。这里不使用它的记忆",
   "consent.data.own-ai-context":
@@ -8810,6 +8812,23 @@ export const zhCN = {
   "noteColumn.edit.cancel": "取消",
   "noteColumn.edit.save": "保存",
   "noteColumn.citation": "引用 {number}",
+  // 对话跟着你走（#3731）：笔记标签、历史对话、彻底删除。
+  "noteAsk.workingIn": "正在处理“{title}”",
+  "noteAsk.workingIn.open": "打开“{title}”",
+  "noteColumn.history": "历史对话",
+  "noteColumn.historyClose": "关闭历史对话",
+  "noteColumn.historyEmpty": "还没有对话。",
+  "noteColumn.historyOther": "其他对话",
+  "noteColumn.historyMore": "更多选项",
+  "noteColumn.rename": "重命名",
+  "noteColumn.delete": "删除…",
+  "noteColumn.delete.title": "彻底删除“{name}”？",
+  "noteColumn.delete.body": "请求和回复会从 IncarnaMind 和 {agent} 中一并删除。此操作无法撤销。",
+  "noteColumn.changed.one": "修改了 1 段",
+  "noteColumn.changed.other": "修改了 {count} 段",
+  "noteColumn.historyCommand": "历史对话",
+  "noteColumn.newCommand": "新对话",
+  "noteColumn.deleteCommand": "删除对话",
   // 你的 AI 在笔记对话里用自己的工具前的请求，以及它用这些工具的步骤（#3653）。
   "ownAsk.title.command": "运行命令",
   "ownAsk.title.write": "写入文件",

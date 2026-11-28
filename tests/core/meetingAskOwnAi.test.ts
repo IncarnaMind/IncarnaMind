@@ -235,9 +235,13 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
       push(2500);
       const live = await until(core, meeting.id, (state) => state.lines >= 1 && !!state.documentId);
       const { ended } = turnsOf(core);
-      await core.askInNote({ mindId: meeting.mindId, words: "When is the launch?" });
+      const started = await core.askInNote({
+        mindId: meeting.mindId,
+        words: "When is the launch?",
+      });
       await ended();
-      const [turn] = await core.noteConversation(meeting.mindId);
+      const convId = started.kind === "started" ? started.conversationId : "";
+      const [turn] = await core.noteConversation(convId);
       expect(turn?.citations).toEqual([
         expect.objectContaining({
           quote: monday,

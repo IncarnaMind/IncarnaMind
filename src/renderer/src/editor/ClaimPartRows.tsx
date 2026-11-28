@@ -258,6 +258,7 @@ export function partReason(
         : "claim.unsupported.unitsNotGiven",
     );
   }
+  if (part.unsupported?.kind === "sign") return t("claim.unsupported.signDiffers");
   if (part.unsupported?.unconfirmed)
     return [t("claim.unsupported.notConfirmed"), part.unsupported.reason]
       .filter(Boolean)

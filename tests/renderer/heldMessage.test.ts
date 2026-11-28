@@ -11,7 +11,8 @@ import type { NoteHeldEdit, NoteTurn } from "../../src/core/api";
 import { type MessageKey, translate } from "../../src/shared/i18n";
 
 const calls = vi.hoisted(() => ({
-  editHeldInNote: vi.fn<(mindId: string, turnId: string, edit: NoteHeldEdit) => Promise<boolean>>(),
+  editHeldInNote:
+    vi.fn<(conversationId: string, turnId: string, edit: NoteHeldEdit) => Promise<boolean>>(),
   keepInInput: vi.fn<(mindId: string, words: string) => void>(),
   reportError: vi.fn<(error: unknown) => void>(),
 }));
@@ -60,7 +61,12 @@ const { createRoot } = await import("react-dom/client");
 const turn = { id: "t2", request: "and when", outcome: "held" } as NoteTurn;
 let root: Root | null = null;
 let container: HTMLElement;
-let HeldMessage: ComponentType<{ mindId: string; turn: NoteTurn; oldest: boolean }>;
+let HeldMessage: ComponentType<{
+  mindId: string;
+  conversationId: string;
+  turn: NoteTurn;
+  oldest: boolean;
+}>;
 
 /** A promise the test settles itself. */
 function later<T>() {
@@ -83,7 +89,9 @@ beforeEach(async () => {
   const path = "../../src/renderer/src/components/noteAsk/HeldMessage.tsx";
   ({ HeldMessage } = await import(path));
   await act(async () =>
-    root?.render(createElement(HeldMessage, { mindId: "m1", turn, oldest: true })),
+    root?.render(
+      createElement(HeldMessage, { mindId: "m1", conversationId: "c1", turn, oldest: true }),
+    ),
   );
 });
 
