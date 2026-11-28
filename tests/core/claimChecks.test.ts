@@ -2244,9 +2244,22 @@ describe("Stated Sign lowering and no-model behaviour (#2578)", () => {
 
   test("parses same-line Units + Sign, ignores prose Sign: labels, fails open on unknown/omitted, and leaves non-Supported untouched", async () => {
     const sameLine = await runCheck({
-      text: "Verdict: supported Units: same Sign: differs Explanation: Opposite sign. Evidence: [1]",
+      text: "Verdict: supported Units: SAME Sign: DIFFERS Explanation: Opposite sign. Evidence: [1]",
     });
     expect(sameLine).toMatchObject({ verdict: "unsupported", unsupported: { kind: "sign" } });
+
+    const quotedSignInExplanation = await runCheck({
+      text: "Verdict: supported\nUnits: same\nSign: none\nExplanation: The label reads “Exit Sign: differs”.\nEvidence: [1]",
+    });
+    expect(quotedSignInExplanation.verdict).toBe("supported");
+    if (quotedSignInExplanation.verdict === "supported") {
+      expect(quotedSignInExplanation.says).toBe("The label reads “Exit Sign: differs”.");
+    }
+
+    const unknownJsonSign = await runCheck({
+      text: '{"verdict":"supported","units":"same","sign":"unclear-ish","says":"Matches.","evidence":[1]}',
+    });
+    expect(unknownJsonSign.verdict).toBe("supported");
 
     const proseSign = await runCheck({
       text: "Verdict: contradicted\nUnits: same\nSign: same\nExplanation: Exit Sign: same hall, not main lobby [^1].\nEvidence: [1]",

@@ -343,14 +343,12 @@ const TO = label("to\\s*1?");
 const WORD =
   "supported|contradicted|unsupported|overstated|part(?:ly|ially)[ -]supported|not[ -]found|own[ -]view";
 const BARE = new RegExp(`^[\\s>*_#\`"'“”-]*((?:${WORD})\\b.*)`, "i");
+const foldCase = (word: string): string =>
+  [...word].map((ch) => `[${ch.toUpperCase()}${ch.toLowerCase()}]`).join("");
 const UNITS_WORDS = STATED_UNITS.join("|");
-const UNITS_WORDS_CI = STATED_UNITS.map(
-  (word) => `[${word.slice(0, 1).toUpperCase()}${word.slice(0, 1)}]${word.slice(1)}`,
-).join("|");
+const UNITS_WORDS_CI = STATED_UNITS.map(foldCase).join("|");
 const SIGN_WORDS = STATED_SIGNS.join("|");
-const SIGN_WORDS_CI = STATED_SIGNS.map(
-  (word) => `[${word.slice(0, 1).toUpperCase()}${word.slice(0, 1)}]${word.slice(1)}`,
-).join("|");
+const SIGN_WORDS_CI = STATED_SIGNS.map(foldCase).join("|");
 const NEXT_FIELD = "(?:Details|Verdict|Explanation|Evidence|Working|Change 1|To 1)[ \\t]*[:：]";
 const UNITS_BARE = `Units[ \\t]*[:：][ \\t*_"'“”\`]*(?:${UNITS_WORDS_CI})`;
 const SIGN_BARE = `Sign[ \\t]*[:：][ \\t*_"'“”\`]*(?:${SIGN_WORDS_CI})`;
@@ -373,13 +371,20 @@ const SIGN_LINE = new RegExp(
 /**
  * Where a field's label stands after other words on its line. Only the labels the reply form
  * gives: a Chinese label's word followed by a colon is ordinary prose inside an explanation
- * ("这是作者的判断：…"), so it names a field only at a line's start. "Units:" and "Sign:" start a
- * field only after whitespace when one of their four words stands alone as its value.
+ * ("这是作者的判断：…"), so it names a field only at a line's start.
  */
-const FIELD_START = new RegExp(
-  `(?<=\\S)[ \\t]*(?=${NEXT_FIELD})|(?<=\\s)(?=${UNITS_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|${SIGN_BARE})))|(?<=\\s)(?=${SIGN_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${NEXT_FIELD}|${UNITS_BARE})))`,
-  "gm",
+const FIELD_START = new RegExp(`(?<=\\S)[ \\t]*(?=${NEXT_FIELD})`, "gm");
+/**
+ * Inline "Units:" / "Sign:" qualifiers standing after another qualifier on a non-prose line. Kept
+ * separate from prose fields so a quoted label inside Explanation ("Exit Sign: differs") is never
+ * split out as a field (#2578).
+ */
+const QUALIFIER_START = new RegExp(
+  `(?<=\\s)(?=${UNITS_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${SIGN_BARE})))|(?<=\\s)(?=${SIGN_BARE}[\\s*_"'”\`.,;。，；]*(?:$|[ \\t]+(?=${UNITS_BARE})))`,
+  "g",
 );
+const PROSE_FIELD =
+  /^[\s>*_#`"'“”-]*(?:details|explanation|evidence|working|change\s*1?|to\s*1?|说明|解释|依据|推算|算式)[\s*_]*[:：]/i;
 
 type Finer = NonNullable<UnsupportedReason["word"]>;
 
@@ -389,7 +394,7 @@ const unitsIn = (words: string | undefined): StatedUnits | undefined => {
 };
 
 const signIn = (words: string | undefined): StatedSign | undefined => {
-  const said = new RegExp(`^(${SIGN_WORDS})\\b`, "i").exec(words ?? "")?.[1]?.toLowerCase();
+  const said = (words ?? "").trim().toLowerCase();
   return STATED_SIGNS.find((each) => each === said);
 };
 
@@ -439,6 +444,9 @@ export function readVerdict(reply: string): ReadVerdict | null {
     // written after a turn's own words follows them with no break.
     .replace(FIELD_START, "\n")
     .split("\n")
+    .flatMap((line) =>
+      PROSE_FIELD.test(line) ? [line] : line.replace(QUALIFIER_START, "\n").split("\n"),
+    )
     .map((line) => line.trim())
     .filter((line) => line !== "");
   const field = (of: RegExp) => of.exec(lines.findLast((line) => of.test(line)) ?? "")?.[1];

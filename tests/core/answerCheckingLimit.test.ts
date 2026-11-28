@@ -357,13 +357,13 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
   test("on a model whose rooms for thinking would pass the Answer's $0.25, its batches share what the limit leaves in equal parts (#2962)", async () => {
     // Claude Fable 5 at $10 in and $50 out a million tokens: 7,400 tokens out is $0.37 alone. Beside
-    // both records' rooms, the $0.25 leaves 755 tokens: 377 or 378 each.
+    // both records' rooms, the $0.25 leaves 552 tokens: 276 each.
     const { answer, batches } = await answered(9, { modelId: "claude-fable-5" });
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_777],
-        [1, 678],
+        [8, 2_676],
+        [1, 576],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -376,8 +376,8 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 4_096],
-        [1, 2_177],
+        [8, 4_051],
+        [1, 1_952],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -488,10 +488,10 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     }
     await core.checkAnswerAgain({ ...ids, limit: estimate.upTo.cost });
 
-    // Held to its own 4,096 each: $0.246 out at $30 a million, and the prompts, $0.31. Then the
+    // Held to its own 4,096 each: $0.246 out at $30 a million, and the prompts, $0.32. Then the
     // most three looks in the Answer's scope may send (#3020): twelve requests of a sentence
     // check's measured size, $1.04 at $10 a million in.
-    expect(estimate.upTo.cost.amount).toBe(1.35);
+    expect(estimate.upTo.cost.amount).toBe(1.36);
     expect(roomsBySize(batches)).toEqual(
       new Map([
         [8, 4_096],
@@ -506,8 +506,8 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 6_527],
-        [1, 4_428],
+        [8, 6_426],
+        [1, 4_326],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual(Array(9).fill("found"));
@@ -519,13 +519,13 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
       model: "Claude Sonnet 5.5",
       modelId: "claude-sonnet-5-5",
       count: 48,
-      rooms: [3_272, 3_271, 3_271, 3_271, 3_271, 3_271],
+      rooms: [3_171, 3_170, 3_170, 3_170, 3_170, 3_170],
     },
     {
       model: "Claude Opus 5.5",
       modelId: "claude-opus-5-5",
       count: 24,
-      rooms: [3_326, 3_325, 3_325],
+      rooms: [3_225, 3_224, 3_224],
     },
   ])(
     "$count sentences on $model: every batch is out before the first settles, as on main, each with an equal part",
@@ -608,7 +608,7 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     // 4,096 tokens out at $30 a million is $0.123, and the prompt the rest, $0.16; 5,300 would be
     // $0.159 before the prompt. Then the most its one sentence's look in the Answer's scope may
     // send (#3020): four requests of a sentence check's measured size, $0.35.
-    expect(estimate?.billing === "per-token" && estimate.upTo?.cost?.amount).toBe(0.5);
+    expect(estimate?.billing === "per-token" && estimate.upTo?.cost?.amount).toBe(0.51);
   });
 
   test("near the monthly cap, a batch the room for thinking would take past it has what the cap leaves beyond its records' room (#2962)", async () => {
@@ -619,17 +619,17 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     const spent = (await core.getCostSummary()).spent
       .filter((each) => each.currency === "USD")
       .reduce((total, each) => total + each.amount, 0);
-    // $0.022 left: 5,300 tokens out on Sonnet ($10 a million) is $0.053, 300 is $0.003. The cap counts
-    // a batch out twice, so half of what it leaves, less the records' room, is 79 tokens more.
+    // $0.025 left: 5,300 tokens out on Sonnet ($10 a million) is $0.053, 300 is $0.003. The cap counts
+    // a batch out twice, so half of what it leaves, less the records' room, is 128 tokens more.
     await core.updateSettings({
-      user: { monthlyCap: { amount: spent + 0.022, currency: "USD" } },
+      user: { monthlyCap: { amount: spent + 0.025, currency: "USD" } },
     });
     judging.failing = false;
 
     await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
     const again = await answerJudged(core, answer.conversationId, answer.id);
 
-    expect(roomsOf(batches)).toEqual([379]);
+    expect(roomsOf(batches)).toEqual([428]);
     expect(checksOf(again.citations)).toEqual(["found"]);
   });
 });
@@ -682,7 +682,7 @@ describe("a batch a limit kept below its room for thinking, cut short there (#29
     [...citations].sort((a, b) => a.marker - b.marker).map((citation) => citation.checkReason);
 
   test("the Answer's limit held it: Not checked, naming that limit, never ✓ or asked again, and the next batch still goes", async () => {
-    // Claude Fable 5: the batch of eight has 2,777 tokens, under the 3,500 its model writes.
+    // Claude Fable 5: the batch of eight has 2,676 tokens, under the 3,500 its model writes.
     const { answer, batches } = await answered(9, {
       modelId: "claude-fable-5",
       writes: (sentences) => (sentences === 8 ? 3_500 : 200),
@@ -690,8 +690,8 @@ describe("a batch a limit kept below its room for thinking, cut short there (#29
 
     expect(roomsBySize(batches)).toEqual(
       new Map([
-        [8, 2_777],
-        [1, 678],
+        [8, 2_676],
+        [1, 576],
       ]),
     );
     expect(checksOf(answer.citations)).toEqual([...Array(8).fill("not-checked"), "found"]);
