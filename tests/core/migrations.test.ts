@@ -40,6 +40,33 @@ describe("Migrations", () => {
     }
   });
 
+  // protects=live conversations from before the updated Note-writing instructions (#3847) begin anew once on upgrade, while deleted ones stay untouched and earlier turns stay kept; fails_when=a live conversation at 165 keeps renewed=0 and resumes the stale system prompt
+  test("a live conversation kept before 166 begins anew once, leaving deleted ones untouched (#3847)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "conversations-166.db"));
+    try {
+      migrate(
+        db,
+        migrations.filter((migration) => migration.version < 166),
+      );
+      db.exec(`
+        INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, renewed, anew, created_at, updated_at, deleted_at)
+          VALUES ('live', 'm1', 'p1', 's1', 0, 0, '0', '0', NULL), ('gone', 'm2', 'p1', 's2', 0, 0, '0', '0', '1');
+        INSERT INTO own_ai_turns (id, conversation_id, request, outcome, created_at, updated_at)
+          VALUES ('t1', 'live', 'summarise interviews', 'landed', '0', '0');
+      `);
+      migrate(db);
+      expect(db.all("SELECT id, renewed FROM own_ai_conversations ORDER BY id")).toEqual([
+        { id: "gone", renewed: 0 },
+        { id: "live", renewed: 1 },
+      ]);
+      expect(db.all("SELECT request FROM own_ai_turns")).toEqual([
+        { request: "summarise interviews" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   test("existing remote Connectors keep their OAuth configuration when header metadata is introduced", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "connectors.db"));
     migrate(
