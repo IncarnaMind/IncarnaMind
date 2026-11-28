@@ -1832,9 +1832,8 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(shownWithChanges(client)).toEqual([FERRY, "Fares rose by a tenth."]);
   });
 
-  // protects=a later request writing into an empty Note while an earlier request's notes still wait there for the User, its run stopped, is refused as before, and the waiting notes stay once; fails_when=the later request reads the earlier one's notes as its own and writes beside them
+  // protects=a later request writing into an empty Note while an earlier request's notes still wait there for the User, no window having applied them, is refused as before, and the waiting notes stay once; fails_when=the later request reads the earlier one's notes as its own and writes beside them
   it("refuses a later request's first paragraphs while an earlier one's wait in an empty Note", async () => {
-    const wrote = gate();
     let refused = "";
     const run = runner(async (agent, request) => {
       const mindId = mindIdOf(request);
@@ -1849,20 +1848,14 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
           changes: [{ paragraph: "¶0+", text: "Ana sends the rota by Friday." }],
         },
       });
-      if (run.runs.length === 1) {
-        structured(result);
-        wrote.reached();
-        return untilStopped(agent, request);
-      }
-      refused = refusal(result);
+      if (run.runs.length === 1) structured(result);
+      else refused = refusal(result);
       return { kind: "finished", reply: "" };
     });
     const { core, mindId, client, ended } = await written(run.adapter);
     writeMind(client, [note("")]);
     await client.settled();
     const convId = convOf(await core.askInNote({ mindId, words: "write the notes" }));
-    await wrote.at;
-    await core.stopInNote(convId);
     await ended();
     await core.askInNote({ mindId, words: "write the notes again", conversationId: convId });
     await ended(2);
@@ -1871,8 +1864,8 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(shownWithChanges(client)).toEqual(["+ Ana sends the rota by Friday.", "- "]);
   });
 
-  // protects=after Stop the change stays waiting, and the next request reads it truthfully as waiting, not as its own; fails_when=a later run reads another run's change as in the Note
-  it("reads a stopped request's change as waiting in the next request", async () => {
+  // protects=a request's change no window applied stays waiting, and the next request reads it truthfully as waiting, not as its own; fails_when=a later run reads another run's change as in the Note
+  it("reads an earlier request's change still waiting as waiting in the next request", async () => {
     let first = true;
     let read = "";
     const run = runner(async (agent, request) => {
@@ -1890,7 +1883,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
             changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
           },
         });
-        return untilStopped(agent, request);
+        return { kind: "finished", reply: "" };
       }
       read = structured<{ markdown: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
@@ -1899,9 +1892,6 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     });
     const { core, mindId, ended } = await written(run.adapter);
     const convId = convOf(await core.askInNote({ mindId, words: "shorten the fares" }));
-    await expect.poll(() => run.runs.length).toBe(1);
-    await pause(300);
-    await core.stopInNote(convId);
     await ended();
     await core.askInNote({ mindId, words: "what does it say now?", conversationId: convId });
     await ended(2);
@@ -2056,6 +2046,52 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await ended()).toMatchObject({ state: "stopped", applied: [] });
     await client.settled();
     expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
+  });
+
+  // protects=Stop part-way takes back every change the request made in the Note asked from, a later one over an earlier one's paragraph too, and leaves its change in another Note waiting there (#3885); fails_when=a stopped request leaves what it wrote, or part of it, in the Note asked from, or takes away the change waiting in another Note
+  it("takes back on Stop what the request wrote in the Note asked from, not elsewhere", async () => {
+    const wrote = gate();
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      expect((await rewrite(agent, mindId, [[FARES, "Fares rose by a tenth."]])).status).toBe(
+        "applied",
+      );
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const second = structured<{ status: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [
+              { paragraph: "¶2", text: "Fares rose by a tenth, to £4." },
+              { paragraph: "¶2+", text: "The winter timetable starts in November." },
+            ],
+          },
+        }),
+      );
+      expect(second.status).toBe("applied");
+      expect((await rewrite(agent, otherId, [[FARES, "Fares rose by a tenth."]])).status).toBe(
+        "waiting",
+      );
+      wrote.reached();
+      return untilStopped(agent, request);
+    });
+    const { core, mindId, otherId, client, otherClient, ended } = await written(run.adapter);
+    const convId = convOf(await core.askInNote({ mindId, words: "update the fares" }));
+    await wrote.at;
+    await client.settled();
+    expect(shownWithChanges(client).join("\n")).toContain("£4");
+    await core.stopInNote(convId);
+    const end = await ended();
+    expect(end).toMatchObject({ state: "stopped" });
+    expect(end?.applied.map((each) => each.mindId)).toEqual([mindId, mindId]);
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
+    await otherClient.settled();
+    expect(shownWithChanges(otherClient).join("\n")).toContain("{+");
   });
 
   // protects=a Stop pressed while a request's checks run, before its run has begun, stops it as it begins and starts nothing of the User's agent: the line shows the request working, with Stop, the moment it is sent (#3677); fails_when=the request starts after its checks and runs on as if Stop was never pressed

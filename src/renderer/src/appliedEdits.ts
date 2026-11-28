@@ -75,13 +75,12 @@ import {
 import { historyEditor, keptHistory, onHistoryEnd, onHistoryShown } from "./editor/keptHistories";
 import { noteExtensions } from "./editor/noteSchema";
 import {
-  applyingIn,
+  drawApplying,
   editorDoc,
   type PendingProposal,
   proposalsIn,
   resolveInEditor,
   rewrittenParagraphOf,
-  setApplying,
 } from "./editor/proposalReview";
 import { blockAt } from "./editor/writingPlace";
 import { speak } from "./editWithAi";
@@ -279,16 +278,6 @@ function dropSteps(edit: Applying): void {
   const stack = undoStackOf(edit.editor);
   if (stack) takeOutOfHistory(stack, new Set(edit.steps));
   edit.steps = [];
-}
-
-function drawApplying(editor: Editor, request: string, applying: boolean): void {
-  if (editor.isDestroyed) return;
-  const now = applyingIn(editor.state);
-  if (now.has(request) === applying) return;
-  const next = new Set(now);
-  if (applying) next.add(request);
-  else next.delete(request);
-  setApplying(editor, next);
 }
 
 /** Before the edit is asked for, so none of its updates is missed. Null before the editor is bound. */

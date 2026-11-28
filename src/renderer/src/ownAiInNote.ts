@@ -1,12 +1,14 @@
 /**
  * The input at a Note's foot, for a User whose own AI is a command-line one IncarnaMind runs in
  * the background (ADR-0034, #3627, #3731): what is asked, how each request goes as the core tells
- * it ("agents.noteTurn"), and the changes it made in the Note it was asked from, applied at once
- * in the window that asked, with the applied-edit line and its Undo, as the assistant's are
- * (`applyTurn`). Active-conversation, History and persistence state live in `./noteConversations`.
+ * it ("agents.noteTurn"), and the changes it makes in the Note it was asked from, drawn as written
+ * as they come (#3885) and applied in the window that asked once it ends, with the applied-edit
+ * line and its Undo, as the assistant's are (`applyTurn`). Active-conversation, History and
+ * persistence state live in `./noteConversations`.
  */
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
+import type * as Y from "yjs";
 import { create } from "zustand";
 import type {
   AgentPairing,
@@ -20,7 +22,7 @@ import type {
   NoteTurnEvent,
   NoteTurnProblem,
 } from "../../core/api";
-import { NODE_CHARACTER } from "../../shared/proposals";
+import { NODE_CHARACTER, proposalRequestOf } from "../../shared/proposals";
 import { runnerName } from "./askedAgent";
 import {
   agentsToAsk,
@@ -32,6 +34,8 @@ import {
 import type { ChangedMind } from "./changedMinds";
 import { clientId } from "./clientId";
 import { core } from "./core";
+import { mindIdOf, onMindEditorOpen, openMindEditors } from "./editor/openEditors";
+import { drawApplying } from "./editor/proposalReview";
 import { currentTabOf } from "./layoutSlice";
 import {
   connectNoteAskState,
@@ -224,8 +228,14 @@ function keepTrail(event: NoteTurnEvent): void {
   });
 }
 
-/** The turns this window asked for, whose changes it applies. */
-const askedHere = new Set<string>();
+/**
+ * The turns this window asked for that haven't ended, whose changes it applies: by turn, the Note
+ * it writes in, the connection asked, and the changes it has made there so far.
+ */
+const askedHere = new Map<
+  string,
+  { mindId: string; pairingId: string; writing: NoteChangeApplied[] }
+>();
 /** The tab a turn asked here came from, so its changes land on that tab's kept history (#3839). */
 const askedTab = new Map<string, string>();
 /** What this window sent into a running request, by its turn, for when its AI takes it (#3765). */
@@ -233,6 +243,39 @@ const sentHere = new Map<string, NoteAsked>();
 
 /** By turn: the changes of a turn asked here that ended, being applied in this window. */
 const applying = new Map<string, Promise<void>>();
+
+/**
+ * Whether a change just come into `mindId` is one a request asked here is making there: it is drawn
+ * as written from its first frame, never as waiting for the User, and applies with the rest of the
+ * request once it ends (#3885).
+ */
+export function writingAsAsked(doc: Y.Doc, mindId: string, request: string): boolean {
+  const made = proposalRequestOf(doc, request);
+  if (made?.source !== "outside-agent" || made.requested !== "edit") return false;
+  const trails = useNoteTrails.getState().byTurn;
+  return [...askedHere].some(
+    ([turnId, each]) =>
+      each.mindId === mindId &&
+      each.pairingId === made.pairingId &&
+      trails[turnId]?.state === "working",
+  );
+}
+
+/** The changes a running request asked here made in the Notes open here, drawn as written or as waiting. */
+function drawWriting(changes: readonly NoteChangeApplied[], writing: boolean, mindId?: string) {
+  for (const editor of openMindEditors()) {
+    const shows = mindIdOf(editor);
+    if (mindId !== undefined && shows !== mindId) continue;
+    for (const each of changes) {
+      if (each.mindId === shows) drawApplying(editor, each.request, writing);
+    }
+  }
+}
+
+// A Note opened while a request asked here still writes in it.
+onMindEditorOpen((mindId) => {
+  for (const each of askedHere.values()) drawWriting(each.writing, true, mindId);
+});
 
 /**
  * Once a turn asked here ended, its changes applied in this window: until then the core holds
@@ -335,6 +378,14 @@ const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMi
 
 function heard(event: NoteTurnEvent): void {
   keepTrail(event);
+  const asking = askedHere.get(event.turnId);
+  if (asking && (event.state === "working" || event.state === "stopped")) {
+    // A request sent into a run from another Note writes in the Note the run was asked from.
+    asking.mindId = event.mindId;
+    // Stopped, it leaves nothing it wrote: the core takes that back (#3885).
+    asking.writing = event.applied.filter((each) => !each.own);
+    drawWriting(asking.writing, event.state === "working");
+  }
   const changedHere = changedInNote(event);
   if (event.state !== "working") {
     const endedState = event.state;
@@ -589,7 +640,7 @@ export async function askInNote(
     if (useNoteColumns.getState().activeByPairing[start.pairing.id] !== start.conversationId) {
       selectConversation(start.pairing.id, start.conversationId);
     }
-    askedHere.add(start.turnId);
+    askedHere.set(start.turnId, { mindId, pairingId: start.pairing.id, writing: [] });
     if (tabId) askedTab.set(start.turnId, tabId);
     sentHere.set(start.turnId, asked);
     // Shown at once, whether or not the core's word of it came first.
@@ -624,7 +675,7 @@ export async function askInNote(
       }
     }
     selectConversation(start.pairing.id, start.conversationId);
-    askedHere.add(start.turnId);
+    askedHere.set(start.turnId, { mindId, pairingId: start.pairing.id, writing: [] });
     if (tabId) askedTab.set(start.turnId, tabId);
     useNoteAsks.setState((state) => ({
       lastByMind: {
