@@ -139,20 +139,6 @@ export interface StoredDocument {
   content_hash: string | null;
 }
 
-/** A Document's stored Units, with text on the first `ROUTING_PAGES` for routing and outlines. */
-export function storedOrganizeUnits(
-  db: Database,
-  documentId: string,
-  contentHash: string | null,
-): OrganizeUnit[] {
-  return db
-    .all<{ page: number; kind: OrganizeUnit["kind"]; label: string | null; text: string }>(
-      "SELECT page, kind, label, CASE WHEN page <= ? THEN substr(text, 1, ?) ELSE '' END AS text FROM document_pages WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL ORDER BY page LIMIT 400",
-      [BigInt(ROUTING_PAGES), BigInt(ROUTING_PAGE_CHARACTERS), documentId, contentHash],
-    )
-    .map((row) => ({ ...row, label: row.label ? JSON.parse(row.label) : null }));
-}
-
 /** What Organize reads of a Document's indexed version: its first Passages and its Units. */
 export function storedOrganizeSource(db: Database, doc: StoredDocument): OrganizeSource {
   return {
@@ -165,6 +151,11 @@ export function storedOrganizeSource(db: Database, doc: StoredDocument): Organiz
         [doc.id, BigInt(ORGANIZE_PASSAGES)],
       )
       .map((row) => row.text),
-    units: storedOrganizeUnits(db, doc.id, doc.content_hash),
+    units: db
+      .all<{ page: number; kind: OrganizeUnit["kind"]; label: string | null; text: string }>(
+        "SELECT page, kind, label, CASE WHEN page <= ? THEN substr(text, 1, ?) ELSE '' END AS text FROM document_pages WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL ORDER BY page LIMIT 400",
+        [BigInt(ROUTING_PAGES), BigInt(ROUTING_PAGE_CHARACTERS), doc.id, doc.content_hash],
+      )
+      .map((row) => ({ ...row, label: row.label ? JSON.parse(row.label) : null })),
   };
 }

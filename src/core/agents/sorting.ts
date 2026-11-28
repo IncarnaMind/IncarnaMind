@@ -5,7 +5,6 @@ import { estimateTokens, head } from "../answers/context";
 import type { DocumentKind } from "../api";
 import { InvalidInputError } from "../errors";
 import type { Language } from "../language";
-import { documentOutline, ORGANIZE_PASSAGES, storedOrganizeUnits } from "../library/excerpt";
 import {
   bestClustering,
   CLEAR,
@@ -23,7 +22,7 @@ import type { OrganizeReviewFolder } from "../organizeReview/types";
 import type { Database } from "../storage";
 import { offeredKinds } from "../tags/about";
 import { BATCH_EXCERPT_TOKENS, excerptFromPassages, kindId, kindOfId } from "../tags/classify";
-import { KIND_MEANINGS, kindName, type TagKind } from "../tags/kinds";
+import { kindName } from "../tags/kinds";
 import { READ_PART_TOKENS } from "./access";
 import { AgentRefusedError } from "./refusals";
 
@@ -35,9 +34,9 @@ import { AgentRefusedError } from "./refusals";
 export const SORTING_MOST = 40;
 /** Floor for per-Document excerpt sizing when fitting a large-Library batch onto one page (#2737). */
 const MIN_EXCERPT_TOKENS = 60;
+const EXCERPT_PASSAGES = 6;
 
 type Choice = { id: string; name: string };
-type TagChoice = Choice & { description?: string };
 type Waiting = {
   id: string;
   name: string;
@@ -49,8 +48,14 @@ type WaitingRow = Waiting & {
   content_hash: string | null;
   status: string;
   embedding_model: string | null;
+  assignmentSource: string | null;
 };
-type Scope = { documents: string[]; folders: Choice[]; shareTagNames: boolean };
+type Scope = {
+  pairingId: string;
+  documents: string[];
+  folders: Choice[];
+  shareTagNames: boolean;
+};
 
 /** What propose_sorting took: how many wait now, and, past `SORTING_MOST`, what to send again. */
 export interface SortingTaken {
@@ -59,11 +64,11 @@ export interface SortingTaken {
 }
 
 export interface SortingBatch {
-  documents: (Waiting & { outline?: string; text: string })[];
+  documents: (Waiting & { text: string })[];
   /** How many wait in all, on every page (#3610). */
   total: number;
   folders: Choice[];
-  tags: TagChoice[];
+  tags: Choice[];
   next: string | null;
 }
 
@@ -79,35 +84,44 @@ export interface SortingProposal {
   newTags?: string[];
 }
 
-interface SampleDecision {
-  folderKey: string | null;
-  placement:
-    | { kind: "folder"; folderId: string }
-    | { kind: "newFolder"; name: string; description: string }
-    | null;
-  kind: TagKind | null;
-}
+type SamplePlacement =
+  | { kind: "folder"; folderId: string }
+  | { kind: "newFolder"; name: string; description: string; parentId: string | null };
 
 interface LargeSession {
   scopeKey: string;
   ids: string[];
   indexById: Map<string, number>;
+  /** Each Document's version when its vector was read into this session. */
+  versions: Map<string, string>;
   vectors: Float32Array[];
   clustering: Clustering;
   sampleIds: string[];
   sampleSet: Set<string>;
-  sampleDecisions: Map<string, SampleDecision>;
+  sampleDecisions: Map<string, SamplePlacement | null>;
   servedAllSample: boolean;
   propagated: boolean;
-  lastAgent: string | null;
   roundPool: string[] | null;
-  servedIds: Set<string>;
+  /** Documents served in the current round, keyed by id -> served version. */
+  servedVersions: Map<string, string>;
   submittedInRound: boolean;
-  /** Documents explicitly omitted from a submitted round, keyed by id -> version. */
+  /** Documents omitted from a submitted round in this request, keyed by id -> served version. */
   skipped: Map<string, string>;
 }
 
 const MAX_TAGS = 20;
+
+const samePlacement = (a: SamplePlacement, b: SamplePlacement): boolean => {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "folder" && b.kind === "folder") return a.folderId === b.folderId;
+  if (a.kind === "newFolder" && b.kind === "newFolder") {
+    return (
+      a.parentId === b.parentId &&
+      sameName(a.name.trim().replace(/\s+/g, " "), b.name.trim().replace(/\s+/g, " "))
+    );
+  }
+  return false;
+};
 
 /**
  * Picks `total` Documents proportionally across clusters (largest-remainder), keeping at least one
@@ -162,8 +176,6 @@ function proportionalSample(members: readonly number[][], total: number): number
   return out;
 }
 
-const folderNameKey = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
-
 export function createAgentSorting(
   db: Database,
   language: () => Language,
@@ -197,7 +209,8 @@ export function createAgentSorting(
     return hydrate(
       db.all<WaitingRow>(
         `SELECT d.id, d.name, d.kind, d.content_hash, d.status, d.embedding_model,
-                g.group_id AS folderId, coalesce(g.request_id, '') AS version
+                g.group_id AS folderId, g.source AS assignmentSource,
+                coalesce(g.request_id, '') AS version
          ${WAITING} AND d.id > ? ORDER BY d.id LIMIT ?`,
         [JSON.stringify(ids), after, BigInt(most)],
       ),
@@ -208,14 +221,16 @@ export function createAgentSorting(
     return hydrate(
       db.all<WaitingRow>(
         `SELECT d.id, d.name, d.kind, d.content_hash, d.status, d.embedding_model,
-                g.group_id AS folderId, coalesce(g.request_id, '') AS version
+                g.group_id AS folderId, g.source AS assignmentSource,
+                coalesce(g.request_id, '') AS version
          ${WAITING} ORDER BY d.id`,
         [JSON.stringify(ids)],
       ),
     );
   }
 
-  const scopeKeyOf = (scope: Scope) => targetHash(JSON.stringify([...scope.documents].sort()));
+  const scopeKeyOf = (scope: Scope) =>
+    targetHash(JSON.stringify([scope.pairingId, ...[...scope.documents].sort()]));
 
   function hasOpenReviewInScope(scope: Scope): boolean {
     return !!db.get(
@@ -254,11 +269,10 @@ export function createAgentSorting(
     return [...scope.folders, ...offered];
   }
 
-  function choices(scope: Scope): TagChoice[] {
-    const kinds: TagChoice[] = offeredKinds(db).map((kind) => ({
+  function choices(scope: Scope): Choice[] {
+    const kinds: Choice[] = offeredKinds(db).map((kind) => ({
       id: kindId(kind),
       name: kindName(kind, language()),
-      description: KIND_MEANINGS[kind],
     }));
     if (!scope.shareTagNames) return kinds;
     const tags = db.all<Choice>(
@@ -268,11 +282,6 @@ export function createAgentSorting(
       [JSON.stringify(scope.documents)],
     );
     return [...kinds, ...tags];
-  }
-
-  function outlineOf(id: string, kind: DocumentKind, contentHash: string | null): string | null {
-    if (kind !== "pptx" && kind !== "xlsx") return null;
-    return documentOutline({ kind, units: storedOrganizeUnits(db, id, contentHash) });
   }
 
   function startLargeSession(scopeKey: string, rows: WaitingRow[]): LargeSession {
@@ -289,6 +298,7 @@ export function createAgentSorting(
       scopeKey,
       ids,
       indexById: new Map(ids.map((id, at) => [id, at])),
+      versions: new Map(rows.map((row) => [row.id, row.version])),
       vectors,
       clustering,
       sampleIds,
@@ -296,9 +306,8 @@ export function createAgentSorting(
       sampleDecisions: new Map(),
       servedAllSample: false,
       propagated: false,
-      lastAgent: null,
       roundPool: null,
-      servedIds: new Set(),
+      servedVersions: new Map(),
       submittedInRound: false,
       skipped: new Map(),
     };
@@ -309,53 +318,64 @@ export function createAgentSorting(
     after: string,
     total: number,
     folders: Choice[],
-    tags: TagChoice[],
+    tags: Choice[],
     compact = false,
+    order?: readonly string[],
   ): SortingBatch {
     let start = 0;
     if (after !== "") {
-      const at = rows.findIndex((row) => row.id === after);
-      start = at >= 0 ? at + 1 : 0;
+      if (order) {
+        const cursorPos = order.indexOf(after);
+        if (cursorPos >= 0) {
+          const posById = new Map(order.map((id, idx) => [id, idx]));
+          const nextIdx = rows.findIndex((row) => (posById.get(row.id) ?? -1) > cursorPos);
+          start = nextIdx >= 0 ? nextIdx : rows.length;
+        } else {
+          const at = rows.findIndex((row) => row.id === after);
+          start = at >= 0 ? at + 1 : 0;
+        }
+      } else {
+        const nextIdx = rows.findIndex((row) => row.id > after);
+        start = nextIdx >= 0 ? nextIdx : rows.length;
+      }
     }
     const slice = rows.slice(start, start + SORTING_MOST + 1);
     const pageRows = slice.slice(0, SORTING_MOST);
-    // What else the answer carries, and room for a next.
     let size = estimateTokens(JSON.stringify({ total, folders, tags, next: slice[0]?.id ?? "" }));
     const perDocBudget =
       compact && pageRows.length > 0
         ? Math.floor((READ_PART_TOKENS - size) / pageRows.length)
         : null;
     const documents: SortingBatch["documents"] = [];
-    for (const { content_hash, status: _s, embedding_model: _e, ...row } of pageRows) {
+    for (const {
+      content_hash: _h,
+      status: _s,
+      embedding_model: _e,
+      assignmentSource: _a,
+      ...row
+    } of pageRows) {
       const passages = db.all<{ text: string }>(
         "SELECT text FROM passages WHERE document_id = ? AND deleted_at IS NULL ORDER BY position LIMIT ?",
-        [row.id, BigInt(ORGANIZE_PASSAGES)],
+        [row.id, BigInt(EXCERPT_PASSAGES)],
       );
-      const outline = outlineOf(row.id, row.kind, content_hash);
       const fullText = excerptFromPassages(
         passages.map((p) => p.text),
         BATCH_EXCERPT_TOKENS,
       );
       let text = fullText;
       if (perDocBudget !== null) {
-        const metaCost =
-          estimateTokens(JSON.stringify({ ...row, ...(outline ? { outline } : {}), text: "" })) + 5;
+        const metaCost = estimateTokens(JSON.stringify({ ...row, text: "" })) + 5;
         let textCap = Math.max(MIN_EXCERPT_TOKENS, perDocBudget - metaCost);
         if (estimateTokens(fullText) > textCap) text = head(fullText, textCap);
         while (
-          estimateTokens(JSON.stringify({ ...row, ...(outline ? { outline } : {}), text })) + 1 >
-            perDocBudget &&
+          estimateTokens(JSON.stringify({ ...row, text })) + 1 > perDocBudget &&
           textCap > MIN_EXCERPT_TOKENS
         ) {
           textCap = Math.max(MIN_EXCERPT_TOKENS, textCap - 15);
           text = head(fullText, textCap);
         }
       }
-      const doc = {
-        ...row,
-        ...(outline ? { outline } : {}),
-        text,
-      };
+      const doc = { ...row, text };
       const cost = estimateTokens(JSON.stringify(doc)) + 1;
       if (documents.length > 0 && size + cost > READ_PART_TOKENS) break;
       documents.push(doc);
@@ -370,41 +390,44 @@ export function createAgentSorting(
     };
   }
 
-  /** Step 4 of Organize's planner (../library/plan): propagate unanimous, clear clusters locally. */
+  /** Step 4 of Organize's planner (../library/plan): copy unanimous Folder placements locally, never Tags. */
   function propagateFromSample(
     active: LargeSession,
-    agent: string,
     waitingNow: WaitingRow[],
+    liveFolders: ReadonlySet<string>,
   ): number {
-    const { clustering, vectors, ids, sampleSet, sampleDecisions } = active;
+    const { clustering, vectors, ids, sampleSet, sampleDecisions, versions } = active;
     const sampledIndices = ids
       .map((id, at) => (sampleSet.has(id) ? at : -1))
       .filter((at) => at >= 0);
 
-    const clusterPlace: (SampleDecision | null)[] = clustering.centres.map((_, cluster) => {
+    const clusterPlace: (SamplePlacement | null)[] = clustering.centres.map((_, cluster) => {
       const members = sampledIndices.filter((at) => clustering.assignment[at] === cluster);
       if (members.length === 0) return null;
       const decisions = members.map((at) => sampleDecisions.get(ids[at] as string) ?? null);
       const first = decisions[0];
-      if (!first?.folderKey || !first.placement) return null;
-      if (!decisions.every((d) => d?.folderKey === first.folderKey)) return null;
-      const unanimousKind =
-        first.kind !== null && decisions.every((d) => d?.kind === first.kind) ? first.kind : null;
-      return { folderKey: first.folderKey, placement: first.placement, kind: unanimousKind };
+      if (!first) return null;
+      if (!decisions.every((d) => d !== null && samePlacement(d, first))) return null;
+      return first;
     });
 
     const propagatedRows: OrganizeReviewProposal[] = [];
     for (const doc of waitingNow) {
       if (sampleSet.has(doc.id)) continue;
+      if (doc.assignmentSource === "user") continue;
       if (active.skipped.get(doc.id) === doc.version) continue;
+      if (versions.get(doc.id) !== doc.version) continue;
       const at = active.indexById.get(doc.id);
       if (at === undefined) continue;
       const own = clustering.assignment[at] ?? 0;
       const place = clusterPlace[own];
-      if (!place?.placement || !place.folderKey) continue;
+      if (!place) continue;
+      if (place.kind === "folder" && !liveFolders.has(place.folderId)) continue;
+      if (place.kind === "newFolder" && place.parentId !== null && !liveFolders.has(place.parentId))
+        continue;
       const elsewhere = clustering.centres.filter((_, cluster) => {
         const other = clusterPlace[cluster];
-        return cluster !== own && other?.folderKey !== place.folderKey;
+        return cluster !== own && !(other && samePlacement(other, place));
       });
       const vector = vectors[at] as Float32Array;
       let nearest = -1;
@@ -419,27 +442,20 @@ export function createAgentSorting(
       const nearestDecision = nearest >= 0 ? sampleDecisions.get(ids[nearest] as string) : null;
       if (
         silhouette(vector, clustering.centres[own] as Float32Array, elsewhere) < CLEAR ||
-        nearestDecision?.folderKey !== place.folderKey
+        !nearestDecision ||
+        !samePlacement(nearestDecision, place)
       )
         continue;
-      const placement: OrganizeReviewProposal["placement"] =
-        place.placement.kind === "folder"
-          ? { kind: "folder", folderId: place.placement.folderId }
-          : {
-              kind: "newFolder",
-              name: place.placement.name,
-              description: place.placement.description,
-              parentId: doc.folderId,
-            };
       propagatedRows.push({
         documentId: doc.id,
         contentHash: doc.content_hash,
-        placement,
-        tags: place.kind ? [{ kind: place.kind }] : [],
+        placement: place,
+        tags: [],
       });
     }
     if (propagatedRows.length === 0) return 0;
-    return propose({ origin: "agent", agent }, propagatedRows);
+    // Marked as IncarnaMind's own Suggestions (not the agent's) and subject to the user-filed guard.
+    return propose({ origin: "library" }, propagatedRows);
   }
 
   return {
@@ -448,7 +464,6 @@ export function createAgentSorting(
       const key = scopeKeyOf(scope);
       const all = allWaiting(scope.documents);
 
-      // Drop stale large-Library session when nothing waits or Review was cleared.
       let session = sessions.get(key) ?? null;
       if (session && (all.length === 0 || (session.propagated && !hasOpenReviewInScope(scope)))) {
         sessions.delete(key);
@@ -465,30 +480,30 @@ export function createAgentSorting(
       }
 
       if (session) {
-        // Documents from the previous served batch that remained unproposed when the agent asks
-        // for the next batch were intentionally left out: skip them so they never loop.
-        if (after === "" && session.submittedInRound && session.servedIds.size > 0) {
-          const waitingById = new Map(all.map((row) => [row.id, row]));
-          for (const servedId of session.servedIds) {
-            const still = waitingById.get(servedId);
-            if (still) session.skipped.set(still.id, still.version);
-          }
-          session.servedIds.clear();
-          session.submittedInRound = false;
-          session.roundPool = null;
-          if (
-            !session.propagated &&
-            session.servedAllSample &&
-            session.sampleDecisions.size > 0 &&
-            session.lastAgent !== null
-          ) {
-            propagateFromSample(session, session.lastAgent, all);
-            session.propagated = true;
+        if (after === "" && session.servedVersions.size > 0) {
+          if (session.submittedInRound) {
+            const waitingById = new Map(all.map((row) => [row.id, row]));
+            for (const [servedId, servedVersion] of session.servedVersions) {
+              const still = waitingById.get(servedId);
+              if (still && still.version === servedVersion) {
+                session.skipped.set(servedId, servedVersion);
+              }
+            }
+            session.servedVersions.clear();
+            session.submittedInRound = false;
+            session.roundPool = null;
+            if (!session.propagated && session.servedAllSample) {
+              session.propagated = true;
+            }
+          } else {
+            // Fresh list from the top without a submission resets skipped state for the new request.
+            session.skipped.clear();
+            session.roundPool = null;
           }
         }
-        const currentAll = session.propagated ? allWaiting(scope.documents) : all;
-        const remaining = currentAll.filter((row) => session?.skipped.get(row.id) !== row.version);
+        const remaining = all.filter((row) => session?.skipped.get(row.id) !== row.version);
         if (remaining.length === 0) {
+          sessions.delete(key);
           return {
             documents: [],
             total: 0,
@@ -499,14 +514,16 @@ export function createAgentSorting(
         }
         const remainingById = new Map(remaining.map((row) => [row.id, row]));
         let pool: WaitingRow[];
+        let order: readonly string[];
         if (!session.propagated) {
+          order = session.sampleIds;
           pool = session.sampleIds.flatMap((id) => {
             const row = remainingById.get(id);
             return row ? [row] : [];
           });
         } else {
           if (after === "" || !session.roundPool) {
-            // Order uncertain remaining Documents by local cluster similarity, capped to one batch.
+            // Group remaining Documents by cluster index, capped to one batch.
             const ordered = [...remaining].sort((a, b) => {
               const cA = session?.clustering.assignment[session.indexById.get(a.id) ?? -1] ?? 0;
               const cB = session?.clustering.assignment[session.indexById.get(b.id) ?? -1] ?? 0;
@@ -514,6 +531,7 @@ export function createAgentSorting(
             });
             session.roundPool = ordered.slice(0, SORTING_MOST).map((row) => row.id);
           }
+          order = session.roundPool;
           pool = session.roundPool.flatMap((id) => {
             const row = remainingById.get(id);
             return row ? [row] : [];
@@ -526,14 +544,14 @@ export function createAgentSorting(
           folderChoices(scope, session.propagated),
           choices(scope),
           true,
+          order,
         );
-        if (after === "") session.servedIds.clear();
-        for (const doc of batch.documents) session.servedIds.add(doc.id);
+        if (after === "") session.servedVersions.clear();
+        for (const doc of batch.documents) session.servedVersions.set(doc.id, doc.version);
         if (!session.propagated && batch.next === null) session.servedAllSample = true;
         return batch;
       }
 
-      // Small / medium Library (<= SAMPLE): list every Document in natural order with full excerpts.
       return buildBatch(all, after, all.length, scope.folders, choices(scope));
     },
 
@@ -557,7 +575,7 @@ export function createAgentSorting(
       const offeredById = new Map(scopedOfferedFolders(scope).map((folder) => [folder.id, folder]));
       const active = sessions.get(scopeKeyOf(scope)) ?? null;
 
-      const sampleUpdates: [string, SampleDecision][] = [];
+      const sampleUpdates: [string, SamplePlacement | null][] = [];
       const rows = proposals.flatMap((p): OrganizeReviewProposal[] => {
         const doc = docs.get(p.documentId);
         const offered = p.folderId !== undefined ? offeredById.get(p.folderId) : undefined;
@@ -579,7 +597,7 @@ export function createAgentSorting(
               kind: "newFolder",
               name: offered.name,
               description: offered.description,
-              parentId: offered.parentId ?? doc.folderId,
+              parentId: offered.parentId,
             }
           : p.folderId
             ? { kind: "folder", folderId: p.folderId }
@@ -595,30 +613,24 @@ export function createAgentSorting(
           ...(p.newTags ?? []).map((name) => ({ name, description: "" })),
         ];
 
-        if (active && !active.propagated && active.sampleSet.has(doc.id)) {
-          const kindTags = resolvedTags.flatMap((t) => ("kind" in t ? [t.kind] : []));
-          const folderKey =
-            placement.kind === "folder"
-              ? `folder:${placement.folderId}`
-              : placement.kind === "newFolder"
-                ? `new:${folderNameKey(placement.name)}`
-                : null;
+        if (
+          active &&
+          !active.propagated &&
+          active.sampleSet.has(doc.id) &&
+          active.versions.get(doc.id) === doc.version
+        ) {
           sampleUpdates.push([
             doc.id,
-            {
-              folderKey,
-              placement:
-                placement.kind === "folder"
-                  ? { kind: "folder", folderId: placement.folderId }
-                  : placement.kind === "newFolder"
-                    ? {
-                        kind: "newFolder",
-                        name: placement.name,
-                        description: placement.description,
-                      }
-                    : null,
-              kind: kindTags.length === 1 ? (kindTags[0] as TagKind) : null,
-            },
+            placement.kind === "folder"
+              ? { kind: "folder", folderId: placement.folderId }
+              : placement.kind === "newFolder"
+                ? {
+                    kind: "newFolder",
+                    name: placement.name,
+                    description: placement.description,
+                    parentId: placement.parentId ?? null,
+                  }
+                : null,
           ]);
         }
 
@@ -659,7 +671,6 @@ export function createAgentSorting(
 
       if (active) {
         active.submittedInRound = true;
-        active.lastAgent = agent;
         for (const [docId, decision] of sampleUpdates) active.sampleDecisions.set(docId, decision);
         if (
           !active.propagated &&
@@ -669,14 +680,23 @@ export function createAgentSorting(
         ) {
           const waitingNow = allWaiting(scope.documents);
           const waitingById = new Map(waitingNow.map((row) => [row.id, row]));
-          // Sampled Documents the agent omitted are left out so they neither propagate nor loop.
           for (const sampleId of active.sampleIds) {
             const still = waitingById.get(sampleId);
-            if (still && !active.sampleDecisions.has(sampleId)) {
-              active.skipped.set(still.id, still.version);
+            const servedVersion = active.servedVersions.get(sampleId);
+            if (
+              still &&
+              servedVersion !== undefined &&
+              still.version === servedVersion &&
+              !active.sampleDecisions.has(sampleId)
+            ) {
+              active.skipped.set(still.id, servedVersion);
             }
           }
-          written += propagateFromSample(active, agent, waitingNow);
+          try {
+            written += propagateFromSample(active, waitingNow, liveFolders);
+          } catch (error) {
+            console.error("Couldn't propagate agent sorting sample.", error);
+          }
           active.propagated = true;
         }
       }
@@ -688,12 +708,18 @@ export function createAgentSorting(
           total: sent.length,
         });
       } else if (active) {
-        // Count remaining unskipped waiting Documents (excluding any omitted from the round just submitted).
         const waitingAfter = allWaiting(scope.documents).filter(
-          (row) => active.skipped.get(row.id) !== row.version && !active.servedIds.has(row.id),
+          (row) =>
+            active.skipped.get(row.id) !== row.version &&
+            active.servedVersions.get(row.id) !== row.version,
         );
         if (waitingAfter.length > 0) {
-          leftMessage = say("agents.sorting.moreWaiting", { count: waitingAfter.length });
+          leftMessage = say(
+            waitingAfter.length === 1
+              ? "agents.sorting.moreWaiting.one"
+              : "agents.sorting.moreWaiting.other",
+            { count: waitingAfter.length },
+          );
         }
       }
 

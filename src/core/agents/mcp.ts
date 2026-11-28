@@ -343,7 +343,6 @@ export function createAgentServer(
   );
 
   const choice = z.object({ id: z.string(), name: z.string() });
-  const tagChoice = choice.extend({ description: z.string().optional() });
   server.registerTool(
     tool("list_sorting"),
     {
@@ -357,13 +356,12 @@ export function createAgentServer(
             kind: z.string(),
             version: z.string(),
             folderId: z.string().nullable(),
-            outline: z.string().optional(),
             text: z.string(),
           }),
         ),
         total: z.number(),
         folders: z.array(choice),
-        tags: z.array(tagChoice),
+        tags: z.array(choice),
         next: z.string().nullable(),
       }),
       annotations: READ_ONLY,
