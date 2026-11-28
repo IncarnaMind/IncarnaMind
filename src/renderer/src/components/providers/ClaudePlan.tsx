@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClaudeAccount } from "../../../../core/api";
 import {
   cancelSignInWithClaude,
@@ -13,7 +13,6 @@ import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
-import { ChevronDownLineIcon, ChevronRightLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { buttonStyle } from "../ui";
@@ -34,13 +33,6 @@ const PASTE: PasteWords = {
 
 const TARGET = ["claude-account"] as const;
 
-const linkClass = "text-accent underline-offset-2 hover:underline";
-
-/** Whether this copy can sign in with a Claude plan. */
-export function useClaudePlanOffered(): boolean {
-  return useClaudeAccount()?.available === true;
-}
-
 function useRowOpen(): [boolean, (open: boolean) => void] {
   const waiting = useClaudeSignIn((state) => state.waiting);
   const signedIn = useClaudeSignIn((state) => state.status?.account.state === "signed-in");
@@ -52,44 +44,9 @@ function useRowOpen(): [boolean, (open: boolean) => void] {
     if (waiting) setOpen(true);
   }, [waiting]);
   useEffect(() => {
-    if (signedIn) setOpen(false);
-  }, [signedIn]);
+    if (signedIn && !waiting) setOpen(false);
+  }, [signedIn, waiting]);
   return [open, setOpen];
-}
-
-export function ClaudePlanWay({ onUseKey }: { onUseKey(): void }) {
-  const t = useT();
-  const offered = useClaudePlanOffered();
-  const waiting = useClaudeSignIn((state) => state.waiting);
-  const [expanded, setOpen] = useRowOpen();
-  const panel = useId();
-  if (!offered) return null;
-  const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
-  return (
-    <div data-testid="way-claude" className="flex flex-col">
-      <button
-        type="button"
-        data-testid="way-claude-open"
-        aria-expanded={expanded}
-        aria-controls={panel}
-        onClick={() => {
-          if (!waiting) setOpen(!expanded);
-        }}
-        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-hover"
-      >
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-ui text-ink">{t("claudePlan.way.title")}</span>
-          <span className="text-ui leading-5 text-ink-secondary">{t("claudePlan.way.line")}</span>
-        </span>
-        <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
-      </button>
-      {expanded && (
-        <div id={panel} className="flex flex-col gap-2 px-2 pt-1 pb-2">
-          <ClaudePlanSignIn onClose={() => setOpen(false)} onUseKey={onUseKey} />
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function ClaudePlanRow() {
@@ -103,9 +60,11 @@ export function ClaudePlanRow() {
   }, [signedIn, setOpen]);
   const row = useSettingsTarget<HTMLDivElement>(TARGET, offered, reached);
 
+  // A fresh sign-in waits for its code even while the tokens kept still read signed in.
+  const waiting = useClaudeSignIn((state) => state.waiting);
   if (!status || !offered) return null;
   const { account } = status;
-  const steps = !signedIn && open;
+  const steps = open && (!signedIn || waiting);
   return (
     <SettingsRow
       ref={row}
@@ -114,7 +73,7 @@ export function ClaudePlanRow() {
       label={t("plans.claude.title")}
       detail={steps ? undefined : <AccountLines account={account} />}
       control={
-        signedIn ? (
+        steps ? undefined : signedIn ? (
           <button
             type="button"
             data-testid="claude-plan-sign-out"
@@ -123,7 +82,7 @@ export function ClaudePlanRow() {
           >
             {t("claudePlan.signOut")}
           </button>
-        ) : steps ? undefined : (
+        ) : (
           <button
             type="button"
             data-testid="plans-claude-sign-in"
@@ -170,11 +129,9 @@ function AccountLines({ account }: { account: ClaudeAccount }) {
 export function ClaudePlanSignIn({
   keepDefault = false,
   onClose,
-  onUseKey,
 }: {
   keepDefault?: boolean;
   onClose(): void;
-  onUseKey?(): void;
 }) {
   const t = useT();
   const waiting = useClaudeSignIn((state) => state.waiting);
@@ -265,19 +222,6 @@ export function ClaudePlanSignIn({
           <p className="text-ink">
             <ProblemMark />
             {t(CLAUDE_SIGN_IN_FAILURES[failure.kind])}
-            {onUseKey && failure.kind !== "sign-in-cancelled" && (
-              <>
-                <span aria-hidden="true"> · </span>
-                <button
-                  type="button"
-                  data-testid="claude-plan-use-key"
-                  onClick={onUseKey}
-                  className={linkClass}
-                >
-                  {t("signInRoute.wayBack.pasteApiKey")}
-                </button>
-              </>
-            )}
           </p>
           <details className="text-ink-meta">
             <summary className="cursor-default">{t("claudePlan.details")}</summary>

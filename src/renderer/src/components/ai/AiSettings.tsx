@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type {
   ChatModelGroup,
   ChatProvider,
-  DecisionHostStatus,
   OlderKeyJob,
   RerankSettings,
   TranscriptionServiceStatus,
@@ -17,6 +16,7 @@ import { useKeyRefusals } from "../../keyRefusals";
 import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { noModelSetUp } from "../../noModelSetUp";
+import type { SettingsTarget } from "../../settingsPages";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
@@ -28,8 +28,6 @@ import { ChatGptPlanRow } from "../providers/ChatGptPlanSettings";
 import { ReadinessExplanation } from "../providers/ChatReadinessNotice";
 import { ClaudePlanRow } from "../providers/ClaudePlan";
 import { CopilotPlanRow } from "../providers/CopilotPlan";
-import { DecisionSortingSetUp, firstModelOf } from "../providers/DecisionKeyForm";
-import { JevSortingSetUp } from "../providers/JevSortingSetUp";
 import { LocalModeUnavailable } from "../providers/LocalModeUnavailable";
 import { ProviderLogo } from "../providers/ProviderLogo";
 import { ProviderPage, type RemovedProvider } from "../providers/ProviderPage";
@@ -44,6 +42,7 @@ import {
 } from "../providers/shared";
 import { useJevSettings } from "../providers/useJevSettings";
 import { SettingsBackLink } from "../SettingsBackLink";
+import { useSpendingCapShown } from "../SpendingCapSettings";
 import { SettingsGroup } from "../settings/SettingsGroup";
 import { UndoLineAt } from "../UndoLine";
 import { noticeClass } from "../ui";
@@ -51,9 +50,7 @@ import { AccountsSection } from "./AccountsSection";
 import { AddSheet, useEntryName, usePlansOffered } from "./AddSheet";
 import { JobsSection } from "./JobsSection";
 import { LimitsSection } from "./LimitsSection";
-import { SetUpAgain } from "./SetUpAgain";
 import type { ServiceEntry } from "./serviceDirectory";
-import { UseModelRow } from "./UseModelRow";
 
 type View =
   | { page: "list" }
@@ -63,12 +60,23 @@ type View =
 
 const DIRECTORY_TARGET = ["add-provider"] as const;
 
+/** The rows a link may ask for that only show once a model is set up: with none, it lands at the top. */
+const WITH_A_MODEL: readonly SettingsTarget[] = [
+  "model",
+  "chat-model",
+  "web-search",
+  "check-decision",
+];
+const WITH_THE_CAP: readonly SettingsTarget[] = [...WITH_A_MODEL, "spending-cap"];
+const NONE: readonly SettingsTarget[] = [];
+
 /**
- * Settings › AI: the User's own AI first, then a model in IncarnaMind, which is optional, and which
- * model does each job, on one page. Its sections are Your AI, What each job uses, Accounts and
- * keys, and Limits. With no model set up, a model in IncarnaMind is one quiet row, and only the
- * jobs that run without one are listed; Accounts and keys shows once a key is kept. A provider's
- * page, and the page that sets up an entry of "Add an account or key", open in its place.
+ * Settings › AI: the User's own AI first, then what each job uses, on one page. Its sections are
+ * Your AI, What each job uses, Accounts and keys, and Limits. No chat model is set up here
+ * (#3767): a profile that has one keeps it, can choose among its models and remove it.
+ * With none, only the jobs that run without one are listed, and Accounts and keys shows once a key
+ * for another job is kept. A provider's page, and the page that sets up an entry of "Add an account
+ * or key", open in its place.
  */
 export function AiSettings() {
   const language = useLanguage();
@@ -132,7 +140,8 @@ export function AiSettings() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again whenever a key may have changed.
   useEffect(readOlderKeys, [readOlderKeys, providers, embedding?.provider, rerank]);
 
-  // "Check the key" on a refused Answer: that provider's page, its key field focused.
+  // "Check the key" on a refused Answer: that provider's page, its key field focused; the page's
+  // top for a provider removed since.
   useEffect(() => {
     if (!refused || !providers) return;
     const saved = providers.find(
@@ -140,11 +149,7 @@ export function AiSettings() {
         catalogIdOf(each) === refused.catalogId &&
         (each.endpoint ?? null) === (refused.endpoint ?? each.endpoint ?? null),
     );
-    setView(
-      saved
-        ? { page: "provider", providerId: saved.id }
-        : { page: "add", catalogId: refused.catalogId, endpoint: refused.endpoint },
-    );
+    setView(saved ? { page: "provider", providerId: saved.id } : { page: "list" });
   }, [refused, providers]);
 
   useSettingsTarget<HTMLDivElement>(DIRECTORY_TARGET, laidOut, () => {
@@ -152,12 +157,16 @@ export function AiSettings() {
     setAdding(true);
   });
   // A plan's sign-in asked for elsewhere: its page, whose card then takes the target as its own.
+  // A plan removed since is not signed in to again: the page's top.
   const at = useAppStore((state) => state.settingsAt);
   useEffect(() => {
-    if (laidOut && (at === "claude-account" || at === "copilot")) {
-      setView({ page: "entry", entry: { kind: "plan", plan: at } });
-    }
-  }, [at, laidOut]);
+    if (!laidOut || !providers || (at !== "claude-account" && at !== "copilot")) return;
+    setView(
+      providers.some((each) => each.kind === at)
+        ? { page: "entry", entry: { kind: "plan", plan: at } }
+        : { page: "list" },
+    );
+  }, [at, laidOut, providers]);
 
   // Each page starts at its top; back on the list, the focus is where it was.
   useLayoutEffect(() => {
@@ -172,6 +181,13 @@ export function AiSettings() {
   const offered = usePlansOffered();
   const entryName = useEntryName();
   const noModel = noModelSetUp(readiness);
+  const capShown = useSpendingCapShown();
+  // With no model, a link to a model's row lands on Your AI, the one way to ask (#3767).
+  useSettingsTarget<HTMLDivElement>(
+    noModel ? (capShown ? WITH_A_MODEL : WITH_THE_CAP) : NONE,
+    laidOut,
+    () => section.current?.closest("[data-testid^='settings-page-']")?.scrollTo({ top: 0 }),
+  );
 
   if (!providers || !hosts || !laidOut) return null;
 
@@ -272,7 +288,15 @@ export function AiSettings() {
         group={groupOf(provider.id)}
         refused={refused && refused.catalogId === catalogIdOf(provider) ? refused : null}
         onBack={back}
-        onRegion={(endpoint) => setView(pageFor(catalogIdOf(provider), endpoint))}
+        savedEndpoints={providers.flatMap((each) =>
+          catalogIdOf(each) === catalogIdOf(provider) && each.endpoint ? [each.endpoint] : [],
+        )}
+        onRegion={(endpoint) => {
+          const other = providers.find(
+            (each) => catalogIdOf(each) === catalogIdOf(provider) && each.endpoint === endpoint,
+          );
+          if (other) setView({ page: "provider", providerId: other.id });
+        }}
         onRemoved={(what) => {
           refresh();
           setRemoved(what);
@@ -285,9 +309,7 @@ export function AiSettings() {
       <EntryPage
         entry={view.entry}
         name={entryName(view.entry)}
-        sorting={sorting}
         services={services.state === "ready" ? services.data : []}
-        hosts={hosts}
         rerank={rerank}
         onRerank={setRerank}
         onBack={back}
@@ -302,7 +324,6 @@ export function AiSettings() {
       {body ?? (
         <>
           {SHOW_AGENT_CONNECTION && <YourAiSection {...agents} />}
-          {noModel && <UseModelRow />}
           <ReadinessNote />
           {removed && <RemovedLine removed={removed} providers={providers} />}
           <JobsSection
@@ -314,9 +335,7 @@ export function AiSettings() {
             onRerank={setRerank}
             checkDecision={checkDecision ?? null}
             noModel={noModel}
-            onAddKey={add}
           />
-          {providers.length > 0 && <SetUpAgain />}
           {(!noModel || keysKept) && (
             <AccountsSection
               providers={providers}
@@ -365,18 +384,14 @@ export function AiSettings() {
 function EntryPage({
   entry,
   name,
-  sorting,
   services,
-  hosts,
   rerank,
   onRerank,
   onBack,
 }: {
   entry: Exclude<ServiceEntry, { kind: "provider" }>;
   name: string;
-  sorting: ReturnType<typeof useSorting>;
   services: readonly TranscriptionServiceStatus[];
-  hosts: readonly DecisionHostStatus[];
   rerank: RerankSettings | null;
   onRerank(rerank: RerankSettings): void;
   onBack(): void;
@@ -410,33 +425,6 @@ function EntryPage({
   } else if (entry.kind === "transcription") {
     const service = services.find((each) => each.route === entry.route);
     content = service ? <TranscriptionSetUp service={service} onDone={onBack} /> : null;
-  } else if (entry.kind === "decision") {
-    const host = hosts.find((each) => each.host === entry.host);
-    content = host ? (
-      <DecisionSortingSetUp
-        host={host}
-        choose={async () => {
-          const chosen = await sorting.choose({ classifier: firstModelOf(host) });
-          sorting.reread();
-          return chosen;
-        }}
-        onChosen={onBack}
-        onCancel={onBack}
-      />
-    ) : null;
-  } else if (entry.kind === "jev") {
-    content = sorting.jevSettings ? (
-      <JevSortingSetUp
-        jev={sorting.jevSettings}
-        choose={async () => {
-          const chosen = await sorting.choose({ classifier: { kind: "jev" } });
-          sorting.reread();
-          return chosen;
-        }}
-        onChosen={onBack}
-        onCancel={onBack}
-      />
-    ) : null;
   } else if (entry.kind === "rerank") {
     content = rerank ? (
       <RerankKeyForm

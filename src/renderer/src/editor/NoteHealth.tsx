@@ -24,8 +24,10 @@ import { useContradictionLine } from "../contradictions";
 import { errorMessage } from "../errors";
 import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
+import { turnOffLocalMode } from "../localMode";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
 import { type NoteState, unreadForCard } from "../noteState";
+import { useLocalModelSaved } from "../savedProviders";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
@@ -240,6 +242,7 @@ export function HealthCard({
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
   const openSettings = useAppStore((state) => state.openSettings);
+  const localModel = useLocalModelSaved();
   const folderName = useAppStore((state) => {
     const folderId =
       problem?.kind === "no-documents" || problem?.kind === "only-cited" ? problem.folderId : null;
@@ -439,12 +442,23 @@ export function HealthCard({
           testId="checks-problem"
           className="mind-health-line"
           action={{
-            label: t("checks.problem.chooseModel"),
+            label: t("localMode.turnOff"),
             onClick: () => {
               dismissCheckProblem(mindId);
-              openSettings("ai", "model");
+              void turnOffLocalMode().catch((error: unknown) =>
+                useAppStore.getState().reportError(error),
+              );
             },
           }}
+          {...(localModel && {
+            also: {
+              label: t("answer.error.chooseModel"),
+              onClick: () => {
+                dismissCheckProblem(mindId);
+                openSettings("ai", "chat-model");
+              },
+            },
+          })}
         >
           {t("checks.problem.local-mode")}
         </ProblemLine>

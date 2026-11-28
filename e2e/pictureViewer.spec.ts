@@ -14,6 +14,7 @@ import {
   motionSettled,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -395,6 +396,8 @@ test("a Document's picture opens at full size with its figure, and a drag still 
   try {
     await setWindowSize(app, window, 1600, 900);
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await window.getByTestId("plus-menu").click();
     await window.getByTestId("plus-more").click();
     await window.getByTestId("plus-add-web-page").click();

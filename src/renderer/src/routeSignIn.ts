@@ -38,8 +38,6 @@ export function wayBackRun(
       return line.onRetry;
     case "use-another-model":
       return requestModelMenu;
-    case "paste-api-key":
-      return () => line.onOpenSettings("ai", "model");
   }
 }
 

@@ -15,7 +15,7 @@
 
 <p align="center">免费开源的桌面应用，支持 macOS、Windows 和 Linux。<br>你的文件集中在一个知识库里，整理好、搜得到，会议也在其中。<br>你在用的 AI 在这里写，再把每一句话、每一个数字对照它出自的那一页核对。</p>
 
-<p align="center">不用注册 IncarnaMind 账号。连接 Claude Code 或<a href="docs/agents.zh-CN.md">其他智能体</a>，或者在 IncarnaMind 里设置模型：ChatGPT 订阅、你自己的密钥，或通过 Ollama 用本地模型。</p>
+<p align="center">不用注册 IncarnaMind 账号。连接 Claude Code 或<a href="docs/agents.zh-CN.md">你已经在用的其他 AI</a>。</p>
 
 <p align="center"><a href="https://github.com/IncarnaMind/IncarnaMind/releases"><img src="docs/images/download-zh.svg" width="131" height="40" alt="下载测试版"></a>&nbsp;&nbsp;<a href="https://tally.so/r/LZA5aG?ref=readme-zh"><img src="docs/images/notify-zh.svg" width="187" height="40" alt="alpha 上线时通知我"></a></p>
 
@@ -78,8 +78,6 @@ npm install && npm run dev
 | **写作和分析** | 没有智能体？用 IncarnaMind 自带的助手起草、给表格画图、向多份文档问同样的问题，每个输入都有引用。 |
 | **Word** | 编辑 Word 文件后再导出为 Word：没改动的部分原样保留，你的修改可以作为修订写入。也能把笔记导出为带脚注的 Word，支持八种引用格式。 |
 
-配合 [Ollama](https://ollama.com) 可完全离线使用，内容不离开你的电脑。
-
 <details>
 <summary><b>更多</b></summary>
 
@@ -116,12 +114,12 @@ npm install && npm run dev
 
 ## 隐私
 
-不需要账号。IncarnaMind 在原处读取你的文件，只有你亲手编辑文件或确认你的 AI 提出的修改时才会修改它，并会先保留文件原样以便你一步恢复；一个问题只把它需要的内容发给你选的模型。
+不需要账号。IncarnaMind 在原处读取你的文件，只有你亲手编辑文件或确认你的 AI 提出的修改时才会修改它，并会先保留文件原样以便你一步恢复；一个问题只把它需要的内容发给你的 AI。
 
 | 内容 | 去向 |
 |---|---|
 | 你的文件、笔记和搜索索引 | 你的电脑 |
-| 提问、写作和核对 | 你选的模型，只发送必需的内容。用 Ollama 时哪儿也不去 |
+| 提问、写作和核对 | 你的 AI，只发送必需的内容 |
 | 你连接的智能体从 IncarnaMind 读取的内容 | 该智能体自己的 AI 模型，按该服务的条款处理。IncarnaMind 只向它提供你选的文件夹；开启**所有内容都留在这台电脑上**后暂停。智能体自己的其他工具仍由它自己控制 |
 | 笔记对话里你自己的 AI（Claude Code 或 Codex） | 可以按它自己的设置，用它自己的工具（命令、文件、网页）在这台电脑上操作。IncarnaMind 显示每一步，并把它要问你的、连同它自己提供的回答转给你，其中有的回答会保存在它自己的设置里；它用这些工具做的事，IncarnaMind 看不到，也无法撤销 |
 | 会议录音 | 在你的电脑上转写 |
@@ -137,9 +135,9 @@ npm install && npm run dev
 - **要花钱吗？** 不用，开源免费（Apache 2.0 许可证）。模型的费用由提供它的服务收取，或者由你已有的订阅承担。
 - **和 NotebookLM（现名 Gemini Notebook）有什么不同？** 它在你的电脑上运行，文件在原处读取，不需要账号。能用你已经在用的 AI，既核对它写的内容，也核对你自己写的草稿；点开引用就到原文那一页，还能导出带脚注的 Word。其余见上面的比较表。
 - **核对会漏掉什么吗？** 会：可能漏掉义务的变化，比如把“可以”写成“应当”。
-- **能用哪些 AI？** 可以连接你已经在用的智能体，比如 [Claude Code](docs/claude-code.md#简体中文)，其他的见 [docs/agents.zh-CN.md](docs/agents.zh-CN.md)。也可以在 IncarnaMind 里设置模型：最省事的是填一个 DeepSeek 密钥（设置里有“如何获取？”），也可以用通义千问、硅基流动、Kimi、智谱 GLM、OpenAI、Anthropic、Google、OpenRouter、Mistral、xAI 的密钥，或任何兼容 OpenAI 接口的服务，还能直接登录 ChatGPT Plus 或 Pro。
-- **能离线用吗？** 读取文件和搜索可以离线。回答和核对需要模型：云端模型，或通过 Ollama 运行的本地模型，后者更慢。
-- **能用在客户文件上吗？** 你的文件留在你的电脑上，只有你选的模型和你允许的服务会收到内容。请先看[客户数据声明](docs/client-data-statement.zh-CN.md)。
+- **能用哪些 AI？** 可以连接你已经在用的智能体，比如 [Claude Code](docs/claude-code.md#简体中文)，其他的见 [docs/agents.zh-CN.md](docs/agents.zh-CN.md)。
+- **能离线用吗？** 读取文件和搜索可以离线。提问和核对需要你的 AI。
+- **能用在客户文件上吗？** 你的文件留在你的电脑上，只有你连接的 AI 和你允许的服务会收到内容。请先看[客户数据声明](docs/client-data-statement.zh-CN.md)。
 - **会改动我的文件吗？** 只有你亲手编辑演示文稿，或确认你的 AI 提出的修改时才会修改它；写入前会先保留文件原样，你可以一步恢复。其余内容只写入它自己的数据文件夹和你导出的文件。
 - **怎么备份？** 复制数据文件夹就行，里面有你的笔记、搜索索引和设置。
 

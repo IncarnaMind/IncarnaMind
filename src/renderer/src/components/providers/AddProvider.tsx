@@ -3,13 +3,10 @@ import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { useLanguage, useT } from "../../i18n";
 import type { KeyRefusal } from "../../keyRefusals";
 import { SettingsBackLink } from "../SettingsBackLink";
-import { SettingsGroup, SettingsRow, SettingsSection } from "../settings/SettingsGroup";
-import { KeepLocalChoice } from "./KeepLocalChoice";
 import { LocalModeUnavailable } from "./LocalModeUnavailable";
-import { OllamaAction, OllamaProgress, ollamaDescription, useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { ProviderLogo } from "./ProviderLogo";
-import { keyProviderName, MODELS_UNDO_PLACE } from "./shared";
+import { keyProviderName } from "./shared";
 
 export function AddProvider({
   catalogId,
@@ -48,43 +45,16 @@ export function AddProvider({
         </h4>
       </header>
       {hosted && <LocalModeUnavailable />}
-      {catalogId === "ollama" ? (
-        <AddOllama onAdded={onAdded} />
-      ) : (
-        <ProviderForm
-          key={`${catalogId}:${endpoint ?? ""}`}
-          only={catalogId}
-          initialEndpoint={endpoint}
-          providers={providers}
-          refused={refused}
-          onSaved={onAdded}
-          keepDefault
-          grouped
-        />
-      )}
+      <ProviderForm
+        key={`${catalogId}:${endpoint ?? ""}`}
+        only={catalogId}
+        initialEndpoint={endpoint}
+        providers={providers}
+        refused={refused}
+        onSaved={onAdded}
+        keepDefault="always"
+        grouped
+      />
     </section>
-  );
-}
-
-function AddOllama({ onAdded }: { onAdded(provider: ChatProvider): void }) {
-  const t = useT();
-  const ollama = useOllama(onAdded, MODELS_UNDO_PLACE, { keepDefault: true });
-  return (
-    <div className="flex flex-col gap-6">
-      <SettingsSection>
-        <SettingsGroup>
-          <SettingsRow
-            label={<span data-testid="ollama-status">{ollamaDescription(ollama, t)}</span>}
-          />
-          {ollama.status?.running && (
-            <KeepLocalChoice keepLocal={ollama.keepLocal} disabled={ollama.pulling} />
-          )}
-        </SettingsGroup>
-      </SettingsSection>
-      <OllamaProgress ollama={ollama} />
-      <div>
-        <OllamaAction ollama={ollama} />
-      </div>
-    </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   moveAssistant,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
 } from "./app";
 import { endFeel, startFeel } from "./feel";
@@ -79,6 +80,8 @@ test("the assistant folding and docking", async () => {
   const { app, window, feel } = run;
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
+  // With no model and no AI there is no assistant (#3767).
+  await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
   await mindWrittenBefore(window, "Harbour log", LONG);
   await openMind(window, "Harbour log");
   const assistant = window.getByTestId("assistant");

@@ -1,9 +1,7 @@
 import type { BlockOrigin } from "../../../core/api";
 import { MENU_COMMANDS } from "../../../shared/commands";
-import { signInAgain } from "../chatGptSignIn";
 import { useChecks } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
-import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
 import { originOf } from "../editor/blockOrigins";
 import { blockAt } from "../editor/noteKeymap";
@@ -217,28 +215,6 @@ const appCommands: readonly Command[] = [
   },
   ...settingsPageCommands,
   ...paletteCommands,
-  {
-    id: "chatgpt.continue",
-    assistant: { never: "keys" },
-    label: "chatgpt.continue",
-    group: "main",
-    reversible: true,
-    // Signs in, then shows the plan in Settings → Models, where its model is chosen; a failure says why there.
-    run: async () => {
-      const { openSettings } = useAppStore.getState();
-      if (await signInAgain(openSettings)) openSettings("ai", "model");
-    },
-  },
-  {
-    id: "claude.signIn",
-    assistant: { never: "keys" },
-    label: "claudePlan.signIn",
-    group: "main",
-    reversible: true,
-    when: claudeSignInOffered,
-    // The words come before any request, so it opens the Claude row in Settings › AI.
-    run: () => useAppStore.getState().openSettings("ai", "claude-account"),
-  },
   {
     ...fromMenu("sidebar.toggle"),
     label: (_ctx, t) => t(sidebarHandle.current?.hidden ? "menu.showSidebar" : "menu.hideSidebar"),

@@ -34,14 +34,23 @@ import {
 } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { sentenceReasonText } from "../../src/renderer/src/cost";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { checkButtonOf } from "../../src/renderer/src/editor/checkButtonState";
 import { wholeCheckStands } from "../../src/renderer/src/editor/checkCardStage";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { readNoteState } from "../../src/renderer/src/noteState";
-import { translate } from "../../src/shared/i18n";
+import {
+  cantBeChecked,
+  claimCheckShown,
+  saysNotFound,
+  sentenceResultOf,
+} from "../../src/shared/claimChecks";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { versionsWithLibrary } from "../../src/shared/libraryFacts";
 import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
+import { checkRows } from "../../src/shared/noteHealth";
 import { writeOpinionSentences } from "../../src/shared/opinions";
 import { decideProposals, NODE_CHARACTER, recordProposalRequest } from "../../src/shared/proposals";
 import {
@@ -5903,6 +5912,232 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     },
   );
 
+  // protects=#2525 + #3862: with check-as-it-lands on, landing a library-unsettled verdict marks the sentence Not checked (cantBeChecked, no Cut, nothing ticked), leaves no unchecked key or uncheckedBlocks marker (and clears uncheckedBlocks after an AI edit), and flips to Needs re-check when a Document joins the Library (EN and ZH); fails_when=library-unsettled stays in unchecked or uncheckedBlocks, counts as Supported or toCheck, or ignores Library changes
+  it.each([
+    {
+      language: "en" as const,
+      title: "Library coverage note",
+      firstSentence: "Three of your Documents were added in October.",
+      secondSentence: "Most of your files cover marine biology.",
+      reasonLine: "Only your Library’s counts, names and kinds can be checked.",
+      addedFile: "Harbour.md",
+      addedContent: "# Harbour\n\nTwo stone quays.\n",
+    },
+    {
+      language: "zh-CN" as const,
+      title: "资料库覆盖笔记",
+      firstSentence: "你的资料库里有 3 个文档是在十月添加的。",
+      secondSentence: "你的大多数文件都讨论海洋生物。",
+      reasonLine: "只能核对资料库的数量、名称和类型。",
+      addedFile: "海港.md",
+      addedContent: "# 海港\n\n两座石砌码头。\n",
+    },
+  ])(
+    "settles a library-unsettled sentence with check-as-it-lands on, leaves no unchecked markers or ticks, and re-checks on Library change ($language)",
+    async ({
+      language,
+      title,
+      firstSentence,
+      secondSentence,
+      reasonLine,
+      addedFile,
+      addedContent,
+    }) => {
+      let noteId = "";
+      let createNext: string | null = null;
+      const run = runner(async (agent, request) => {
+        if (request.prompt.includes("create-library-note")) {
+          const made = structured<{ mindId: string; next: string | null }>(
+            await agent.callTool({
+              name: "create_mind",
+              arguments: { title, markdown: firstSentence },
+            }),
+          );
+          noteId = made.mindId;
+          createNext = made.next;
+          const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+            await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }),
+          );
+          expect(given.sentences).toEqual([{ n: 1, text: firstSentence }]);
+          const reported = structured<{
+            marked: number;
+            unconfirmed: number[];
+            unreported: number[];
+            next: string | null;
+          }>(
+            await agent.callTool({
+              name: "report_check",
+              arguments: {
+                mindId: noteId,
+                task: given.task,
+                results: [
+                  {
+                    n: 1,
+                    verdict: "library unsettled",
+                    explanation: "The Library lists do not hold dates added.",
+                  },
+                ],
+              },
+            }),
+          );
+          expect(reported).toMatchObject({
+            marked: 1,
+            unconfirmed: [],
+            unreported: [],
+            next: null,
+          });
+          const after = structured<{
+            sentences: unknown[];
+            checked?: { supported: number; needLook: number; notChecked: number };
+          }>(await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }));
+          expect(after.sentences).toEqual([]);
+          expect(after.checked).toMatchObject({ supported: 0, needLook: 0, notChecked: 1 });
+          return { kind: "finished", reply: "Created and checked." };
+        }
+        if (request.prompt.includes("add-second-sentence")) {
+          const read = structured<{ version: string }>(
+            await agent.callTool({ name: "read_mind", arguments: { mindId: noteId, named: true } }),
+          );
+          structured(
+            await agent.callTool({
+              name: "propose_changes",
+              arguments: {
+                mindId: noteId,
+                version: read.version,
+                changes: [{ paragraph: "¶1+", text: secondSentence }],
+              },
+            }),
+          );
+          return { kind: "finished", reply: "Added second sentence." };
+        }
+        const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+          await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: noteId } }),
+        );
+        expect(given.sentences).toEqual([{ n: 1, text: secondSentence }]);
+        const reported = structured<{
+          marked: number;
+          unconfirmed: number[];
+          unreported: number[];
+          next: string | null;
+        }>(
+          await agent.callTool({
+            name: "report_check",
+            arguments: {
+              mindId: noteId,
+              task: given.task,
+              results: [
+                {
+                  n: 1,
+                  verdict: "library unsettled",
+                  explanation: "The Library lists do not hold document topics.",
+                },
+              ],
+            },
+          }),
+        );
+        expect(reported).toMatchObject({
+          marked: 1,
+          unconfirmed: [],
+          unreported: [],
+          next: null,
+        });
+        return { kind: "finished", reply: "Checked second sentence." };
+      });
+
+      const { core, sources, mindId, ended } = await written(run.adapter);
+      await core.updateSettings({ user: { checkAssistantWrites: true, language } });
+
+      await core.askInNote({ mindId, words: "create-library-note" });
+      await ended(1);
+      expect(createNext).toEqual(expect.any(String));
+
+      const view = await noteCheckView(core, noteId, language);
+      const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+      const shownNow = async () => {
+        await view.client.settled();
+        const versions = versionsWithLibrary(
+          new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash])),
+          await core.libraryListsVersion(noteId),
+        );
+        return claimSpans(readMind(view.client)).map((span) => ({
+          text: span.sentence.text,
+          check: span.check,
+          shown: claimCheckShown(span.check, {
+            footing: "not-yet-known",
+            text: span.sentence.text,
+            versions,
+            folderId: view.folderId,
+            scope: null,
+          }),
+        }));
+      };
+
+      const [first] = await shownNow();
+      expect(first?.check).toMatchObject({
+        state: "not-checked",
+        reason: "library-unsettled",
+        outside: true,
+      });
+      expect(first?.shown).toEqual({ state: "not-checked", reason: "library-unsettled" });
+      if (!first || first.shown.state !== "not-checked") throw new Error("Expected not-checked.");
+      expect(cantBeChecked(first.shown)).toBe(true);
+      expect(saysNotFound(first.shown, first.check, 0)).toBe(false);
+      expect(sentenceResultOf(first.shown, first.check, 0)).toBe("notChecked");
+      expect(sentenceReasonText(t, language, first.shown, first.check)).toBe(reasonLine);
+
+      expect(view.run).not.toBeNull();
+      expect(view.run?.stop).toBeNull();
+      expect(view.run?.unchecked).toBeUndefined();
+      expect(view.run?.uncheckedBlocks).toBeUndefined();
+      expect(view.health.supported).toBe(0);
+      expect(view.health.unchecked).toEqual([]);
+      expect(
+        Object.fromEntries(checkRows(view.health).map(({ row, places }) => [row, places.length])),
+      ).toEqual({ cantCheck: 1 });
+      expect(view.state).toMatchObject({
+        kind: "not-checked",
+        notChecked: 0,
+        mark: "notChecked",
+      });
+      expect(view.button?.kind).not.toBe("checked");
+      expect(view.button?.kind).not.toBe("check");
+      expect(view.button?.mark).toBe("notChecked");
+
+      await core.askInNote({ mindId, words: "add-second-sentence" });
+      await ended(2);
+      const midView = await noteCheckView(core, noteId, language);
+      expect(midView.run?.uncheckedBlocks?.length).toBeGreaterThan(0);
+      expect(midView.health.unchecked).toHaveLength(1);
+
+      await core.askInNote({ mindId, words: "check-second-sentence" });
+      await ended(3);
+      const settledView = await noteCheckView(core, noteId, language);
+      expect(settledView.run?.unchecked).toBeUndefined();
+      expect(settledView.run?.uncheckedBlocks).toBeUndefined();
+      expect(settledView.health.supported).toBe(0);
+      expect(settledView.health.unchecked).toEqual([]);
+      expect(
+        Object.fromEntries(
+          checkRows(settledView.health).map(({ row, places }) => [row, places.length]),
+        ),
+      ).toEqual({ cantCheck: 2 });
+      expect(settledView.button?.kind).not.toBe("checked");
+      expect(settledView.button?.kind).not.toBe("check");
+      expect(settledView.button?.mark).toBe("notChecked");
+
+      const [added] = await addAndProcess(core, [
+        await writeSourceFile(sources, addedFile, addedContent),
+      ]);
+      if (added && view.folderId) await core.assignDocumentGroup(added.id, view.folderId);
+      const afterLibraryChange = await shownNow();
+      expect(afterLibraryChange).toHaveLength(2);
+      expect(afterLibraryChange.map((each) => each.shown)).toEqual([
+        { state: "needs-recheck", why: "library" },
+        { state: "needs-recheck", why: "library" },
+      ]);
+    },
+  );
+
   // protects=a Note conversation's instructions tell the AI to write summaries and drafts into that Note with read_mind, cite and propose_changes (¶0+ when empty), never read_request, while answering plain questions in the conversation, and the prompt frames the message as a request rather than a question (#3847); fails_when=the instructions contradict create_mind/read_request or promptOf labels writing requests as questions
   it("instructs writing requests into the Note without read_request, and keeps plain questions in the conversation (#3847)", async () => {
     const run = runner(async (agent, request) => {
@@ -6458,6 +6693,229 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
       expect(updated?.notes.map((n) => n.mindId)).toEqual(["m-harbour", "m-pier"]);
     } finally {
       await core.close();
+    }
+  });
+
+  // protects=deleting a conversation while a run is live and a held message is waiting stops the live run without handing on to the held message and leaves no run active after runner.purge, while ordinary Stop still advances a held message (#3731); fails_when=a held message starts during deletion or a run remains live after purge
+  it("never starts a held message when a running conversation is deleted, while ordinary Stop still advances held", async () => {
+    const first = gate();
+    const stoppedRun = gate();
+    let activeRuns = 0;
+    let activeAtPurge = -1;
+    const run = runner(async (_agent, request) => {
+      activeRuns += 1;
+      try {
+        const words = askedIn(request);
+        if (words === "running when deleted") {
+          first.reached();
+          return await untilStopped(_agent, request);
+        }
+        if (words === "running when stopped") {
+          stoppedRun.reached();
+          return await untilStopped(_agent, request);
+        }
+        return { kind: "finished", reply: `Done: ${words}` };
+      } finally {
+        activeRuns -= 1;
+      }
+    });
+    const basePurge = run.adapter.purge.bind(run.adapter);
+    run.adapter.purge = async (key) => {
+      activeAtPurge = activeRuns;
+      return basePurge(key);
+    };
+    const { core, mindId, ended } = await written(run.adapter);
+
+    // 1. Deleting a running conversation with a held message waiting never starts the held message.
+    const convDel = convOf(
+      await core.askInNote({ mindId, words: "running when deleted", conversationId: null }),
+    );
+    await first.at;
+    const queued = await core.askInNote({
+      mindId,
+      conversationId: convDel,
+      words: "held while deleting",
+      intoRunning: true,
+    });
+    expect(queued).toMatchObject({ kind: "sent", conversationId: convDel });
+
+    await core.deleteNoteConversation(convDel);
+    await expect.poll(() => run.purged).toEqual([convDel]);
+    expect(activeAtPurge).toBe(0);
+    expect(activeRuns).toBe(0);
+    // Only the initial run ever started; the held message never triggered a replacement run.
+    expect(run.runs.map((each) => askedIn(each))).toEqual(["running when deleted"]);
+    expect(await core.noteConversations()).toEqual([]);
+
+    // 2. Ordinary Stop still advances a held message to its own run.
+    const convStop = convOf(
+      await core.askInNote({ mindId, words: "running when stopped", conversationId: null }),
+    );
+    await stoppedRun.at;
+    const heldAfterStop = await core.askInNote({
+      mindId,
+      conversationId: convStop,
+      words: "held after ordinary stop",
+      intoRunning: true,
+    });
+    expect(heldAfterStop).toMatchObject({ kind: "sent", conversationId: convStop });
+    await core.stopInNote(convStop);
+    await ended(3);
+    expect(run.runs.map((each) => askedIn(each))).toEqual([
+      "running when deleted",
+      "running when stopped",
+      "held after ordinary stop",
+    ]);
+  });
+
+  // protects=splitting a legacy #3765 restarted conversation in migration 170 isolates deletion in both orders: deleting the older split segment purges only its own id without touching the legacy folder and leaves the newest segment resuming only its newest session, while deleting the newest segment first purges the legacy folder without breaking or purging the older segment (#3731); fails_when=deleting one entry purges the other's transcript or breaks continuing the remaining entry
+  it("isolates deletion of migration-170 split legacy segments in both deletion orders", async () => {
+    const { migrations, migrate } = await import("../../src/core/storage/migrations");
+    const { ensureWorkspace } = await import("../../src/core/workspace");
+    const { AGENT_FLOW_SENDS, HOSTED_FLOW_SENDS } = await import("../../src/core/agents");
+
+    const seedLegacySplit = async () => {
+      const dataDir = await createTempDataFolder();
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      migrate(
+        db,
+        migrations.filter((m) => m.version <= 169),
+      );
+      const t0 = "2026-11-24T09:00:00.000Z";
+      const t1 = "2026-11-25T09:00:00.000Z";
+      ensureWorkspace(db, () => t0);
+      db.transaction(() => {
+        db.run(
+          `INSERT INTO library_groups (id, name, description, created_at, updated_at)
+           VALUES ('f-split', 'Kestrel Bay', '', ?, ?)`,
+          [t0, t0],
+        );
+        db.run(
+          `INSERT INTO agent_pairings (id, name, folder_ids, client, propose, created_at, updated_at)
+           VALUES ('p-split', 'Claude Code', '["f-split"]', 'claude-code', 1, ?, ?)`,
+          [t0, t0],
+        );
+        db.run(
+          `INSERT INTO data_flow_consents
+             (id, flow, service_id, service_name, decision, data_kinds, chosen, created_at, updated_at)
+           VALUES
+             ('c-ag', 'agents', 'agent:p-split', 'Claude Code', 'accepted', ?, 1, ?, ?),
+             ('c-ho', 'hosted-agents', 'agent:p-split', 'Claude Code', 'accepted', ?, 1, ?, ?)`,
+          [JSON.stringify(AGENT_FLOW_SENDS), t0, t0, JSON.stringify(HOSTED_FLOW_SENDS), t0, t0],
+        );
+        db.run(
+          `INSERT INTO device_settings (id, key, value, created_at, updated_at)
+           VALUES ('ds-ag', 'agentsEnabled', 'true', ?, ?)`,
+          [t0, t0],
+        );
+        db.run(
+          `INSERT INTO minds (id, title, auto_title, folder_id, created_at, updated_at)
+           VALUES ('m-split', 'Split note', '', 'f-split', ?, ?)`,
+          [t0, t1],
+        );
+        db.run(
+          `INSERT INTO own_ai_conversations
+             (id, mind_id, pairing_id, session_id, anew, created_at, updated_at, deleted_at)
+           VALUES ('conv-legacy', 'm-split', 'p-split', 'sess-newest', 0, ?, ?, NULL)`,
+          [t0, t1],
+        );
+        db.run(
+          `INSERT INTO own_ai_turns
+             (id, conversation_id, request, selection, reply, outcome, new_after, created_at, updated_at, deleted_at)
+           VALUES
+             ('t-old', 'conv-legacy', 'Older segment turn', '', 'Older reply', 'landed', 1, ?, ?, NULL),
+             ('t-new', 'conv-legacy', 'Newest segment turn', '', 'Newest reply', 'landed', 0, ?, ?, NULL)`,
+          [t0, t0, t1, t1],
+        );
+      });
+      db.close();
+      return dataDir;
+    };
+
+    // Order A: delete older split segment first, continue newest (resumes sess-newest only), then delete newest.
+    {
+      const dataDir = await seedLegacySplit();
+      const run = runner(async () => ({ kind: "finished", reply: "After deleting older." }));
+      const core = startCore(dataDir, {
+        ownAi: run.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      const ends: NoteTurnEvent[] = [];
+      core.on("agents.noteTurn", (e) => {
+        if (e.state !== "working") ends.push(e);
+      });
+      try {
+        const list = await core.noteConversations();
+        const older = list.find((c) => c.firstRequest === "Older segment turn");
+        const newer = list.find((c) => c.id === "conv-legacy");
+        expect(older).toBeDefined();
+        expect(newer).toBeDefined();
+        const olderId = older?.id ?? "";
+
+        await core.deleteNoteConversation(olderId);
+        expect(run.purged).toEqual([olderId]);
+        expect((await core.noteConversations()).map((c) => c.id)).toEqual(["conv-legacy"]);
+
+        // Newest still resumes its own legacy folder and newest session id only.
+        await core.askInNote({
+          mindId: "m-split",
+          conversationId: "conv-legacy",
+          words: "Follow up on newest",
+        });
+        await vi.waitFor(() => expect(ends.length).toBe(1));
+        expect(run.runs[0]?.conversation).toEqual({
+          key: "conv-legacy",
+          sessionId: "sess-newest",
+          resume: true,
+        });
+
+        await core.deleteNoteConversation("conv-legacy");
+        expect(run.purged).toEqual([olderId, "conv-legacy"]);
+        expect(await core.noteConversations()).toEqual([]);
+      } finally {
+        await core.close();
+      }
+    }
+
+    // Order B: delete newest (legacy) segment first, continue older (starts fresh in its own folder), then delete older.
+    {
+      const dataDir = await seedLegacySplit();
+      const run = runner(async () => ({ kind: "finished", reply: "Fresh on older." }));
+      const core = startCore(dataDir, {
+        ownAi: run.adapter,
+        agents: await agentsAdapter(dataDir),
+      });
+      const ends: NoteTurnEvent[] = [];
+      core.on("agents.noteTurn", (e) => {
+        if (e.state !== "working") ends.push(e);
+      });
+      try {
+        const list = await core.noteConversations();
+        const older = list.find((c) => c.firstRequest === "Older segment turn");
+        expect(older).toBeDefined();
+        const olderId = older?.id ?? "";
+
+        await core.deleteNoteConversation("conv-legacy");
+        expect(run.purged).toEqual(["conv-legacy"]);
+        expect((await core.noteConversations()).map((c) => c.id)).toEqual([olderId]);
+
+        // Continuing the older split segment starts a fresh session in olderId's own folder (never resumes legacy).
+        await core.askInNote({
+          mindId: "m-split",
+          conversationId: olderId,
+          words: "Continue older segment",
+        });
+        await vi.waitFor(() => expect(ends.length).toBe(1));
+        expect(run.runs[0]?.conversation?.key).toBe(olderId);
+        expect(run.runs[0]?.conversation?.resume).toBe(false);
+        expect(run.runs[0]?.conversation?.sessionId).not.toBe("sess-newest");
+
+        await core.deleteNoteConversation(olderId);
+        expect(run.purged).toEqual(["conv-legacy", olderId]);
+        expect(await core.noteConversations()).toEqual([]);
+      } finally {
+        await core.close();
+      }
     }
   });
 });

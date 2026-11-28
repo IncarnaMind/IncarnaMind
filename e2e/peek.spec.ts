@@ -16,6 +16,7 @@ import {
   newMind,
   type RunningApp,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   showSourceLocations,
@@ -622,6 +623,8 @@ test("Open ↵ in the peek opens the Document beside the Mind, and Ask about thi
   const [path] = await writeTexts(["Tides"]);
   const { app, window } = await start();
   try {
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await openShortlist(window);
     await addAndShow(window, sidebar, [path as string]);
     const main = sidebar.main(sidebar.row(window, "Tides"));

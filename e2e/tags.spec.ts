@@ -14,6 +14,7 @@ import {
   pointAndClick,
   removeDataFolder,
   setWindowSize,
+  taggingWaitsForAModel,
   useLocalChatModel,
 } from "./app";
 
@@ -106,7 +107,7 @@ test("a new Document's Tag waits in the Review until confirmed, and a Tag the Us
   await second.app.close();
 });
 
-test("without a model, Documents are ready to search, and one notice, not one per Document, says tagging waits", async () => {
+test("with a model Tags can't use, Documents are ready to search, and one notice, not one per Document, says tagging waits", async () => {
   const files = {
     "Ideas.txt": "A report on ideas.\n",
     "Plans.txt": "Plans for the next quarter.\n",
@@ -119,6 +120,8 @@ test("without a model, Documents are ready to search, and one notice, not one pe
   }
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
+  // With no model and no AI nothing asks for one (#3767): a model Local mode refuses.
+  await taggingWaitsForAModel(window);
   await addDocuments(window, paths);
 
   const items = window.getByTestId("document-list-item");
@@ -141,21 +144,20 @@ test("without a model, Documents are ready to search, and one notice, not one pe
   await makeTagOnDocument(window, "Ideas");
   await expect(notice).toHaveCount(1);
   await expect(window.getByTestId("sidebar-footer").getByTestId("tagging-waiting")).toBeVisible();
-  await expect(notice).toContainText("Tags come once you choose an AI model.");
+  await expect(notice).toContainText("Tags come once Organize and Tags has a model it can use.");
 
-  // Its button opens Settings › AI at Organize and Tags, its picker focused, where a chat model or
-  // a Jev key can be set up.
+  // Its button opens Settings › AI at Organize and Tags, whose picker sets nothing up itself
+  // (#3767). In Local mode it has no model to choose, so it can't take the focus.
   await notice.getByTestId("tagging-waiting-setup").click();
   const settings = window.getByTestId("settings");
   await expect(settings).toBeVisible();
   await expect(settings).toHaveAttribute("data-page", "ai");
   const picker = settings.getByTestId("ai-jobs").getByTestId("models-sorting");
-  await expect(picker).toBeFocused();
-  await expect(picker.locator("option:checked")).toHaveText("No model yet");
-  await expect(picker.locator('option[value="set-up:jev"]')).toHaveCount(1);
+  await expect(picker).toBeInViewport();
+  await expect(picker.locator('option[value^="set-up:"]')).toHaveCount(0);
   await closeSettings(window);
 
-  // Once a model is set up, the Documents are tagged and the notice goes.
+  // Once a model on this computer is set up, the Documents are tagged and the notice goes.
   await useLocalChatModel(window);
   for (let index = 0; index < 3; index++) {
     await expect(items.nth(index)).toHaveAttribute("data-tagging", "tagged");

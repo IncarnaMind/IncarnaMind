@@ -13,6 +13,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
 } from "./app";
 
@@ -471,6 +472,8 @@ test("with the focus in the note or the composer, ⌘A selects text and not rows
   try {
     await setWindowSize(app, window, 1400, 800);
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await addFiveDocuments(window);
     await newMind(window);
     await nameMind(window, "Shortlist");

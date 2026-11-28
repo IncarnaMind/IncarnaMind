@@ -16,6 +16,7 @@ import {
   motionSettled,
   newMind,
   openDocumentAt,
+  paletteOffers,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -848,50 +849,6 @@ test("a large run goes on once it is asked about: Enter on the question makes th
   await expect(window.getByTestId("comparison-table").getByTestId("comparison-title")).toHaveText(
     WORDS.en.title(22),
   );
-  await expect(sheet).toHaveCount(0);
-});
-
-test("a key saved while a large run is being confirmed keeps the question, and Make runs once with that model (#1922)", async () => {
-  test.setTimeout(120_000);
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await dismissChatSetup(window);
-  await setWindowSize(app, window, 1440, 860);
-  await acceptPlainTextKeys(window);
-  // A monthly cap, so the estimate shows under it even for a run that costs less than a dollar (#1941).
-  await bridge(window).cap();
-  await addLibrary(window, 22);
-
-  const sheet = await openSheetFromPlusMenu(window);
-  await typeQuestions(window, ["Termination notice"]);
-  await pointAndClick(window, sheet.getByTestId("compare-sheet-select-all"));
-  await expect(sheet.getByTestId("compare-sheet-counted")).toHaveText("22 of 22");
-  await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
-  const ask = sheet.getByTestId("compare-sheet-ask");
-  await expect(ask).toContainText(WORDS.en.ask(22));
-  await pointAndClick(window, sheet.getByTestId("compare-sheet-ask-make"));
-
-  // No model yet: the key field comes in place, with the question still asked.
-  const needs = sheet.getByTestId("compare-sheet-needs-model");
-  await expect(needs).toBeVisible();
-  await expect(ask).toBeVisible();
-  const field = needs.getByTestId("compare-sheet-needs-model-key");
-  await expect(needs.getByTestId("compare-sheet-needs-model-key-sends")).toHaveText(
-    "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for.",
-  );
-  await field.fill("sk-ant-api03-a-test-key-for-first-run");
-  await field.press("Enter");
-
-  // The key saved, the question stays and now prices the run with that model; nothing runs by itself.
-  await expect(needs).toHaveCount(0);
-  await expect(ask).toBeVisible();
-  await expect(ask).toContainText("About $");
-  await expect(sheet.getByTestId("comparison-table")).toHaveCount(0);
-  await pointAndClick(window, sheet.getByTestId("compare-sheet-ask-make"));
-  const table = window.getByTestId("comparison-table");
-  await expect(table.getByTestId("comparison-title")).toHaveText(WORDS.en.title(22), {
-    timeout: 60_000,
-  });
-  await expect(table).toHaveCount(1);
   await expect(sheet).toHaveCount(0);
 });
 
@@ -3240,7 +3197,7 @@ test("Fill all again leaves the cells the User wrote or checked, and writes them
   await expect(first).toContainText("90 days");
 });
 
-test("Make the table says what is missing with no model, and the Ask pill never covers it at 900 and 1,440 with the viewer open", async () => {
+test("with no model, Compare Documents is offered nowhere; a model removed with the sheet open says so; and the Ask pill never covers it at 900 and 1,440 with the viewer open", async () => {
   test.setTimeout(180_000);
   // A first open. With no model the Ask pill, which asks IncarnaMind's own model, isn't there (#3791).
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
@@ -3249,13 +3206,29 @@ test("Make the table says what is missing with no model, and the Ask pill never 
   await acceptPlainTextKeys(window);
   await addSuppliers(window);
 
+  // Only a model in IncarnaMind fills a table, and none is set up (#3767): "/", the + menu's More
+  // and ⌘K don't offer Compare Documents.
+  await newMind(window);
+  await window.keyboard.type("/");
+  await expect(window.getByTestId("slash-item-heading-1")).toBeVisible();
+  await expect(window.getByTestId("slash-item-compare")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await pointAndClick(window, window.getByTestId("plus-menu"));
+  await pointAndClick(window, window.getByTestId("plus-more"));
+  await expect(window.getByTestId("plus-import-word")).toBeVisible();
+  await expect(window.getByTestId("plus-compare-documents")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await window.keyboard.press("Escape");
+  expect(await paletteOffers(window, "comparison.start", "compare documents")).toBe(0);
+
+  // With a model the pill floats where the sheet's primary button is: it steps aside while the
+  // sheet is open, and comes back once it closes.
+  await useLocalChatModel(window);
+  await expect(window.getByTestId("ask-pill")).toBeVisible();
   const sheet = await openSheetFromSlash(window);
-  const line = sheet.getByTestId("compare-sheet-model-line");
-  await expect(line).toContainText("Making a table needs an AI model");
-  await expect(line).toContainText("Set one up");
   await expect(sheet.getByTestId("compare-sheet-make")).toBeVisible();
   await expect(window.getByTestId("ask-pill")).toHaveCount(0);
-  await screenshot(window, "compare-needs-model-en-1440");
+  await screenshot(window, "compare-sheet-pill-en-1440");
 
   const documentId = await bridge(window).documentId("Corvane Agreement");
   await openDocumentAt(window, { documentId });
@@ -3264,22 +3237,22 @@ test("Make the table says what is missing with no model, and the Ask pill never 
     await setWindowSize(app, window, width, 860);
     await expect(sheet.getByTestId("compare-sheet-make")).toBeVisible();
     await expect(window.getByTestId("ask-pill")).toHaveCount(0);
-    await screenshot(window, `compare-needs-model-en-${width}-viewer`);
+    await screenshot(window, `compare-sheet-pill-en-${width}-viewer`);
   }
 
-  // In Chinese the line says the same in its words.
+  await pointAndClick(window, sheet.getByTestId("compare-sheet-close"));
+  await expect(window.getByTestId("ask-pill")).toBeVisible();
+
+  // The model removed while the sheet is open: its line says what is missing and leads to the
+  // User's own AI, with no model to set up, in both languages.
+  const again = await openSheetFromSlash(window);
+  await forgetModels(window);
+  const line = again.getByTestId("compare-sheet-model-line");
+  await expect(line).toContainText("Making a table needs an AI model");
+  await expect(line).toContainText("Connect your AI");
   await setLanguage(window, "zh-CN");
   await expect(line).toContainText("生成表格需要 AI 模型");
-  await expect(line).toContainText("设置");
-  await pointAndClick(window, sheet.getByTestId("compare-sheet-close"));
-
-  // With a model the pill floats where the sheet's primary button is: it steps aside while the
-  // sheet is open, and comes back once it closes.
-  await useLocalChatModel(window);
-  await expect(window.getByTestId("ask-pill")).toBeVisible();
-  const again = await openSheetFromSlash(window);
-  await expect(again.getByTestId("compare-sheet-make")).toBeVisible();
-  await expect(window.getByTestId("ask-pill")).toHaveCount(0);
+  await expect(line).toContainText("连接你的 AI");
   await pointAndClick(window, again.getByTestId("compare-sheet-close"));
-  await expect(window.getByTestId("ask-pill")).toBeVisible();
+  await expect(again).toHaveCount(0);
 });

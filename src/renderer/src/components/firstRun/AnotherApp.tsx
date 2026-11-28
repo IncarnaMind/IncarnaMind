@@ -92,7 +92,7 @@ export function AnotherApp({
                 onClick={() => onChoose(client)}
                 className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-left text-ui text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover"
               >
-                <AppMark name={name} />
+                <AppMark id={client.id} name={name} />
                 <span className="min-w-0 flex-1 truncate" title={name}>
                   {name}
                 </span>

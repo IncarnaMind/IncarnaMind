@@ -720,6 +720,8 @@ test("a right-click on the shown tab, its menu closed or an item chosen, leaves 
 test("back in a Note by its tab, ⌘J then Esc come back to the cursor where it was", async () => {
   const { app, window } = await launched();
   try {
+    // ⌘J goes to the assistant, which a profile with no model and no AI has none of (#3767).
+    await selectLocalChatModel(window);
     await newMind(window);
     await window.keyboard.type("First line here.");
     await window.keyboard.press("Enter");

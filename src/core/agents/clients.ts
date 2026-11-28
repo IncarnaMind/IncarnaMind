@@ -171,7 +171,7 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     // Codex CLI, and IDE extension share this configuration". A file, not `codex mcp add`, which
     // can't give the two minutes `ask` needs (`tool_timeout_sec`, see codexTable).
     id: "codex",
-    name: "ChatGPT app and Codex",
+    name: "ChatGPT",
     otherNames: ["ChatGPT", "Codex", "OpenAI"],
     chat: true,
     setup: "file",

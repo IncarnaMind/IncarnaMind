@@ -11,9 +11,11 @@ import {
   acceptPlainTextKeys,
   agentsToConnect,
   catchCopies,
+  claudeCodeInHome,
   copied,
   createDataFolder,
   dismissChatSetup,
+  expectEveryAgentListed,
   expectReadyDocuments,
   launchApp,
   openSettings,
@@ -97,15 +99,15 @@ test("off by default with no switch to find; Connect asks once, turns connecting
       "Let the AI tool you use read your Documents.",
     );
     const list = page.getByTestId("agents-list");
-    // Those found here and the most used, and "Other agent"; the rest are found by typing.
-    await expect(list.getByTestId("agent-client")).toHaveCount(8);
-    await expect(page.getByTestId("agents-connected")).toContainText("can’t reach IncarnaMind");
+    // Every agent and "Other agent" (#3767), each named with what it is; what connecting changes is
+    // said in the dialog it opens.
+    await expectEveryAgentListed(page, list);
+    // Explanations under the list go (#3767): "Desktop chat app" says it already.
+    await expect(page.getByTestId("agents-connected")).not.toContainText("can’t reach IncarnaMind");
     const codex = list.locator('[data-client="codex"]');
-    await expect(codex).toContainText("ChatGPT app and Codex");
-    await expect(codex).toContainText("Works in the ChatGPT desktop app, not on the web.");
-    await expect(codex).toContainText(
-      "IncarnaMind adds itself to the settings of the ChatGPT app or Codex",
-    );
+    await expect(codex).toContainText("ChatGPT");
+    await expect(codex).toContainText("Desktop app and Codex");
+    await expect(codex).not.toContainText("IncarnaMind adds itself");
     await shot(window, "agents-on");
     await codex.getByTestId("agent-connect").click();
 
@@ -137,9 +139,7 @@ test("off by default with no switch to find; Connect asks once, turns connecting
     expect(await enabled()).toBe(true);
     await expect(page.getByTestId("agents-enabled")).toHaveCount(0);
 
-    const connected = page
-      .getByTestId("agent-pairing")
-      .filter({ hasText: "ChatGPT app and Codex" });
+    const connected = page.getByTestId("agent-pairing").filter({ hasText: "ChatGPT" });
     await expect(connected.getByTestId("agent-setup-done")).toContainText(
       "when it asks to hand over a file, choose “Allow for this session”.",
     );
@@ -402,7 +402,7 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
     await expect(other).toBeHidden();
     const codex = page.getByTestId("agents-list").locator('[data-client="codex"]');
     await shot(window, "agents-codex-name-zh-list");
-    await expect(codex).toContainText("IncarnaMind 会把自己添加到 ChatGPT 应用或 Codex 的设置中");
+    await expect(codex).toContainText("桌面应用和 Codex");
     await codex.getByTestId("agent-connect").click();
 
     const dialog = window.getByTestId("connect-agent-dialog");
@@ -414,7 +414,7 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
     await dialog.getByTestId("connect-agent-allow").press("Enter");
     await expect(dialog).toBeHidden();
 
-    const connected = page.getByTestId("agent-pairing").filter({ hasText: "ChatGPT 应用和 Codex" });
+    const connected = page.getByTestId("agent-pairing").filter({ hasText: "ChatGPT" });
     await expect(connected.getByTestId("agent-pairing-name")).toBeFocused();
     await expect(connected.getByTestId("agent-setup-done")).toBeInViewport({ ratio: 1 });
     await shot(window, "agents-codex-name-zh-connected-900");
@@ -568,11 +568,11 @@ test("Local mode pauses agents, and the page reads in Chinese at a narrow window
     await page.getByTestId("agents-paused-open").click();
     await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await expect(window.getByTestId("local-only")).toBeFocused();
-    // The agents listed first and "Other agent" (其他智能体), and nothing spills out at either width.
+    // Every agent and "Other agent" (其他智能体), and nothing spills out at either width.
     const list = await agentsToConnect(page);
-    await expect(list.getByTestId("agent-client")).toHaveCount(8);
+    await expectEveryAgentListed(page, list);
     await expect(list.locator('[data-client="other"]')).toContainText("其他智能体");
-    await expect(list.locator('[data-client="codex"]')).toContainText("不适用于网页版");
+    await expect(list.locator('[data-client="codex"]')).toContainText("桌面应用和 Codex");
     const fitsPage = () =>
       page
         .getByTestId("settings-page-ai")
@@ -734,6 +734,7 @@ test("two broken connections: Repair all repairs both, and Disconnect all asks i
 
 // protects=the connect card's "Let it write notes and propose changes" starts ticked in Settings, as in first setup, so connecting without touching it gives a connection that may write, and unticking it gives one that may not (#3756); fails_when=the box starts unticked in Settings, or the connection's permission differs from the box; no_claim=a connection made before, which keeps the choice it was made with.
 test("connecting from Settings starts with writing ticked, and the box decides what the connection may do", async () => {
+  await claudeCodeInHome(home);
   const { app, window } = await launchApp(dataDir, { home });
   try {
     await dismissChatSetup(window);

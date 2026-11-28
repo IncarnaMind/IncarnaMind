@@ -11,6 +11,7 @@ import {
   pointAt,
   recordMeeting,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -115,6 +116,9 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await setWindowSize(app, window, 1440, 760);
       await dismissChatSetup(window);
+      // With no model and no AI the Note's foot carries a line under the control, which lifts it
+      // until its tip has room below and no longer covers the sheet (#3767).
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
       await setLanguage(window, language);
       const control = await recordMeeting(window);
       const chevron = control.getByTestId("meeting-foot-transcript");

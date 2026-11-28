@@ -1,8 +1,11 @@
 import { type ReactNode, useEffect } from "react";
 import type { ProviderErrorKind } from "../../../../core/api";
 import { useT } from "../../i18n";
+import { turnOffLocalMode } from "../../localMode";
+import { requestModelMenu } from "../../modelMenu";
 import { ollamaLineAction } from "../../ollamaProblem";
-import { useRequests } from "../../requests";
+import { useLocalModelSaved } from "../../savedProviders";
+import { useAppStore } from "../../store";
 import { type ProblemAction, ProblemLine } from "../ProblemLine";
 import { getOllama } from "./GetOllama";
 import { useOllamaStatus } from "./OllamaCard";
@@ -11,17 +14,20 @@ function AnswerProblem({
   kind,
   details,
   action,
+  also,
   children,
 }: {
   kind: ProviderErrorKind;
   details: string | null;
   action: ProblemAction | undefined;
+  also?: ProblemAction;
   children: ReactNode;
 }) {
   return (
     <div contentEditable={false} data-testid="answer-error" data-error-kind={kind}>
       <ProblemLine
         action={action && { ...action, testId: "answer-error-action" }}
+        {...(also && { also: { ...also, testId: "answer-error-also" } })}
         title={details ?? undefined}
         className="mt-1 select-none"
       >
@@ -39,14 +45,19 @@ export function LocalModelRefusedLine({
   details: string | null;
 }) {
   const t = useT();
+  const localModel = useLocalModelSaved();
   return (
     <AnswerProblem
       kind="local-mode"
       details={details}
       action={{
-        label: t("answer.error.useLocal"),
-        onClick: () => useRequests.getState().ask({ chooseLocalModel: true }),
+        label: t("localMode.turnOff"),
+        onClick: () =>
+          turnOffLocalMode().catch((error: unknown) => useAppStore.getState().reportError(error)),
       }}
+      {...(localModel && {
+        also: { label: t("answer.error.chooseModel"), onClick: requestModelMenu },
+      })}
     >
       {t("answer.error.local-mode", { model })}
     </AnswerProblem>

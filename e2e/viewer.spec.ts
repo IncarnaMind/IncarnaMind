@@ -21,6 +21,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  useLocalChatModel,
   widthOf,
 } from "./app";
 
@@ -680,7 +681,8 @@ test("a page the User goes to while the quote is still being found stays in view
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await addDocuments(window, [tides]);
-  await setWindowSize(app, window, 1440, 800);
+  // Fit to the width, a page stays under twice the view's height with no assistant column (#3767).
+  await setWindowSize(app, window, 1100, 800);
   const viewer = window.getByTestId("viewer");
   const pageNumber = window.getByTestId("pdf-page-number");
   const documentId = await documentIdOf(window, "Tides");
@@ -876,6 +878,8 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   await writeFile(guide, GUIDE);
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // A model, so the toolbar has the area pick: with no model and no AI it offers no Ask (#3767).
+  await useLocalChatModel(window);
   await addDocuments(window, [guide]);
   await newMind(window);
   await window.getByTestId("open-document").click();
@@ -966,6 +970,8 @@ test("the toolbar gives way in the design's order, and a folded Tags action stay
   await writeFile(guide, GUIDE);
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // A model, so the toolbar has the area pick: with no model and no AI it offers no Ask (#3767).
+  await useLocalChatModel(window);
   await addDocuments(window, [guide]);
   await (await coreOf(window)).evaluate(async (core) => {
     const [first] = await core.listDocuments();

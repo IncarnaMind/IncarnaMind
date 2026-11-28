@@ -14,10 +14,7 @@ import { PopUpSelect } from "../settings/PopUpButton";
 import { fieldClass } from "../ui";
 import {
   automaticRow,
-  hostSetUpOffers,
   jevStateOf,
-  offersJevSetUp,
-  type SetUpOffer,
   type SortingOption,
   sortingKey,
   sortingOptions,
@@ -145,21 +142,6 @@ export function useSorting() {
       return false;
     }
   };
-  // With the rest of the list, once it is read: the picker waits for both.
-  const setUpOffers: SetUpOffer[] =
-    read.state === "ready"
-      ? [
-          ...(offersJevSetUp(jev, localMode)
-            ? [{ id: "jev" as const, label: t("jev.settings.setUp") }]
-            : []),
-          ...hostSetUpOffers(decisionHosts, localMode, (host) =>
-            t("decisions.setUp.row", {
-              model: host.models[0]?.name ?? "",
-              provider: host.name[language === "zh-CN" ? "zh" : "en"],
-            }),
-          ),
-        ]
-      : [];
   return {
     options,
     current,
@@ -168,24 +150,8 @@ export function useSorting() {
     choose,
     read,
     library,
-    setUpOffers,
-    jevSettings,
     decisionHosts,
-    /** Reads the list again, once Jev is set up in place and chosen (#2615). */
-    reread: () => setRereads((count) => count + 1),
   };
-}
-
-const SET_UP = "set-up:";
-
-/**
- * The rows at the foot of the list that set a decision model up in place: "Use TypeSafe Jev…"
- * while Jev isn't set up (#2615), and each host's (#1907). `open`: the one whose setup shows.
- */
-export interface SetUpRows {
-  offers: readonly SetUpOffer[];
-  open: SetUpOffer["id"] | null;
-  onChoose(id: SetUpOffer["id"]): void;
 }
 
 /** The choice of what sorts, editable in place wherever it is shown. */
@@ -197,7 +163,6 @@ export function SortingSelect({
   options,
   groups,
   current,
-  setUp = null,
   none,
   onChange,
 }: {
@@ -210,7 +175,6 @@ export function SortingSelect({
   /** The options under their group names (Settings › AI groups them by who pays); else `options` as they are. */
   groups?: readonly { label: string; options: readonly SortingOption[] }[];
   current: SortingOption | null;
-  setUp?: SetUpRows | null;
   /** What it shows with nothing chosen; "No model yet" by default. */
   none?: string;
   onChange(option: SortingOption): void;
@@ -228,14 +192,9 @@ export function SortingSelect({
       id={id}
       aria-labelledby={labelledBy}
       data-testid="models-sorting"
-      value={setUp?.open ? `${SET_UP}${setUp.open}` : current ? sortingKey(current.classifier) : ""}
-      disabled={options.length === 0 && !setUp?.offers.length}
+      value={current ? sortingKey(current.classifier) : ""}
+      disabled={options.length === 0}
       onChange={(event) => {
-        const offer = setUp?.offers.find((each) => `${SET_UP}${each.id}` === event.target.value);
-        if (offer) {
-          setUp?.onChoose(offer.id);
-          return;
-        }
         const chosen = options.find(
           (option) => sortingKey(option.classifier) === event.target.value,
         );
@@ -243,7 +202,7 @@ export function SortingSelect({
       }}
       className={className}
     >
-      {!current && !setUp?.open && <option value="">{noPlaceholder}</option>}
+      {!current && <option value="">{noPlaceholder}</option>}
       {groups
         ? groups.map((group) => (
             <optgroup key={group.label} label={group.label}>
@@ -251,15 +210,6 @@ export function SortingSelect({
             </optgroup>
           ))
         : options.map(optionOf)}
-      {setUp && setUp.offers.length > 0 && (
-        <optgroup label={t("decisions.setUp.group")}>
-          {setUp.offers.map((offer) => (
-            <option key={offer.id} value={`${SET_UP}${offer.id}`}>
-              {offer.label}
-            </option>
-          ))}
-        </optgroup>
-      )}
     </Field>
   );
 }

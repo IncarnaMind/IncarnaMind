@@ -28,7 +28,7 @@ import { ChatLineIcon } from "../components/icons";
 import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { core, files } from "../core";
 import { translateNow, useT } from "../i18n";
-import { useSettingUp } from "../modelSetup";
+import { useNoAiConnected } from "../ownAiPanel";
 import { preparePicture } from "../pictureFile";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import { useAppStore, type ViewerTarget } from "../store";
@@ -55,7 +55,12 @@ import {
 } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
-import { DeckAskBox, type DeckAskTrigger, type SelectedDeckShape } from "./slides/DeckAskBox";
+import {
+  DeckAskBox,
+  type DeckAskTrigger,
+  type DeckShapeTarget,
+  type SelectedDeckShape,
+} from "./slides/DeckAskBox";
 import { DeckLines } from "./slides/DeckLines";
 import { clearDeckReceipt, useDeckProposals } from "./slides/DeckProposalBar";
 import { type DeckEditing, useDeckEditing } from "./slides/deckEditing";
@@ -256,8 +261,9 @@ function Slides({
   onProposedBytes(bytes: Uint8Array | null): void;
 }) {
   const t = useT();
+  // As over words, no Ask with no AI of the User's to take it (#3764).
+  const noAi = useNoAiConnected();
   const scroller = useRef<HTMLDivElement>(null);
-  const settingUp = useSettingUp();
   const [selectedShape, setSelectedShape] = useState<SelectedDeckShape | null>(null);
   const [clearSelectionTick, setClearSelectionTick] = useState(0);
   const [shortenTrigger, setShortenTrigger] = useState<DeckAskTrigger | null>(null);
@@ -435,8 +441,8 @@ function Slides({
     [document, loaded.deck.units],
   );
   const slideActions = useMemo<{ ask?: () => void }>(
-    () => (slides.length === 0 || settingUp ? {} : { ask: () => void askSlide(nearestSlide()) }),
-    [slides.length, settingUp, askSlide, nearestSlide],
+    () => (slides.length === 0 || noAi ? {} : { ask: () => void askSlide(nearestSlide()) }),
+    [slides.length, askSlide, nearestSlide, noAi],
   );
   useViewerHandle("slide", slideActions);
 
@@ -743,7 +749,7 @@ function Slides({
                       onNotesToggle={(open) =>
                         setNotesToggled((before) => new Map(before).set(slide.number, open))
                       }
-                      onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
+                      {...(!noAi && { onAsk: () => void askSlide(slide.number) })}
                       setElement={setElement(slide.number)}
                       editing={showingProposed ? null : editing}
                       proposedShapeIds={proposedBySlide.get(slide.number) ?? null}
@@ -778,15 +784,16 @@ function Slides({
                     setClearSelectionTick((n) => n + 1);
                   }}
                   proposalsState={proposalsState}
-                  canAsk={!settingUp && refusal === null}
+                  canAsk={refusal === null}
                   externalTrigger={shortenTrigger}
-                  onAskShorten={(targetShape) =>
-                    setShortenTrigger({
-                      id: Date.now(),
-                      ...targetShape,
-                      instruction: t("viewer.deck.ask.shortenPrompt"),
-                    })
-                  }
+                  {...(!noAi && {
+                    onAskShorten: (targetShape: DeckShapeTarget) =>
+                      setShortenTrigger({
+                        id: Date.now(),
+                        ...targetShape,
+                        instruction: t("viewer.deck.ask.shortenPrompt"),
+                      }),
+                  })}
                 />
               </div>
             </div>

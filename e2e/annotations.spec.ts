@@ -19,6 +19,7 @@ import {
   setWindowSize,
   slideSelect,
   splitFromTabMenu,
+  useLocalChatModel,
   wordsBox,
 } from "./app";
 
@@ -441,6 +442,8 @@ test("a PDF's area is highlighted from ⌘K, drawn as a region, listed with its 
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
+  // A model, so the toolbar has the area pick: with no model and no AI it offers no Ask (#3767).
+  await useLocalChatModel(window);
   await addDocuments(window, [path]);
   await expectReadyDocuments(window, 1);
   await openDocumentAt(window, { documentId: await documentIdOf(window) });

@@ -1073,8 +1073,8 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     [
       "off",
       "no-model",
-      "The note wasn’t filled in: choose an AI model first · Try again",
-      "未能补全笔记：请先选择一个 AI 模型 · 重试",
+      "The note wasn’t filled in: connect your AI first · Try again",
+      "未能补全笔记：请先连接你的 AI · 重试",
     ],
     [
       "failed",

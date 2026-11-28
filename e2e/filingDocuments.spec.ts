@@ -17,6 +17,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -407,6 +408,8 @@ for (const [language, width] of [
     try {
       await setWindowSize(app, window, width, 900);
       await dismissChatSetup(window);
+      // A Finder drag crosses the assistant's composer, which has none with no model and no AI (#3767).
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
       await setLanguage(window, language);
       const seeded = await seed(window, words);
       const library = await openLibrary(window);

@@ -620,6 +620,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     }
   };
 
+  /** Conversations currently inside `forget()`: stopped runs never hand on to queued/held turns. */
+  const deleting = new Map<string, number>();
+  const isDeleting = (conversationId: string) => (deleting.get(conversationId) ?? 0) > 0;
+
   /**
    * Deletes conversations, IncarnaMind's record and the agent's transcript alike: the agent is
    * asked to purge each one's working folder; one it can't be asked about goes in its own sweep.
@@ -631,60 +635,76 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     recheck?: (ids: readonly string[]) => string[],
   ): Promise<string[]> {
     if (rows.length === 0) return [];
-    // A run of one of them is stopped first: a process on its way out can still write its transcript.
+    // Mark as deleting before stopping so a stopped run's cleanup never starts a queued or held turn.
     const candidateIds = rows.map((row) => row.id);
     const idSet = new Set(candidateIds);
-    const going = [...running.values()].filter((each) => idSet.has(each.conversationId));
-    for (const each of going) each.stop.abort();
-    await Promise.all(going.map((each) => each.ended));
-    const at = options.now();
-    const deletedIds = db.transaction(() => {
-      const targetIds = recheck ? recheck(candidateIds) : candidateIds;
-      for (const id of targetIds) {
-        db.run(
-          `UPDATE own_ai_conversations SET title = NULL, deleted_at = ?, updated_at = ?
-           WHERE id = ? AND deleted_at IS NULL`,
-          [at, at, id],
-        );
-        db.run(
-          `UPDATE own_ai_conversation_notes SET mind_title = '', deleted_at = ?, updated_at = ?
-           WHERE conversation_id = ? AND deleted_at IS NULL`,
-          [at, at, id],
-        );
-        // What the User typed and selected, each reply, and what the AI asked go; the rows stay
-        // as deletions to sync.
-        db.run(
-          `UPDATE own_ai_questions SET value = '', server = NULL, deleted_at = ?, updated_at = ?
-           WHERE deleted_at IS NULL
-             AND turn_id IN (SELECT id FROM own_ai_turns WHERE conversation_id = ?)`,
-          [at, at, id],
-        );
-        db.run(
-          `UPDATE own_ai_turns
-           SET request = '', selection = '', reply = '', mind_title = '', deleted_at = ?, updated_at = ?
-           WHERE conversation_id = ? AND deleted_at IS NULL`,
-          [at, at, id],
-        );
+    for (const id of idSet) deleting.set(id, (deleting.get(id) ?? 0) + 1);
+    let deletedIds: string[] = [];
+    try {
+      if (!recheck) {
+        for (const id of idSet) held.delete(id);
       }
-      return targetIds;
-    });
-    for (const id of deletedIds) {
-      for (const kept of [chosenModes, ownModes, modeBefore, refusedModes, ranOn]) kept.delete(id);
-      held.delete(id);
-      lastEnded.delete(id);
-    }
-    const { runner } = options;
-    if (!runner) return deletedIds;
-    for (const id of deletedIds) {
-      try {
-        if (!(await runner.purge(id))) options.log.warn("agents.ownAiConversation.notPurged", {});
-      } catch (error) {
-        options.log.warn("agents.ownAiConversation.purgeFailed", {
-          error: error instanceof Error ? error.name : "unknown",
-        });
+      const going = [...running.values()].filter((each) => idSet.has(each.conversationId));
+      for (const each of going) each.stop.abort();
+      await Promise.all(going.map((each) => each.ended));
+      const at = options.now();
+      deletedIds = db.transaction(() => {
+        const targetIds = recheck ? recheck(candidateIds) : candidateIds;
+        for (const id of targetIds) {
+          db.run(
+            `UPDATE own_ai_conversations SET title = NULL, deleted_at = ?, updated_at = ?
+             WHERE id = ? AND deleted_at IS NULL`,
+            [at, at, id],
+          );
+          db.run(
+            `UPDATE own_ai_conversation_notes SET mind_title = '', deleted_at = ?, updated_at = ?
+             WHERE conversation_id = ? AND deleted_at IS NULL`,
+            [at, at, id],
+          );
+          // What the User typed and selected, each reply, and what the AI asked go; the rows stay
+          // as deletions to sync.
+          db.run(
+            `UPDATE own_ai_questions SET value = '', server = NULL, deleted_at = ?, updated_at = ?
+             WHERE deleted_at IS NULL
+               AND turn_id IN (SELECT id FROM own_ai_turns WHERE conversation_id = ?)`,
+            [at, at, id],
+          );
+          db.run(
+            `UPDATE own_ai_turns
+             SET request = '', selection = '', reply = '', mind_title = '', deleted_at = ?, updated_at = ?
+             WHERE conversation_id = ? AND deleted_at IS NULL`,
+            [at, at, id],
+          );
+        }
+        return targetIds;
+      });
+      for (const id of deletedIds) {
+        for (const kept of [chosenModes, ownModes, modeBefore, refusedModes, ranOn])
+          kept.delete(id);
+        held.delete(id);
+        lastEnded.delete(id);
+      }
+      const { runner } = options;
+      if (!runner) return deletedIds;
+      for (const id of deletedIds) {
+        try {
+          if (!(await runner.purge(id))) options.log.warn("agents.ownAiConversation.notPurged", {});
+        } catch (error) {
+          options.log.warn("agents.ownAiConversation.purgeFailed", {
+            error: error instanceof Error ? error.name : "unknown",
+          });
+        }
+      }
+      return deletedIds;
+    } finally {
+      const deletedSet = new Set(deletedIds);
+      for (const id of idSet) {
+        const left = (deleting.get(id) ?? 1) - 1;
+        if (left <= 0) deleting.delete(id);
+        else deleting.set(id, left);
+        if (left <= 0 && !deletedSet.has(id)) nextHeld(id);
       }
     }
-    return deletedIds;
   }
 
   /** By Note, the request being asked now, until its run is under way or it didn't go. */
@@ -1002,6 +1022,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
    * written: the message stays held, as it was.
    */
   function startHeld(conversationId: string, message: Held): boolean {
+    if (isDeleting(conversationId)) return true;
     const conversation = conversationById(conversationId);
     if (
       !conversation ||
@@ -1047,7 +1068,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
    * waits for the User.
    */
   function nextHeld(conversationId: string): void {
-    if (running.has(conversationId)) return;
+    if (running.has(conversationId) || isDeleting(conversationId)) return;
     const [first] = held.get(conversationId) ?? [];
     if (first && first.editors.size === 0 && !first.stays) startHeld(conversationId, first);
   }
@@ -1351,12 +1372,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      */
     let heldCleared = false;
     const carried = (goesOn: boolean) => {
+      if (isDeleting(conversation.id)) return [];
       const can = goesOn && !options.lifetime.aborted && options.heldBack(pairing, mindId) === null;
       if (!can) heldCleared = heldUnsent(conversation.id);
       return can ? sent.splice(0) : [];
     };
     /** Sends on what the run handed on, in a run begun with the first; with none, the oldest held. */
     const handOn = (next: typeof sent) => {
+      if (isDeleting(conversation.id)) return;
       const [first, ...rest] = next;
       if (!first) {
         nextHeld(conversation.id);

@@ -5,8 +5,9 @@
  * The sentence goes to its model whole, in its paragraph, with the Passages its own Citations
  * quote. The model may search the Documents for more, records each quote that decides the
  * sentence with `cite`, and gives one verdict (./prompt). IncarnaMind confirms that a Supported or
- * Contradicted verdict rests on a quote its Document holds (the Citation check), and lowers
- * Supported to Unsupported when the model's own Units word says "unstated" or "another" (#3806).
+ * Contradicted verdict rests on a quote its Document holds (the Citation check), lowers Supported
+ * to Unsupported when the model's own Units word says "unstated" or "another" (#3806), and leaves
+ * a sentence Not checked when the model's own Library word says "unsettled" (#2525).
  * Code never raises a verdict. A refusal, a reply with no verdict, an empty one or a provider's
  * failure leaves the sentence not checked, with the reason; never Supported.
  *
@@ -294,6 +295,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     tools,
     workings,
     libraryRead,
+    recordLibraryVersion,
   } = setUpRun(
     deps,
     request,
@@ -342,6 +344,9 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       ? null
       : readVerdict(turns.slice(from).join("\n"));
   };
+  const language = deps.language();
+  const countsLibrary = runtime !== undefined && libraryLists !== undefined;
+  const isLibraryUnsettled = (read: ReadVerdict) => countsLibrary && read.library === "unsettled";
   // The verdict the search-again ask is for (#3381): one resting on a quote it recorded is not.
   const saysNotStated = (read: ReadVerdict) =>
     read.verdict === "unsupported" && (read.word ?? "not-found") === "not-found" && !recorded(read);
@@ -360,7 +365,11 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       name: "search-again",
       check(text, earlier) {
         const read = readReply(text, earlier);
-        return read && looked() && searches() <= 1 && saysNotStated(read)
+        return read &&
+          looked() &&
+          searches() <= 1 &&
+          saysNotStated(read) &&
+          !isLibraryUnsettled(read)
           ? { claims: [], note: SEARCH_AGAIN }
           : null;
       },
@@ -374,14 +383,13 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
           read.verdict !== "unsupported" &&
           !recorded(read) &&
           !restsOnOwnFigure(read) &&
-          !workedOut()
+          !workedOut() &&
+          !isLibraryUnsettled(read)
           ? { claims: [], note: CITE_FIRST, requires: "cite" }
           : null;
       },
     },
   ];
-  const language = deps.language();
-  const countsLibrary = runtime !== undefined && libraryLists !== undefined;
   let reply = "";
   let setAside: readonly string[] = [];
   let failed: ProviderError | null = null;
@@ -460,16 +468,23 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   // out over a data file's rows: IncarnaMind confirms that the code finished, on the whole file.
   const runs = workings();
   const worked = runs.findLast((run) => run.end.kind === "done");
+  // A verdict rests on the Library only where the code gave a number: a run that read the lists
+  // and gave none told the model nothing.
+  const counted = worked?.output.results.some((each) => each.kind === "figure") === true;
+  const lists = worked && counted ? libraryRead(worked) : undefined;
+  if (
+    isLibraryUnsettled(read) &&
+    !(read.verdict === "contradicted" && (quoted !== undefined || lists !== undefined))
+  ) {
+    recordLibraryVersion();
+    return notChecked("library-unsettled");
+  }
   if (!quoted && runs.length > 0) {
     const last = worked ?? runs.at(-1);
     const file = last ? (rowsOf(last)[0]?.citation.documentName ?? last.title) : null;
     if (!worked) return notChecked(last ? endedAs(last) : "rows-run-failed", file);
     if (rowsOf(worked).some((rows) => rows.cut)) return notChecked("rows-cut", file);
   }
-  // A verdict rests on the Library only where the code gave a number: a run that read the lists
-  // and gave none told the model nothing.
-  const counted = worked?.output.results.some((each) => each.kind === "figure") === true;
-  const lists = worked && counted ? libraryRead(worked) : undefined;
   const working = worked && { ...workingOf(worked), ...(lists && { library: lists.read }) };
   const evidence =
     quoted ?? (worked ? (rowsOf(worked)[0]?.citation ?? lists?.citation) : undefined);

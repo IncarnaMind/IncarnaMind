@@ -26,7 +26,7 @@ import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
 import { useAppStore } from "../../store";
 import { EstimateTip, estimateTip, PricingLink } from "../EstimateSource";
-import { PlusLineIcon, TrashLineIcon } from "../icons";
+import { TrashLineIcon } from "../icons";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { OnThisComputer } from "../OnThisComputer";
 import { ProblemMark } from "../ProblemLine";
@@ -40,14 +40,7 @@ import {
   SettingsSection,
   SettingsSwitch,
 } from "../settings/SettingsGroup";
-import {
-  buttonStyle,
-  errorTextClass,
-  fieldClass,
-  hintClass,
-  rowFieldClass,
-  successTextClass,
-} from "../ui";
+import { buttonStyle, errorTextClass, fieldClass, hintClass, successTextClass } from "../ui";
 import { ChatGptPlanRow } from "./ChatGptPlanSettings";
 import { ClaudePlanRow } from "./ClaudePlan";
 import { CopilotPlanRow } from "./CopilotPlan";
@@ -89,6 +82,7 @@ export function ProviderPage({
   group,
   refused,
   onBack,
+  savedEndpoints,
   onRegion,
   onRemoved,
 }: {
@@ -99,6 +93,8 @@ export function ProviderPage({
   /** From "Check the key": said by the key field, which takes the focus. */
   refused: KeyRefusal | null;
   onBack(): void;
+  /** The regions of this company saved as providers of their own: the region pop-up's choices. */
+  savedEndpoints: readonly string[];
   onRegion(endpoint: string): void;
   onRemoved(removed: RemovedProvider): void;
 }) {
@@ -214,7 +210,8 @@ export function ProviderPage({
     changed();
   };
 
-  const regions = catalog && catalog.endpoints.length > 1 ? catalog.endpoints : [];
+  const saved = catalog?.endpoints.filter((each) => savedEndpoints.includes(each.id)) ?? [];
+  const regions = saved.length > 1 ? saved : [];
   // A hosted provider is named by its region; a server the User runs, by its address.
   const address = fieldValue ?? (catalog?.endpoints.length ? null : provider.baseUrl);
   const keyLabel =
@@ -416,13 +413,6 @@ export function ProviderPage({
           onToggle={(modelId, inMenu) => void setInMenu(modelId, inMenu)}
         />
       )}
-      <AddModelId
-        onAdd={async (modelId) => {
-          await setInMenu(modelId, true);
-          setOtherOpen(true);
-        }}
-        taken={[...(group?.models ?? []), ...(group?.hidden ?? [])]}
-      />
       {!plan && (
         <SettingsSection>
           <SettingsGroup>
@@ -598,89 +588,6 @@ function CostText({
     >
       {about}
     </EstimateTip>
-  );
-}
-
-function AddModelId({
-  onAdd,
-  taken,
-}: {
-  onAdd(modelId: string): Promise<void>;
-  taken: readonly string[];
-}) {
-  const t = useT();
-  const id = useId();
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
-  const field = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (open) field.current?.focus();
-  }, [open]);
-  const modelId = value.trim();
-  if (!open) {
-    return (
-      <SettingsSection>
-        <SettingsGroup>
-          <SettingsRowAction
-            label={t("models.provider.addModel")}
-            testId="provider-add-model"
-            onClick={() => setOpen(true)}
-            trailing={<PlusLineIcon className="shrink-0 text-ink-placeholder" />}
-          />
-        </SettingsGroup>
-      </SettingsSection>
-    );
-  }
-  return (
-    <form
-      data-testid="provider-add-model-form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (modelId === "" || taken.includes(modelId)) return;
-        void onAdd(modelId).then(() => {
-          setValue("");
-          setOpen(false);
-        });
-      }}
-    >
-      <SettingsSection>
-        <SettingsGroup>
-          <SettingsRow
-            label={t("providers.form.modelId")}
-            htmlFor={id}
-            control={
-              <>
-                <input
-                  id={id}
-                  ref={field}
-                  data-testid="provider-add-model-id"
-                  value={value}
-                  onChange={(event) => setValue(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Escape") return;
-                    // Esc puts the field away before it closes Settings.
-                    event.preventDefault();
-                    setValue("");
-                    setOpen(false);
-                  }}
-                  spellCheck={false}
-                  autoComplete="off"
-                  className={`${rowFieldClass} w-56`}
-                />
-                <button
-                  type="submit"
-                  data-testid="provider-add-model-save"
-                  disabled={modelId === "" || taken.includes(modelId)}
-                  className={buttonStyle("secondary", "sm")}
-                >
-                  {t("models.provider.add")}
-                </button>
-              </>
-            }
-          />
-        </SettingsGroup>
-      </SettingsSection>
-    </form>
   );
 }
 

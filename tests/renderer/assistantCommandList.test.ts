@@ -442,13 +442,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
   test("keys, sign-ins, Local mode, consent and deleting for good are the User's alone", async () => {
     offerEverything();
     const yours = (id: string) => (isCommandId(id) ? registry.commands.get(id)?.assistant : null);
-    for (const id of [
-      "settings.addProvider",
-      "settings.transcription",
-      "chatgpt.continue",
-      "claude.signIn",
-      "answer.useAnotherKey",
-    ])
+    for (const id of ["settings.transcription", "answer.useAnotherKey"])
       expect(yours(id), id).toEqual({ never: "keys" });
     for (const id of ["settings.localMode", "suggestions.toggle"])
       expect(yours(id), id).toEqual({ never: "privacy" });

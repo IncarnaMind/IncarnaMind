@@ -288,7 +288,7 @@ test("A1 first run: the example Mind and its Citation card", async () => {
   }
 });
 
-test("A2 first run without examples: chat setup, the empty Mind, Settings", async () => {
+test("A2 first run without examples: the line to connect an AI, the empty Mind, Settings", async () => {
   const T = "A2";
   const dataDir = tempDir("data");
   let app: Launched | undefined;
@@ -296,25 +296,19 @@ test("A2 first run without examples: chat setup, the empty Mind, Settings", asyn
     app = await launch(dataDir);
     const { window } = app;
     await sealShell(app.app);
-    await step(T, "model setup card at the first own Question", async () => {
+    // No chat model is set up in the interface (#3767): a first own Note says asking needs
+    // the User's AI, and ⌘J goes to its Connect your AI.
+    await step(T, "the line to connect an AI at the first own Note", async () => {
       await click(window, window.getByTestId("plus-menu"));
       await click(window, window.getByTestId("plus-new-mind"));
       await window.getByTestId("mind-editor").click();
       await window.keyboard.press("ControlOrMeta+j");
-      await window.keyboard.type("What is in my Documents?");
-      await window.keyboard.press("Enter");
-      await expect(window.getByTestId("model-setup")).toBeVisible({ timeout: 15_000 });
-      await shot(window, "A10-model-setup");
-      await scan(window, "A10-model-setup");
+      await expect(window.getByTestId("note-ask-connect")).toBeFocused({ timeout: 15_000 });
+      await expect(window.getByTestId("assistant")).toBeHidden();
+      await shot(window, "A10-connect-your-ai");
+      await scan(window, "A10-connect-your-ai");
       const stops = await focusWalk(window, 14, "focus/A10");
-      record("walk.focus.modelSetup", stops);
-    });
-    await step(T, "set up later", async () => {
-      await click(window, window.getByTestId("setup-later"));
-      await expect(window.getByTestId("model-setup")).toBeHidden();
-      await window.waitForTimeout(400);
-      await shot(window, "A11-after-set-up-later");
-      await scan(window, "A11-after-set-up-later");
+      record("walk.focus.connectYourAi", stops);
     });
     await step(T, "empty Mind", async () => {
       await click(window, window.getByTestId("plus-menu"));
@@ -325,6 +319,7 @@ test("A2 first run without examples: chat setup, the empty Mind, Settings", asyn
       await scan(window, "A12-empty-mind");
       record("walk.emptyMind.readiness", {
         chatReadinessNotice: await window.getByTestId("chat-readiness").count(),
+        noAiLine: await window.getByTestId("note-ask-no-ai").allTextContents(),
       });
     });
     await step(T, "documents empty state", async () => {

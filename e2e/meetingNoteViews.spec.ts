@@ -13,6 +13,7 @@ import {
   recordMeeting,
   removeDataFolder,
   runCommand,
+  saveProvider,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -243,13 +244,15 @@ test("a meeting's ⌘K views retain its editor under the Transcript sheet, also 
   }
 });
 
-test("a zoomed live Transcript shows spoken lines above assistant setup and the divider still resizes", async () => {
+test("a zoomed live Transcript shows spoken lines above the assistant and the divider still resizes", async () => {
   const { app, window } = await launchApp(dataDir, {
     transcriber: { live: true, lines: ["请检查这次会议的预算。", "我会在周五把报告发给大家。"] },
     computerSound: "silent",
   });
   try {
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setLanguage(window, "zh-CN");
     await setWindowSize(app, window, 900, 660);
     await (await app.browserWindow(window)).evaluate((win) => win.webContents.setZoomFactor(1.25));

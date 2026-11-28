@@ -40,12 +40,14 @@ async function discardNote(mindId: string): Promise<void> {
 
 /**
  * Home's one input and its three ways to start (#3791): asking there starts a Note in no Folder and
- * asks the User's own AI in it, as its own input does; with no AI app connected and no model set
- * up, one line says to connect one (with a model, Home's next step asks it), and with none that may
- * read a new note, one line says so, as a Note's own input does. The words stay until the ask has
- * gone; the Note opens then. Add files…, Link a folder… and New note sit under it.
+ * asks the User's own AI in it, as its own input does; with none that may read a new note, one line
+ * says so, as a Note's own input does. The words stay until the ask has gone; the Note opens then.
+ * Add files…, Link a folder… and New note sit under it. With no AI app connected and no model set
+ * up there is no input that can't answer (#3767): Add files… is the one black button while Home is
+ * empty, and while Home is `starting` one line under the buttons says to connect an AI; once it
+ * has Notes, the line stands at Home's foot (`HomeFootConnect`).
  */
-export function HomeAsk() {
+export function HomeAsk({ starting, empty }: { starting: boolean; empty: boolean }) {
   const t = useT();
   useReadAgentsToAsk(null);
   const agents = useAgentsToAskRead(null);
@@ -63,6 +65,7 @@ export function HomeAsk() {
   const readers = agents ? newNoteReaders(agents) : null;
   const agent = readers?.find((each) => runsInBackground(each, runsHere)) ?? readers?.[0] ?? null;
   const cantRead = agents !== null && agents.length > 0 && (refused || agent === null);
+  const noAi = agents !== null && agents.length === 0 && noModel;
   const placeholder = agent ? t("home.ask.placeholder", { agent: agent.name }) : "";
 
   const send = async () => {
@@ -152,25 +155,12 @@ export function HomeAsk() {
             : t("home.ask.cantRead")}
         </ProblemLine>
       )}
-      {agents !== null && agents.length === 0 && noModel && (
-        <ProblemLine
-          role="status"
-          testId="home-ask-no-ai"
-          action={{
-            label: t("noteAsk.connect"),
-            testId: "home-ask-connect",
-            onClick: () => openSettings("ai"),
-          }}
-        >
-          {t("noteAsk.connectToAsk")}
-        </ProblemLine>
-      )}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           data-testid="home-add-files"
           onClick={() => void pickDocuments()}
-          className={buttonStyle("secondary")}
+          className={buttonStyle(noAi && empty ? "primary" : "secondary")}
         >
           {t("startGuide.documents.addFiles")}
         </button>
@@ -195,6 +185,39 @@ export function HomeAsk() {
           <NewMenu place="home" />
         </span>
       </div>
+      {noAi && starting && <ConnectLine testId="home-ask" />}
     </section>
+  );
+}
+
+/** "Asking needs your AI · Connect your AI", as a Note's foot says it (#3764). */
+function ConnectLine({ testId }: { testId: string }) {
+  const t = useT();
+  const openSettings = useAppStore((state) => state.openSettings);
+  return (
+    <ProblemLine
+      role="status"
+      testId={`${testId}-no-ai`}
+      action={{
+        label: t("agents.install.connectYourAi"),
+        testId: `${testId}-connect`,
+        onClick: () => openSettings("ai"),
+      }}
+    >
+      {t("noteAsk.noAi")}
+    </ProblemLine>
+  );
+}
+
+/** Home's foot once it has Notes, with no AI app connected and no model: the line to connect one. */
+export function HomeFootConnect() {
+  useReadAgentsToAsk(null);
+  const agents = useAgentsToAskRead(null);
+  const noModel = useNoModel();
+  if (agents === null || agents.length > 0 || !noModel) return null;
+  return (
+    <div data-testid="home-foot-ask" className="note-foot-ask px-6">
+      <ConnectLine testId="home-foot" />
+    </div>
   );
 }

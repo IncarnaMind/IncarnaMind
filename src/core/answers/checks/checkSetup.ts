@@ -24,7 +24,7 @@ import type { AnswerTools } from "../engine";
 import { createPlainCalculator } from "../plainCalculator";
 import type { CheckResults } from "./checkResults";
 import type { CheckedCitation, ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
-import { CHECK_TAGS, CITE_REPLY } from "./prompt";
+import { CHECK_TAGS, citeReply } from "./prompt";
 
 /**
  * A check reads only what a Document's words say: no date beside its Passages. The one Answers see
@@ -333,7 +333,7 @@ export function setUpRun(
       if (!options?.structured) citedByTool = true;
       return session.tools.cite(records, options);
     },
-    citeReply: CITE_REPLY,
+    citeReply: citeReply(libraryLists !== undefined),
     hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
     unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
     correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
@@ -356,6 +356,12 @@ export function setUpRun(
     workings: (): readonly AnswerAnalysis[] => workings,
     /** The Library's lists a run read; none for a run over a data file's rows alone. */
     libraryRead: (run: AnswerAnalysis): LibraryRead | undefined => listsRead.get(run),
+    /** Records the Library lists' version in `results` even when no `run_analysis` read them (#2525). */
+    recordLibraryVersion() {
+      if (!libraryLists) return;
+      lists ??= libraryLists(request.mindId ?? null);
+      if (lists) results.readVersion(LIBRARY_FACTS, libraryVersion(lists));
+    },
     tools,
   };
 }

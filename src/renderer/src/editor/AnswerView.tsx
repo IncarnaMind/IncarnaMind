@@ -490,7 +490,7 @@ export function AnswerError({
         ? retry
         : shown.problem.fix;
   if (fix.kind === "ollama") return <OllamaNotRunningLine details={details} onRetry={onRetry} />;
-  if (fix.kind === "local-model") {
+  if (fix.kind === "local-mode") {
     return (
       <LocalModelRefusedLine
         model={modelId ? shownModel.name : t("answer.error.thisModel")}

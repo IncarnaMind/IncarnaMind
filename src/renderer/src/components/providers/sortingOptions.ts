@@ -163,29 +163,6 @@ export function automaticRow(
   };
 }
 
-/** A row at the foot of the picker that sets a decision model up in place: Jev, or a host's. */
-export interface SetUpOffer {
-  id: "jev" | "other" | DecisionHost;
-  label: string;
-}
-
-/**
- * The hosts the picker can set up in place, after Jev (#1907): one with a key of its own, or one
- * whose chat provider's key is there and that still asks for an account (Alibaba Cloud's
- * workspace). A host that uses a chat provider's key is set up where that key is added. None in
- * Local mode: each is a cloud service.
- */
-export function hostSetUpOffers(
-  hosts: readonly DecisionHostStatus[] | null,
-  localMode: boolean,
-  label: (host: DecisionHostStatus) => string,
-): SetUpOffer[] {
-  if (!hosts || localMode) return [];
-  return hosts
-    .filter((host) => !host.ready && (host.key === "own" || (host.hasKey && host.account)))
-    .map((host) => ({ id: host.host, label: label(host) }));
-}
-
 /**
  * The chat provider (a catalog id) whose key the chosen decision model uses: OpenRouter's,
  * OpenAI's or the Qwen key (#1907). Your providers has no row of its own for it, so the sorting
@@ -217,11 +194,3 @@ export interface JevState {
 // A server on this computer takes the key too: without it, tagging waits for it (#2615).
 export const jevStateOf = (jev: JevSettings | null): JevState | null =>
   jev && { ready: jev.enabled && jev.hasApiKey, local: jev.service === null };
-
-/**
- * Whether the list ends with "Use TypeSafe Jev…", which sets Jev up in place (#2615): while it
- * can't run here yet. In Local mode only for a Jev server on this computer that Jev's settings
- * already name, since the app finds no other.
- */
-export const offersJevSetUp = (jev: JevState | null, localMode: boolean): boolean =>
-  jev !== null && !jev.ready && (!localMode || jev.local);

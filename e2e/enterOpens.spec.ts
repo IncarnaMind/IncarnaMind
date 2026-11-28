@@ -166,7 +166,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const tides = documentAt(window)("Tides");
       await tides.main.focus();
       await window.keyboard.press("Enter");
-      await expect(tides.main).toHaveAttribute("aria-current", "true");
+      // Beside the Note, which keeps the focus, as the window has room for two groups.
+      await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
       await expect(tides.field).toHaveCount(0);
 
       // Enter on a Folder unfolds it, and again folds it.

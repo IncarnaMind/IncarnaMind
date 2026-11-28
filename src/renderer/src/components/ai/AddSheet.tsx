@@ -50,6 +50,10 @@ const PLAN_LOGOS: Record<PlanId, string> = {
   copilot: "copilot",
 };
 
+/** The jobs other than Answers a key is added for here. */
+const otherJobsOf = (entry: ServiceEntry): ServiceJob[] =>
+  jobsOf(entry).filter((job) => job === "transcription" || job === "search");
+
 /** The plans this copy can sign in to. */
 export function usePlansOffered(): (plan: PlanId) => boolean {
   const claude = useClaudeAccount();
@@ -89,7 +93,7 @@ export function ServiceDirectory({
   searchRef,
 }: {
   offered(plan: PlanId): boolean;
-  /** The entries it lists, where only some fit (the first run's AI step lists only Answers'). */
+  /** The entries it lists, where only some fit. */
   only?(entry: ServiceEntry): boolean;
   /** Whether an entry is set up already: it says so. */
   added(entry: ServiceEntry): boolean;
@@ -200,7 +204,7 @@ function Entry({
         {line && <span className="truncate text-small leading-[18px] text-ink-meta">{line}</span>}
       </span>
       <span className="flex shrink-0 flex-wrap justify-end gap-1">
-        {jobsOf(entry).map((job) => (
+        {otherJobsOf(entry).map((job) => (
           <span
             key={job}
             data-testid="provider-directory-job"
@@ -215,7 +219,17 @@ function Entry({
 }
 
 /**
- * "Add an account or key": the directory over Settings, as a sheet. Choosing an entry closes it
+ * A key for meeting transcription or Document search: a service's own key, or a company's key
+ * that those jobs use, which is saved for them and never made the model Questions use. Ollama is
+ * a model on this computer, not a key.
+ */
+const otherJobs = (entry: ServiceEntry) =>
+  entry.kind === "transcription" ||
+  entry.kind === "rerank" ||
+  (entry.kind === "provider" && entry.provider.id !== "ollama" && otherJobsOf(entry).length > 0);
+
+/**
+ * "Add an account or key": the directory over Settings, as a sheet, of the keys for other jobs. Choosing an entry closes it
  * and opens that entry's page in Settings; Cancel or Esc closes it with nothing changed.
  */
 export function AddSheet({
@@ -253,7 +267,13 @@ export function AddSheet({
             <h2 id="ai-add-sheet-title" className="text-body leading-6 text-ink">
               {t("ai.add.title")}
             </h2>
-            <ServiceDirectory offered={offered} added={added} onOpen={onOpen} searchRef={search} />
+            <ServiceDirectory
+              offered={offered}
+              only={otherJobs}
+              added={added}
+              onOpen={onOpen}
+              searchRef={search}
+            />
           </div>
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-rule px-6 py-3">
             <p className="text-small leading-[18px] text-ink-meta">{t("ai.add.foot")}</p>

@@ -15,7 +15,6 @@ import { channelFor } from "../src/shared/bridge";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
-  addProviderForm,
   closeSettings,
   createDataFolder,
   launchApp,
@@ -81,16 +80,17 @@ async function openFolder(window: Page, name: string): Promise<void> {
 const documentItem = (window: Page, name: string) =>
   window.getByTestId("document-list-item").filter({ hasText: name });
 
+/** A cloud key saved through the bridge, as none is added in IncarnaMind (#3767). */
 async function pasteKey(window: Page): Promise<void> {
-  const settings = await openSettings(window, "ai");
-  const form = await addProviderForm(settings, "anthropic");
-  await acceptPlainTextKeys(window, form);
-  await form.getByLabel(/^API key/).fill("sk-ant-not-a-real-key");
-  await form.getByTestId("provider-use-key").click();
-  await closeSettings(window);
+  await acceptPlainTextKeys(window);
   // A cloud model starts with tagging off: the User turns it on.
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-not-a-real-key",
+      modelId: "claude-haiku-5-5",
+    });
     await core.saveLibrarySettings({
       ...(await core.getLibrary()).settings,
       automatic: true,
@@ -106,9 +106,9 @@ test("the status names where Tagging goes; Stop keeps the Folder's new Documents
   await addToFolder(window, [await slowFile("Opening note")], folderId);
   await openFolder(window, FOLDER);
   const footer = window.getByTestId("sidebar-status");
-  // A Tag of the User's own: only now is Tags named (#1942).
+  // A Tag of the User's own: with no model and no AI, still no line asks for a model (#3767).
   await makeTagOnDocument(window, "Opening note");
-  await expect(footer.getByTestId("tagging-waiting")).toContainText("Tags need an AI model");
+  await expect(footer.getByTestId("tagging-waiting")).toHaveCount(0);
 
   // Documents added before the key and the switch aren't tagged by it: only those added since.
   await pasteKey(window);

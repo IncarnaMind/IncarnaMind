@@ -10,6 +10,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  saveProvider,
   setWindowSize,
   slideSelect,
   useLocalChatModel,
@@ -1045,9 +1046,18 @@ test("Close on the failure line takes it away", async () => {
   await app.close();
 });
 
-test("with no model chosen, the field shows what the assistant would: the setup line", async () => {
+test("with a model Local mode refuses, the field shows what the assistant would: the line saying what it needs", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  // With no model and no AI the field isn't offered (#3767): a cloud model Local mode refuses.
+  await saveProvider(window, {
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  });
+  await window.evaluate(async () => {
+    await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(true);
+  });
   await setWindowSize(app, window, 1280, 820);
   const { note } = await mindWith(window, "The tides here are very strong.");
   const menu = window.getByTestId("selection-menu");

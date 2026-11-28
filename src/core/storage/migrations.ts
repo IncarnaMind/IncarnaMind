@@ -3541,7 +3541,17 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 168,
+    version: 169,
+    description:
+      "A provider's key added for meeting transcription and Document search alone (#3767)",
+    sql: `
+      -- Saved from Add a key… for those jobs: its models answer nothing in IncarnaMind, and none
+      -- is offered in a model picker or made a default. A provider saved before stays a chat one.
+      ALTER TABLE chat_providers ADD COLUMN jobs_only INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 170,
     description: "A Note's conversation follows the User across Notes and keeps history (#3731)",
     sql: `
       DROP INDEX own_ai_conversations_live;
@@ -3566,8 +3576,10 @@ export const migrations: readonly Migration[] = [
       )
       WHERE mind_title = '' AND mind_id != '' AND deleted_at IS NULL;
       -- Split conversations restarted with #3765's inline New conversation (new_after / anew) so
-      -- each earlier segment becomes its own conversation in History and the active conversation
-      -- keeps only the turns its Claude Code session remembers (#3731).
+      -- each earlier segment becomes its own History entry with a new id, new session_id and
+      -- anew = 1 (it never resumes the legacy folder and has no transcript of its own until asked
+      -- again). The newest segment keeps the legacy id and live session_id; the legacy working
+      -- folder (whose older pre-restart session is never resumed) belongs to it alone (#3731).
       CREATE TEMP TABLE _own_ai_turn_split AS
       SELECT
         t.id AS turn_id,

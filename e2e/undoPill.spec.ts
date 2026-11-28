@@ -24,6 +24,7 @@ import {
   pointAt,
   removeDataFolder,
   renameInTab,
+  saveProvider,
   setLanguage,
   setSidebarShown,
   setWindowSize,
@@ -270,6 +271,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launchApp(dataDir);
     try {
       await dismissChatSetup(window);
+      // The narrow page this tests is the one an assistant beside it leaves; with no model and no AI there is none (#3767).
+      await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
       await setLanguage(window, language);
       const words = WORDS[language];
       await setWindowSize(app, window, 1600, 900);
@@ -416,6 +419,7 @@ test("with groups merged, the band follows the page the focus moves to, not the 
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1600, 900);
     await newMind(window);
     await nameMind(window, "Tides");
@@ -537,12 +541,16 @@ for (const language of ["en", "zh-CN"] as const) {
         return letters;
       }, pillBox);
       expect(under).toEqual([]);
-      // The page the pill reaches into gives its text up from the foot, as the first one does.
+      // The page the pill reaches into gives its text up from the foot, as the first one does: it
+      // ends where the Note's foot starts, or at the pill's top where the pill stands higher. A foot
+      // line that wraps in a narrow group stands higher than the pill, and the page gives up nothing.
       const scroller = await boxOf(second.getByTestId("mind-scroller"));
+      const footTop = (await boxOf(second.locator(".note-ask-foot"))).y;
       expect(scroller.y + scroller.height).toBeLessThanOrEqual(pillBox.y + 1);
+      expect(Math.abs(scroller.y + scroller.height - Math.min(footTop, pillBox.y))).toBeLessThan(1);
 
       // Its lowest line is still reachable: a press there places the caret, and the rename stays.
-      const at = pillBox.y - 4;
+      const at = scroller.y + scroller.height - 4;
       const line = await lineIn(second.getByTestId("mind-editor"), at);
       const lineBox = await boxOf(line);
       await window.mouse.move(lineBox.x + 3, at, { steps: 6 });
@@ -555,9 +563,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, pill.getByTestId("undo-action"));
       await expect(second.getByTestId("mind-tab")).toHaveText("Tides");
       await expect(pill).toHaveCount(0);
+      // The page takes back what the pill had: it ends where the foot starts.
       await expect
-        .poll(async () => (await boxOf(second.getByTestId("mind-scroller"))).height)
-        .toBeGreaterThan(scroller.height);
+        .poll(async () => {
+          const page = await boxOf(second.getByTestId("mind-scroller"));
+          return Math.abs(page.y + page.height - footTop);
+        })
+        .toBeLessThan(1);
       if (SCREENSHOTS) {
         await window.screenshot({
           path: join(SCREENSHOTS, `undo-pill-three-groups-${language}.png`),
@@ -574,6 +586,7 @@ test("the pill stays clear of the assistant's composer docked on the left", asyn
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1600, 900);
     await newMind(window);
     await nameMind(window, "Tides");

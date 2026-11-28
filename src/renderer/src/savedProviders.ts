@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { create } from "zustand";
 import type { ChatProvider } from "../../core/api";
 import { core } from "./core";
@@ -35,3 +36,15 @@ export const isSaved =
   (ids: ReadonlySet<string> | null) =>
   (providerId: string): boolean =>
     ids === null || ids.has(providerId);
+
+const isLocalModel = (provider: ChatProvider) =>
+  provider.kind === "ollama" && provider.service === null;
+
+/** A model on this computer is saved: what Local mode can still answer with. */
+export const localModelSavedNow = (): boolean =>
+  useSavedProviders.getState().providers.some(isLocalModel);
+
+export function useLocalModelSaved(): boolean {
+  useEffect(loadSavedProviders, []);
+  return useSavedProviders((state) => state.providers.some(isLocalModel));
+}

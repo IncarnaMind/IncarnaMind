@@ -8,6 +8,7 @@ import {
   paintOf,
   pointAt,
   removeDataFolder,
+  saveProvider,
   scaleOf,
   setWindowSize,
   tabTo,
@@ -104,6 +105,8 @@ test("the Ask button darkens on hover and scales to 98% only while it is pressed
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1440, 900);
+    // A model, so the assistant column is there: with no model and no AI it isn't (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await newMind(window);
     await window.keyboard.press("ControlOrMeta+j");
     await expect(window.getByTestId("composer-input")).toBeFocused();
@@ -137,6 +140,8 @@ test("the sidebar's and the assistant's resize handles show the focus ring when 
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1440, 900);
+    // A model, so the assistant column is there: with no model and no AI it isn't (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await newMind(window);
     for (const id of ["sidebar-resize", "assistant-resize"]) {
       const handle = window.getByTestId(id);

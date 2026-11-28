@@ -14,6 +14,7 @@ import {
   openFolderInLibrary,
   paletteOffers,
   removeDataFolder,
+  saveProvider,
   setLanguage,
   setSidebarShown,
   setWindowSize,
@@ -69,6 +70,8 @@ for (const language of ["en", "zh-CN"] as const) {
     }
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
+    // With no model and no AI there is no assistant (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setLanguage(window, language);
     await setWindowSize(app, window, 900, 800);
     await addDocuments(
@@ -141,6 +144,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await writeFile(join(sources, otherName), "Termination notice: 30 days.\n");
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setLanguage(window, language);
     await setWindowSize(app, window, 900, 800);
     await addDocuments(window, [join(sources, ownName), join(sources, otherName)]);
@@ -401,6 +405,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await writeFile(join(sources, `${w.inner} lease.txt`), "Termination notice: 90 days.\n");
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setLanguage(window, language);
     await setWindowSize(app, window, 1200, 800);
     const notes = await (await coreOf(window)).evaluate(

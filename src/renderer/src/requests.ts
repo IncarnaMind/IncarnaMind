@@ -15,7 +15,6 @@ interface Requests {
   deleteNoteConversation: NoteConversationSummary | null;
   /** The Meeting whose audio the User is asked about, on that Meeting's line. */
   deleteAudio: { meetingId: string } | null;
-  chooseLocalModel: true | null;
   /** The Folder whose name and description the Library opens to edit. */
   editFolder: string | null;
   /** The Tag Manage Tags opens on, to edit, or to merge into another. */
@@ -33,7 +32,6 @@ export const useRequests = create<Requests>((set) => ({
   deletePermanently: null,
   deleteNoteConversation: null,
   deleteAudio: null,
-  chooseLocalModel: null,
   editFolder: null,
   manageTag: null,
   nameFolder: null,

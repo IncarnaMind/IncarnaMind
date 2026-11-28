@@ -20,6 +20,7 @@ import {
   pointAndClick,
   removeDataFolder,
   runCommandNamed,
+  saveProvider,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -1239,6 +1240,8 @@ for (const language of LANGUAGES) {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    // With no model and no AI no assistant narrows the card, and these tabs all fit (#3767).
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1100, 760);
     await setLanguage(window, language);
     const report = await addReport(window, language);
@@ -1348,6 +1351,7 @@ for (const language of LANGUAGES) {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    await saveProvider(window, { kind: "ollama", modelId: "fake-model" });
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     for (let index = 0; index < 8; index++) {
