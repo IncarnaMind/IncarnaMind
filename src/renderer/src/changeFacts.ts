@@ -11,6 +11,13 @@ import type { ChangedMind } from "./changedMinds";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/** The one paragraph a change came to, named by its label or opening words (`paragraphStart`). */
+export interface NamedChange {
+  start: string;
+  /** Written whole, the User's kept, not changed where it stands. */
+  added: boolean;
+}
+
 /** What was done in one Mind: paragraphs changed, paragraphs written in whole Blocks, tables and charts added. */
 export interface ChangeCounts {
   created: boolean;
@@ -25,6 +32,8 @@ export interface ChangeCounts {
   removed?: RemovedParagraphs;
   /** Exact replacements (#3284): how many, and the words of the last. Absent: none. */
   swapped?: { old: string; now: string; count: number };
+  /** The paragraph it came to, when that is one and nothing else, once placed in the Note. Absent: not known. */
+  named?: NamedChange;
 }
 
 /** Whole paragraphs removed, nothing else changed: "Removed the paragraph “Parking” (3 sentences)", with the Note's name on the card. */
@@ -135,6 +144,10 @@ export function stillWaiting(
   return own === 0 && row !== undefined && row.applying > 0 ? null : own;
 }
 
+/** What one paragraph's change says, with the paragraph named: "Changed the paragraph “Parking”". */
+export const namedFact = (t: Translate, { start, added }: NamedChange): string =>
+  t(added ? "edit.added.named" : "edit.applied.named", { start });
+
 /** A whole new Note, or one written into while it held nothing: its paragraphs were written, not added. */
 const wroteNote = (row: ChangeCounts) => row.created || row.filled === true;
 
@@ -146,6 +159,7 @@ export function changeFact(t: Translate, row: ChangeCounts, name: string | null)
   const removed = removedOnly(row);
   if (removed) return removedFact(t, removed, name);
   if (name === null) {
+    if (row.named && count === 1 && !wroteNote(row)) return namedFact(t, row.named);
     if (row.changed === 0 && count > 0) {
       if (wroteNote(row)) return count === 1 ? t("edit.wrote.one") : t("edit.wrote", { count });
       return count === 1 ? t("edit.added.one") : t("edit.added", { count });

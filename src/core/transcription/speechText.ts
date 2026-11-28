@@ -84,3 +84,38 @@ export const onlyPromptWord = (text: string): boolean => /^\s*system[\s\p{P}]*$/
 export function cleanSpeech(text: string): string {
   return text.replace(BREAKS, " ").replace(CONTROLS, "").replace(/\s+/g, " ").trim();
 }
+
+const LOOP_CJK_UNITS = 12;
+const LOOP_WORD_UNITS = 8;
+const CJK_CLASS = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
+const CJK = new RegExp(`[${CJK_CLASS}]`, "u");
+const LOOP_UNIT = new RegExp(
+  `[${CJK_CLASS}]|(?:(?![${CJK_CLASS}])[\\p{L}\\p{N}])+(?:['’](?:(?![${CJK_CLASS}])[\\p{L}\\p{N}])+)*`,
+  "gu",
+);
+
+/**
+ * Whether `text` ends in a long verbatim repeated phrase, as sherpa-onnx leaves behind when it
+ * truncates a Qwen3-ASR repetition loop below `maxNewTokens` (#1031). Short stutters and natural
+ * emphasis stay false.
+ */
+export function repeatedTail(text: string): boolean {
+  const units = text.toLowerCase().match(LOOP_UNIT) ?? [];
+  for (let span = Math.floor(units.length / 2); span >= LOOP_WORD_UNITS; span--) {
+    const first = units.length - 2 * span;
+    let same = true;
+    let cjk = 0;
+    for (let i = 0; i < span; i++) {
+      const unit = units[first + i];
+      if (unit !== units[first + span + i]) {
+        same = false;
+        break;
+      }
+      if (unit !== undefined && CJK.test(unit)) cjk++;
+    }
+    if (!same) continue;
+    const threshold = cjk * 2 >= span ? LOOP_CJK_UNITS : LOOP_WORD_UNITS;
+    if (span >= threshold) return true;
+  }
+  return false;
+}

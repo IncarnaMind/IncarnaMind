@@ -302,28 +302,26 @@ async function eventually<T>(check: () => T | null): Promise<T> {
   throw new Error("The expected state didn't arrive.");
 }
 
-// Value: protects=Review never restores over later text; fails_when=snapshot anchors are used after state diverges; why_new=only matching Review was covered; seam=none; no_claim=full app timing (real editor, later Yjs edit)
-describe("Review of a core-applied change", () => {
+// Value: protects=a core-applied change is placed and named only while the editor matches the accepted state; fails_when=snapshot anchors are used after state diverges; why_new=only a matching editor was covered; seam=none; no_claim=full app timing (real editor, later Yjs edit)
+describe("Placing a core-applied change", () => {
   test.each([
-    { later: false, review: true },
-    { later: true, review: false },
+    { later: false, placed: true },
+    { later: true, placed: false },
   ])(
-    "Review is offered only while the editor matches the accepted state: %s",
-    async ({ later, review }) => {
+    "its line is placed at its first change only while the editor matches the accepted state: %s",
+    async ({ later, placed }) => {
       mountDom({
         releaseAskedChanges: async () => undefined,
         undoAskedChanges: async () => null,
         redoAskedChanges: async () => null,
       });
-      const { offersReview } = await import("../../src/renderer/src/appliedEdits");
       const { doc, application } = applicationWithChange(later);
       const editor = await applyCoreChange(doc, application);
-      expect(offersReview(editor)).toBe(review);
-      expect(useUndo.getState().done).toHaveLength(review ? 1 : 0);
+      expect(useUndo.getState().done).toHaveLength(placed ? 1 : 0);
       const line = appliedLineIn(editor.state);
       expect(line?.kind).toBe("applied");
       if (line?.kind !== "applied") throw new Error("No applied line.");
-      expect(line.changes.length).toBe(review ? 1 : 0);
+      expect(line.blockId !== null).toBe(placed);
       doc.destroy();
     },
   );
@@ -783,7 +781,7 @@ test("a made Note stays behind when the User moves while the core writes it (#25
   expect(open.behind).toBe(true);
 });
 
-// Value: protects=an editor activated during core apply gets Review and Undo immediately; fails_when=the background return misses its earlier open event; why_new=review found the activation race; seam=editor registration inside the core response; no_claim=inactive recovery (covered separately)
+// Value: protects=an editor activated during core apply gets its line and Undo immediately; fails_when=the background return misses its earlier open event; why_new=review found the activation race; seam=editor registration inside the core response; no_claim=inactive recovery (covered separately)
 test("an editor opened during a background core apply is followed immediately", async () => {
   const { doc, application } = applicationWithChange(false);
   let editor: Editor | null = null;
@@ -805,12 +803,11 @@ test("an editor opened during a background core apply is followed immediately", 
   const { applyWhatWasAsked, useAskedChanges } = await import(
     "../../src/renderer/src/askedChanges"
   );
-  const { offersReview } = await import("../../src/renderer/src/appliedEdits");
   const answer = conversationWithMadeChange(application);
   await applyWhatWasAsked(answer.id);
   emitConversation(answer);
   await eventually(() => useAskedChanges.getState().outcomes[answer.id]?.mind ?? null);
-  await eventually(() => (editor && offersReview(editor) ? true : null));
+  await eventually(() => (editor && appliedLineIn(editor.state)?.kind === "applied" ? true : null));
   expect(useUndo.getState().done).toHaveLength(1);
   doc.destroy();
 });
@@ -843,8 +840,8 @@ test("the line of a turn's applied changes names the turn", async () => {
   doc.destroy();
 });
 
-// Value: protects=a response before the accepted Yjs update is catch-up, not divergence; fails_when=Review and core Undo are released while the editor is behind; why_new=independent review reproduced the ordering; seam=real background apply and later accepted update; no_claim=an actually diverged editor (covered by Review invalidation tests)
-test("an editor behind the accepted update recovers Review and Undo on arrival", async () => {
+// Value: protects=a response before the accepted Yjs update is catch-up, not divergence; fails_when=the line and core Undo are released while the editor is behind; why_new=independent review reproduced the ordering; seam=real background apply and later accepted update; no_claim=an actually diverged editor (covered by the invalidation tests)
+test("an editor behind the accepted update recovers its line and Undo on arrival", async () => {
   const { doc, application } = applicationWithChange(false);
   const lagging = new Y.Doc();
   Y.applyUpdate(lagging, application.reviewBefore);
@@ -870,7 +867,6 @@ test("an editor behind the accepted update recovers Review and Undo on arrival",
   const { applyWhatWasAsked, useAskedChanges } = await import(
     "../../src/renderer/src/askedChanges"
   );
-  const { offersReview } = await import("../../src/renderer/src/appliedEdits");
   const answer = conversationWithMadeChange(application);
   await applyWhatWasAsked(answer.id);
   emitConversation(answer);
@@ -880,7 +876,7 @@ test("an editor behind the accepted update recovers Review and Undo on arrival",
 
   Y.applyUpdate(lagging, Y.encodeStateAsUpdate(doc, Y.encodeStateVector(lagging)));
 
-  await eventually(() => (editor && offersReview(editor) ? true : null));
+  await eventually(() => (editor && appliedLineIn(editor.state)?.kind === "applied" ? true : null));
   expect(useUndo.getState().done).toHaveLength(1);
   expect(releases).toBe(0);
   lagging.destroy();
@@ -1385,7 +1381,6 @@ test("headless Redo keeps its change until the editor follower exists", async ()
   const { applyWhatWasAsked, undoAsked, useAskedChanges } = await import(
     "../../src/renderer/src/askedChanges"
   );
-  const { offersReview } = await import("../../src/renderer/src/appliedEdits");
   const answer = conversationWithChange(application);
   await applyWhatWasAsked(answer.id);
   emitConversation(answer);
@@ -1410,15 +1405,15 @@ test("headless Redo keeps its change until the editor follower exists", async ()
   expect(useUndo.getState().undone).toEqual([other]);
 
   recovery.resolve(application);
-  await eventually(() => (offersReview(editor) ? true : null));
+  await eventually(() => (appliedLineIn(editor.state)?.kind === "applied" ? true : null));
   expect(useUndo.getState().done).toHaveLength(1);
   expect(useUndo.getState().undone).toEqual([other]);
   expect(releases).toBe(0);
   doc.destroy();
 });
 
-// Value: protects=a later editor restores Review from the core's idempotent application; fails_when=the route never returns or a second write occurs; why_new=open failure recovery; seam=real editor registration; no_claim=full app open timing (unit lifecycle)
-test("a later editor restores Review without applying twice", async () => {
+// Value: protects=a later editor draws the line from the core's idempotent application; fails_when=the route never returns or a second write occurs; why_new=open failure recovery; seam=real editor registration; no_claim=full app open timing (unit lifecycle)
+test("a later editor shows the line again from the core's application without applying twice", async () => {
   const { doc, application } = applicationWithChange(false);
   let applyCalls = 0;
   mountDom(
@@ -1440,7 +1435,7 @@ test("a later editor restores Review without applying twice", async () => {
   const { applyWhatWasAsked, useAskedChanges } = await import(
     "../../src/renderer/src/askedChanges"
   );
-  const { onAskedApplied, offersReview } = await import("../../src/renderer/src/appliedEdits");
+  const { onAskedApplied } = await import("../../src/renderer/src/appliedEdits");
   const answer = conversationWithChange(application);
   await applyWhatWasAsked(answer.id);
   emitConversation(answer);
@@ -1456,7 +1451,7 @@ test("a later editor restores Review without applying twice", async () => {
   const unregister = registerMindEditor("mind", editor);
   onTestFinished(unregister);
   await followed;
-  expect(offersReview(editor)).toBe(true);
+  expect(appliedLineIn(editor.state)?.kind).toBe("applied");
   expect(useUndo.getState().done).toHaveLength(1);
   expect(applyCalls).toBe(2);
   doc.destroy();

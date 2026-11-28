@@ -294,18 +294,50 @@ describe("The text a request's Proposals change, before and after (#2356)", () =
   });
 });
 
-describe("How a paragraph removed whole is named (#2356)", () => {
-  // protects=a removed paragraph is named by its label without the colon when it starts with one ("Parking", 停车位), else by its first 4 words or 8 Chinese characters with "…" when cut, whole when short, and its sentences are counted; fails_when=the label keeps its colon, a long paragraph isn't cut, or a short one is; no_claim=how the line shows it.
+describe("How a paragraph is named where its change is said (#2356, #3839)", () => {
+  // protects=a paragraph is named by its label without the colon when it starts with one ("Parking", 停车位), else by as many whole words as fit 32 screen columns (a Chinese character is two), whole when it all fits and with "…" only where something was cut; fails_when=the label keeps its colon, a Latin word or a number such as 07:40 or 1,240 is cut in the middle, a time is read as a label, the cut ends on a comma, or a short paragraph gets a "…"; no_claim=how the line shows it.
   test.each([
     [PARKING.en, "Parking"],
     [PARKING.zh, "停车位"],
-    ["The boat leaves at nine and returns at five.", "The boat leaves at…"],
-    ["请带一件厚外套和手套，山上风大。", "请带一件厚外套和…"],
     ["Bring a coat.", "Bring a coat."],
     ["带外套。", "带外套。"],
-    ["What the tenant and the landlord agreed: rent first.", "What the tenant and…"],
+    ["Ferry at 07:40 daily.", "Ferry at 07:40 daily."],
+    ["请带一件厚外套和手套，山上风大。", "请带一件厚外套和手套，山上风大。"],
+    ["The boat leaves at nine and returns at five.", "The boat leaves at nine and…"],
+    ["What the tenant and the landlord agreed: rent first.", "What the tenant and the landlord…"],
+    ["The 07:40 crossing from Kestrel Bay leaves late.", "The 07:40 crossing from Kestrel…"],
+    ["请带一件厚外套和手套，山上风大，晚上很冷。", "请带一件厚外套和手套，山上风大…"],
+    [
+      "二〇二五年港口一共接待了一千二百四十次靠港船舶，比去年增加了很多。",
+      "二〇二五年港口一共接待了一千二百…",
+    ],
   ])("%s", (text, start) => {
     expect(paragraphStart(text)).toBe(start);
+  });
+
+  test("a Latin word at the cut moves to the next line whole, never cut in the middle", () => {
+    // The 32nd column falls inside "hundred" and inside "ferry".
+    expect(paragraphStart("The harbour handled twelve hundred ships.")).toBe(
+      "The harbour handled twelve…",
+    );
+    expect(paragraphStart("红隼湾的班次工作日大多晚点，ferry 总是先装货车。")).toBe(
+      "红隼湾的班次工作日大多晚点…",
+    );
+  });
+
+  test("a number at the cut is whole or left out, never cut", () => {
+    expect(paragraphStart("The harbour handled 1,240 ship calls in 2025 and more.")).toBe(
+      "The harbour handled 1,240 ship…",
+    );
+    expect(
+      paragraphStart("Ferries ran 1,240,000 crossings between Kestrel Bay and the mainland."),
+    ).toBe("Ferries ran 1,240,000 crossings…");
+    expect(paragraphStart("红隼湾的班次工作日大多晚点，1,240 次晚点。")).toBe(
+      "红隼湾的班次工作日大多晚点…",
+    );
+    expect(paragraphStart("红隼湾的 FERRY 班次工作日 07:40 大多晚点。")).toBe(
+      "红隼湾的 FERRY 班次工作日 07:40…",
+    );
   });
 
   test("its sentences are counted, the first paragraph named", () => {

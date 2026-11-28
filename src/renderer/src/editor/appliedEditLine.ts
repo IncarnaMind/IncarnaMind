@@ -1,19 +1,11 @@
 /**
  * The lines over an edit the User asked for (#880; DESIGN.md, AI edits),
- * drawn in the text above the Block they are about, and under Review
- * changes a Restore original after the new words of each section rewritten
- * as a whole, of each paragraph, and of each Block added or removed.
- * ProposalBars handles their buttons, by `data-applied-action` and
- * `data-applied-restore`. They go once the User edits.
+ * drawn in the text above the Block they are about. ProposalBars handles
+ * their buttons, by `data-applied-action`. They go once the User edits.
  */
-import { type Editor, Extension, isMacOS } from "@tiptap/core";
-import {
-  DOMSerializer,
-  Fragment,
-  type Node as ProseMirrorNode,
-  type Schema,
-} from "@tiptap/pm/model";
-import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { type Editor, Extension } from "@tiptap/core";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { type EditorState, Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   absolutePositionToRelativePosition,
@@ -25,36 +17,22 @@ import { BLOCK_ID_ATTRIBUTE, type EditPart, type RemovedParagraphs } from "../..
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { addsOnly, type ChangeKind, countChanged, onlyRemoves } from "../../../shared/proposals";
-import { paragraphsRemoved } from "../../../shared/sentenceChanges";
-import { type ChangeCounts, changeFact, removedFact } from "../changeFacts";
+import { paragraphStart, paragraphsRemoved } from "../../../shared/sentenceChanges";
+import {
+  type ChangeCounts,
+  changeFact,
+  type NamedChange,
+  namedFact,
+  removedFact,
+} from "../changeFacts";
 import { iconMarkup } from "../components/icons";
 import type { EstimateLine } from "../cost";
 import { anchorOf } from "./arrivedChanges";
-import {
-  type ChangedBlock,
-  LINE_WIDGET,
-  originalShown,
-  type RewrittenSection,
-  rewrittenSections,
-  sectionKey,
-  sectionLine,
-  sectionOf,
-  toggled,
-  wasLine,
-} from "./changeOriginals";
 import { type LineSight, lineSight } from "./lineSight";
 import { fromDocument, proposalsIn } from "./proposalReview";
 import { blockAt } from "./writingPlace";
 
-export const APPLIED_ACTIONS = [
-  "undo",
-  "review",
-  "undo-all",
-  "done",
-  "apply",
-  "discard",
-  "remove-kept",
-] as const;
+export const APPLIED_ACTIONS = ["undo", "apply", "discard", "remove-kept"] as const;
 export type AppliedAction = (typeof APPLIED_ACTIONS)[number];
 
 export const isAppliedAction = (value: string): value is AppliedAction =>
@@ -88,7 +66,7 @@ export interface ChangePlace {
   writtenSize?: number;
 }
 
-/** One change an applied edit made, and what it wrote: Restore original puts the old words back only over those, as they were (#1795). */
+/** One change an applied edit made, and what it wrote, to find it again where the User has since typed. */
 export interface AppliedChange extends ChangePlace {
   written: Fragment;
   /** The Block its new words are in, where they are found again (`changeNow`). */
@@ -109,24 +87,10 @@ export type AppliedLine = (
       /** What the assistant was asked for, as its Answer counts it (#880): "Wrote 3 paragraphs". */
       facts?: ChangeCounts;
       reason: string | null;
-      changes: readonly AppliedChange[];
       kept: KeptLine | null;
       /** The parts a selection too long for the model was edited in (#2348). Absent: one. */
       parts?: number;
       /** The turn whose changes these are, an Answer or a request at the Note's foot. */
-      turn?: string;
-    }
-  | {
-      kind: "review";
-      blockId: string | null;
-      changes: readonly AppliedChange[];
-      byAssistant?: true;
-      undo?: { available(): boolean; mind: string };
-      /** Changes, and sections, whose old text shows, struck (`changeOriginals`). */
-      shown?: readonly string[];
-      /** Still shown: not restored since, and the edit not undone. */
-      shows?(change: AppliedChange): boolean;
-      /** The turn whose changes it reviews, as its applied line had it. */
       turn?: string;
     }
   | {
@@ -174,7 +138,6 @@ export type AppliedLine = (
 
 const LINE_KINDS: ReadonlySet<unknown> = new Set<AppliedLine["kind"]>([
   "applied",
-  "review",
   "held",
   "ask",
   "running",
@@ -206,31 +169,6 @@ function button(action: AppliedAction, label: string): HTMLButtonElement {
   each.dataset.testid = `applied-${action}`;
   each.textContent = label;
   return each;
-}
-
-function restoreButton(index: number, changes: number, t: Translate): HTMLButtonElement {
-  const each = document.createElement("button");
-  each.type = "button";
-  each.className = "proposal-action applied-restore";
-  each.dataset.appliedRestore = String(index);
-  each.dataset.testid = "change-restore";
-  // What it puts back, not its place among the Restores: a group of five changes is five.
-  const label =
-    changes > 1 ? t("edit.review.restore.count", { count: changes }) : t("edit.review.restore");
-  each.title = `${label} · ${isMacOS() ? "⌘⌫" : "Ctrl+Backspace"}`;
-  each.setAttribute("aria-keyshortcuts", isMacOS() ? "Meta+Backspace" : "Control+Backspace");
-  each.textContent = t("edit.review.restore");
-  return each;
-}
-
-function restoreHolder(button: HTMLElement, ownLine: boolean): HTMLElement {
-  const holder = document.createElement(ownLine ? "div" : "span");
-  holder.contentEditable = "false";
-  holder.className = ownLine
-    ? "applied-restore-holder applied-restore-holder--block"
-    : "applied-restore-holder";
-  holder.append(button);
-  return holder;
 }
 
 function dot(): HTMLSpanElement {
@@ -315,8 +253,6 @@ function anchoredPlace(state: EditorState, change: ChangePlace): Place | null {
   return { from: start, to };
 }
 
-const textOf = (removed: Fragment) => removed.textBetween(0, removed.size, "\n", "￼");
-
 function contentAt(doc: ProseMirrorNode, place: Place): Fragment {
   const $from = doc.resolve(place.from);
   const $to = doc.resolve(place.to);
@@ -397,7 +333,7 @@ function removalNow(
  * the same words, AI text as they were: the User hasn't touched them since.
  * Null once its words are gone.
  */
-export function changeNow(
+function changeNow(
   state: EditorState,
   change: AppliedChange,
 ): { place: Place; written: boolean } | null {
@@ -476,6 +412,8 @@ export interface ChangedBlocks {
   added?: true;
   /** Every paragraph counted was removed whole, and nothing else changed (`onlyRemoves`). */
   removed?: RemovedParagraphs;
+  /** The one paragraph changed or added, and nothing else, named. */
+  named?: NamedChange;
 }
 
 /** Whether a paragraph or heading lies wholly between two positions. */
@@ -492,8 +430,8 @@ function textBetween(doc: ProseMirrorNode, from: number, to: number): boolean {
 }
 
 /**
- * What the changes shown again are in, as the applied line, its Undo notice
- * and Review changes all count it: paragraphs by `countChanged`, as the core counts them
+ * What an applied edit's changes are in, as the applied line and its Undo notice
+ * count it: paragraphs by `countChanged`, as the core counts them
  * (`changedParagraphs`), and a table added or removed whole is one table, not its cells.
  */
 export function changedBlocksOf(
@@ -502,6 +440,7 @@ export function changedBlocksOf(
 ): ChangedBlocks {
   const kinds: ChangeKind[] = [];
   const removedTexts: string[] = [];
+  const touched: NamedChange[] = [];
   const counted = new Set<number>();
   const tables = new Set<number>();
   let removedTables = 0;
@@ -545,17 +484,26 @@ export function changedBlocksOf(
       }
       if (COUNTED.has(node.type.name) && !counted.has(pos)) {
         counted.add(pos);
+        touched.push({ start: paragraphStart(node.textContent), added: change.block !== null });
         if (change.block === null) kinds.push("edited");
         else kinds.push(node.type.name === "heading" ? "title-added" : "added");
       }
       return !node.isTextblock;
     });
   }
+  const paragraphs = countChanged(kinds);
+  const [only] = touched;
   return {
-    paragraphs: countChanged(kinds),
+    paragraphs,
     tables: tables.size + removedTables,
     ...(addsOnly(kinds) && { added: true }),
     ...(onlyRemoves(kinds) && { removed: paragraphsRemoved(removedTexts) }),
+    ...(paragraphs === 1 &&
+      touched.length === 1 &&
+      tables.size + removedTables === 0 &&
+      only &&
+      only.start !== "" &&
+      !onlyRemoves(kinds) && { named: only }),
   };
 }
 
@@ -574,6 +522,7 @@ const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string 
 
 /** What the applied line and its Undo notice say an edit changed: "Changed 3 paragraphs and 1 table". */
 export function appliedText(t: Translate, blocks: ChangedBlocks): string {
+  if (blocks.named) return namedFact(t, blocks.named);
   if (blocks.added) return addedText(t, blocks);
   if (blocks.removed) return removedFact(t, blocks.removed, null);
   if (blocks.tables > 0) return t("edit.applied.changes", { changes: changesIn(t, blocks) });
@@ -599,22 +548,6 @@ function addedText(t: Translate, { paragraphs, tables }: ChangedBlocks): string 
   return paragraphs === 1 ? t("edit.added.one") : t("edit.added", { count: paragraphs });
 }
 
-function reviewText(t: Translate, blocks: ChangedBlocks, byAssistant: boolean): string {
-  if (blocks.added) return addedText(t, blocks);
-  if (blocks.removed) return removedFact(t, blocks.removed, null);
-  if (blocks.tables > 0) {
-    const changes = changesIn(t, blocks);
-    return byAssistant
-      ? t("edit.review.assistant.changes", { changes })
-      : t("edit.review.changes", { changes });
-  }
-  const count = blocks.paragraphs;
-  if (byAssistant) {
-    return count === 1 ? t("edit.review.assistant.one") : t("edit.review.assistant", { count });
-  }
-  return count === 1 ? t("edit.review.one") : t("edit.review", { count });
-}
-
 function actionButton(label: string, testId: string, run: () => void): HTMLButtonElement {
   const each = document.createElement("button");
   each.type = "button";
@@ -627,7 +560,7 @@ function actionButton(label: string, testId: string, run: () => void): HTMLButto
   return each;
 }
 
-function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): HTMLElement {
+function mainLine(line: AppliedLine, options: Options): HTMLElement {
   const t = options.translate;
   if (line.kind === "ask") {
     const parts: (Node | string)[] = [text("min-w-0", t("edit.ask.parts", { count: line.parts }))];
@@ -702,7 +635,6 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       );
     }
     parts.push(dot(), button("undo", t("edit.applied.undo")), keys(options.undoKeys()));
-    if (line.changes.length > 0) parts.push(dot(), button("review", t("edit.applied.review")));
     // What the assistant wrote comes in the page's top margin; an edit asked on the text keeps its line over its Block.
     const element = lineElement(
       "applied-line",
@@ -710,27 +642,6 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       parts,
     );
     if (line.reason) element.title = t("proposal.why", { reason: line.reason });
-    if (line.turn) element.dataset.turn = line.turn;
-    return element;
-  }
-  if (line.kind === "review") {
-    const undo = button("undo-all", t("edit.review.undoAll"));
-    if (line.undo && !line.undo.available()) {
-      undo.setAttribute("aria-disabled", "true");
-      undo.title = t("mindChanges.undo.changedSince.noReview", { mind: line.undo.mind });
-    }
-    const element = lineElement("applied-line", "applied-line", [
-      sparkle(),
-      text(
-        "applied-count min-w-0",
-        reviewText(t, blocks, line.byAssistant === true),
-        "applied-count",
-      ),
-      dot(),
-      undo,
-      dot(),
-      button("done", t("edit.review.done")),
-    ]);
     if (line.turn) element.dataset.turn = line.turn;
     return element;
   }
@@ -761,242 +672,6 @@ function placeOf(doc: ProseMirrorNode, blockId: string | null): number | null {
   return blockAt(doc, blockId)?.pos ?? null;
 }
 
-const lineText = (text: string) =>
-  text
-    .replace(/\uFFFC/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-function changedBlockOf(
-  state: EditorState,
-  change: AppliedChange,
-  index: number,
-  place: { from: number; to: number },
-): ChangedBlock {
-  const key = `applied:${index}`;
-  if (change.block) {
-    return { key, pos: place.from, how: change.block === "added" ? "added" : "removed" };
-  }
-  const $from = state.doc.resolve(place.from);
-  const pos = $from.depth > 0 ? $from.before() : place.from;
-  return change.paragraph
-    ? {
-        key,
-        pos,
-        how: "rewritten",
-        old: lineText(textOf(change.removed)),
-        title: lineText(state.doc.textBetween(place.from, place.to, " ", "\uFFFC")),
-      }
-    : { key, pos, how: "words" };
-}
-
-function removedBlocks(schema: Schema, removed: Fragment): HTMLElement {
-  const drawn = DOMSerializer.fromSchema(schema).serializeFragment(removed);
-  const item = drawn.firstElementChild;
-  const ownItem =
-    removed.childCount === 1 &&
-    removed.firstChild?.type.name === "listItem" &&
-    item instanceof HTMLElement;
-  const element = ownItem ? item : document.createElement("div");
-  if (!ownItem) element.append(drawn);
-  element.classList.add("applied-old--block");
-  element.contentEditable = "false";
-  return element;
-}
-
-interface PlacedChange {
-  change: AppliedChange;
-  index: number;
-  place: { from: number; to: number };
-  written: boolean;
-  block: ChangedBlock;
-}
-
-/** What one Restore original restores: a section rewritten as a whole, a paragraph, or a Block added or removed. */
-export interface ChangeGroup {
-  members: readonly PlacedChange[];
-  /** The member whose text comes last: its Restore sits after it. */
-  last: PlacedChange;
-  from: number;
-  to: number;
-  /** None of it changed since: restoring it takes none of the User's words. */
-  restorable: boolean;
-}
-
-/**
- * The groups an edit's changes are restored in, in reading order: a section rewritten as a whole,
- * else a paragraph, so a paragraph with several changes has one Restore original (#1358). A
- * paragraph where the User has edited a change since keeps one Restore for each change: one span
- * across the edited one would move it when restored (the changed-since place), so it is left out.
- */
-function groupsOf(
-  placed: readonly PlacedChange[],
-  sections: readonly RewrittenSection[],
-): ChangeGroup[] {
-  const grouped = new Map<RewrittenSection | string | PlacedChange, PlacedChange[]>();
-  for (const each of placed) {
-    const whole = each.block.how === "added" || each.block.how === "removed";
-    const key = sectionOf(each.block, sections) ?? (whole ? each : `block:${each.block.pos}`);
-    grouped.set(key, [...(grouped.get(key) ?? []), each]);
-  }
-  const groups: PlacedChange[][] = [];
-  for (const [key, members] of grouped) {
-    const paragraph = typeof key === "string";
-    if (paragraph && members.some((each) => !each.written)) {
-      for (const each of members) groups.push([each]);
-    } else {
-      groups.push(members);
-    }
-  }
-  return groups.map((members) => {
-    const end = ({ place }: PlacedChange) => Math.max(place.from, place.to);
-    return {
-      members,
-      last: members.reduce((a, b) => (end(b) >= end(a) ? b : a)),
-      // A change typed over can end before it starts: its place still marks where it was.
-      from: Math.min(...members.map(({ place }) => Math.min(place.from, place.to))),
-      to: Math.max(...members.map(({ place }) => Math.max(place.from, place.to))),
-      restorable: members.every(({ written }) => written),
-    };
-  });
-}
-
-function reviewedBlocks(state: EditorState, changes: readonly AppliedChange[]) {
-  const placed = changes.flatMap((change, index): PlacedChange[] => {
-    const now = changeNow(state, change);
-    if (!now) return [];
-    const { place, written } = now;
-    return [{ change, index, place, written, block: changedBlockOf(state, change, index, place) }];
-  });
-  const sections = rewrittenSections(
-    state.doc,
-    placed.map(({ block }) => block),
-    false,
-  );
-  return { placed, sections, groups: groupsOf(placed, sections) };
-}
-
-/** The groups an edit's changes are restored in, in reading order. */
-export const changeGroupsOf = (state: EditorState, changes: readonly AppliedChange[]) =>
-  reviewedBlocks(state, changes).groups;
-
-export const changesLeft = (line: Extract<AppliedLine, { kind: "review" }>) =>
-  line.shows ? line.changes.filter((change) => line.shows?.(change)) : line.changes;
-
-/**
- * What shows the old text of the change shown again that the cursor is in,
- * its section's when it is in one, and whether it shows; null for one not
- * written anew.
- */
-export function appliedOriginalAt(state: EditorState): { key: string; shown: boolean } | null {
-  const line = appliedLineIn(state);
-  if (line?.kind !== "review") return null;
-  const { placed, sections } = reviewedBlocks(state, changesLeft(line));
-  const { from } = state.selection;
-  const here = placed.find(({ place }) => place.from <= from && from <= place.to);
-  if (!here) return null;
-  const shownKeys = new Set(line.shown);
-  const { inSection, shown } = originalShown(here.block, sections, shownKeys);
-  if (inSection) return { key: sectionKey(inSection), shown };
-  return here.block.how === "rewritten" ? { key: here.block.key, shown } : null;
-}
-
-/**
- * An applied edit's changes shown again (Review changes): old words struck,
- * new ones underlined, the doc left as it is; a paragraph written anew, and
- * a section, read as `changeOriginals` says.
- */
-function changeMarks(
-  state: EditorState,
-  changes: readonly AppliedChange[],
-  shownKeys: ReadonlySet<string>,
-  t: Translate,
-): Decoration[] {
-  const { placed, sections, groups } = reviewedBlocks(state, changes);
-  const drawn = new Set<number>();
-  const lines: Decoration[] = sections.map((section) => {
-    const open = shownKeys.has(sectionKey(section));
-    return Decoration.widget(section.heading.pos, () => sectionLine(t, section, open), {
-      ...LINE_WIDGET,
-      key: `rewrote:${section.heading.key}:${open}:${section.heading.title}:${t("change.showOriginal")}`,
-    });
-  });
-  const changed = placed.flatMap(({ change, index, place, block }) => {
-    const { inSection, shown } = originalShown(block, sections, shownKeys);
-    const marks: Decoration[] = [];
-    if (block.how === "rewritten" && !inSection) {
-      marks.push(
-        Decoration.widget(block.pos, () => wasLine(t, block, shown), {
-          ...LINE_WIDGET,
-          key: `was:${block.key}:${shown}:${block.old}:${t("change.showOriginal")}`,
-        }),
-      );
-    }
-    const oldShows =
-      block.how === "rewritten" || (block.how === "removed" && inSection) ? shown : true;
-    const oldDrawn = change.removed.size > 0 && oldShows;
-    if (oldDrawn) {
-      const old = () => {
-        const element = change.block
-          ? removedBlocks(state.schema, change.removed)
-          : document.createElement("del");
-        element.classList.add("applied-old");
-        element.dataset.appliedChange = String(index);
-        if (!change.block) element.textContent = textOf(change.removed);
-        return element;
-      };
-      marks.push(
-        Decoration.widget(place.from, old, {
-          side: -1,
-          ignoreSelection: true,
-          key: `applied-old:${index}:${textOf(change.removed)}`,
-        }),
-      );
-    }
-    const newDrawn = place.to > place.from;
-    if (newDrawn) {
-      const attributes = { "data-applied-change": String(index) };
-      marks.push(
-        change.block
-          ? Decoration.node(place.from, place.to, {
-              ...attributes,
-              class: "applied-new applied-new--block",
-            })
-          : Decoration.inline(place.from, place.to, { ...attributes, class: "applied-new" }),
-      );
-    }
-    if (newDrawn || oldDrawn) drawn.add(index);
-    return marks;
-  });
-  const restores = groups.flatMap((group, at) => {
-    if (!group.members.some(({ index }) => drawn.has(index))) return [];
-    const { last, restorable } = group;
-    const ownLine = last.change.block !== null;
-    const label = t(restorable ? "edit.review.restore" : "edit.review.changedSince");
-    return [
-      Decoration.widget(
-        last.place.to,
-        () =>
-          restoreHolder(
-            restorable
-              ? restoreButton(at, group.members.length, t)
-              : text("applied-changed", label, "change-changed-since"),
-            ownLine,
-          ),
-        {
-          // Widgets at one position draw in order of side: after the group's new words but
-          // before the next change's old ones (-1), or, with no new words, after its own old ones.
-          side: last.place.to > last.place.from ? -3 : -0.9,
-          ignoreSelection: true,
-          stopEvent: () => true,
-          key: `applied-restore:${at}:${groups.length}:${ownLine}:${label}`,
-        },
-      ),
-    ];
-  });
-  return [...lines, ...changed, ...restores];
-}
-
 function decorations(
   state: EditorState,
   line: AppliedLine,
@@ -1004,33 +679,26 @@ function decorations(
   sight: LineSight,
 ): DecorationSet {
   const { doc } = state;
-  const marks: Decoration[] =
-    line.kind === "review"
-      ? changeMarks(state, changesLeft(line), new Set(line.shown), options.translate)
-      : [];
+  const marks: Decoration[] = [];
   const at = placeOf(doc, line.blockId);
   const shared = { side: -1, ignoreSelection: true, stopEvent: () => true };
   if (at !== null) {
-    const blocks =
-      line.kind === "applied"
-        ? line.blocks
-        : line.kind === "review"
-          ? changedBlocksOf(state, changesLeft(line))
-          : { paragraphs: 0, tables: 0 };
+    const blocks = line.kind === "applied" ? line.blocks : { paragraphs: 0, tables: 0 };
     const words =
       line.kind === "failed"
         ? line.text
         : line.kind === "running"
           ? `${line.busy ? "busy" : ""}/${line.part?.at ?? ""}/${line.part?.of ?? ""}`
           : "";
-    // What the count is said as, as well as the count: a pair whose one half is restored stays one.
-    const count = `${blocks.paragraphs}/${blocks.tables}/${blocks.added ? "added" : ""}/${blocks.removed ? `${blocks.removed.sentences}:${blocks.removed.start}` : ""}`;
-    const canUndo = line.kind !== "review" || !line.undo || line.undo.available();
+    // What the count is said as, as well as the count.
+    const named =
+      (line.kind === "applied" && line.facts?.named?.start) || blocks.named?.start || "";
+    const count = `${blocks.paragraphs}/${blocks.tables}/${blocks.added ? "added" : ""}/${blocks.removed ? `${blocks.removed.sentences}:${blocks.removed.start}` : ""}/${named}`;
     marks.push(
       Decoration.widget(
         at,
         () => {
-          const element = mainLine(line, options, blocks);
+          const element = mainLine(line, options);
           // The page's top band gives its own line room; one over a Block is kept in sight (#2123).
           if (line.blockId !== null && !element.classList.contains("applied-line--band")) {
             sight.watch(element, line.blockId);
@@ -1040,7 +708,7 @@ function decorations(
         {
           ...shared,
           // Drawn again in the interface language once it changes.
-          key: `applied:${line.kind}:${count}:${line.blockId}:${canUndo}:${words}:${options.translate("edit.applied.undo")}`,
+          key: `applied:${line.kind}:${count}:${line.blockId}:${words}:${options.translate("edit.applied.undo")}`,
         },
       ),
     );
@@ -1098,15 +766,14 @@ export const AppliedEditLine = Extension.create<Options>({
               value.line?.kind !== "running";
             const shown =
               meta === null || isAppliedLine(meta) ? meta : typedOver ? null : value.line;
-            // Applied or discarded one by one, a held edit's changes are all gone; restored, a reviewed one's.
+            // Applied or discarded one by one, a held edit's changes are all gone.
             const gone =
               shown !== null &&
-              (shown.kind === "held"
-                ? (shown !== value.line || tr.docChanged) &&
-                  (shown.asked?.requests ?? [shown.request]).every(
-                    (request) => waitingOf(state.doc, request) === 0,
-                  )
-                : shown.kind === "review" && changesLeft(shown).length === 0);
+              shown.kind === "held" &&
+              (shown !== value.line || tr.docChanged) &&
+              (shown.asked?.requests ?? [shown.request]).every(
+                (request) => waitingOf(state.doc, request) === 0,
+              );
             const line = gone ? null : shown;
             if (!line) return { line: null, marks: DecorationSet.empty };
             if (line !== value.line || (tr.docChanged && fromDocument(tr))) {
@@ -1117,37 +784,11 @@ export const AppliedEditLine = Extension.create<Options>({
         },
         props: {
           decorations: (state) => appliedLineKey.getState(state)?.marks ?? null,
-          handleDOMEvents: {
-            // A click on a change shown again puts the cursor in it, for ⌘⌫ and its bar.
-            mousedown(view, event) {
-              const target = event.target instanceof Element ? event.target : null;
-              const index = Number(
-                target?.closest("[data-applied-change]")?.getAttribute("data-applied-change"),
-              );
-              const line = appliedLineKey.getState(view.state)?.line;
-              const change = line?.kind === "review" ? changesLeft(line)[index] : undefined;
-              const place = change ? placeOfChange(view.state, change) : null;
-              if (!place) return false;
-              event.preventDefault();
-              view.focus();
-              view.dispatch(
-                view.state.tr.setSelection(TextSelection.create(view.state.doc, place.from)),
-              );
-              return true;
-            },
-          },
         },
       }),
     ];
   },
 });
-
-/** Shows an applied change's old text, or its section's, struck in place; or hides it again. */
-export function toggleAppliedOriginal(editor: Editor, key: string): void {
-  const line = appliedLineIn(editor.state);
-  if (line?.kind !== "review") return;
-  setAppliedLine(editor, { ...line, shown: [...toggled(new Set(line.shown), key)] });
-}
 
 export const appliedLineIn = (state: EditorState): AppliedLine | null =>
   appliedLineKey.getState(state)?.line ?? null;
