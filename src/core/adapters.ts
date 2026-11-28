@@ -15,7 +15,16 @@ import type {
 } from "../shared/analysis";
 import { SCREEN_THUMBNAIL_WIDTH } from "../shared/capture";
 import type { DrawnPage, PageCaptureRequest } from "../shared/citedPage";
+import type {
+  OpenNoteAcceptInput,
+  OpenNoteAcceptResult,
+  OpenNoteEditor,
+  OpenNotePrepareResult,
+} from "../shared/openNoteEditor";
 import type { PrintDocument } from "../shared/printDocument";
+
+export type { OpenNoteAcceptInput, OpenNoteAcceptResult, OpenNoteEditor, OpenNotePrepareResult };
+
 import type { AgentLauncher } from "./agents";
 import type { AnswerEngine } from "./answers/engine";
 import type {
@@ -1379,6 +1388,8 @@ export interface CoreAdapters {
     commandFolders?(): Promise<readonly string[]>;
     /** Opens a link in an agent's app: Cursor's install link, or one with a request typed (#3373). */
     openLink?(url: string): Promise<void>;
+    /** Reaches a mounted editable Note editor in the host window for lossless agent writes (#3839). */
+    openNoteEditor?: OpenNoteEditor;
   };
   /** Runs the built-in embedding model (see `Embedder`). */
   embedder: Embedder;

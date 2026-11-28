@@ -8,12 +8,14 @@
  */
 import * as Y from "yjs";
 import {
+  type AgentNoteChange,
   MIND_CONTENT_FIELD,
   MIND_REVISIONS_FIELD,
   MIND_TEXT_ORIGINS_FIELD,
 } from "../../../core/api";
 import { agentOwnChangeRequestId } from "../../../shared/agentOwnChanges";
 import { originMaps } from "../../../shared/blockOrigins";
+import { showCapturedAgentLine } from "../appliedEdits";
 import { core } from "../core";
 import type { WordsInLine } from "../lineNames";
 import { EDIT_FROM_CORE, FROM_CORE, takeEditUpdates } from "../mindCopies";
@@ -34,6 +36,7 @@ interface CopyHandle {
 }
 
 interface Captured {
+  doc: Y.Doc;
   history: UndoStack;
   step: UndoStep;
   steps: NoteSteps;
@@ -165,7 +168,7 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
     if (!step || step === before) return;
     const steps = followStepsInHistory(history, [step]);
     if (!steps) return;
-    const entry: Captured = { history, step, steps };
+    const entry: Captured = { doc, history, step, steps };
     const record: { stepId: string; entry: Captured; stop: () => void } = {
       stepId: cause.request,
       entry,
@@ -216,7 +219,11 @@ export function takeAgentOwnChanges(mindId: string, doc: Y.Doc, history: UndoSta
  * step (either owns it or lost the cross-window claim race), so `agentNotes` does not also offer
  * core Undo.
  */
-export function bindCapturedAgentStep(stepId: string, said: WordsInLine): boolean {
+export function bindCapturedAgentStep(
+  stepId: string,
+  said: WordsInLine,
+  change?: AgentNoteChange,
+): boolean {
   const entry = capturedByStep.get(stepId);
   const handled = handledSteps.delete(stepId);
   electedByStep.delete(stepId);
@@ -224,6 +231,7 @@ export function bindCapturedAgentStep(stepId: string, said: WordsInLine): boolea
   capturedByStep.delete(stepId);
   if (entry.history.undoStack.at(-1) === entry.step) {
     offerHistoryUndo(entry.history, said, undefined, undefined, undefined, { silent: true });
+    if (change) showCapturedAgentLine(entry.history, entry.doc, entry.step, entry.steps, change);
     return true;
   }
   return entry.steps.state() !== "gone" || handled;

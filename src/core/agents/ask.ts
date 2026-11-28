@@ -304,16 +304,10 @@ const FILE_REQUESTS = {
     fix: "agents.ask.request.fixFile",
     fixAll: "agents.ask.request.fixFileAll",
   },
-  ownNote: {
+  note: {
     about: "agents.ask.request.wordNote",
     fix: "agents.ask.request.fixWordNote",
     fixAll: "agents.ask.request.fixWordNoteAll",
-  },
-  // The User's Note: the fix waits for their accept, and no waiting change goes into a file.
-  note: {
-    about: "agents.ask.request.wordNote",
-    fix: "agents.ask.request.fixWordNoteWaits",
-    fixAll: "agents.ask.request.fixWordNoteAllWaits",
   },
   deletedNote: {
     about: "agents.ask.request.wordDeletedNote",
@@ -327,8 +321,7 @@ const FILE_REQUESTS = {
   },
 } as const satisfies Record<string, Record<string, MessageKey>>;
 
-const wordsOf = (from: HandedFileAsked["from"]) =>
-  FILE_REQUESTS[from.kind === "note" && from.own ? "ownNote" : from.kind];
+const wordsOf = (from: HandedFileAsked["from"]) => FILE_REQUESTS[from.kind];
 
 /** A request about a file the agent handed over, or IncarnaMind wrote for it; `checkedIn`: its check's Note. */
 function fileRequest(

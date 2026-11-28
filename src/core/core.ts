@@ -7274,6 +7274,7 @@ export function createCore(adapters: CoreAdapters): Core {
         checkpoints.save(mindId, "accept");
       },
       noteChanged: (change) => events.emit("agents.noteChanged", change),
+      ...(adapters.agents?.openNoteEditor && { openNoteEditor: adapters.agents.openNoteEditor }),
       mindMarkdown: agentMarkdown,
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>

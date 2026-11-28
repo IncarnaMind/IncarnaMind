@@ -98,7 +98,7 @@ async function connectAgent(window: Page): Promise<Client> {
 
 const tabRows = (outline: Locator) => outline.getByTestId("note-tab");
 
-test("a tab an agent proposes waits with its first paragraph: Accept keeps it, ⌘Z and Reject take it out", async () => {
+test("a tab an agent adds lands at once with its first paragraph, and ⌘Z takes both out", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   try {
     await dismissChatSetup(window);
@@ -150,58 +150,32 @@ test("a tab an agent proposes waits with its first paragraph: Accept keeps it, �
         },
       });
       expect(proposed.isError ?? false).toBe(false);
-      expect(proposed.structuredContent).toMatchObject({ status: "waiting", waiting: 1 });
+      expect(proposed.structuredContent).toMatchObject({ status: "applied" });
     } finally {
       await agent.close();
     }
 
-    await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
+    await expect(window.getByTestId("proposals-count")).toHaveCount(0);
     const outline = window.getByTestId("outline");
     if (!(await outline.isVisible())) {
       await pointAndClick(window, window.getByTestId("outline-button"));
     }
     await expect(tabRows(outline)).toHaveText(["Summary", "Fleet", "Costs"]);
-    // Waiting, its row alone is marked as the change is, and says on hover who proposed it.
-    const proposed = outline.locator(".note-tab-row--proposed").getByTestId("note-tab");
-    await expect(proposed).toHaveText(["Costs"]);
-    await expect(proposed).toHaveAttribute("title", "Costs\nProposed by Ferry agent");
-    await expect(proposed).toHaveAccessibleDescription("Proposed by Ferry agent");
+    await expect(outline.locator(".note-tab-row--proposed")).toHaveCount(0);
 
-    // Opened, the tab shows what it holds as the change, its bar there to decide on.
     await pointAndClick(window, tabRows(outline).filter({ hasText: "Costs" }));
-    const added = editor.locator("p.proposal-node--insert");
-    await expect(added).toBeVisible();
-    await expect(added).toHaveText("Fuel cost 3.1 million in 2026.");
-    const look = (locator: Locator) =>
-      locator.evaluate((element) => {
-        const style = getComputedStyle(element);
-        return [style.color, style.textDecorationLine, style.textDecorationColor];
-      });
-    expect(await look(proposed)).toEqual(await look(added));
-    await pointAndClick(window, added);
-    const bar = window.getByTestId("change-bar");
-    await expect(bar).toBeVisible();
-    await expect(bar.getByTestId("change-bar-author")).toHaveText("Proposed by Ferry agent");
-    await shot(window, "agent-tab-waiting-en");
-    await pointAndClick(window, bar.getByTestId("change-accept"));
-    await expect(window.getByTestId("proposals-count")).toHaveCount(0);
-    await expect(tabRows(outline)).toHaveText(["Summary", "Fleet", "Costs"]);
-    await expect(proposed).toHaveCount(0);
     await expect(editor.locator(":scope > p:visible")).toHaveText([
       "Fuel cost 3.1 million in 2026.",
     ]);
+    await expect(editor.getByTestId("applied-line")).toBeVisible();
+    await shot(window, "agent-tab-applied-en");
 
     await editor.focus();
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
-    await setLanguage(window, "zh-CN");
-    await expect(proposed).toHaveAttribute("title", "Costs\nFerry agent 建议");
-    await pointAndClick(window, tabRows(outline).filter({ hasText: "Costs" }));
-    await pointAndClick(window, added);
-    await pointAndClick(window, bar.getByTestId("change-reject"));
-    await expect(window.getByTestId("proposals-count")).toHaveCount(0);
     await expect(tabRows(outline)).toHaveText(["Summary", "Fleet"]);
     await expect(editor.getByText("Fuel cost 3.1 million")).toHaveCount(0);
+    await setLanguage(window, "zh-CN");
+    await expect(tabRows(outline)).toHaveText(["Summary", "Fleet"]);
   } finally {
     await app.close();
   }

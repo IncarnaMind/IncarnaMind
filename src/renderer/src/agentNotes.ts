@@ -7,8 +7,10 @@
  */
 import { create } from "zustand";
 import type { AgentChangeStep, AgentNoteChange } from "../../core/api";
+import { showClosedAgentLine } from "./appliedEdits";
 import { core } from "./core";
 import { bindCapturedAgentStep } from "./editor/agentOwnUndo";
+import { mindEditor } from "./editor/openEditors";
 import { groupsMerged, isShown } from "./layoutSlice";
 import type { WordsInLine } from "./lineNames";
 import { useAppStore } from "./store";
@@ -59,6 +61,19 @@ const nameOf = (mindId: string) => {
 /** Each Note's changes on the app's Undo, by Note: the ones taken back go once the agent changes it again. */
 const offered = new Map<string, Undoable[]>();
 
+/** Latest outside-agent change applied while its Note was closed, waiting for its editor to draw the line (#3839). */
+const pendingClosed = new Map<string, { change: AgentNoteChange; undoable: Undoable }>();
+
+/** Consumes the pending closed-Note change for `mindId` if its core Undo step is still live. */
+export function takeClosedAgentChange(
+  mindId: string,
+): { change: AgentNoteChange; undoable: Undoable } | null {
+  const entry = pendingClosed.get(mindId);
+  if (!entry) return null;
+  pendingClosed.delete(mindId);
+  return useUndo.getState().done.includes(entry.undoable) ? entry : null;
+}
+
 /**
  * Takes a change back, or does it again, exactly as the core did: a step with nothing of its change
  * left, or no longer the Note's last, leaves the stack, and its line says which change it was.
@@ -84,7 +99,7 @@ async function stepOf(
 }
 
 /** Puts the change on the app's Undo, which ⌘Z and ⇧⌘Z pass over while its Note isn't shown. */
-function offerUndo(change: AgentNoteChange, step: string): void {
+function offerUndo(change: AgentNoteChange, step: string): Undoable {
   // The core forgets the steps taken back once the agent changes the Note again: Redo can't reach them.
   const before = offered.get(change.mindId) ?? [];
   for (const each of before) {
@@ -123,14 +138,38 @@ function offerUndo(change: AgentNoteChange, step: string): void {
   };
   useUndo.getState().offer(undoable);
   recheck();
+  return undoable;
 }
 
 core.on("agents.noteChanged", (change) => {
-  useAgentNotes.setState(({ lines }) => ({
-    lines: [...lines.filter((line) => line.mindId !== change.mindId), change],
-  }));
+  // Front-tab changes draw only their inline applied-edit line; hidden/closed Notes keep the sidebar notice (#3839).
+  const shownInFront =
+    change.kind === "changed" &&
+    isShown(useAppStore.getState().layout, { kind: "mind", mindId: change.mindId }, groupsMerged());
+  if (shownInFront) {
+    forget(change.mindId);
+  } else {
+    useAgentNotes.setState(({ lines }) => ({
+      lines: [...lines.filter((line) => line.mindId !== change.mindId), change],
+    }));
+  }
+  if (change.kind === "changed" && change.appliedInEditor) {
+    pendingClosed.delete(change.mindId);
+    return;
+  }
   if (change.kind === "changed" && change.step !== null) {
     const said: WordsInLine = (t, cut) => agentNoteWords(change, nameOf(change.mindId))(t, cut);
-    if (!bindCapturedAgentStep(change.step, said)) offerUndo(change, change.step);
+    if (bindCapturedAgentStep(change.step, said, change)) {
+      pendingClosed.delete(change.mindId);
+      return;
+    }
+    const undoable = offerUndo(change, change.step);
+    const open = mindEditor(change.mindId);
+    if (open && !open.isDestroyed) {
+      pendingClosed.delete(change.mindId);
+      showClosedAgentLine(open, change, undoable);
+    } else {
+      pendingClosed.set(change.mindId, { change, undoable });
+    }
   }
 });

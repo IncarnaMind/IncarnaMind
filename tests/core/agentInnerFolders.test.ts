@@ -329,7 +329,7 @@ describe("an agent given a Folder", { timeout: 120_000 }, () => {
         },
       }),
     );
-    expect(proposed.status).toBe("waiting");
+    expect(proposed.status).toBe("applied");
 
     for (const mindId of [
       notes.claimNotes.id,

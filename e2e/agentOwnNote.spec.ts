@@ -147,16 +147,17 @@ test("a Note the agent writes opens behind the one being typed in, and ⌘Z take
       await expect(line).toBeHidden();
       await expect(paragraphsOf(window)).toHaveText([OPENING, RANGE]);
 
-      // Three changes in a row, each there at once and said where the Library's work shows.
+      // Two changes while the Note is in front: each lands at once with its inline line and no sidebar notice (#3839).
       let { version } = structured<{ version: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
       );
       const states: string[][] = [[OPENING, RANGE]];
-      const asks: { changes: object[]; shows: string[]; says: string }[] = [
+      const inlineLine = frontMind(window).getByTestId("applied-line");
+      const frontAsks: { changes: object[]; shows: string[]; inline: RegExp }[] = [
         {
           changes: [{ paragraph: "¶1", text: "Tides rise and fall twice a day." }],
           shows: ["Tides rise and fall twice a day.", RANGE],
-          says: "Claude Code changed 1 paragraph in “Tide report”",
+          inline: /^Changed the paragraph “Tides rise and fall twice a day\.”$/,
         },
         {
           changes: [{ paragraph: "¶2+", text: "Neap tides come at the quarter moons." }],
@@ -165,15 +166,10 @@ test("a Note the agent writes opens behind the one being typed in, and ⌘Z take
             RANGE,
             "Neap tides come at the quarter moons.",
           ],
-          says: "Claude Code added 1 paragraph to “Tide report”",
-        },
-        {
-          changes: [{ paragraph: "¶1", text: "Tides turn twice a day." }],
-          shows: ["Tides turn twice a day.", RANGE, "Neap tides come at the quarter moons."],
-          says: "Claude Code changed 1 paragraph in “Tide report”",
+          inline: /^Added the paragraph “Neap tides come at the quarter/,
         },
       ];
-      for (const ask of asks) {
+      for (const ask of frontAsks) {
         const done = structured<{ status: string; version: string }>(
           await agent.callTool({
             name: "propose_changes",
@@ -183,10 +179,38 @@ test("a Note the agent writes opens behind the one being typed in, and ⌘Z take
         expect(done.status).toBe("applied");
         ({ version } = done);
         await expect(paragraphsOf(window)).toHaveText(ask.shows);
-        await expect(line.getByTestId("status-label")).toHaveText(ask.says);
+        await expect(inlineLine.getByTestId("applied-count")).toHaveText(ask.inline);
+        await expect(line).toBeHidden();
         states.push(ask.shows);
       }
       await expect(window.getByTestId("proposals-count")).toHaveCount(0);
+
+      // A third change while the Note is in a hidden tab shows in the sidebar's foot with Open.
+      await pointAndClick(
+        window,
+        window.locator(`[data-testid="mind-tab"][data-mind-id="${fieldNotes}"]`),
+      );
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", fieldNotes ?? "");
+      const thirdShows = [
+        "Tides turn twice a day.",
+        RANGE,
+        "Neap tides come at the quarter moons.",
+      ];
+      const thirdDone = structured<{ status: string; version: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version,
+            changes: [{ paragraph: "¶1", text: "Tides turn twice a day." }],
+          },
+        }),
+      );
+      expect(thirdDone.status).toBe("applied");
+      states.push(thirdShows);
+      await expect(line.getByTestId("status-label")).toHaveText(
+        "Claude Code changed 1 paragraph in “Tide report”",
+      );
       await motionSettled(window);
       await shot(window, "agent-note-changed-en");
 
@@ -210,6 +234,15 @@ test("a Note the agent writes opens behind the one being typed in, and ⌘Z take
       await motionSettled(window);
       await shot(window, "agent-note-changed-en-narrow");
       await setWindowSize(app, window, 1440, 900);
+
+      // Opening the hidden tab shows the inline line for its change and hides the sidebar notice.
+      await pointAndClick(window, line.getByTestId("agent-note-open"));
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
+      await expect(line).toBeHidden();
+      await expect(paragraphsOf(window)).toHaveText(thirdShows);
+      await expect(inlineLine.getByTestId("applied-count")).toHaveText(
+        "Changed the paragraph “Tides turn twice a day.”",
+      );
 
       // ⌘Z in the Note, which holds no step of the User's, takes the changes back last first.
       await pointAndClick(window, paragraphsOf(window).first());

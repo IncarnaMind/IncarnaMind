@@ -34,6 +34,8 @@ import { type MessageKey, translate } from "../../../shared/i18n";
 import { versionsWithLibrary } from "../../../shared/libraryFacts";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
+import { takeClosedAgentChange } from "../agentNotes";
+import { showClosedAgentLine, syncHeldOutsideProposals } from "../appliedEdits";
 import { askedInThisWindow } from "../askedChanges";
 import { checkSentences, useChecks } from "../checks";
 import {
@@ -55,7 +57,7 @@ import { core } from "../core";
 import { AnalysisTableView } from "../editor/AnalysisTableView";
 import { AnswerView } from "../editor/AnswerView";
 import { holdsAiText } from "../editor/aiText";
-import { AppliedEditLine } from "../editor/appliedEditLine";
+import { AppliedEditLine, appliedLineIn } from "../editor/appliedEditLine";
 import { BlockHandle } from "../editor/BlockHandle";
 import { BlockCommands } from "../editor/blockCommands";
 import { BlockOrigins } from "../editor/blockOrigins";
@@ -925,10 +927,23 @@ function MindEditorView({
     if (!editor.isDestroyed) redrawFootnotes(editor.view);
   }, [editor, documents, keptCitationTexts]);
 
-  useEffect(
-    () => (readOnly ? undefined : registerMindEditor(mindId, editor)),
-    [editor, mindId, readOnly],
-  );
+  useEffect(() => {
+    if (readOnly) return;
+    const unregister = registerMindEditor(mindId, editor);
+    if (appliedLineIn(editor.state) === null) {
+      const closed = takeClosedAgentChange(mindId);
+      if (closed) showClosedAgentLine(editor, closed.change, closed.undoable);
+    }
+    syncHeldOutsideProposals(mindId, editor);
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (transaction.docChanged) syncHeldOutsideProposals(mindId, editor);
+    };
+    editor.on("transaction", onTransaction);
+    return () => {
+      editor.off("transaction", onTransaction);
+      unregister();
+    };
+  }, [editor, mindId, readOnly]);
   useEffect(() => {
     if (!editor.isDestroyed) resumeTabCloseFocus();
   }, [editor]);

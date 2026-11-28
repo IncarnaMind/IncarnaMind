@@ -1872,11 +1872,12 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(read).not.toContain(translate("en", "agents.mind.yours"));
   });
 
-  // protects=a change that waits reads as waiting, to the run that made it and to an outside agent over the connection, as before; fails_when=a waiting change reads as in the Note
-  it("reads a change that waits as waiting, here, in another Note and to an outside agent", async () => {
+  // protects=a change that waits reads as waiting (beyond selection in a Note's conversation, or in another User Note from a Note's conversation), while an outside-app change applies at once (#3839); fails_when=a waiting change reads as applied or an outside-app change still waits
+  it("reads a change that waits as waiting, here and in another Note from a conversation, while outside-app changes apply at once", async () => {
     const results: { status: string; markdown: string }[] = [];
+    let targetOther: string | null = null;
     const run = runner(async (agent, request) => {
-      const mindId = mindIdOf(request);
+      const mindId = targetOther ?? mindIdOf(request);
       const read = structured<{ version: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
       );
@@ -1887,7 +1888,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
             arguments: {
               mindId,
               version: read.version,
-              changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+              changes: [{ paragraph: targetOther ? "¶1" : "¶2", text: "Fares rose by a tenth." }],
             },
           }),
         ),
@@ -1906,7 +1907,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(results[0]?.status).toBe("waiting");
     expect(results[0]?.markdown).toContain(`¶2 ${waiting}`);
     expect(results[0]?.markdown).not.toContain(translate("en", "agents.mind.yours"));
-    // An outside agent over the connection, in the other Note: it waits, as before.
+    // From this Note's conversation, editing a different User Note still waits (#3839 D5).
+    targetOther = otherId;
+    await core.askInNote({ mindId, words: "update the other note too" });
+    await ended(2);
+    expect(results[1]?.status).toBe("waiting");
+    expect(results[1]?.markdown).toContain(`¶1 ${waiting}`);
+    // Over the outside-app connection, a non->50% edit to another User Note applies at once (#3839).
     const agent = await connectLegacyAgent(claude.launch);
     const read = structured<{ version: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: otherId, named: true } }),
@@ -1917,12 +1924,12 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
         arguments: {
           mindId: otherId,
           version: read.version,
-          changes: [{ paragraph: "¶1", text: "Fares rose by a tenth." }],
+          changes: [{ paragraph: "¶1+", text: "Fares rose by a tenth." }],
         },
       }),
     );
-    expect(outside.status).toBe("waiting");
-    expect(outside.markdown).toContain(`¶1 ${waiting}`);
+    expect(outside.status).toBe("applied");
+    expect(outside.markdown).toContain("Fares rose by a tenth.");
   });
 
   // protects=one conversation per Note: the first request starts it under an id IncarnaMind makes, every later one continues it in the same working folder; a conversation the agent no longer has starts anew once, and says so; fails_when=a follow-up starts a new conversation, or a cleared one fails the request

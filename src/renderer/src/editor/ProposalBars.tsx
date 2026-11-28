@@ -167,9 +167,10 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       const agents: Agents = { names: [], only: true };
       const line = appliedLineIn(current.state);
       // An edit held back has its own line.
-      const ownLine = line?.kind === "held" ? line.request : null;
+      const ownLine =
+        line?.kind === "held" ? new Set(line.asked?.requests ?? [line.request]) : null;
       for (const each of pendingIn(current.state)) {
-        if (each.request === ownLine) continue;
+        if (ownLine?.has(each.request)) continue;
         if (each.theirs) {
           const author = theirChange(current, each)?.author ?? null;
           theirs.count++;

@@ -8402,6 +8402,8 @@ export const zhCN = {
   "agents.propose.version": "给出 read_mind 加 named 时返回的 version。",
   "agents.propose.outsideSelection":
     "它在笔记里等用户确认：改动超出了用户选中的文字。只改这些文字的修改单独调用一次，就会直接生效。",
+  "agents.propose.heldMostText":
+    "它在笔记里等用户确认：这会改写用户自己写的大部分内容，由用户选择应用或放弃。",
   "agents.propose.ownOutsideSelection":
     "{paragraph} 已有你在本次请求中对用户选中文字的修改，请求结束后写入笔记。超出这些文字的修改要等用户确认，不能替换它：只改选中的文字，单独调用一次。",
   "agents.propose.firstAdd":
@@ -8664,7 +8666,7 @@ export const zhCN = {
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
-    "它写的笔记立即出现；它对演示文稿提出的修改要等你确认。IncarnaMind 只读取它指明或提交的文件。",
+    "它新建的笔记和对笔记的修改都会立即出现。对演示文稿的修改要等你确认。IncarnaMind 只读取它指明或提交的文件。",
   "agents.connect.reads.all": "它可以读取你的全部文档和笔记，读到的内容会发给它的 AI 模型。",
   "agents.connect.reads.later": "也包括你以后添加的文档和笔记。",
   "agents.connect.reads": "读到的内容会发给它的 AI 模型。",
@@ -9214,10 +9216,6 @@ export const zhCN = {
     "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
   "agents.ask.request.fixWordNoteAll":
     "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里逐一改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
-  "agents.ask.request.fixWordNoteWaits":
-    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里提出改正，其他内容不要改动。这篇笔记是我的，你的修改要等我接受，而 Word 文件不会写入待处理的修改：请告诉我这一点，等我接受后，再用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
-  "agents.ask.request.fixWordNoteAllWaits":
-    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里逐一提出改正，其他内容不要改动。这篇笔记是我的，你的修改要等我接受，而 Word 文件不会写入待处理的修改：请告诉我这一点，等我接受后，再用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
   "agents.ask.request.wordFolder": "，保存时带上 folderId {folderId}",
   "agents.ask.request.wordNote":
     "我这条消息说的是在 IncarnaMind 中从我的笔记{title}生成的 Word 文件（第 {version} 版，mindId：{mindId}）。",
@@ -9245,13 +9243,13 @@ export const zhCN = {
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。最后告诉我哪些句子需要留意。",
   "agents.ask.line.selection.explain": "关于我在 IncarnaMind 中的笔记{title}：解释{quote}。",
   "agents.ask.line.selection.improve":
-    "关于我在 IncarnaMind 中的笔记{title}：润色{quote}，作为修改写进笔记，由我确认。",
+    "关于我在 IncarnaMind 中的笔记{title}：润色{quote}，直接改到笔记里。",
   "agents.ask.line.selection.shorten":
-    "关于我在 IncarnaMind 中的笔记{title}：精简{quote}，作为修改写进笔记，由我确认。",
+    "关于我在 IncarnaMind 中的笔记{title}：精简{quote}，直接改到笔记里。",
   "agents.ask.line.selection.translate":
-    "关于我在 IncarnaMind 中的笔记{title}：把{quote}翻译为 {language}，作为修改写进笔记，由我确认。",
+    "关于我在 IncarnaMind 中的笔记{title}：把{quote}翻译为 {language}，直接改到笔记里。",
   "agents.ask.line.selection.translateAny":
-    "关于我在 IncarnaMind 中的笔记{title}：翻译{quote}，作为修改写进笔记，由我确认。",
+    "关于我在 IncarnaMind 中的笔记{title}：翻译{quote}，直接改到笔记里。",
   "agents.ask.line.selection.edit":
     "关于我在 IncarnaMind 中的笔记{title}里的{quote}：\n\n{instruction}",
   "agents.ask.line.selection.ask": "关于我在 IncarnaMind 中的文档{document}里的{quote}：",

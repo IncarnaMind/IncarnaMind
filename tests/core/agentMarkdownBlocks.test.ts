@@ -90,8 +90,8 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=each block a model writes, at the top, in the middle, at the end or in a paragraph's place, waits as that block and lands as it once accepted, and rejecting it leaves the Note as it was; fails_when=a heading or list lands as a paragraph with its Markdown marks, or "¶0+" can't add at the top of a Note with paragraphs
-  it("from an outside agent, waits as the block it means and lands as it", async () => {
+  // protects=each block a model writes, at the top, in the middle, at the end or in a paragraph's place, applies as that block at once and Undo leaves the Note as it was (#3747, #3839); fails_when=a heading or list lands as a paragraph with its Markdown marks, or "¶0+" can't add at the top of a Note with paragraphs
+  it("from an outside agent, lands as the block it means and Undo restores the Note", async () => {
     const { core } = await startAgentsCore(replyingModel());
     await core.setAgentsEnabled(true);
     const { launch } = await core.connectAgent({
@@ -100,6 +100,10 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
       propose: true,
     });
     const agent = await connectLegacyAgent(launch);
+    const steps: string[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.kind === "changed" && change.step) steps.push(change.step);
+    });
     for (const [kind, markdown, node] of KINDS) {
       for (const [place, name, after] of PLACES) {
         const mind = await core.createMind({ title: "Ferry notes" });
@@ -110,20 +114,24 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
         expect(result.isError ?? false, `${kind} ${place}: ${result.content?.[0]?.text}`).toBe(
           false,
         );
-        expect(result.structuredContent?.status).toBe("waiting");
+        expect(result.structuredContent?.status).toBe("applied");
         await client.settled();
-        expect(waitingChanges(client.blocks)).toBeGreaterThan(0);
-        expect(await decided(client, "accept"), `${kind} ${place}`).toEqual(expected(node, after));
+        expect(waitingChanges(client.blocks)).toBe(0);
+        expect(shape(readMind(client).toJSON()), `${kind} ${place}`).toEqual(expected(node, after));
       }
     }
-    // Rejected, a paragraph put in a block's place is back as it was.
+    // Undone, a paragraph put in a block's place is back as it was.
+    steps.length = 0;
     const mind = await core.createMind({ title: "Ferry notes" });
     const client = await connectToMind(core, mind.id);
     writeMind(client, [note(P1), note(P2), note(P3)]);
     await client.settled();
     await proposeTo(agent, mind.id, "¶2", "## Why it is late\n\n- The vans load first");
     await client.settled();
-    expect(await decided(client, "reject")).toEqual(["p:1", "p:2", "p:3"]);
+    expect(steps).toHaveLength(1);
+    expect(await core.undoAgentChange(steps[0] ?? "")).toBe("done");
+    await client.settled();
+    expect(shape(readMind(client).toJSON())).toEqual(["p:1", "p:2", "p:3"]);
   }, 300_000);
 
   // protects=a title over a paragraph, written in that paragraph's place, lands as a heading and the paragraph, its Citation kept; in a Note with a title, "¶0+" adds under it; fails_when=the title lands as "# …" words
@@ -172,12 +180,9 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
     ]);
     await client.settled();
     await proposeTo(agent, mind.id, "¶1+", "## First");
-    await proposeTo(agent, mind.id, "¶1+", "## Second");
-    await proposeTo(agent, mind.id, "¶2+", "- Late on Mondays");
-    await proposeTo(agent, mind.id, "¶2+", "- Full café");
-    await client.settled();
-    const json = readMind(client).toJSON();
-    client.doc.transact(() => decideProposals(client.blocks, () => true, "accept"), "user");
+    await proposeTo(agent, mind.id, "¶2+", "## Second");
+    await proposeTo(agent, mind.id, "¶4+", "- Late on Mondays");
+    await proposeTo(agent, mind.id, "¶5+", "- Full café");
     await client.settled();
     const after = readMind(client).toJSON();
     const text = (node: JSONContent): string =>
@@ -189,7 +194,7 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
       `${P2} Late on Mondays Full café`,
       P3,
     ]);
-    expect(json.content?.length).toBeGreaterThan(3);
+    expect(after.content?.length).toBeGreaterThan(3);
   }, 60_000);
 
   // protects=a paragraph with the User's Citation and footnote, rewritten as a heading and a list that keep them by handle, lands as those blocks with the same Citation and footnote; a handle the Markdown would turn into code is refused; fails_when=the rewrite is refused, or the Citation or footnote is lost or changed

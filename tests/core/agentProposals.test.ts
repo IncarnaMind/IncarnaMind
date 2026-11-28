@@ -97,6 +97,7 @@ interface Named {
 }
 
 interface Proposed {
+  status: "applied" | "waiting";
   waiting: number;
   citations: { cite: string; check: string; changed: boolean; document: string | null }[];
   uncited: string[];
@@ -296,9 +297,13 @@ describe("an outside agent's proposed changes (#352)", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=an empty Note can receive its first cited paragraphs once and the User decides whether to keep them; fails_when=the first addition is refused, repeated, or written without review
-  it("adds the first paragraphs to a blank Note once, for the User to accept", async () => {
-    const { agent, mind, client } = await pairedWithNote([paragraph("")]);
+  // protects=an empty Note receives its first cited paragraphs at once and Undo restores it (#3839); fails_when=the first addition is refused, leaves proposals waiting, or cannot be undone
+  it("adds the first paragraphs to a blank Note at once and Undo restores it", async () => {
+    const { core, agent, mind, client } = await pairedWithNote([paragraph("")]);
+    const steps: string[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.kind === "changed" && change.step) steps.push(change.step);
+    });
     const { version } = await readNamed(agent, mind.id);
     const cite = await tokenFor(agent, "spring tides new moon", SPRING);
     const propose = () =>
@@ -311,16 +316,18 @@ describe("an outside agent's proposed changes (#352)", () => {
         },
       });
     expect(structured<Proposed>(await propose())).toMatchObject({
-      waiting: 1,
+      status: "applied",
+      waiting: 0,
       citations: [expect.objectContaining({ check: "found" })],
     });
-    expect(refusal(await propose())).toContain("already waiting");
+    expect(refusal(await propose())).toContain("Your own change");
     await client.settled();
-    expect(pendingProposals(client.blocks)).toHaveLength(1);
-    expect(await asItReads(agent, mind.id)).not.toContain("Spring tides");
-    decide(client, undoOf(client), () => true, "accept");
-    await client.settled();
+    expect(pendingProposals(client.blocks)).toEqual([]);
     expect(await asItReads(agent, mind.id)).toContain("Spring tides");
+    expect(steps).toHaveLength(1);
+    expect(await core.undoAgentChange(steps[0] ?? "")).toBe("done");
+    await client.settled();
+    expect(await asItReads(agent, mind.id)).not.toContain("Spring tides");
   });
 
   it("read the Note with each paragraph named, Citations as tokens and a version", async () => {
@@ -346,7 +353,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect((await readNamed(agent, mind.id)).version).toBe(named.version);
   });
 
-  it("propose a rewrite, new paragraphs and a removal: they wait, marked with the agent's name, and accept, reject and Undo work", async () => {
+  it("propose a >50% rewrite, new paragraphs and a removal: they wait held, marked with the agent's name, and accept, reject and Undo work", async () => {
     const { core, agent, mind, client, pairing } = await pairedWithNote([
       heading("Tides"),
       paragraph("Tides rise twice a day."),
@@ -355,6 +362,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     ]);
     const spring = await tokenFor(agent, "spring tides new moon", SPRING);
     const { version } = await readNamed(agent, mind.id);
+    // Rewriting >50% of the User's own text holds the batch for Apply / Discard (#3839).
     const proposed = structured<Proposed>(
       await agent.callTool({
         name: "propose_changes",
@@ -363,22 +371,24 @@ describe("an outside agent's proposed changes (#352)", () => {
           version,
           changes: [
             { paragraph: "¶1", text: `Spring tides come twice a month ${spring}.` },
+            { paragraph: "¶2", text: "- Harbour ferries cross all winter." },
             { paragraph: "¶3+", text: "- King tides are the biggest of the year." },
             { paragraph: "¶4", remove: true },
           ],
         },
       }),
     );
+    expect(proposed.status).toBe("waiting");
     expect(proposed.citations).toEqual([
       expect.objectContaining({ cite: spring, check: "found", document: "Tides", changed: false }),
     ]);
-    expect(proposed.uncited).toEqual(["King tides are the biggest of the year."]);
+    expect(proposed.uncited).toContain("King tides are the biggest of the year.");
     await client.settled();
 
-    // Waiting, not written: the Note reads as it was, and every change is the agent's.
+    // Waiting, not written: the Note reads as it was, and every change is the agent's and marked held.
     const waiting = pendingProposals(client.blocks);
     expect(proposed.waiting).toBe(waiting.length);
-    expect(waiting.length).toBeGreaterThanOrEqual(3);
+    expect(waiting.length).toBeGreaterThanOrEqual(4);
     const requests = new Set(waiting.map((each) => each.request));
     expect(requests.size).toBe(1);
     const [request] = [...requests];
@@ -386,6 +396,7 @@ describe("an outside agent's proposed changes (#352)", () => {
       source: "outside-agent",
       agent: "Claude Code",
       pairingId: pairing.id,
+      held: true,
     });
     const before = await asItReads(agent, mind.id);
     expect(before).toContain("Tides rise twice a day.");
@@ -561,7 +572,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     const elsewhere = await core.createMind({ title: "Costs", folderId: finance.id });
     const propose = async (mindId: string, version: string, changes: object[]) =>
       agent.callTool({ name: "propose_changes", arguments: { mindId, version, changes } });
-    const rewrite = [{ paragraph: "¶1", text: "Tides rise and fall twice a day." }];
+    const rewrite = [{ paragraph: "¶1", text: "Harbour ferries cross every hour all winter." }];
     const { version } = await readNamed(agent, mind.id);
 
     expect(refusal(await propose(mind.id, version, rewrite))).toBe(
@@ -569,6 +580,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     );
     expect(pendingProposals(client.blocks)).toEqual([]);
     await core.updateAgent(pairing.id, { propose: true });
+    // Over 50% of the User's own text is rewritten, so the change waits in ¶1 (#3839).
     expect(structured<Proposed>(await propose(mind.id, version, rewrite)).waiting).toBe(1);
 
     // A Note outside its Folders is no Note it can name, read or change.
@@ -628,8 +640,11 @@ describe("an outside agent's proposed changes (#352)", () => {
     );
     const fresh = await readNamed(agent, mind.id);
     expect(fresh.markdown).toContain("¶2 Very Neap tides are small.");
-    // Two changes in it: "Very" goes, and "small" becomes "the smallest".
-    expect(structured<Proposed>(await propose(mind.id, fresh.version, late)).waiting).toBe(2);
+    // Small edit to ¶2 applies at once, so count in activity is null and status is applied (#3839).
+    expect(structured<Proposed>(await propose(mind.id, fresh.version, late))).toMatchObject({
+      status: "applied",
+      waiting: 0,
+    });
 
     const activity = await core.listAgentActivity(pairing.id);
     expect(
@@ -649,7 +664,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect(activity.find((each) => each.tool === "propose_changes")).toMatchObject({
       outcome: "done",
       summary: "Field notes",
-      count: 2,
+      count: null,
       effects: [
         { action: "read", scope: { kind: "documents" } },
         { action: "write", scope: { kind: "mind", mindId: mind.id } },
@@ -757,19 +772,21 @@ describe("an outside agent's proposed changes (#352)", () => {
       paragraph("Neap tides are small."),
     ]);
     const { version } = await readNamed(agent, mind.id);
-    structured<Proposed>(
+    // Rewriting >50% of User text holds both proposals so out-of-date detection can be verified.
+    const held = structured<Proposed>(
       await agent.callTool({
         name: "propose_changes",
         arguments: {
           mindId: mind.id,
           version,
           changes: [
-            { paragraph: "¶1", text: "Tides rise two times a day." },
-            { paragraph: "¶2", text: "Neap tides are the smallest." },
+            { paragraph: "¶1", text: "Harbour ferries cross hourly." },
+            { paragraph: "¶2", text: "Winter storms close the pier." },
           ],
         },
       }),
     );
+    expect(held.status).toBe("waiting");
     await client.settled();
     const [first, second] = pendingProposals(client.blocks);
     expect(outOfDateProposals(client.blocks)).toEqual(new Set());
@@ -943,26 +960,28 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect(citationsIn(client)).toHaveLength(1);
   });
 
-  it("are tracked under the agent's name in a Word export, and IncarnaMind's own changes under its own", async () => {
+  it("are tracked under the agent's name in a Word export when waiting, and IncarnaMind's own changes under its own", async () => {
     const { core, agent, mind, client } = await pairedWithNote([
       paragraph("Tides rise twice a day."),
     ]);
     const { version } = await readNamed(agent, mind.id);
-    structured<Proposed>(
+    // Rewriting >50% holds the proposal so Word export tracks it under the agent's name.
+    const held = structured<Proposed>(
       await agent.callTool({
         name: "propose_changes",
         arguments: {
           mindId: mind.id,
           version,
-          changes: [{ paragraph: "¶1", text: "Tides rise two times a day." }],
+          changes: [{ paragraph: "¶1", text: "Harbour ferries cross hourly." }],
         },
       }),
     );
+    expect(held.status).toBe("waiting");
     await client.settled();
     const exported = await core.exportMind(mind.id, { format: "docx" });
     const document = unzip(exported.data).get("word/document.xml")?.toString("utf8") ?? "";
-    expect(document).toMatch(/<w:del [^>]*w:author="Claude Code"[^>]*>.*twice/);
-    expect(document).toMatch(/<w:ins [^>]*w:author="Claude Code"[^>]*>.*two times/);
+    expect(document).toMatch(/<w:del [^>]*w:author="Claude Code"[^>]*>.*Tides/);
+    expect(document).toMatch(/<w:ins [^>]*w:author="Claude Code"[^>]*>.*Harbour/);
     expect(document).not.toContain('w:author="IncarnaMind"');
   });
 
@@ -1157,9 +1176,8 @@ describe("an outside agent's proposed changes (#352)", () => {
       }),
     );
     await client.settled();
-    // One change, the words it adds: "[sic]" and the tag the User typed are left as they were.
-    expect(pendingProposals(client.blocks)).toHaveLength(1);
-    decide(client, undoOf(client), () => true, "accept");
+    // Applied at once: "[sic]" and the tag the User typed are left as they were.
+    expect(pendingProposals(client.blocks)).toEqual([]);
     expect(readMind(client).textContent).toBe(
       "See [sic] here, and the <removed> tag I typed, again.",
     );
@@ -1276,13 +1294,33 @@ describe("an outside agent's proposed changes (#352)", () => {
     );
     // A Citation kept by its handle, or added by another of its changes, cites; a heading or a
     // cell makes no claim.
-    expect(pendingProposals(client.blocks).length).toBeGreaterThanOrEqual(6);
+    // Check barUncited still matches on a held >50% rewrite where proposals wait in the editor.
+    expect(proposed.status).toBe("applied");
     expect(proposed.uncited).toEqual([
       "The moon is made of green cheese.",
       "Harbour walls flood in winter storms.",
     ]);
     await client.settled();
-    expect(barUncited(client)).toEqual(proposed.uncited);
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    const again = await readNamed(codex, mind.id);
+    const held = structured<Proposed>(
+      await codex.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: again.version,
+          changes: [
+            { paragraph: "¶1", text: "Unverified winter storms close every harbour." },
+            { paragraph: "¶2", text: "Unverified ferry schedule." },
+            { paragraph: "¶3", text: "Unverified pier closing." },
+            { paragraph: "¶4", text: "Unverified night sailings." },
+          ],
+        },
+      }),
+    );
+    expect(held.status).toBe("waiting");
+    await client.settled();
+    expect(barUncited(client)).toEqual(held.uncited);
   });
 
   it("are refused, with nothing written, when a token sits where it would be read as a formula, or a table makes no table", async () => {
@@ -1348,7 +1386,7 @@ describe("an outside agent's proposed changes (#352)", () => {
           name: "propose_changes",
           arguments: { mindId: mind.id, version, changes },
         }),
-      ).waiting,
-    ).toBeGreaterThan(0);
+      ).status,
+    ).toBe("applied");
   });
 });

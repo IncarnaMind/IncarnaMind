@@ -1064,25 +1064,25 @@ describe("handing the User's own AI the words they selected (#3612)", () => {
     [
       "improve",
       {},
-      `About my note “${TITLE}” in IncarnaMind: improve the writing of “Fuel cost doubled over the year”, as a change in the note for me to review.`,
+      `About my note “${TITLE}” in IncarnaMind: improve the writing of “Fuel cost doubled over the year”, as a change in the note.`,
       `Improve their writing: clearer and easier to read, saying the same thing. ${PROPOSE}`,
     ],
     [
       "shorten",
       {},
-      `About my note “${TITLE}” in IncarnaMind: shorten “Fuel cost doubled over the year”, as a change in the note for me to review.`,
+      `About my note “${TITLE}” in IncarnaMind: shorten “Fuel cost doubled over the year”, as a change in the note.`,
       `Make them shorter, keeping what they say. ${PROPOSE}`,
     ],
     [
       "translate",
       { language: "French (Français)" },
-      `About my note “${TITLE}” in IncarnaMind: translate “Fuel cost doubled over the year” into French (Français), as a change in the note for me to review.`,
+      `About my note “${TITLE}” in IncarnaMind: translate “Fuel cost doubled over the year” into French (Français), as a change in the note.`,
       `Translate them into French (Français). ${PROPOSE}`,
     ],
     [
       "translate",
       {},
-      `About my note “${TITLE}” in IncarnaMind: translate “Fuel cost doubled over the year”, as a change in the note for me to review.`,
+      `About my note “${TITLE}” in IncarnaMind: translate “Fuel cost doubled over the year”, as a change in the note.`,
       `Translate them into the language my message names; if it names none, ask me which. ${PROPOSE}`,
     ],
     [
@@ -1125,7 +1125,7 @@ describe("handing the User's own AI the words they selected (#3612)", () => {
     });
     expect(asked).toEqual({
       kind: "copy",
-      text: `About my note “${TITLE}” in IncarnaMind: shorten “Tallow Sound Ferries ran 2,816 crossings in 202…”, as a change in the note for me to review.`,
+      text: `About my note “${TITLE}” in IncarnaMind: shorten “Tallow Sound Ferries ran 2,816 crossings in 202…”, as a change in the note.`,
     });
     expect(await requestRead(agent, TITLE)).toMatchObject({
       request: selectedRequest(
@@ -1172,7 +1172,7 @@ describe("handing the User's own AI the words they selected (#3612)", () => {
     });
     expect(asked).toEqual({
       kind: "copy",
-      text: `关于我在 IncarnaMind 中的笔记“${TITLE}”：把“燃油成本全年翻了一番”翻译为 English，作为修改写进笔记，由我确认。`,
+      text: `关于我在 IncarnaMind 中的笔记“${TITLE}”：把“燃油成本全年翻了一番”翻译为 English，直接改到笔记里。`,
     });
     expect(await requestRead(agent)).toMatchObject({
       request: `我这条消息说的是我在 IncarnaMind 中的笔记“${TITLE}”（mindId：${mind.id}）。下面是我在笔记里选中的文字，每段一行：\n\n燃油成本全年翻了一番。\n\n请把这段文字翻译为 English。只改这段文字：先用 read_mind（named）读取笔记，再对包含这段文字的每个段落调用 propose_changes，段落其余部分一字不改。笔记的其他内容不要改动。`,

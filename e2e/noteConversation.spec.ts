@@ -1,9 +1,14 @@
 import { chmod, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge, TabItem } from "../src/core/api";
+import * as Y from "yjs";
+import {
+  type CoreBridge,
+  MIND_CONTENT_FIELD,
+  PROPOSAL_INSERT_MARK,
+  type TabItem,
+} from "../src/core/api";
+import { recordProposalRequest, targetHash } from "../src/shared/proposals";
 import {
   acceptPlainTextKeys,
   capture,
@@ -2167,33 +2172,48 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
 
-    // An outside agent's change to the Note's last line waits there.
-    const launch = await window.evaluate(async (folder) => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const made = await bridge.connectAgent({
-        name: "Research assistant",
-        folderIds: [folder],
-        propose: true,
-      });
-      return made.launch;
-    }, folderId);
-    const agent = new Client({ name: "test-agent", version: "1.0.0" });
-    await agent.connect(new StdioClientTransport({ ...launch, stderr: "pipe" }));
-    try {
-      const read = await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } });
-      const { version } = read.structuredContent as { version: string };
-      const proposed = await agent.callTool({
-        name: "propose_changes",
-        arguments: {
-          mindId,
-          version,
-          changes: [{ paragraph: "¶30", text: `${P3} A covered waiting room comes with it.` }],
-        },
-      });
-      expect(proposed.isError ?? false).toBe(false);
-    } finally {
-      await agent.close();
+    // A waiting change to the Note's last line (such as a cross-Note proposal) stands with its bar.
+    const state = await window.evaluate(
+      async (id) =>
+        Array.from(
+          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.openMind(id))
+            .state,
+        ),
+      mindId,
+    );
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, Uint8Array.from(state));
+    const beforeUpdate = Y.encodeStateVector(doc);
+    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    const lastBlock = blocks.get(blocks.length - 1);
+    if (lastBlock instanceof Y.XmlElement) {
+      const text = lastBlock.get(0);
+      if (text instanceof Y.XmlText) {
+        const request = "req-waiting-bar";
+        doc.transact(() => {
+          text.insert(text.length, " A covered waiting room comes with it.", {
+            [PROPOSAL_INSERT_MARK]: { id: "prop-waiting-bar", request, target: targetHash("") },
+          });
+          recordProposalRequest(doc, request, {
+            source: "outside-agent",
+            agent: "Research assistant",
+            pairingId: "pair-wait",
+            createdAt: "2026-11-28T00:00:00.000Z",
+          });
+        });
+      }
     }
+    const update = Array.from(Y.encodeStateAsUpdate(doc, beforeUpdate));
+    doc.destroy();
+    await window.evaluate(
+      async ({ id, bytes }) => {
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.applyMindUpdate(
+          id,
+          Uint8Array.from(bytes),
+        );
+      },
+      { id: mindId, bytes: update },
+    );
     const editor = group.getByTestId("mind-editor");
     const change = editor.locator("ins.proposal-insert").last();
     await expect(change).toContainText("A covered waiting room comes with it.");

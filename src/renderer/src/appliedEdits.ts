@@ -13,6 +13,7 @@ import {
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 import {
+  type AgentNoteChange,
   type AskedChangeApplication,
   type AskedChangeTransition,
   BLOCK_ID_ATTRIBUTE,
@@ -20,10 +21,13 @@ import {
   type EditWithAiResult,
   type LeftOutPart,
   MIND_CONTENT_FIELD,
+  MIND_REVISIONS_FIELD,
+  MIND_TEXT_ORIGINS_FIELD,
   type ProposalRef,
 } from "../../core/api";
 import { checkpointBeforeAccept, waitsForUser } from "../../shared/askedChanges";
 import { originMaps } from "../../shared/blockOrigins";
+import { summarizeProposalChanges } from "../../shared/changeSummary";
 import { fingerprintOfMind } from "../../shared/mindState";
 import {
   aiUseOfAccepted,
@@ -64,6 +68,7 @@ import {
   followStepsInHistory,
   historyOwnerOf,
   keepInSight,
+  type NoteSteps,
   offerEditorUndo,
   offerHistoryUndo,
   onTakenOut,
@@ -151,6 +156,11 @@ type PendingHidden =
       turn?: string;
     }
   | {
+      kind: "applied-line";
+      edit: KeptApplying;
+      line: AppliedLine;
+    }
+  | {
       kind: "held";
       mindId: string;
       requests: readonly string[];
@@ -195,7 +205,10 @@ function followHistory(history: object, editor: Editor | null): void {
     const pending = pendingHidden.get(history);
     if (pending) {
       pendingHidden.delete(history);
-      if (pending.kind === "applied") {
+      if (pending.kind === "applied-line") {
+        pending.edit.editor = next;
+        if (pending.edit.followed?.onTop()) setAppliedLine(next, pending.line);
+      } else if (pending.kind === "applied") {
         pending.edit.editor = next;
         if (pending.edit.followed?.onTop()) {
           const changes = appliedChanges(next.state, anchorChanges(next.state, pending.planned));
@@ -317,7 +330,11 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
   stack.addTrackedOrigin(EDIT_FROM_CORE);
   stack.addTrackedOrigin(AcceptingEdit);
   // A change written over Blocks gives them its origin, which its Undo takes back.
-  stack.addToScope(originMaps(doc));
+  stack.addToScope([
+    ...originMaps(doc),
+    doc.getMap(MIND_TEXT_ORIGINS_FIELD),
+    doc.getMap(MIND_REVISIONS_FIELD),
+  ]);
   const popped = ({ stackItem }: { stackItem: UndoStep }) => {
     if (!edit.steps.includes(stackItem) || latest.get(owner) !== edit) return;
     if (!edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
@@ -849,11 +866,13 @@ export function applyArrived(
   facts: ChangeCounts,
   {
     holds = true,
+    checkpoint = holds,
     application,
     retainHeadless = false,
     turn,
   }: {
     holds?: boolean;
+    checkpoint?: boolean;
     application?: AskedChangeApplication;
     retainHeadless?: boolean;
     turn?: string;
@@ -917,7 +936,7 @@ export function applyArrived(
     edit.followed = followCoreUndo(edit, application, current);
   } else {
     // Checkpoint before the change is sent: FIFO IPC runs it before applyMindUpdate (#3839).
-    if (holds && checkpointBeforeAccept(edit.doc, requests)) {
+    if (checkpoint && checkpointBeforeAccept(edit.doc, requests)) {
       core.saveCheckpoint(mindId, "accept").catch(useAppStore.getState().reportError);
     }
     planned = planChanges(editor.state, requests);
@@ -1002,7 +1021,11 @@ export function applyArrivedInHistory(
   pendingHidden.delete(history);
   history.addTrackedOrigin(EDIT_FROM_CORE);
   history.addTrackedOrigin(AcceptingEdit);
-  history.addToScope(originMaps(doc));
+  history.addToScope([
+    ...originMaps(doc),
+    doc.getMap(MIND_TEXT_ORIGINS_FIELD),
+    doc.getMap(MIND_REVISIONS_FIELD),
+  ]);
   const popped = ({ stackItem }: { stackItem: UndoStep }) => {
     if (!edit.steps.includes(stackItem) || latest.get(history) !== edit) return;
     if (edit.editor && !edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
@@ -1220,4 +1243,215 @@ export function actOnAppliedEdit(editor: Editor, action: AppliedAction): void {
       removeKept(editor);
       return;
   }
+}
+
+function agentChangeFacts(change: AgentNoteChange): ChangeCounts {
+  return {
+    created: false,
+    changed: change.changed,
+    wrote: change.added,
+    tables: change.tables,
+    ...(change.removed && { removed: change.removed }),
+    ...(change.named && { named: change.named }),
+  };
+}
+
+function agentAppliedLine(change: AgentNoteChange): AppliedLine {
+  const facts = agentChangeFacts(change);
+  return {
+    kind: "applied",
+    blockId: change.firstBlockId ?? null,
+    blocks: { paragraphs: change.changed + change.added, tables: change.tables },
+    facts,
+    reason: null,
+    kept: null,
+  };
+}
+
+/**
+ * Shows (or queues for a hidden tab) the inline applied-edit line for an outside agent's edit
+ * captured onto a tab's kept `Y.UndoManager` (#3839).
+ */
+export function showCapturedAgentLine(
+  history: UndoStack,
+  doc: Y.Doc,
+  step: UndoStep,
+  steps: NoteSteps,
+  change: AgentNoteChange,
+): void {
+  const line = agentAppliedLine(change);
+  latest.get(history)?.forget();
+  lineWhenHidden.delete(history);
+  pendingHidden.delete(history);
+  const currentEditor = historyEditor(history);
+  followHistory(history, currentEditor);
+  const clear = () => {
+    if (latest.get(history) !== edit) return;
+    if (edit.editor && !edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
+    lineWhenHidden.delete(history);
+    pendingHidden.delete(history);
+  };
+  const popped = ({ stackItem }: { stackItem: UndoStep }) => {
+    if (edit.steps.includes(stackItem)) clear();
+  };
+  const takenOut = (removed: ReadonlySet<UndoStep>) => {
+    if (edit.steps.some((each) => removed.has(each))) clear();
+  };
+  const stopStepWatch = steps.observe(() => {
+    if (!steps.onTop()) clear();
+  });
+  const edit: KeptApplying = {
+    requestId: `agent-own:${change.step ?? ""}`,
+    mindId: change.mindId,
+    editor: currentEditor,
+    kept: history,
+    doc,
+    request: null,
+    drawing: null,
+    steps: [step],
+    more: [],
+    followed: steps,
+    leftOut: [],
+    stopTaking: () => undefined,
+    forget: () => {
+      stopStepWatch();
+      history.off("stack-item-popped", popped);
+      stopTaken();
+      if (latest.get(history) === edit) latest.delete(history);
+    },
+  };
+  history.on("stack-item-popped", popped);
+  const stopTaken = onTakenOut(history, takenOut);
+  latest.set(history, edit);
+  lastApplied.set(history, edit);
+  if (currentEditor && !currentEditor.isDestroyed) {
+    setAppliedLine(currentEditor, line);
+  } else {
+    pendingHidden.set(history, { kind: "applied-line", edit, line });
+  }
+}
+
+/**
+ * Draws the inline applied-edit line when opening a Note that an outside agent edited while closed,
+ * wired directly to the core Undo step (`undoable`) so clicking Undo or pressing ⌘Z takes it back
+ * in one step (#3839).
+ */
+export function showClosedAgentLine(
+  editor: Editor,
+  change: AgentNoteChange,
+  undoable: Undoable,
+): void {
+  const edit = beginEdit(editor, change.mindId, `agent-closed:${change.step ?? ""}`);
+  if (!edit) return;
+  const line = agentAppliedLine(change);
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+  let stopped = false;
+  const isOnTop = () => !stopped && !isGone(edit) && useUndo.getState().done.includes(undoable);
+  const clearLine = () => {
+    if (!edit.editor.isDestroyed && lastApplied.get(historyOwnerOf(edit.editor)) === edit) {
+      setAppliedLine(edit.editor, null);
+    }
+    if (edit.kept) lineWhenHidden.delete(edit.kept);
+  };
+  const stopAll = () => {
+    if (stopped) return;
+    stopped = true;
+    stopUndoWatch();
+    edit.doc.off("update", onDocEdit);
+    stopGone();
+    notify();
+  };
+  const onDocEdit = (_update: Uint8Array, origin: unknown) => {
+    if (origin === FROM_CORE || origin === EDIT_FROM_CORE) return;
+    clearLine();
+    stopAll();
+    edit.forget();
+  };
+  const stopUndoWatch = useUndo.subscribe((state) => {
+    if (!state.done.includes(undoable)) {
+      clearLine();
+      stopAll();
+      edit.forget();
+    }
+  });
+  const stopGone = onceGone(edit, stopAll);
+  edit.doc.on("update", onDocEdit);
+  const previousForget = edit.forget;
+  edit.forget = () => {
+    stopAll();
+    previousForget();
+  };
+  edit.followed = {
+    state: () =>
+      isGone(edit) ? "gone" : useUndo.getState().done.includes(undoable) ? "done" : "undone",
+    onTop: isOnTop,
+    add: () => undefined,
+    undo: async () => {
+      if (!isOnTop()) return false;
+      await useUndo.getState().undo(undoable);
+      return true;
+    },
+    observe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  lastApplied.set(historyOwnerOf(editor), edit);
+  setAppliedLine(editor, line);
+}
+
+/**
+ * Restores or shows the held `AppliedEditLine` ("Apply · Discard") whenever a Note holds pending
+ * outside-agent Proposals that were held because they rewrite most of the User's own text,
+ * including after closing and reopening the Note or restarting the app (#3839).
+ */
+export function syncHeldOutsideProposals(mindId: string, editor: Editor): void {
+  if (editor.isDestroyed) return;
+  const current = appliedLineIn(editor.state);
+  if (current !== null && current.kind !== "applied" && current.kind !== "held") return;
+  const doc = editorDoc(editor);
+  if (!doc) return;
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  const pending = pendingProposals(blocks);
+  if (pending.length === 0) return;
+  const seen = new Set<string>();
+  const held: string[] = [];
+  for (const ref of pending) {
+    if (seen.has(ref.request)) continue;
+    seen.add(ref.request);
+    const made = proposalRequestOf(doc, ref.request);
+    if (made?.source !== "outside-agent") continue;
+    if (
+      made.held === true ||
+      (made.requested === "edit" && waitsForUser(doc, new Set([ref.request])))
+    ) {
+      held.push(ref.request);
+    }
+  }
+  if (held.length === 0) return;
+  if (current?.kind === "held") {
+    const shown = new Set(current.asked?.requests ?? [current.request]);
+    if (held.every((request) => shown.has(request))) return;
+  }
+  const heldSet = new Set(held);
+  const first = proposalsIn(editor.state.doc).find((each) => heldSet.has(each.request));
+  if (!first) return;
+  const summary = summarizeProposalChanges(blocks, (ref) => heldSet.has(ref.request));
+  const facts: ChangeCounts = {
+    created: false,
+    changed: summary.changed,
+    wrote: summary.added,
+    tables: summary.tables,
+    ...(summary.removed && { removed: summary.removed }),
+    ...(summary.named && { named: summary.named }),
+  };
+  setAppliedLine(editor, {
+    kind: "held",
+    blockId: topBlockAt(editor.state, first.from),
+    request: first.request,
+    asked: { mindId, requests: held, facts },
+  });
 }

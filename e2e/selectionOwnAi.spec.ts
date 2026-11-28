@@ -220,11 +220,15 @@ test("with only their own AI, the panel never shows, the bar over a selection on
     } finally {
       await agent.close();
     }
-    // Its rewrite of the one paragraph comes word by word, as any agent's does.
-    await expect(window.getByTestId("proposals-count")).toHaveText(/^\d+ changes? waiting$/);
+    // Its rewrite of the one paragraph lands at once with the inline line and Undo (#3839).
+    await expect(
+      paragraph(window, "In April the return fare went up from 14 to 16 pounds."),
+    ).toBeVisible();
+    await expect(frontMind(window).getByTestId("applied-line")).toBeVisible();
+    await expect(window.getByTestId("proposals-count")).toHaveCount(0);
     await expect(asked).toHaveCount(0);
     await expect(paragraph(window, FIRST)).toHaveText(FIRST);
-    await shot(window, "selection-change-waiting-en");
+    await shot(window, "selection-change-applied-en");
 
     // Words asked about again: the line says it was asked; ✕ takes the line away, and the words
     // stay where they were. No field of the bar's asks for what to change.

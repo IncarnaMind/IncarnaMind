@@ -648,6 +648,8 @@ export interface ProposeOptions {
   newId(): string;
   /** Given, a Checkpoint of the Note just before the changes reach it: they apply at once (#3371). */
   checkpoint?(): void;
+  /** True when the change will apply at once even though its Checkpoint is saved on the editor thread (#3839). */
+  allowEmptyTab?: boolean;
   /**
    * The requests of this run whose changes apply once it ends (`NamedOptions.ownPending`): a
    * change to what they added or changed replaces theirs there, so the Note takes its last word.
@@ -1629,7 +1631,7 @@ function writeChanges(
       return made.nodes;
     });
     // A tab is decided with the first Block it holds: an empty one would wait unseen.
-    if (!options.checkpoint && emptyTab(nodes)) {
+    if (!options.checkpoint && !options.allowEmptyTab && emptyTab(nodes)) {
       throw new ChangeRefused("agents.propose.emptyTab", name);
     }
     return { element: anchor?.element ?? null, nodes };

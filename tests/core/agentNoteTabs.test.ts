@@ -7,13 +7,8 @@ import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import {
-  NOTE_TAB_NODE,
-  NOTE_TAB_TITLE_ATTRIBUTE,
-  PICTURE_NODE,
-  PROPOSAL_ATTRIBUTE,
-} from "../../src/core/api";
-import { decideProposals, waitingChanges } from "../../src/shared/proposals";
+import { NOTE_TAB_NODE, NOTE_TAB_TITLE_ATTRIBUTE, PICTURE_NODE } from "../../src/core/api";
+import { waitingChanges } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { paragraphsOf, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
@@ -358,15 +353,11 @@ describe("an agent and a Note with tabs", () => {
           changes: [{ paragraph: "¶2+", text }],
         },
       });
-    // An empty tab would wait where the User never sees it.
-    expect(refusal(await propose(fence("Costs")))).toContain("¶2+");
-
     const proposed = structured<{ status: string; waiting: number; markdown: string }>(
       await propose(`${fence("Costs")}\n\nFuel cost more in the winter.`),
     );
-    expect(proposed).toMatchObject({ status: "waiting", waiting: 1 });
-    // A tab still waiting isn't the User's yet: the Note reads as it is.
-    expect(proposed.markdown).not.toContain("Costs");
+    expect(proposed).toMatchObject({ status: "applied", waiting: 0 });
+    expect(proposed.markdown).toContain("Costs");
     expect(await shapeOf(core, mind.id)).toEqual([
       "tab Summary",
       "heading",
@@ -378,19 +369,6 @@ describe("an agent and a Note with tabs", () => {
     ]);
 
     const client = await connectToMind(core, mind.id);
-    const [added] = client.blocks
-      .toArray()
-      .filter(
-        (block): block is Y.XmlElement =>
-          block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE,
-      )
-      .slice(2);
-    const proposal = added?.getAttribute(PROPOSAL_ATTRIBUTE) as unknown as { id: string };
-    client.doc.transact(() => {
-      decideProposals(client.blocks, (each) => each.id === proposal.id, "accept");
-    }, "user");
-    await client.settled();
-    // Accepting what the User sees of it accepts the tab too.
     expect(waitingChanges(client.blocks)).toBe(0);
     const now = structured<{ markdown: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
@@ -401,12 +379,16 @@ describe("an agent and a Note with tabs", () => {
     ]);
   });
 
-  it("proposes a tab holding only a picture as one change with the picture", async () => {
+  it("applies a tab holding only a picture and Undo takes it out with the picture", async () => {
     const { core, agent, mind } = await paired();
+    const steps: string[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.kind === "changed" && change.step) steps.push(change.step);
+    });
     const read = structured<{ version: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
     );
-    const proposed = structured<{ waiting: number }>(
+    const proposed = structured<{ status: string; waiting: number }>(
       await agent.callTool({
         name: "propose_changes",
         arguments: {
@@ -421,18 +403,12 @@ describe("an agent and a Note with tabs", () => {
         },
       }),
     );
-    expect(proposed.waiting).toBe(1);
+    expect(proposed).toMatchObject({ status: "applied", waiting: 0 });
     const client = await connectToMind(core, mind.id);
     const [tabBlock, picture] = client.blocks.toArray().slice(-2) as Y.XmlElement[];
     expect([tabBlock?.nodeName, picture?.nodeName]).toEqual([NOTE_TAB_NODE, PICTURE_NODE]);
-    const proposalOf = (block: Y.XmlElement | undefined) =>
-      (block?.getAttribute(PROPOSAL_ATTRIBUTE) as unknown as { id: string } | undefined)?.id;
-    const shared = proposalOf(picture);
-    expect(shared).toBeDefined();
-    expect(proposalOf(tabBlock)).toBe(shared);
-    client.doc.transact(() => {
-      decideProposals(client.blocks, (each) => each.id === shared, "reject");
-    }, "user");
+    expect(steps).toHaveLength(1);
+    expect(await core.undoAgentChange(steps[0] ?? "")).toBe("done");
     await client.settled();
     expect(await shapeOf(core, mind.id)).toEqual([
       "tab Summary",
@@ -443,13 +419,17 @@ describe("an agent and a Note with tabs", () => {
     ]);
   });
 
-  it("rejecting a proposed tab takes it out with what it held", async () => {
+  it("undoing an applied tab takes it out with what it held", async () => {
     const { core, agent, mind } = await paired();
+    const steps: string[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.kind === "changed" && change.step) steps.push(change.step);
+    });
     const read = structured<{ version: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
     );
     // Its words may come in the change after it.
-    const proposed = structured<{ waiting: number }>(
+    const proposed = structured<{ status: string; waiting: number }>(
       await agent.callTool({
         name: "propose_changes",
         arguments: {
@@ -462,12 +442,9 @@ describe("an agent and a Note with tabs", () => {
         },
       }),
     );
-    expect(proposed.waiting).toBe(1);
-    const client = await connectToMind(core, mind.id);
-    client.doc.transact(() => {
-      decideProposals(client.blocks, () => true, "reject");
-    }, "user");
-    await client.settled();
+    expect(proposed).toMatchObject({ status: "applied", waiting: 0 });
+    expect(steps).toHaveLength(1);
+    expect(await core.undoAgentChange(steps[0] ?? "")).toBe("done");
     expect(await shapeOf(core, mind.id)).toEqual([
       "tab Summary",
       "heading",
@@ -589,20 +566,25 @@ describe("an agent and a Note with tabs", () => {
     const before = structured<{ version: string; markdown: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
     );
-    structured(
+    // A >50% rewrite with a new tab waits for the User, so untitled tab numbering ignores the waiting tab.
+    const held = structured<{ status: string }>(
       await agent.callTool({
         name: "propose_changes",
         arguments: {
           mindId: mind.id,
           version: before.version,
-          changes: [{ paragraph: "¶1+", text: `${fence("Costs")}\n\nFuel cost more.` }],
+          changes: [
+            { paragraph: "¶1", text: "Winter ferries crossed the sound hourly." },
+            { paragraph: "¶1+", text: `${fence("Costs")}\n\nFuel cost more.` },
+          ],
         },
       }),
     );
+    expect(held.status).toBe("waiting");
     const waiting = structured<{ markdown: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
     );
-    expect(waiting.markdown).toBe(before.markdown);
+    expect(waiting.markdown).not.toContain(fence("Costs"));
     expect(waiting.markdown).toContain(fence("Tab 2"));
   });
 

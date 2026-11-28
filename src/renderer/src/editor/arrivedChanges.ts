@@ -17,6 +17,7 @@ import * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
   MIND_CONTENT_FIELD,
+  MIND_PROPOSAL_REQUESTS_FIELD,
   MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
@@ -28,11 +29,13 @@ import { markMindCheckUncheckedBlocks } from "../../../shared/mindCheck";
 import {
   outsideProposalBlockIds,
   pendingProposals,
+  proposalRequestOf,
   type ResolvedProposal,
   readProposalAttribute,
   resolveProposals,
 } from "../../../shared/proposals";
 import { nameOlderCitations } from "../../../shared/signOffs";
+import { setTextOrigin } from "../../../shared/textOrigins";
 import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
@@ -353,13 +356,31 @@ export function writeAccepted(
     }, aside);
     // Setting the changes aside gave the Blocks they were written over their earlier origins back;
     // accepted, those Blocks keep the change's.
+    const agents = resolved
+      .filter((each) => proposalRequestOf(doc, each.request)?.source === "outside-agent")
+      .flatMap((each) => each.blockIds);
     doc.transact(() => {
       writeAs(doc, blocks, accepted, schema);
       copyOrigins(scratch, doc);
+      if (agents.length > 0) setTextOrigin(doc, agents, "outside-agent");
     }, tracked);
-    if (touched.size > 0 && resolved.length > 0) {
+    if (resolved.length > 0) {
       doc.transact(() => {
-        markMindCheckUncheckedBlocks(doc.getMap(MIND_SETTINGS_FIELD), touched);
+        if (touched.size > 0) {
+          markMindCheckUncheckedBlocks(doc.getMap(MIND_SETTINGS_FIELD), touched);
+        }
+        const requestMap = doc.getMap<unknown>(MIND_PROPOSAL_REQUESTS_FIELD);
+        const counts = new Map<string, number>();
+        for (const each of resolved) counts.set(each.request, (counts.get(each.request) ?? 0) + 1);
+        for (const [request, count] of counts) {
+          const made = requestMap.get(request);
+          if (typeof made !== "object" || made === null) continue;
+          const before = (made as Record<string, unknown>).accepted;
+          requestMap.set(request, {
+            ...made,
+            accepted: (typeof before === "number" ? before : 0) + count,
+          });
+        }
       }, aside);
     }
     return resolved;

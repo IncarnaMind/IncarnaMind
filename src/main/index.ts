@@ -69,6 +69,7 @@ import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
 import { watchSummaryClosing } from "./meetings/summaryClosing";
 import { installAppMenu } from "./menu";
 import { createSystemNotifications } from "./notifications";
+import { createOpenNoteEditor } from "./openNoteEditor";
 import { chooseExecutor, createElectronAdapters, homeFolder, systemBrowser } from "./platform";
 import { acquireInstance } from "./singleInstance";
 import {
@@ -671,8 +672,14 @@ app.whenReady().then(async () => {
     if (held) throw held;
     const adapters = await createElectronAdapters(logger);
     logger.info("app.startup.adaptersReady");
+    const openNoteEditor = createOpenNoteEditor({
+      windows: appWindows,
+      trusted: isFromOurRenderer,
+      log: logger,
+    });
     core = createCore({
       ...adapters,
+      agents: { ...adapters.agents, openNoteEditor },
       notifications: createSystemNotifications(appWindows),
       ...callWatching(),
       loginItem: systemLoginItems

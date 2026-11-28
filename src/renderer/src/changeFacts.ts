@@ -5,18 +5,13 @@
  * counts always agree (#880). What was done counts by paragraph (#1028); what still waits counts
  * changes, as the Mind's bar and its change card do (#1358).
  */
-import type { FiguresLeftOut, RemovedParagraphs } from "../../core/api";
+import type { FiguresLeftOut, NamedChange, RemovedParagraphs } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { ChangedMind } from "./changedMinds";
 
-type Translate = (key: MessageKey, params?: MessageParams) => string;
+export type { NamedChange };
 
-/** The one paragraph a change came to, named by its label or opening words (`paragraphStart`). */
-export interface NamedChange {
-  start: string;
-  /** Written whole, the User's kept, not changed where it stands. */
-  added: boolean;
-}
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /** What was done in one Mind: paragraphs changed, paragraphs written in whole Blocks, tables and charts added. */
 export interface ChangeCounts {

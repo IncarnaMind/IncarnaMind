@@ -195,8 +195,8 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
     expect(said).toEqual(Array(3).fill("Changed the note “Tide report”"));
   });
 
-  // protects=a Note the User wrote stays theirs: an agent's changes there wait, and it learns how many; fails_when=a change to the User's Note applies, or the count leaves out earlier ones
-  it("wait in a Note the User wrote, as before, saying how many wait in all", async () => {
+  // protects=outside-app changes to a Note the User wrote apply at once with Checkpoints and 1-step Undo, while next stays null (own-only check boundary, #3839); fails_when=a change waits, leaves no Checkpoint, or asks the agent to run check_mind_yourself on the User's Note
+  it("land at once in a Note the User wrote too, with Checkpoints, Undo, and next kept null", async () => {
     const { core, agent, coast, told } = await paired();
     const mind = await core.createMind({ title: "", folderId: coast.id });
     const client = await connectToMind(core, mind.id);
@@ -204,22 +204,27 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
     await client.settled();
 
     let { version } = await readNamed(agent, mind.id);
-    const counts: number[] = [];
+    const states = [linesOf(client)];
     for (const changes of [
       [{ paragraph: "¶1", text: "Tides rise and fall twice a day." }],
       [{ paragraph: "¶2+", text: "Neap tides come at the quarter moons." }],
       [{ paragraph: "¶2", text: "The range changes through the month." }],
     ]) {
       const done = structured<Proposed>(await change(agent, mind.id, version, changes));
-      expect(done).toMatchObject({ status: "waiting", waiting: 1, next: null });
-      counts.push(done.waitingInNote);
+      expect(done).toMatchObject({ status: "applied", waiting: 0, waitingInNote: 0, next: null });
       ({ version } = done);
+      await expect.poll(() => linesOf(client)).not.toEqual(states.at(-1));
+      states.push(linesOf(client));
     }
-    expect(counts).toEqual([1, 2, 3]);
-    await expect
-      .poll(() => new Set(pendingProposals(client.blocks).map((each) => each.request)).size)
-      .toBe(3);
-    expect(told).toEqual([]);
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    const { checkpoints } = await core.listCheckpoints(mind.id);
+    expect(checkpoints.filter((each) => each.reason === "accept")).toHaveLength(3);
+    const steps = told.flatMap((each) => (each.kind === "changed" && each.step ? [each.step] : []));
+    expect(steps).toHaveLength(3);
+    for (const [index, step] of [...steps.entries()].reverse()) {
+      expect(await core.undoAgentChange(step)).toBe("done");
+      await expect.poll(() => linesOf(client)).toEqual(states[index]);
+    }
   });
 
   // protects=the User's own words in the agent's Note stay theirs and are never overwritten unseen; fails_when=read_mind doesn't say whose they are, a change built before them lands, or the refusal blames the agent
@@ -270,8 +275,8 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
     );
   });
 
-  // protects=a copy of the agent's Note is the User's, so its changes never land there unasked; fails_when=the copied writer record makes the copy's changes apply at once
-  it("waits in a copy the User made of its Note", async () => {
+  // protects=a copy of the agent's Note is no longer the agent's own (no User marks, next stays null), while outside-app edits still apply at once with Undo (#3839); fails_when=the copied writer record marks it as yours
+  it("treats a copy the User made of its Note as the User's while applying edits at once", async () => {
     const { core, agent, told } = await paired();
     const mindId = await write(agent);
     const copy = await core.duplicateMind(mindId);
@@ -280,8 +285,8 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
     const done = structured<Proposed>(
       await change(agent, copy.id, version, [{ paragraph: "¶1", text: "Tides turn twice a day." }]),
     );
-    expect(done).toMatchObject({ status: "waiting", waiting: 1, waitingInNote: 1 });
-    expect(told.map((each) => each.kind)).toEqual(["wrote"]);
+    expect(done).toMatchObject({ status: "applied", waiting: 0, waitingInNote: 0, next: null });
+    expect(told.map((each) => each.kind)).toEqual(["wrote", "changed"]);
   });
 
   // protects=a new conversation finds the agent's own Notes, and never another agent's as its own; fails_when=list_minds marks none, or marks another agent's Note
@@ -308,12 +313,13 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
       [users.id]: undefined,
     });
 
-    // Another agent's changes to it wait, and are none of this one's steps.
+    // Another agent's changes apply at once too, while list_minds still marks only its own as yours.
     const { version } = await readNamed(other, mine);
     const done = structured<Proposed>(
       await change(other, mine, version, [{ paragraph: "¶1", text: "Tides turn." }]),
     );
-    expect(done.status).toBe("waiting");
+    expect(done.status).toBe("applied");
+    expect(done.next).toBeNull();
   });
 
   // protects=the sidebar names the Note as its page does after the agent rewrites the title, and a name the User chose stays; fails_when=the sidebar keeps the old title, or the User's own name is replaced

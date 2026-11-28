@@ -814,6 +814,7 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
           ...(record.requested === "edit" && { requested: "edit" as const }),
           ...(record.requested === "edit" &&
             isText(record.instruction) && { instruction: record.instruction }),
+          ...(record.held === true && { held: true as const }),
         }
       : null;
   }

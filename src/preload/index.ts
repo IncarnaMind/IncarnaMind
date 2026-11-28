@@ -19,6 +19,7 @@ import {
   FILES_CHANNELS,
   type FilesBridge,
   type MenuCommand,
+  type OpenNoteWriteRequest,
   SERVED_CHANNEL,
 } from "../shared/bridge";
 import type { CanvasFrameNews } from "../shared/canvases";
@@ -108,6 +109,9 @@ const files: FilesBridge = {
       ipcRenderer.removeListener(FILES_CHANNELS.discardSummaryDrafts, receive);
     };
   },
+  onOpenNoteWriteRequest: (listener) =>
+    listen<OpenNoteWriteRequest>(FILES_CHANNELS.openNoteWriteRequest, listener),
+  replyOpenNoteWriteRequest: (reply) => send(FILES_CHANNELS.openNoteWriteReply, reply),
   pathForFile: (file) => webUtils.getPathForFile(file),
   decodePicture: (bytes) => invoke(FILES_CHANNELS.decodePicture, bytes),
   captureArea: (rect) => invoke(FILES_CHANNELS.captureArea, rect),

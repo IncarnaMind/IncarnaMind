@@ -8994,6 +8994,8 @@ export const en = {
   "agents.propose.version": "Give the version read_mind returned with named.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
+  "agents.propose.heldMostText":
+    "It waits for the User in the note: it rewrites most of their own text, so they can choose Apply or Discard.",
   "agents.propose.ownOutsideSelection":
     "{paragraph} has your change from this request to the words the User selected, in the note once the request ends. A change beyond those words waits for the User, so it can’t replace yours there: change only the selected words, in a call of its own.",
   "agents.propose.firstAdd":
@@ -9267,7 +9269,7 @@ export const en = {
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
-    "Its notes appear at once. A change it proposes to a deck waits until you confirm it. IncarnaMind reads only the files it names or hands over.",
+    "Its notes and note changes appear at once. Changes to a deck wait until you confirm them. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
     "It can read all your Documents and notes. What it reads goes to its AI model.",
@@ -9884,10 +9886,6 @@ export const en = {
     "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
   "agents.ask.request.fixWordNoteAll":
     "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
-  "agents.ask.request.fixWordNoteWaits":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nPropose the fix in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your change waits for me to accept it, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted it.",
-  "agents.ask.request.fixWordNoteAllWaits":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nPropose a fix for each of them in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your changes wait for me to accept them, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted them.",
   "agents.ask.request.wordFolder": ", with folderId {folderId}",
   "agents.ask.request.wordNote":
     "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}, mindId: {mindId}).",
@@ -9918,13 +9916,13 @@ export const en = {
   // A change says where it goes, for an agent that skips read_request.
   "agents.ask.line.selection.explain": "About my note {title} in IncarnaMind: explain {quote}.",
   "agents.ask.line.selection.improve":
-    "About my note {title} in IncarnaMind: improve the writing of {quote}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: improve the writing of {quote}, as a change in the note.",
   "agents.ask.line.selection.shorten":
-    "About my note {title} in IncarnaMind: shorten {quote}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: shorten {quote}, as a change in the note.",
   "agents.ask.line.selection.translate":
-    "About my note {title} in IncarnaMind: translate {quote} into {language}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: translate {quote} into {language}, as a change in the note.",
   "agents.ask.line.selection.translateAny":
-    "About my note {title} in IncarnaMind: translate {quote}, as a change in the note for me to review.",
+    "About my note {title} in IncarnaMind: translate {quote}, as a change in the note.",
   "agents.ask.line.selection.edit":
     "About my note {title} in IncarnaMind, the words {quote}:\n\n{instruction}",
   "agents.ask.line.selection.ask":

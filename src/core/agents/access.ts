@@ -34,7 +34,9 @@
  */
 
 import * as Y from "yjs";
+import { ownTextLength, waitsForUser } from "../../shared/askedChanges";
 import type { NodeJSON } from "../../shared/blockJson";
+import { type ProposalSummary, summarizeProposalChanges } from "../../shared/changeSummary";
 import {
   citedLocation,
   type LiveDocument,
@@ -56,11 +58,14 @@ import {
   countChanged,
   decideProposals,
   NODE_CHARACTER,
+  outOfDateProposals,
+  pendingProposals,
+  resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
 import { shownSpeaker } from "../../shared/speakers";
 import { setTextOrigin } from "../../shared/textOrigins";
-import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
+import type { AnalysisRuntime, NamedFile, OpenNoteEditor, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
 import type {
   ChangeNotKept,
@@ -91,7 +96,9 @@ import {
   type CitationRecheck,
   type ClaimChange,
   type Effect,
+  GENERATED_MARK,
   type LibrarySource,
+  MIND_CONTENT_FIELD,
   type Mind,
   NOT_IN_A_FOLDER_ID,
   NOTE_TAB_NODE,
@@ -857,6 +864,8 @@ export interface AgentAccessDeps {
   checkpoint(mindId: string): void;
   /** Tells the windows of a Note an agent wrote, or changed at once (#3371). */
   noteChanged(change: AgentNoteChange): void;
+  /** Reaches a mounted editable Note editor in the host window for lossless immediate writes (#3839). */
+  openNoteEditor?: OpenNoteEditor;
   /** A Mind as Markdown, each Citation's footnote as `footnote` words it (see ../exports). */
   mindMarkdown(mindId: string, footnote: (attributes: Record<string, unknown>) => Footnote): string;
   /** A new, empty Mind in a Folder, or in none; with no `title`, its text names it. */
@@ -1177,7 +1186,7 @@ function underItsTitle(
   const heading: NodeJSON = {
     type: "heading",
     attrs: { level: 1 },
-    content: [{ type: "text", text: title }],
+    content: [{ type: "text", text: title, marks: [{ type: GENERATED_MARK }] }],
   };
   return {
     nodes: titled ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
@@ -3699,17 +3708,41 @@ export function createAgentAccess(
           inScope,
           asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
         );
-        // A copy of a Note the agent wrote is the User's: its changes wait there (#3371).
+        // A copy of a Note the agent wrote is the User's: its `own` check stays scoped to its own.
         const own = wrote(pairing, mind.id);
+        // Outside-app changes apply at once to any Note (AI-written or User-written, #3839);
+        // a Note's input writing into another User Note keeps waiting for review.
+        const immediate = own || grant === undefined;
         // The Note the User asked from at its foot takes the change at once, as an edit asked of
         // the assistant does; with words selected, only a change inside them (ADR-0034).
-        const front = own ? null : madeFor;
+        const front = immediate ? null : madeFor;
         let askedHere = false;
         const naming = namingOf(own);
         const key = versionKey(pairing, mind.id);
         const request = deps.newId();
         const mine = (ref: { request: string }) => ref.request === request;
-        const write = (blocks: Y.XmlFragment) => {
+        const forUser = (ref: { request: string }) => !ownPending.has(ref.request);
+        const mapWriteError = (error: unknown): never => {
+          if (error instanceof ChangeRefused) {
+            const line = error.left ? visuals.line(error.left) : "";
+            throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph, line }));
+          }
+          if (!(error instanceof HeldParagraph)) throw error;
+          throw new AgentRefusedError(
+            "waiting",
+            t(error.held === "busy" ? "agents.problem.busy" : "agents.problem.waiting", {
+              paragraph: error.paragraph.name,
+            }),
+          );
+        };
+        const prepared =
+          immediate && deps.openNoteEditor
+            ? await deps.openNoteEditor.prepareWrite(mind.id)
+            : ({ open: false } as const);
+        if (prepared.open && prepared.busy) {
+          throw new AgentRefusedError("changed", t("agents.problem.changedByUser"));
+        }
+        const assertVersionAndPlace = (blocks: Y.XmlFragment) => {
           const note = namedNote(blocks, namedWords(pairing, inScope, []), naming);
           if (note.version !== version) {
             // Its own last change gave the Note the version it has now: nothing else changed it.
@@ -3717,24 +3750,65 @@ export function createAgentAccess(
               deps.versions.get(key) === note.version ? "changedByYou" : "changedByUser";
             throw new AgentRefusedError("changed", t(`agents.problem.${cause}`));
           }
-          // This run's own changes don't wait for the User: it reads them as in the Note (#3762).
-          const forUser = (ref: { request: string }) => !ownPending.has(ref.request);
           if (note.paragraphs.length === 0 && waitingChanges(blocks, forUser) > 0) {
             throw new AgentRefusedError("waiting", t("agents.propose.firstWaiting"));
           }
           const placed = placeChanges(asked, note, t);
+          return { note, placed };
+        };
+        // Check >50% User-text rewrite before committing a Checkpoint or Undo step (#3839).
+        let held = false;
+        if (immediate && asked.some((each) => each.kind !== "add")) {
+          try {
+            held = deps.mindBlocks(mind.id, (blocks) => {
+              if (!blocks.doc || ownTextLength(blocks) === 0) return false;
+              const { note, placed } = assertVersionAndPlace(blocks);
+              const copy = new Y.Doc();
+              try {
+                Y.applyUpdate(copy, Y.encodeStateAsUpdate(blocks.doc));
+                const copyBlocks = copy.getXmlFragment(MIND_CONTENT_FIELD);
+                proposeNamed(copyBlocks, note, placed, {
+                  request,
+                  made: {
+                    source: "outside-agent",
+                    agent: pairing.name,
+                    pairingId: pairing.id,
+                    createdAt: deps.now(),
+                  },
+                  cited: (token) => tokens.get(token)?.cited ?? null,
+                  notFound: t("agents.answer.notFound"),
+                  visuals,
+                  newId: deps.newId,
+                  allowEmptyTab: true,
+                });
+                return waitsForUser(copy, new Set([request]));
+              } finally {
+                copy.destroy();
+              }
+            });
+          } catch (error) {
+            mapWriteError(error);
+          }
+        }
+        const write = (
+          blocks: Y.XmlFragment,
+          mode: "core-accept" | "editor-stage" | "held" | "standard",
+        ) => {
+          const { note, placed } = assertVersionAndPlace(blocks);
           askedHere =
+            mode === "standard" &&
             front !== null &&
             (front.selection === null || insideSelection(placed, note, front.selection));
           // A change that waits for the User never takes back this run's own, which applies: rejected,
           // it would leave neither.
-          const overOwn = askedHere
-            ? []
-            : placed.flatMap((change) =>
-                change.kind === "add" || note.paragraphs[change.at]?.yours === undefined
-                  ? []
-                  : [note.paragraphs[change.at]?.name ?? ""],
-              );
+          const overOwn =
+            mode !== "standard" || askedHere
+              ? []
+              : placed.flatMap((change) =>
+                  change.kind === "add" || note.paragraphs[change.at]?.yours === undefined
+                    ? []
+                    : [note.paragraphs[change.at]?.name ?? ""],
+                );
           if (overOwn[0] !== undefined) {
             throw new AgentRefusedError(
               "waiting",
@@ -3753,20 +3827,30 @@ export function createAgentAccess(
               pairingId: pairing.id,
               createdAt: deps.now(),
               ...(askedHere && front && { requested: "edit" as const, instruction: front.words }),
+              ...(mode === "held" && { held: true as const }),
             },
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
             visuals,
             newId: deps.newId,
-            ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
+            ...(mode === "core-accept" && { checkpoint: () => deps.checkpoint(mind.id) }),
+            ...(mode === "editor-stage" && { allowEmptyTab: true }),
             ...(askedHere && { own: requestOwn }),
           });
           const kinds = changeKinds(blocks, mine);
-          if (own) decideProposals(blocks, mine, "accept");
+          const summary: ProposalSummary | null =
+            mode === "core-accept" || mode === "editor-stage"
+              ? summarizeProposalChanges(blocks, mine)
+              : null;
+          if (mode === "core-accept") decideProposals(blocks, mine, "accept");
           if (askedHere) {
             ownPending.add(request);
             requestOwn.add(request);
           }
+          const stateVector =
+            mode === "editor-stage" && blocks.doc
+              ? Y.encodeStateVector(blocks.doc)
+              : new Uint8Array();
           // The line adds up what each change reports: this one reports what it moved the count of
           // the run's changes still waiting here by, read before and after it in this one write,
           // so one that rewrites or takes out its own is never counted twice, and one the window
@@ -3780,29 +3864,89 @@ export function createAgentAccess(
               }
             : null;
           const now = namedNote(blocks, namedWords(pairing, inScope, []), naming);
-          return { ...proposed, kinds, moved, now, waitingInNote: waitingChanges(blocks, forUser) };
+          return {
+            ...proposed,
+            kinds,
+            summary,
+            stateVector,
+            moved,
+            now,
+            waitingInNote: waitingChanges(blocks, forUser),
+          };
         };
         let written: ReturnType<typeof write>;
         let step: string | null = null;
+        let appliedInEditor = false;
+        let appliedNow = false;
         try {
-          if (own) ({ value: written, step } = deps.editOwnMind(mind.id, write));
-          else written = deps.editMind(mind.id, write);
-        } catch (error) {
-          if (error instanceof ChangeRefused) {
-            const line = error.left ? visuals.line(error.left) : "";
-            throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph, line }));
+          if (immediate && held) {
+            written = deps.editMind(mind.id, (blocks) => write(blocks, "held"));
+          } else if (immediate && prepared.open && !prepared.busy && deps.openNoteEditor) {
+            const staged = deps.editMind(mind.id, (blocks) => write(blocks, "editor-stage"));
+            if (staged.waiting === 0) {
+              written = staged;
+              appliedNow = true;
+            } else {
+              const summary = staged.summary ?? {
+                ...countsOf(staged.kinds),
+                firstBlockId: null,
+              };
+              const editorOutcome = await deps.openNoteEditor.acceptInEditor({
+                mindId: mind.id,
+                request,
+                token: prepared.token,
+                stateVector: staged.stateVector,
+                changed: summary.changed,
+                added: summary.added,
+                tables: summary.tables,
+                ...(summary.removed && { removed: summary.removed }),
+                ...(summary.named && { named: summary.named }),
+              });
+              if (editorOutcome === "applied") {
+                const refreshed = deps.mindBlocks(mind.id, (blocks) => ({
+                  now: namedNote(blocks, namedWords(pairing, inScope, []), naming),
+                  waitingInNote: waitingChanges(blocks, forUser),
+                }));
+                written = { ...staged, ...refreshed };
+                appliedInEditor = true;
+                appliedNow = true;
+              } else if (editorOutcome === "changed") {
+                deps.editMind(mind.id, (blocks) => {
+                  resolveProposals(blocks, mine, "reject");
+                });
+                throw new AgentRefusedError("changed", t("agents.problem.changedByUser"));
+              } else {
+                let stale = false;
+                deps.editMind(mind.id, (blocks) => {
+                  const out = outOfDateProposals(blocks);
+                  stale = pendingProposals(blocks).some((ref) => mine(ref) && out.has(ref.id));
+                  resolveProposals(blocks, mine, "reject");
+                });
+                if (stale) {
+                  throw new AgentRefusedError("changed", t("agents.problem.changedByUser"));
+                }
+                ({ value: written, step } = deps.editOwnMind(mind.id, (blocks) =>
+                  write(blocks, "core-accept"),
+                ));
+                appliedNow = true;
+              }
+            }
+          } else if (immediate) {
+            ({ value: written, step } = deps.editOwnMind(mind.id, (blocks) =>
+              write(blocks, "core-accept"),
+            ));
+            appliedNow = true;
+          } else {
+            written = deps.editMind(mind.id, (blocks) => write(blocks, "standard"));
           }
-          if (!(error instanceof HeldParagraph)) throw error;
-          throw new AgentRefusedError(
-            "waiting",
-            t(error.held === "busy" ? "agents.problem.busy" : "agents.problem.waiting", {
-              paragraph: error.paragraph.name,
-            }),
-          );
+        } catch (error) {
+          if (error instanceof AgentRefusedError) throw error;
+          throw mapWriteError(error);
         }
         deps.versions.set(key, written.now.version);
         // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.
-        const ownFront = own && madeFor !== null && step !== null;
+        const ownFront =
+          own && madeFor !== null && appliedNow && (step !== null || appliedInEditor);
         if ((askedHere || ownFront) && hears) {
           hears.asked({
             mindId: mind.id,
@@ -3811,12 +3955,22 @@ export function createAgentAccess(
             ...(ownFront && { own: true as const }),
           });
         }
-        if (own && step !== null) {
+        if (appliedNow && (step !== null || appliedInEditor)) {
+          const summary = written.summary ?? {
+            ...countsOf(written.kinds),
+            firstBlockId: null,
+          };
           deps.noteChanged({
             mindId: mind.id,
             agent: pairing.name,
             kind: "changed",
-            ...countsOf(written.kinds),
+            changed: summary.changed,
+            added: summary.added,
+            tables: summary.tables,
+            ...(summary.removed && { removed: summary.removed }),
+            ...(summary.named && { named: summary.named }),
+            firstBlockId: summary.firstBlockId,
+            ...(appliedInEditor && { appliedInEditor: true }),
             step,
           });
         }
@@ -3824,12 +3978,16 @@ export function createAgentAccess(
         const { markdown, nextOffset } = page(mind, written.now.text, 0);
         const left = own ? deps.checkTask(mind.id, inScope) : null;
         const unchecked = left?.ok ? left.value.sentences.length : 0;
+        const applied = appliedNow || askedHere;
         return {
           result: {
             mindId: mind.id,
-            status: own || askedHere ? "applied" : "waiting",
-            waiting: own || askedHere ? 0 : written.waiting,
-            ...(front !== null && !askedHere && { why: t("agents.propose.outsideSelection") }),
+            status: applied ? "applied" : "waiting",
+            waiting: applied ? 0 : written.waiting,
+            ...(held && { why: t("agents.propose.heldMostText") }),
+            ...(!held &&
+              front !== null &&
+              !askedHere && { why: t("agents.propose.outsideSelection") }),
             waitingInNote: written.waitingInNote,
             markdown,
             nextOffset,
@@ -3841,7 +3999,7 @@ export function createAgentAccess(
             next: leftToCheck(unchecked, false),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
-          count: own || askedHere ? null : written.waiting,
+          count: applied ? null : written.waiting,
           documentIds: [...tokens.values()].flatMap((each) =>
             each.cited ? [each.cited.minted.documentId] : [],
           ),

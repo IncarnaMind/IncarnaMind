@@ -872,6 +872,8 @@ export interface OutsideAgentRequest {
   requested?: "edit";
   /** What the User typed there, which says whether they asked for a translation. */
   instruction?: string;
+  /** Held for the User because the change would rewrite most of their own text (#3839). */
+  held?: true;
 }
 
 /**
@@ -1669,6 +1671,13 @@ export interface SentenceChanges {
   written: number;
   /** The first few of the User's sentences taken out whole and rewritten, as they read. */
   named: { takenOut: string[]; rewritten: string[] };
+}
+
+/** The one paragraph a change came to, named by its label or opening words (`paragraphStart`). */
+export interface NamedChange {
+  start: string;
+  /** Written whole, the User's kept, not changed where it stands. */
+  added: boolean;
 }
 
 /** Whole paragraphs a change removes and nothing else (`paragraphsRemoved`): how many, their sentences, and how the first is named. */
@@ -13991,7 +14000,15 @@ export interface AgentNoteChange {
   changed: number;
   added: number;
   tables: number;
-  /** The step of Undo that takes a change back (`undoAgentChange`); null for a Note it wrote. */
+  /** Whole paragraphs a removal took out and nothing else; absent otherwise. */
+  removed?: RemovedParagraphs;
+  /** The single paragraph changed or added, named by its label or opening words. */
+  named?: NamedChange;
+  /** Top-level Block where the first change landed, for placing the inline line; null at end. */
+  firstBlockId?: string | null;
+  /** True when a mounted editor already applied this change onto its own Undo stack (#3839). */
+  appliedInEditor?: boolean;
+  /** The step of Undo that takes a change back (`undoAgentChange`); null for a Note it wrote or editor-applied change. */
   step: string | null;
 }
 

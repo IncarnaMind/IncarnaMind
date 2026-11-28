@@ -6,6 +6,7 @@ import { installAgentOpened } from "./agentOpened";
 import { installAppearance } from "./appearance";
 import { PanelBoundary } from "./components/PanelBoundary";
 import { files } from "./core";
+import { installOpenNoteAgentAccept } from "./editor/openNoteAgentAccept";
 import "./fonts.css";
 import "./styles.css";
 import { installErrorLog } from "./errorLog";
@@ -17,6 +18,7 @@ installErrorLog();
 retryTaggingWhenOnline();
 installRateLimitWaits();
 installAgentOpened();
+installOpenNoteAgentAccept();
 // Before the first paint: the system's Reduce motion holds until the settings say the User's choice.
 installMotion();
 installAppearance();
