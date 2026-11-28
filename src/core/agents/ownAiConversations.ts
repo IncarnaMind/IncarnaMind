@@ -691,9 +691,6 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         )
       : askable.find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
     if (!runner || !pairing) return { kind: "link" };
-    if (typeof requestedConversation === "string" && !existing) {
-      return { kind: "problem", pairing, problem: "failed" };
-    }
 
     const checkKeys =
       existing?.id && existing.id !== mindId ? [existing.id, mindId] : [existing?.id ?? mindId];
@@ -735,9 +732,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     if (requestedConversation === null) {
       conversation = createConversation(mindId, pairing.id);
     } else if (typeof requestedConversation === "string") {
-      const stillThere = conversationById(requestedConversation);
-      if (!stillThere) return { kind: "problem", pairing, problem: "failed" };
-      conversation = stillThere;
+      conversation =
+        conversationById(requestedConversation) ?? createConversation(mindId, pairing.id);
     } else {
       const latestId = latestConversationId(mindId, pairing.id);
       conversation =

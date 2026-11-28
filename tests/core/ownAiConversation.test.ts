@@ -3412,6 +3412,39 @@ describe("conversation follows across Notes, History, and pre-upgrade migration 
     expect(run.purged).toEqual([convId]);
   });
 
+  // protects=sending into a conversation that was deleted (e.g. from another window or forgotten with its Notes) starts a new conversation on that Note with the User's words instead of failing (#3731); fails_when=the request returns problem "failed" and the User's words seem lost
+  it("starts a new conversation on the same Note when sent into a deleted conversation", async () => {
+    const run = runner(async () => ({ kind: "finished", reply: "Fresh reply." }));
+    const { core, mindId, ended } = await written(run.adapter);
+
+    const first = await core.askInNote({ mindId, words: "first question", conversationId: null });
+    const deletedId = convOf(first);
+    await ended(1);
+    await core.deleteNoteConversation(deletedId);
+    expect(await core.noteConversations()).toEqual([]);
+
+    const second = await core.askInNote({
+      mindId,
+      words: "carry on with these figures",
+      conversationId: deletedId,
+    });
+    expect(second.kind).toBe("started");
+    const replacementId = convOf(second);
+    expect(replacementId).not.toBe(deletedId);
+    await ended(2);
+
+    expect(run.runs[1]?.conversation?.key).toBe(replacementId);
+    expect(run.runs[1]?.conversation?.resume).toBe(false);
+    expect(run.runs[1]?.conversation?.sessionId).not.toBe(run.runs[0]?.conversation?.sessionId);
+    const turns = await core.noteConversation(replacementId);
+    expect(turns.map((t) => [t.mindId, t.request, t.reply])).toEqual([
+      [mindId, "carry on with these figures", "Fresh reply."],
+    ]);
+    const list = await core.noteConversations();
+    expect(list.map((c) => c.id)).toEqual([replacementId]);
+    expect(list[0]?.notes.map((n) => n.mindId)).toEqual([mindId]);
+  });
+
   // protects=while a conversation runs on Note A, an explicit mid-run follow-up from Note B (intoRunning: true) records on A and keeps the grant's front on A (edits to A apply at once, edits to B wait), whereas a request for Note B without intoRunning (such as Write notes) returns busy and never touches A (#3731); fails_when=Write notes hijacks A's run, a mid-run follow-up records B, or the grant's front moves to B
   it("locks a running conversation to its originating Note and refuses non-follow-up calls from another Note", async () => {
     const release = gate();

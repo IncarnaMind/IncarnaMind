@@ -581,8 +581,15 @@ export async function askInNote(
         return { model: { ...rest, [start.conversationId]: model } };
       });
     }
-    if (sending && typeof targetConversationId !== "string") {
-      if (useNoteAsks.getState().pendingByPairing[pendingKey] === sending) {
+    if (sending) {
+      if (typeof targetConversationId === "string") {
+        if (
+          targetConversationId !== start.conversationId &&
+          useNoteAsks.getState().byConversation[targetConversationId] === sending
+        ) {
+          putConversation(targetConversationId, null);
+        }
+      } else if (useNoteAsks.getState().pendingByPairing[pendingKey] === sending) {
         putPending(pendingKey, null);
       }
     }
