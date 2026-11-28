@@ -718,6 +718,23 @@ describe("writing Notes with inline citations in one call (#3753)", () => {
     expect(revokedOut?.text).not.toContain("420");
     expect((await inspectMind(core, revoked.mindId)).citations).toHaveLength(0);
 
+    // CRLF fenced code stays literal while a handle after the fence resolves through create_mind.
+    const fenced = structured<CreatedOut>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Fenced Example",
+          markdown: `\`\`\`text\r\n${springHandle}\r\n\`\`\`\r\nSpring tides come twice a month ${springHandle}.`,
+        },
+      }),
+    );
+    expect(fenced.citations.some((each) => each.check === "found" && each.quote === SPRING)).toBe(
+      true,
+    );
+    const fencedInspected = await inspectMind(core, fenced.mindId);
+    expect(fencedInspected.citations).toHaveLength(1);
+    expect(fencedInspected.text).toContain(springHandle);
+
     // Own working files never get sentence handles from read_passages(cited:true).
     await core.setNotCited(tides.id, true);
     const workingRead = structured<{ passages: { text: string }[] }>(

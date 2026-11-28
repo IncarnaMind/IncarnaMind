@@ -2400,7 +2400,7 @@ export function createAgentAccess(
     const byKey = new Map<string, string | null>();
     const failedReports: AgentCheckedCitation[] = [];
     let excerptTokens = 0;
-    let hasFile = false;
+    let fileAwaits = 0;
     const keyOf = (tag: ParsedInlineTag) =>
       tag.kind === "sentence"
         ? `sentence\u0000${tag.handle}\u0000${tag.index}`
@@ -2478,7 +2478,7 @@ export function createAgentAccess(
         });
         continue;
       }
-      hasFile = true;
+      fileAwaits += 1;
       const filed = await deps.citeFile(
         text(tag.ref, "path", MAX_PATH_CHARS),
         tag.quote,
@@ -2516,7 +2516,7 @@ export function createAgentAccess(
         });
       }
     }
-    if (hasFile) {
+    if (fileAwaits > 0) {
       pairing = stillReaching(read.filter((documentId) => !deps.citedOutside(documentId)));
       if (!pairing.propose) {
         throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
@@ -2524,7 +2524,7 @@ export function createAgentAccess(
       inScope = new Set(scopeOf(pairing, undefined));
       // If a file cited earlier in this call changed while a later file was awaited, drop its
       // newly minted token rather than persisting historical `found` attributes.
-      if (mintedFiles.length > 1) {
+      if (fileAwaits > 1) {
         for (const item of mintedFiles) {
           const kept = deps.citations.find(pairing.id, item.token);
           if (!kept || !usable(inScope, kept.documentId) || recheckKept(kept).check !== "found") {
@@ -2628,7 +2628,7 @@ export function createAgentAccess(
       inScope,
       extraReports: failedReports,
       read,
-      recheckedAfterWait: hasFile,
+      recheckedAfterWait: fileAwaits > 0,
     };
   };
 
@@ -4264,7 +4264,12 @@ export function createAgentAccess(
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         let folder = placeToWriteIn(pairing, input?.folderId);
-        // Counted once the pictures are read: from here the Note is written without a wait.
+        let inScope = new Set(scopeOf(pairing, undefined));
+        const inline = await resolveInlineCitations(pairing, inScope, [writtenInput]);
+        pairing = inline.pairing;
+        inScope = inline.inScope;
+        if (inline.recheckedAfterWait) folder = placeToWriteIn(pairing, input?.folderId);
+        // Counted once the pictures and file citations are read: from here the Note is written without a wait.
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
           throw new AgentRefusedError(
@@ -4272,11 +4277,6 @@ export function createAgentAccess(
             t("agents.problem.too-many", { max: MAX_NOTES_AN_HOUR }),
           );
         }
-        let inScope = new Set(scopeOf(pairing, undefined));
-        const inline = await resolveInlineCitations(pairing, inScope, [writtenInput]);
-        pairing = inline.pairing;
-        inScope = inline.inScope;
-        if (inline.recheckedAfterWait) folder = placeToWriteIn(pairing, input?.folderId);
         const written = (inline.texts[0] ?? "").trim();
         if (written === "") {
           throw new AgentRefusedError("invalid", t("agents.create.emptyText"));
