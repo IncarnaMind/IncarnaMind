@@ -7,7 +7,7 @@
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { OwnAiEnd, OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
@@ -18,6 +18,7 @@ import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./c
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
 import { deleteCodexThreads, runCodexConversation } from "./codexConversation";
 import { modelsIn } from "./ownAiModels";
+import { codexHomeOf } from "./ownPlaces";
 import { quotingNow, sayingNow, writingNow } from "./streamedInput";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
@@ -82,6 +83,15 @@ function parsedInput(json: string): Record<string, unknown> | null {
     return null;
   }
 }
+
+const there = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+
+const errorCode = (error: unknown) =>
+  error instanceof Error && "code" in error ? String(error.code) : "unknown";
 
 /** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
 const NOTHING_TO_PURGE = /No Claude Code project data found/;
@@ -159,21 +169,88 @@ export function createOwnAi({
    * The threads Codex keeps each conversation as, newest last, by its key: in a file of
    * IncarnaMind's own beside the conversations' folders, out of reach of what Codex writes in one.
    */
-  const threadsFile = (key: string) =>
-    join(conversations ?? "", ".codex-threads", `${basename(folderOf(key))}.json`);
+  const threadsFolder = () => join(conversations ?? "", ".codex-threads");
+  const threadsFile = (key: string) => join(threadsFolder(), `${basename(folderOf(key))}.json`);
+  /** None only where no file is kept; one that can't be read throws, so nothing writes over it. */
   const threadsOf = async (key: string): Promise<string[]> => {
+    let kept: unknown;
     try {
-      const kept: unknown = JSON.parse(await readFile(threadsFile(key), "utf8"));
-      return Array.isArray(kept) ? kept.filter((id): id is string => typeof id === "string") : [];
-    } catch {
-      return [];
+      kept = JSON.parse(await readFile(threadsFile(key), "utf8"));
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return [];
+      throw new Error(
+        `The ids of a conversation's threads in Codex couldn't be read (${errorCode(error)}).`,
+      );
     }
+    if (!Array.isArray(kept) || !kept.every((id) => typeof id === "string")) {
+      throw new Error("The ids of a conversation's threads in Codex weren't a list of ids.");
+    }
+    return kept;
   };
   const keepThread = async (key: string, id: string) => {
     const threads = await threadsOf(key);
     if (threads.includes(id)) return;
-    await mkdir(join(conversations ?? "", ".codex-threads"), { recursive: true, mode: 0o700 });
+    await mkdir(threadsFolder(), { recursive: true, mode: 0o700 });
     await writeFile(threadsFile(key), JSON.stringify([...threads, id]), { mode: 0o600 });
+  };
+  /**
+   * Deletes a conversation's threads in Codex, by the ids kept of them, and then the file of
+   * them: false, the file kept, when Codex couldn't be asked or didn't delete each.
+   */
+  const deleteThreads = async (key: string, threads: readonly string[]): Promise<boolean> => {
+    const path = await codex();
+    const folder = folderOf(key);
+    const folders = [folder, join(await realpath(conversations ?? "").catch(() => ""), key)];
+    const deleted =
+      path !== null &&
+      (await deleteCodexThreads(path, threads, folders, AbortSignal.timeout(PURGE_MS)).catch(
+        (error: unknown) => {
+          console.warn(
+            "Codex couldn't delete a conversation's threads:",
+            error instanceof Error ? error.message : "unknown",
+          );
+          return false;
+        },
+      ));
+    if (deleted) await rm(threadsFile(key), { force: true });
+    return deleted;
+  };
+  let sweeping: Promise<void> | null = null;
+  /**
+   * Deletes, in Codex, the threads of each conversation that is gone, its folder deleted, whose
+   * threads Codex didn't delete with it (#3653): at start-up and after each request, as the Check's
+   * folders left behind are.
+   */
+  const sweepThreads = () => {
+    sweeping ??= (async () => {
+      const names = await readdir(threadsFolder()).catch((error: unknown) => {
+        if (errorCode(error) !== "ENOENT") {
+          console.warn("Could not look for Codex threads left behind:", errorCode(error));
+        }
+        return [];
+      });
+      for (const name of names) {
+        const key = name.replace(/\.json$/, "");
+        if (key === name || !/^[A-Za-z0-9-]{1,64}$/.test(key)) continue;
+        if (await there(folderOf(key))) continue;
+        const threads = await threadsOf(key).catch((error: unknown) => {
+          console.warn("Could not read a gone conversation's Codex threads:", error);
+          return null;
+        });
+        if (threads === null) continue;
+        if (threads.length === 0) await rm(threadsFile(key), { force: true });
+        else if (!(await deleteThreads(key, threads))) {
+          console.warn(
+            "Codex didn't delete a gone conversation's threads; they're tried again later.",
+          );
+        }
+      }
+    })()
+      .catch((error: unknown) => console.warn("Could not delete Codex threads left behind:", error))
+      .finally(() => {
+        sweeping = null;
+      });
+    return sweeping;
   };
 
   /** A request of a Note's conversation on Codex, with its own abilities (#3653). */
@@ -184,9 +261,13 @@ export function createOwnAi({
     own: NonNullable<Parameters<OwnAiRunner["run"]>[0]["own"]>,
   ): ReturnType<OwnAiRunner["run"]> {
     const cwd = folderOf(conversation.key);
-    const thread = conversation.resume
-      ? ((await threadsOf(conversation.key)).at(-1) ?? null)
-      : null;
+    let thread: string | null = null;
+    try {
+      thread = conversation.resume ? ((await threadsOf(conversation.key)).at(-1) ?? null) : null;
+    } catch (error) {
+      console.warn("A request of a Note's conversation on Codex couldn't continue:", error);
+      return { kind: "failed", reason: "other" };
+    }
     if (conversation.resume && thread === null)
       return { kind: "failed", reason: "lost-conversation" };
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(runMs)]);
@@ -221,6 +302,8 @@ export function createOwnAi({
         error instanceof Error ? error.message : "unknown",
       );
       return { kind: "failed", reason: "other" };
+    } finally {
+      void sweepThreads();
     }
   }
 
@@ -278,11 +361,15 @@ export function createOwnAi({
     );
   }
   const codex = () => (codexCommand === null ? Promise.resolve(null) : findCodex(codexCommand));
+  if (conversations && codexCommand !== null) void sweepThreads();
   // The executable whose version last passed: it is asked again only once Claude Code is replaced,
   // as an update does, so a request starts it only for its sign-in first (#3677).
   let versionPassed: string | null = null;
 
   return {
+    // Codex's approval policy is the User's own: the input chooses Claude Code's modes alone.
+    choosesModes: (client) => client === "claude-code",
+
     async installed(client) {
       if (client === "codex") return (await codex()) !== null;
       return command !== null && (await resolveCommand(command)) !== null;
@@ -297,22 +384,18 @@ export function createOwnAi({
 
     async purge(key) {
       const folder = folderOf(key);
-      const threads = await threadsOf(key);
-      if (threads.length > 0) {
-        const path = await codex();
-        const deleted =
-          path !== null &&
-          (await deleteCodexThreads(path, threads, AbortSignal.timeout(PURGE_MS)).catch(
-            (error: unknown) => {
-              console.warn(
-                "Codex couldn't delete a conversation's threads:",
-                error instanceof Error ? error.message : "unknown",
-              );
-              return false;
-            },
-          ));
+      const threads = await threadsOf(key).catch((error: unknown) => {
+        console.warn("Could not read a conversation's Codex threads to delete them:", error);
+        return null;
+      });
+      // With its folder gone, the sweep tries its threads again.
+      if (threads === null) {
         await rm(folder, { recursive: true, force: true, maxRetries: 3 });
-        if (deleted) await rm(threadsFile(key), { force: true });
+        return false;
+      }
+      if (threads.length > 0) {
+        const deleted = await deleteThreads(key, threads);
+        await rm(folder, { recursive: true, force: true, maxRetries: 3 });
         return deleted;
       }
       if (command === null) {
@@ -540,7 +623,13 @@ export function createOwnAi({
       };
       try {
         if (conversation) await mkdir(cwd, { recursive: true, mode: 0o700 });
-        if (own) places = { ...places, folders: [cwd, await realpath(cwd).catch(() => cwd)] };
+        if (own) {
+          places = {
+            ...places,
+            folders: [cwd, await realpath(cwd).catch(() => cwd)],
+            codexHome: codexHomeOf(await processes.environment()),
+          };
+        }
         const configFile = join(scratch, "mcp.json");
         const { command: server, args, env } = request.server;
         // A Note's conversation has its Tools in its first turn: deferred, they cost each request a
@@ -577,6 +666,7 @@ export function createOwnAi({
           ...(own && {
             own: {
               asked: ask,
+              places: () => places,
               withdrawn: (id: string) => {
                 asking.get(id)?.abort();
                 asking.delete(id);

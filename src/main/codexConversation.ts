@@ -6,18 +6,30 @@
  * it started. Codex keeps the conversation as a thread of its own, by the id `kept` is told.
  */
 import { realpath } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import type { Writable } from "node:stream";
 import type { OwnAiAsk, OwnAiEnd, OwnAiFailure, OwnAiModel, OwnAiProgress } from "../core/adapters";
+import { SERVER_KEY } from "../core/agents/clients";
 import type { AgentLaunch, NoteAction, NoteAnswer } from "../core/api";
 import { object, processes, readJsonLines, wholeTree } from "./agentCommand";
 import { APP_SERVER_ARGS, appServerWriter, initializeParams } from "./codexAppServer";
-import { codexHomeOf, codexSteering, itemActionOf, questionOf, refusalOf } from "./codexAsks";
-import type { Places } from "./ownPlaces";
+import { type Asking, itemActionOf, questionOf, refusalOf } from "./codexAsks";
+import { agentSteering, codexHomeOf, type Places } from "./ownPlaces";
 import { sayingNow } from "./streamedInput";
 
-const SERVER = "incarnamind";
+/**
+ * IncarnaMind's server for the run, by a name no connection writes: Codex merges what the run
+ * gives with the User's own table of that name, whose token, if IncarnaMind's connection wrote one,
+ * would stand in for the run's grant. The connection's own is turned off for the run.
+ */
+const SERVER = "incarnamind_note";
 /** As long as a Tool of IncarnaMind's may take; Codex's own default is a minute. */
 const TOOL_TIMEOUT_SEC = 120;
+/**
+ * How long one of Codex's own steps, or a compaction, keeps the run from counting as stalled when
+ * its end never comes: as long as a run's compaction may take (src/main/ownAi.ts).
+ */
+const STEP_MS = 10 * 60_000;
 const HEARD_EVERY_MS = 1_000;
 const SAY_EVERY_MS = 1_000;
 const MAX_THOUGHT_CHARS = 4000;
@@ -45,9 +57,18 @@ function failureOf(error: unknown): OwnAiFailure | null {
   return null;
 }
 
-/** Codex's approval policy as a mode: its name, "granular" for one set rule by rule. */
+/**
+ * Codex's approval policy as a mode: its name, "granular" for one set rule by rule; on its own
+ * request, with no sandbox, "dangerFullAccess", since then nothing it does needs asking for.
+ */
 function modeOf(result: Record<string, unknown>): string | null {
   const policy = result.approvalPolicy;
+  if (
+    object(result.sandbox).type === "dangerFullAccess" &&
+    (policy === "on-request" || policy === "on-failure")
+  ) {
+    return "dangerFullAccess";
+  }
   // A reviewer of Codex's own decides in the User's place: nothing reaches them.
   if (
     policy !== "never" &&
@@ -114,10 +135,16 @@ export interface CodexConversation {
 export async function runCodexConversation(run: CodexConversation): Promise<OwnAiEnd> {
   const { progress, own } = run;
   const environment = await processes.environment();
-  const steering = codexSteering(() => codexHomeOf(environment));
   const places: Places = {
     folders: [run.cwd, await realpath(run.cwd).catch(() => run.cwd)],
     home: environment.HOME || "",
+    codexHome: codexHomeOf(environment),
+  };
+  const asking: Asking = {
+    places,
+    steering: agentSteering(places),
+    files: (item) => fileItems.get(item),
+    sandboxed: true,
   };
   const child = await processes.spawn(
     run.path,
@@ -138,9 +165,12 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
   // Codex's own steps going, by their item's id, and its file changes, which its question names.
   const ownSteps = new Map<string, NoteAction>();
   const fileItems = new Map<string, Record<string, unknown>>();
-  const ourCalls = new Set<string>();
-  const asking = new Map<unknown, AbortController>();
-  let compacting = false;
+  // When each began: one whose end never comes stops keeping the run from stalling (STEP_MS).
+  const going = new Map<string, number>();
+  const questions = new Map<unknown, AbortController>();
+  let compacting: number | null = null;
+  // The User said no where Codex offers only "cancel", which ends its turn: the request is over.
+  let cancelled = false;
   let failure: OwnAiFailure | null = null;
   let reply = "";
   const written = new Map<string, string>();
@@ -160,6 +190,8 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
 
   const config = {
     mcp_servers: {
+      // Given a command, as a table of Codex's needs one, though it never starts.
+      [SERVER_KEY]: { command: run.server.command, enabled: false },
       [SERVER]: {
         command: run.server.command,
         args: run.server.args,
@@ -175,6 +207,9 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
     project_doc_max_bytes: 0,
     // The User's prompt history would keep the Note's words after the conversation is deleted.
     history: { persistence: "none" },
+    // Memories Codex makes of a thread outlive the thread; the thread itself is kept out of them
+    // too, for a Codex of the User's that has them on (`thread/memoryMode/set`).
+    features: { memories: false },
   };
 
   const startTurn = (prompt: string, id: string | null) => {
@@ -223,39 +258,69 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
     );
   };
 
+  /** A thread Codex couldn't resume or read: lost where Codex no longer has it. */
+  const unopened = (error: unknown): OwnAiEnd => {
+    if (missingThread(error, run.thread)) return { kind: "failed", reason: "lost-conversation" };
+    console.warn("Codex couldn't open a conversation's thread:", text(object(error).message));
+    return { kind: "failed", reason: "service" };
+  };
+
   const opened = (message: Record<string, unknown>): OwnAiEnd | undefined => {
     const result = object(message.result);
     const id = object(result.thread).id;
     if (message.error !== undefined || typeof id !== "string" || id === "") {
-      if (run.thread !== null) return { kind: "failed", reason: "lost-conversation" };
+      if (run.thread !== null) return unopened(message.error);
       throw new Error("Codex didn't start a thread.");
     }
     threadId = id;
+    const sandbox = object(result.sandbox).type;
+    asking.sandboxed = sandbox === "readOnly" || sandbox === "workspaceWrite";
     const mode = modeOf(result);
     if (mode) progress?.({ kind: "mode", mode });
     const model = text(result.model);
     if (model !== "") progress?.({ kind: "model", model });
-    void run.kept(id).then(
-      () => startTurn(run.prompt, null),
-      (error: unknown) => {
-        console.warn("Could not keep the id of Codex's thread:", error);
-        tree.end();
-      },
-    );
+    rpc?.request("thread/memoryMode/set", { threadId: id, mode: "disabled" }, (set) => {
+      if (set.error !== undefined)
+        throw new Error("Codex didn't keep the thread out of its memories.");
+      void run.kept(id).then(
+        () => startTurn(run.prompt, null),
+        (error: unknown) => {
+          console.warn("Could not keep the id of Codex's thread:", error);
+          tree.end();
+        },
+      );
+      return undefined;
+    });
     return undefined;
   };
 
   const openThread = () => {
     if (!rpc) return;
+    const writer = rpc;
     const params = {
       cwd: run.cwd,
       developerInstructions: run.instructions,
       config,
       ...(run.model && { model: run.model }),
     };
-    if (run.thread !== null) {
-      rpc.request("thread/resume", { threadId: run.thread, ...params }, opened);
-    } else rpc.request("thread/start", params, opened);
+    const thread = run.thread;
+    if (thread === null) {
+      writer.request("thread/start", params, opened);
+      return;
+    }
+    // The id comes from a file of IncarnaMind's: a thread of another folder is never resumed here.
+    writer.request("thread/read", { threadId: thread }, (read) => {
+      if (read.error !== undefined) return unopened(read.error);
+      const cwd = text(object(object(read.result).thread).cwd);
+      if (!ownFolder(cwd, places.folders)) {
+        console.warn(
+          "A conversation's thread in Codex was of another folder, so it wasn't resumed.",
+        );
+        return { kind: "failed", reason: "lost-conversation" };
+      }
+      writer.request("thread/resume", { threadId: thread, ...params }, opened);
+      return undefined;
+    });
   };
 
   const ask = (id: unknown, method: string, params: Record<string, unknown>) => {
@@ -271,9 +336,10 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
       writer.respond(id, { action: "accept", content: {}, _meta: null });
       return;
     }
-    const question = questionOf(method, params, places, steering, (item) => fileItems.get(item));
+    const question = questionOf(method, params, asking);
     if (!question) {
-      const refusal = refusalOf(method);
+      const refusal = refusalOf(method, params);
+      if (refusal?.decision === "cancel") cancelled = true;
       if (refusal) writer.respond(id, refusal);
       else writer.unsupported(id, method);
       if (refusal) {
@@ -291,28 +357,32 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
       return;
     }
     const waiting = new AbortController();
-    asking.set(id, waiting);
+    questions.set(id, waiting);
     const { answer, ...asked } = question;
     own
       .ask(asked, waiting.signal)
       .then(
         (given) => {
-          if (asking.get(id) === waiting && !waiting.signal.aborted) {
-            writer.respond(id, answer(given));
+          if (questions.get(id) === waiting && !waiting.signal.aborted) {
+            const answered = answer(given);
+            if (answered.decision === "cancel") cancelled = true;
+            writer.respond(id, answered);
           }
         },
         (error: unknown) => {
           // Withdrawn, or the run ended: Codex waits on nothing.
-          if (asking.get(id) !== waiting || waiting.signal.aborted) return;
+          if (questions.get(id) !== waiting || waiting.signal.aborted) return;
           console.warn(
             "A question of Codex's couldn't wait on the User, so it was refused:",
             error instanceof Error ? error.message : String(error),
           );
-          writer.respond(id, answer("deny"));
+          const refused = answer("deny");
+          if (refused.decision === "cancel") cancelled = true;
+          writer.respond(id, refused);
         },
       )
       .finally(() => {
-        if (asking.get(id) === waiting) asking.delete(id);
+        if (questions.get(id) === waiting) questions.delete(id);
       });
   };
 
@@ -338,21 +408,22 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
       return;
     }
     if (item.type === "contextCompaction") {
-      compacting = true;
+      compacting = performance.now();
       progress?.({ kind: "compacting" });
       return;
     }
     if (item.type === "mcpToolCall" && item.server === SERVER) {
-      ourCalls.add(id);
+      going.set(id, performance.now());
       const name = text(item.tool);
       progress?.({ kind: "tool", name });
       progress?.({ kind: "tool", name, input: object(item.arguments) });
       return;
     }
     if (item.type === "fileChange") fileItems.set(id, item);
-    const action = itemActionOf(item, places, steering, SERVER);
+    const action = itemActionOf(item, places, asking.steering, SERVER);
     if (!action || id === "") return;
     ownSteps.set(id, action);
+    going.set(id, performance.now());
     progress?.({ kind: "own", id, action, state: "going" });
   };
 
@@ -372,11 +443,11 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
       return;
     }
     if (item.type === "contextCompaction") {
-      compacting = false;
+      compacting = null;
       progress?.({ kind: "compacted" });
       return;
     }
-    ourCalls.delete(id);
+    going.delete(id);
     fileItems.delete(id);
     const action = ownSteps.get(id);
     if (!action) return;
@@ -395,7 +466,7 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
     turning = false;
     turnId = null;
     const end: OwnAiEnd =
-      turn.status === "completed"
+      turn.status === "completed" || (turn.status === "interrupted" && cancelled)
         ? { kind: "finished", reply: reply.slice(0, run.maxReplyChars) }
         : {
             kind: "failed",
@@ -403,6 +474,7 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
               failureOf(turn.error) ?? failure ?? (turn.status === "failed" ? "service" : "other"),
           };
     failure = null;
+    cancelled = false;
     // Steered in as the turn ended, and never taken: it goes as the next turn.
     for (const [id, prompt] of steered) queued.push({ id, prompt });
     steered.clear();
@@ -424,7 +496,14 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
       stallMs: run.stallMs,
       // A question waits on the User for as long as they take; a command of its own, as a long
       // build, runs as long as Codex's own limit for it lets it.
-      busy: () => asking.size > 0 || ourCalls.size > 0 || ownSteps.size > 0 || compacting,
+      busy: () => {
+        if (questions.size > 0) return true;
+        const since = performance.now() - STEP_MS;
+        return (
+          (compacting !== null && compacting > since) ||
+          [...going.values()].some((at) => at > since)
+        );
+      },
       begin(stdin: Writable) {
         rpc = appServerWriter<OwnAiEnd>(stdin);
         const writer = rpc;
@@ -481,8 +560,8 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
         } else if (method === "serverRequest/resolved") {
           // Withdrawn: the turn it belonged to ended, as a Stop of Codex's own does.
           const id = params.requestId;
-          asking.get(id)?.abort();
-          asking.delete(id);
+          questions.get(id)?.abort();
+          questions.delete(id);
         } else if (method === "error") {
           failure = failureOf(params.error) ?? failure;
         }
@@ -490,26 +569,55 @@ export async function runCodexConversation(run: CodexConversation): Promise<OwnA
       },
     });
   } finally {
-    for (const waiting of asking.values()) waiting.abort();
-    asking.clear();
+    for (const waiting of questions.values()) waiting.abort();
+    questions.clear();
     if (thoughtLater !== null) clearTimeout(thoughtLater);
   }
 }
 
 /**
+ * Whether Codex answered that it has no thread `id`, as Codex 0.170 words it: "no rollout found"
+ * to `thread/resume` and `thread/delete`, "thread not loaded" to `thread/read`. Any other error,
+ * an unknown method's (-32601) among them, says nothing of the thread.
+ */
+export function missingThread(error: unknown, id: string | null): boolean {
+  const { code, message } = object(error);
+  return (
+    id !== null &&
+    code === -32600 &&
+    (message === `no rollout found for thread id ${id}` || message === `thread not loaded: ${id}`)
+  );
+}
+
+/** Whether a thread's folder, as Codex keeps it, is the conversation's own. */
+const ownFolder = (cwd: string, folders: readonly string[]) =>
+  cwd !== "" && folders.some((folder) => resolve(folder) === resolve(cwd));
+
+/**
  * Deletes the threads Codex keeps a conversation as, by their ids, through its app-server: true
- * when Codex deleted each, or had none of them.
+ * when Codex deleted each, or had none of them. A thread Codex keeps of another folder than the
+ * conversation's `folders` is never deleted: it isn't the conversation's.
  */
 export async function deleteCodexThreads(
   path: string,
   threads: readonly string[],
+  folders: readonly string[],
   signal: AbortSignal,
 ): Promise<boolean> {
   if (threads.length === 0) return true;
-  const child = await processes.spawn(path, [...APP_SERVER_ARGS], { processGroup: true });
+  const child = await processes.spawn(
+    path,
+    [...APP_SERVER_ARGS, "-c", "check_for_update_on_startup=false"],
+    { cwd: dirname(folders[0] ?? ""), processGroup: true },
+  );
   let rpc: ReturnType<typeof appServerWriter<boolean>> | null = null;
   let left = threads.length;
   let all = true;
+  const settled = (deleted: boolean) => {
+    if (!deleted) all = false;
+    left--;
+    return left === 0 ? all : undefined;
+  };
   return readJsonLines<boolean>(child, {
     agent: "Codex",
     signal,
@@ -518,20 +626,23 @@ export async function deleteCodexThreads(
     begin(stdin) {
       rpc = appServerWriter<boolean>(stdin);
       const writer = rpc;
-      writer.request("initialize", initializeParams("incarnamind"), () => {
+      writer.request("initialize", initializeParams("incarnamind"), (message) => {
+        if (message.error !== undefined) throw new Error("Codex didn't take the handshake.");
         writer.notify("initialized");
         for (const threadId of threads) {
-          writer.request("thread/delete", { threadId }, (message) => {
-            // A thread Codex no longer has is deleted already.
-            const error = object(message.error);
-            if (
-              message.error !== undefined &&
-              !/not found|no thread|no rollout/i.test(text(error.message))
-            ) {
-              all = false;
+          writer.request("thread/read", { threadId }, (read) => {
+            if (read.error !== undefined) return settled(missingThread(read.error, threadId));
+            const cwd = text(object(object(read.result).thread).cwd);
+            if (!ownFolder(cwd, folders)) {
+              console.warn(
+                "A conversation's thread in Codex was of another folder, so it was kept.",
+              );
+              return settled(true);
             }
-            left--;
-            return left === 0 ? all : undefined;
+            writer.request("thread/delete", { threadId }, (deleted) =>
+              settled(deleted.error === undefined || missingThread(deleted.error, threadId)),
+            );
+            return undefined;
           });
         }
         return undefined;

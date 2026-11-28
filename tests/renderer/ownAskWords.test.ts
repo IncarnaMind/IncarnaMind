@@ -64,6 +64,18 @@ describe("the lasting answer's words", () => {
   ] as const)("several grants, %s", (language, suggested, label, grants) => {
     expect(said(language, [...suggested])).toEqual({ label, grants });
   });
+  // protects=Codex's answer for this request on one file names it as a file, not as a folder whose edits it allows (#3653); fails_when=a file reads as "edits in" a folder
+  test.each([
+    ["en", "Don’t ask again for edits to the file notes.md for this request"],
+    ["zh-CN", "本次请求内不再询问：修改文件 notes.md"],
+  ] as const)("a file's answer for this request, %s", (language, label) => {
+    const file: NoteSuggested = {
+      kind: "rules",
+      kept: "request",
+      rules: [{ kind: "file", path: "notes.md" }],
+    };
+    expect(said(language, [file])).toEqual({ label, grants: null });
+  });
 });
 
 /** One step of each kind, as Claude Code's own tools name what they act on. */

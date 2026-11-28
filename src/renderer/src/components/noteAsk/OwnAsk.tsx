@@ -26,8 +26,10 @@ const SLOT = "\u0000";
 export const ASKS_NOTHING: ReadonlySet<string> = new Set([
   "auto",
   "bypassPermissions",
-  // Codex's approval policy, and a reviewer of its own that decides in the User's place.
+  // Codex's approval policy, its full access, and a reviewer of its own that decides in the
+  // User's place.
   "never",
+  "dangerFullAccess",
   "auto_review",
   "guardian_subagent",
 ]);
@@ -500,6 +502,28 @@ export function QuestionCard({
             <>
               <dt>{t("ownAsk.key.in")}</dt>
               <dd data-testid="own-ask-where">{t("ownAsk.here")}</dd>
+            </>
+          )}
+          {action.kind === "command" && action.folder !== undefined && (
+            <>
+              <dt>{t("ownAsk.key.in")}</dt>
+              <dd data-testid="own-ask-where" className="own-ask-text">
+                {visible(action.folder)}
+              </dd>
+            </>
+          )}
+          {action.kind === "command" && action.host !== undefined && (
+            <>
+              <dt>{t("ownAsk.key.site")}</dt>
+              <dd data-testid="own-ask-site" className="own-ask-text">
+                {visible(action.host)}
+              </dd>
+            </>
+          )}
+          {action.reason !== undefined && (
+            <>
+              <dt>{t("ownAsk.key.says", { agent })}</dt>
+              <dd data-testid="own-ask-reason">“{visible(action.reason)}”</dd>
             </>
           )}
           {action.size && (

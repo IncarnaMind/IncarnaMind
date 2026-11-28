@@ -2,10 +2,11 @@
  * Where a file a command-line AI names really is, as a Note's conversation shows it (#3653): from the
  * conversation's folder when it is in it, else from home, links followed as the system follows them;
  * and whether it is one of the files the AI reads as its own, which steer every later request of the
- * conversation. Shared by Claude Code's questions (./claudeCodeAsks) and Codex's (./codexAsks), each
- * with the names it reads.
+ * conversation. Shared by Claude Code's questions (./claudeCodeAsks) and Codex's (./codexAsks), with
+ * one list of what either reads, since each can write the other's.
  */
 import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 
 /** Where a file is: from the conversation's folder when it is in it, else from home as "~". */
@@ -13,6 +14,8 @@ export interface Places {
   /** The conversation's folder, and the same folder as the system names it once links are followed. */
   folders: readonly string[];
   home: string;
+  /** Codex's own home, as the login shell gives it to Codex; absent: ~/.codex. */
+  codexHome?: string;
 }
 
 // On Windows the system's own resolver also gives a short 8.3 name (CLAUDE~1) its long one.
@@ -311,4 +314,50 @@ export function steeringOf(names: SteeringNames) {
       return names.named.test(folded) || names.named.test(folded.replace(/["'`\\]/g, ""));
     },
   };
+}
+
+/** Codex's own home: its CODEX_HOME, as the login shell gives it, else ~/.codex. */
+export const codexHomeOf = (environment: Readonly<Record<string, string | undefined>>) =>
+  environment.CODEX_HOME || join(environment.HOME || homedir(), ".codex");
+
+const asPattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const kept = new Map<string, ReturnType<typeof steeringOf>>();
+
+/**
+ * What either command-line AI reads as its own, one list for both, since a request on one can
+ * write the other's (#3653). Claude Code's: CLAUDE.md, CLAUDE.local.md, a folder's servers
+ * (.mcp.json) and the User's own (.claude.json in their home folder), each a command started next
+ * time, and anything under a .claude folder; in the conversation's folder and each above it, and in
+ * the User's own ~/.claude and ~/.claude.json. Codex's: anything in its home (its global AGENTS.md,
+ * config, rules, skills), and a folder's .codex (project config) and .agents (skills). A project
+ * AGENTS.md is neither's: the conversation's Codex reads none. A command steers too where it names
+ * either's home by its variable, Codex's by its path, or runs a command of either that writes its
+ * settings, as `codex mcp add`. `.claude` may follow a short option's letter with nothing between, as
+ * in -C.claude.
+ */
+export function agentSteering(places: Places) {
+  const home = places.home || homedir();
+  const codexHome = places.codexHome || join(home, ".codex");
+  const at = `${home}\u0000${codexHome}`;
+  const found = kept.get(at);
+  if (found) return found;
+  const steering = steeringOf({
+    files: new Set(["claude.md", "claude.local.md", ".mcp.json", ".claude.json"]),
+    folders: new Set([".claude", ".codex", ".agents"]),
+    near: ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".claude", ".codex", ".agents"],
+    own: () => [join(home, ".claude"), join(home, ".claude.json"), codexHome],
+    named: new RegExp(
+      [
+        String.raw`claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])`,
+        String.raw`\.codex(?:$|[^\w.-])|\.agents(?:$|[^\w.-])`,
+        String.raw`CODEX_HOME|CLAUDE_CONFIG_DIR`,
+        String.raw`\b(?:codex|claude)\s+(?:mcp|plugins?|features|config|login|logout)\b`,
+        asPattern(codexHome),
+      ].join("|"),
+      "i",
+    ),
+  });
+  kept.set(at, steering);
+  return steering;
 }

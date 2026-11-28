@@ -41,6 +41,7 @@ function ruleWords(t: Translate, rule: NoteRule): string {
     const folder = rule.folder === "" ? t("ownAsk.here.folder") : visible(rule.folder);
     return t(rule.change ? "ownAsk.what.changes" : "ownAsk.what.reads", { folder });
   }
+  if (rule.kind === "file") return t("ownAsk.what.file", { file: visible(rule.path) });
   return visible(rule.rule);
 }
 

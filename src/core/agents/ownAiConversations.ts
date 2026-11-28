@@ -1354,8 +1354,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               ),
               conversation: { key: conversation.id, sessionId, resume },
               ...(turn.model !== undefined && { model: turn.model }),
-              // Claude Code's modes alone are chosen by the input (#3765); Codex keeps the User's own.
-              ...(client === "claude-code" && {
+              ...(options.runner?.choosesModes(client) && {
                 modes: modesFor(chosenModes.get(conversation.id)),
               }),
               listModels: true,
@@ -1625,8 +1624,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       const models = client ? listed.get(client) : undefined;
       if (!models || !pairing || options.heldBack(pairing, mindId))
         return { models: [], ran: null, mode: null, chosen: false, refused: null };
-      // Codex's approval policy isn't one the input chooses (#3765): its picker shows models alone.
-      const picks = client === "claude-code";
+      // An agent whose modes the input doesn't choose (#3765) has a picker of models alone.
+      const picks = client != null && options.runner?.choosesModes(client) === true;
       const conversation = conversationOf(mindId, pairing.id);
       const chosen = conversation ? chosenModes.get(conversation.id) : undefined;
       // What the next request starts in, and the running one is in: the choice, else the User's
@@ -1653,8 +1652,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     async chooseMode(mindId: string, mode: string | null): Promise<void> {
       // The conversation running, else the one the next request would reach.
       const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
+      const client = pairing && clientOf(pairing);
       const conversation =
-        pairing && clientOf(pairing) === "claude-code" ? conversationOf(mindId, pairing.id) : null;
+        pairing && client && options.runner?.choosesModes(client)
+          ? conversationOf(mindId, pairing.id)
+          : null;
       if (!conversation) return;
       const before = chosenModes.get(conversation.id);
       refusedModes.delete(conversation.id);

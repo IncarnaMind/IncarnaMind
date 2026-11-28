@@ -17,8 +17,8 @@ import { createOwnAi } from "../../src/main/ownAi";
 import { processRunning } from "../helpers/processRunning";
 
 const launch = vi.hoisted(() => vi.fn());
-/** The login shell's PATH, as the launcher reads it. */
-const shell = vi.hoisted(() => ({ PATH: "" }));
+/** The login shell's environment, as the launcher reads it: its PATH, and a home of the test's. */
+const shell = vi.hoisted(() => ({ PATH: "", HOME: "", CODEX_HOME: "" }));
 vi.mock("../../src/main/processes", () => ({
   createLoginShellProcesses: () => ({ spawn: launch, environment: async () => shell }),
 }));
@@ -39,6 +39,8 @@ beforeEach(async () => {
   await chmod(join(bin, "codex"), 0o755);
   if (process.platform === "win32") await writeFile(join(bin, "codex.cmd"), "@exit /b 0\r\n");
   shell.PATH = bin;
+  shell.HOME = join(bin, "home");
+  shell.CODEX_HOME = join(bin, "codex-home");
   starts = [];
   launch.mockImplementation(
     async (
@@ -153,7 +155,8 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
         action: {
           kind: "command",
           value: "touch marker.txt",
-          description: "May I create the marker file?",
+          unsandboxed: true,
+          reason: "May I create the marker file?",
         },
         suggested: [
           {
@@ -188,7 +191,8 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
       developerInstructions: INSTRUCTIONS,
       config: {
         mcp_servers: {
-          incarnamind: {
+          incarnamind: { command: SERVER.command, enabled: false },
+          incarnamind_note: {
             command: SERVER.command,
             args: SERVER.args,
             env_vars: ["INCARNAMIND_AGENT_TOKEN", "INCARNAMIND_AGENT_SOCKET"],
@@ -198,8 +202,16 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
         },
         project_doc_max_bytes: 0,
         history: { persistence: "none" },
+        features: { memories: false },
       },
     });
+    // The thread is kept out of Codex's memories before anything of the Note reaches it.
+    const order = (await jsonLines("requests.jsonl")).map((each) => each.method);
+    expect(order.indexOf("thread/memoryMode/set")).toBeGreaterThan(order.indexOf("thread/start"));
+    expect(order.indexOf("thread/memoryMode/set")).toBeLessThan(order.indexOf("turn/start"));
+    expect(await sent("thread/memoryMode/set")).toEqual([
+      { threadId: expect.any(String), mode: "disabled" },
+    ]);
     expect(run.steps).toContainEqual({ kind: "mode", mode: "on-request" });
     expect(run.steps).toContainEqual({ kind: "model", model: "gpt-6.2-sol" });
     expect(run.steps).toContainEqual({
@@ -215,14 +227,37 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
     });
   });
 
-  // protects=Deny goes back as Codex's "decline", so the command never runs and its step says it failed; fails_when=a denied command runs, or Codex is told "cancel" and stops the whole turn
+  // protects=Deny goes back as the no Codex offers: "cancel" where it offers no "decline", as Codex 0.170 does, which ends its turn, so the request ends there, finished; the command never runs and its step says it failed; fails_when=a denied command runs, IncarnaMind answers with what Codex didn't offer, or the turn it ended reads as a failure
   it("runs nothing it was denied", async () => {
     await mode("conv-command");
     const run = converse({ answer: async () => "deny" });
-    expect(await run.ended).toEqual({ kind: "finished", reply: "Didn't run it." });
+    expect(await run.ended).toEqual({ kind: "finished", reply: "" });
     expect(existsSync(join(conversations, KEY, "marker.txt"))).toBe(false);
-    expect(await decisions()).toEqual([{ decision: "decline" }]);
+    expect(await decisions()).toEqual([{ decision: "cancel" }]);
     expect(ownSteps(run.steps).at(-1)).toMatchObject({ state: "failed" });
+  });
+
+  // protects=a command that runs in another folder and reaches a site shows both, with Codex's reason, and its answer for this request is the site, as Codex grants it; one asking for more files than its sandbox allows is refused at once with Codex's own no; fails_when=the card shows the command alone while Allow grants a site, the folder is left out, or a request granting more than the card shows waits on the User
+  it("shows where a command runs and the site it reaches, and refuses one asking for more", async () => {
+    await mode("conv-network");
+    const run = converse({ answer: async () => "request" });
+    expect(await run.ended).toEqual({ kind: "finished", reply: "Ran it." });
+    expect(run.asked[0]?.action).toEqual({
+      kind: "command",
+      value: "curl -sI https://example.com",
+      host: "example.com",
+      folder: conversations,
+      reason: "It needs the network.",
+    });
+    expect(run.asked[0]?.forRequest).toEqual([
+      { kind: "rules", kept: "request", rules: [{ kind: "site", host: "example.com" }] },
+    ]);
+    await mode("conv-permissions");
+    const more = converse();
+    expect(await more.ended).toEqual({ kind: "finished", reply: "Didn't run it." });
+    expect(more.asked).toEqual([]);
+    expect(await decisions()).toEqual([{ decision: "acceptForSession" }, { decision: "decline" }]);
+    expect(more.steps).toContainEqual(expect.objectContaining({ kind: "own", state: "refused" }));
   });
 
   // protects=Codex's own lasting answer goes back exactly as Codex gave it, and its "for this session" one where it offers it, kept until the request ends; fails_when=IncarnaMind writes a rule of its own making, or offers an answer Codex didn't
@@ -290,26 +325,30 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
       {
         kind: "rules",
         kept: "request",
-        rules: [
-          { kind: "files", change: true, folder: join(".agents", "skills", "tides", "SKILL.md") },
-        ],
+        rules: [{ kind: "file", path: join(".agents", "skills", "tides", "SKILL.md") }],
       },
     ]);
     expect(existsSync(join(conversations, KEY, ".agents"))).toBe(false);
     expect(await decisions()).toEqual([{ decision: "decline" }]);
   });
 
-  // protects=a tool of a server the User set up in Codex asks with its server and input, and Codex's own "always" and "for this session" answers go back as Codex reads them; fails_when=another server's tool runs unasked, or a lasting answer is lost
+  // protects=IncarnaMind's own server for the run, by its own name, is taken without asking and its calls are Tool steps, never Codex's own; a tool of a server the User set up in Codex asks with its server and the input it is sent, and Codex's own "always" and "for this session" answers go back as Codex reads them; fails_when=another server's tool runs unasked, its input shows Codex's display words for what is sent, or a lasting answer is lost
   it("asks before another server's tool, with Codex's own lasting answers", async () => {
     await mode("conv-tool");
     const run = converse({ answer: async () => "suggested" });
     expect(await run.ended).toEqual({ kind: "finished", reply: "Used it." });
+    expect(run.asked).toHaveLength(1);
+    expect(run.steps).toContainEqual({ kind: "tool", name: "read_mind" });
+    expect(ownSteps(run.steps)).toEqual([]);
     expect(run.asked[0]).toMatchObject({
       action: {
         kind: "tool",
         value: "high_water",
         server: "tides",
-        input: [{ name: "port", value: "Dover" }],
+        input: [
+          { name: "Port", value: "Dover" },
+          { name: "on", value: '{"day":2}' },
+        ],
       },
       suggested: [
         {
@@ -327,6 +366,7 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
       ],
     });
     expect(await decisions()).toEqual([
+      { action: "accept", content: {}, _meta: null },
       { action: "accept", content: {}, _meta: { persist: "always" } },
     ]);
   });
@@ -381,12 +421,63 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
     expect((await sent("thread/resume")).map((each) => each.threadId)).toEqual([thread]);
     const own = createOwnAi({ command: null, codexCommand: "codex", conversations });
     expect(await own.purge(KEY)).toBe(true);
+    expect(starts.at(-1)?.args).toContain("check_for_update_on_startup=false");
+    expect(starts.at(-1)?.cwd).toBe(conversations);
     expect(JSON.parse(await readFile(join(bin, "threads.json"), "utf8"))).toEqual([]);
     expect(existsSync(join(conversations, KEY))).toBe(false);
     expect(await converse({ resume: true }).ended).toEqual({
       kind: "failed",
       reason: "lost-conversation",
     });
+  });
+
+  // protects=a thread kept for the conversation whose folder in Codex is another's is never resumed, as a new conversation starts instead, and never deleted with it; fails_when=an id written into IncarnaMind's file resumes or deletes a thread of the User's own
+  it("never resumes or deletes a thread of another folder", async () => {
+    await mode("");
+    await converse().ended;
+    const [thread = ""] = JSON.parse(await readFile(join(bin, "threads.json"), "utf8")) as string[];
+    await writeFile(
+      join(bin, "folders.json"),
+      JSON.stringify({ [thread]: join(bin, "elsewhere") }),
+    );
+    expect(await converse({ resume: true }).ended).toEqual({
+      kind: "failed",
+      reason: "lost-conversation",
+    });
+    expect(await sent("thread/resume")).toEqual([]);
+    const own = createOwnAi({ command: null, codexCommand: "codex", conversations });
+    expect(await own.purge(KEY)).toBe(true);
+    expect(await sent("thread/delete")).toEqual([]);
+    expect(JSON.parse(await readFile(join(bin, "threads.json"), "utf8"))).toEqual([thread]);
+  });
+
+  // protects=a resume Codex fails for a reason of its own is a problem with Try again, the conversation kept; only Codex's own missing-thread answer is a lost conversation; ids that can't be read stop the request, and nothing writes over them; fails_when=a passing error throws the conversation away, or an unreadable file is overwritten
+  it("says when Codex can't open the thread, and keeps ids it can't read", async () => {
+    await mode("");
+    await converse().ended;
+    await mode("resume-broken");
+    expect(await converse({ resume: true }).ended).toEqual({ kind: "failed", reason: "service" });
+    const kept = join(conversations, ".codex-threads", `${KEY}.json`);
+    await writeFile(kept, "not a list");
+    expect(await converse({ resume: true }).ended).toEqual({ kind: "failed", reason: "other" });
+    expect(await converse().ended).toMatchObject({ kind: "failed" });
+    expect(await readFile(kept, "utf8")).toBe("not a list");
+  });
+
+  // protects=threads Codex couldn't delete with their conversation, an unknown method's error among them, are deleted at the next start-up once it can; fails_when=a deleted conversation's thread stays in the User's Codex for good, or "Method not found" counts as deleted
+  it("deletes later the threads it couldn't delete with their conversation", async () => {
+    await mode("");
+    await converse().ended;
+    const kept = join(conversations, ".codex-threads", `${KEY}.json`);
+    await mode("delete-unsupported");
+    const own = createOwnAi({ command: null, codexCommand: "codex", conversations });
+    expect(await own.purge(KEY)).toBe(false);
+    expect(existsSync(join(conversations, KEY))).toBe(false);
+    expect(existsSync(kept)).toBe(true);
+    await mode("");
+    createOwnAi({ command: null, codexCommand: "codex", conversations });
+    await expect.poll(() => existsSync(kept), { timeout: 10_000 }).toBe(false);
+    expect(JSON.parse(await readFile(join(bin, "threads.json"), "utf8"))).toEqual([]);
   });
 
   // protects=a request the User sends while Codex works is steered into its turn, said taken when Codex takes it, and answered there; fails_when=it waits for the turn to end, is lost, or is answered as the first request
@@ -414,12 +505,16 @@ describe("a Note's conversation on the User's own Codex (#3653)", () => {
     ]);
   });
 
-  // protects=Codex set never to ask names its policy, which the conversation says once in plain words; a plan's limit ends the request as one; fails_when=a run that asks nothing goes unsaid, or a limit reads as a plain failure
+  // protects=Codex set never to ask, or with full access on its own request, names that, which the conversation says once in plain words; a plan's limit ends the request as one; fails_when=a run that asks nothing goes unsaid, or a limit reads as a plain failure
   it("names a never-ask policy, and a plan's limit", async () => {
     await mode("conv-never");
     const never = converse();
     await never.ended;
     expect(never.steps).toContainEqual({ kind: "mode", mode: "never" });
+    await mode("conv-full");
+    const full = converse();
+    await full.ended;
+    expect(full.steps).toContainEqual({ kind: "mode", mode: "dangerFullAccess" });
     await mode("conv-limit");
     expect(await converse().ended).toEqual({ kind: "failed", reason: "plan-limit" });
   });

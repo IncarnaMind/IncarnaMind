@@ -1855,6 +1855,11 @@ export interface OwnAiModel {
 export interface OwnAiRunner {
   /** Whether the agent's command is on this computer, found without starting anything of it. */
   installed(client: OwnAiClient): Promise<boolean>;
+  /**
+   * Whether a Note's input chooses the agent's permission mode for its conversation (#3765), as a
+   * run's `modes`; where it doesn't, the agent keeps the User's own settings for it.
+   */
+  choosesModes(client: OwnAiClient): boolean;
   status(client: OwnAiClient): Promise<OwnAiStatus>;
   /**
    * One run, resolved when it ends. `server`: IncarnaMind's server as the agent starts it, with a

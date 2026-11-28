@@ -134,6 +134,7 @@ function runner(
     installed: async () => true,
     status: async () => status,
     ...(folders && { folder: async (key: string) => join(folders, key) }),
+    choosesModes: (client: string) => client === "claude-code",
     async purge(key) {
       purged.push(key);
       return true;

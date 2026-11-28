@@ -1,5 +1,5 @@
 import { chmod, readdir, readFile, realpath, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { processRunning } from "../tests/helpers/processRunning";
@@ -163,12 +163,13 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     await expect(consent).not.toContainText("Claude Code");
     await pointAndClick(window, consent.getByTestId("consent-allow"));
 
-    // The command, whole, with Codex's words for it and Codex's own answers.
+    // The command, whole, outside Codex's sandbox, with Codex's words for why it asks and Codex's
+    // own answers.
     let card = await cardOf(window);
     await expect(card.locator(".approval-title")).toHaveText("Run a command");
-    await expect(card.getByTestId("own-ask-description")).toHaveText(
-      "May I create the marker file?",
-    );
+    await expect(card.getByTestId("own-ask-reason")).toHaveText("“May I create the marker file?”");
+    await expect(card.locator("dt", { hasText: "Codex says" })).toHaveCount(1);
+    await expect(card.getByTestId("own-ask-runs")).toHaveText("outside Codex’s own sandbox");
     await expect(card.getByTestId("own-ask-value")).toHaveText("touch marker.txt");
     expect(await answersOf(card)).toEqual([
       "Deny",
@@ -187,7 +188,7 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     await expect.poll(() => readFile(join(folder, "marker.txt"), "utf8")).toBe("");
     expect(await lastSteps(window)).toEqual(["Ran touch marker.txt · allowed once"]);
 
-    // Denied, it runs nothing.
+    // Denied, it runs nothing: Codex offers only "cancel" for no, which ends its turn.
     await writeFile(join(bin, "answers.jsonl"), "");
     before = (await outcomesOf(window, mindId)).length;
     await send(window, "conv-command", "Mark them again");
@@ -195,7 +196,7 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
     await ended(window, mindId, before);
     expect(await lastSteps(window)).toEqual(["Didn’t run touch marker.txt · denied"]);
-    expect(await readFile(join(bin, "answers.jsonl"), "utf8")).toContain('"decline"');
+    expect(await readFile(join(bin, "answers.jsonl"), "utf8")).toContain('"cancel"');
 
     // Codex's answer for this request, beside Allow once.
     before = (await outcomesOf(window, mindId)).length;
@@ -209,6 +210,24 @@ test("on the User's own Codex: the first request asks in Codex's words; a comman
     await pointAndClick(window, card.getByTestId("own-ask-request"));
     await ended(window, mindId, before);
     expect(await lastSteps(window)).toEqual(["Ran touch marker.txt · allowed for this request"]);
+
+    // A command in another folder that reaches a site shows both, and its answer for this request
+    // is the site.
+    before = (await outcomesOf(window, mindId)).length;
+    await send(window, "conv-network", "Check the harbour page");
+    card = await cardOf(window);
+    await expect(card.getByTestId("own-ask-where")).toHaveText(dirname(folder));
+    await expect(card.getByTestId("own-ask-site")).toHaveText("example.com");
+    await expect(card.getByTestId("own-ask-runs")).toHaveCount(0);
+    expect(await answersOf(card)).toEqual([
+      "Deny",
+      "Don’t ask again for example.com for this request",
+      "Allow once",
+    ]);
+    await writeFile(join(bin, "answers.jsonl"), "");
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, before);
+    expect(await readFile(join(bin, "answers.jsonl"), "utf8")).toContain('"decline"');
 
     // A skill Codex would read from now on says so.
     before = (await outcomesOf(window, mindId)).length;

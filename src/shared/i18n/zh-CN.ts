@@ -3790,7 +3790,7 @@ export const zhCN = {
   "consent.data.note-requests.codex":
     "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Codex 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回",
   "consent.data.own-ai-context.codex":
-    "在笔记的对话里，Codex 按它自己的设置加入的内容：你在它自己文件夹里的 AGENTS.md、它的记忆、你的技能，以及你自己的服务器、应用、命令、文件和网页给它的内容，以它的设置允许的为限",
+    "在笔记的对话里，Codex 按它自己的设置加入的内容：你在它自己文件夹里的 AGENTS.md、你的技能，以及你自己的服务器、应用、命令、文件和网页给它的内容，以它的设置允许的为限。这里不使用它的记忆",
   "consent.data.own-ai-context":
     "在笔记的对话里，Claude Code 按它自己的设置加入的内容：你的 CLAUDE.md 文件、它的记忆、你的技能，以及你自己的服务器、连接器、命令、文件和网页给它的内容，以它的设置允许的为限",
   "consent.data.source-quotes":
@@ -8932,6 +8932,8 @@ export const zhCN = {
   "ownAsk.key.what": "内容",
   "ownAsk.key.server": "服务器",
   "ownAsk.key.runs": "运行方式",
+  "ownAsk.key.site": "网站",
+  "ownAsk.key.says": "{agent} 的说明",
   "ownAsk.runs.background": "在后台",
   "ownAsk.runs.unsandboxed": "在 {agent} 自己的沙盒之外",
   "ownAsk.steers": "这个文件会改变 {agent} 以后的行为。",
@@ -8989,6 +8991,7 @@ export const zhCN = {
   "ownAsk.what.searches": "联网搜索",
   "ownAsk.what.reads": "读取{folder}",
   "ownAsk.what.changes": "修改{folder}",
+  "ownAsk.what.file": "修改文件 {file}",
   "ownAsk.answers": "回复 {agent}",
   "ownAsk.announce": "{agent} 请求：{title}。{value}。可选：{answers}。按 Shift+Tab 作答。",
   "ownAsk.doing.command": "正在运行 {value}",
@@ -9030,6 +9033,7 @@ export const zhCN = {
   "ownAsk.mode.auto": "{agent} 设为自行判断，所以在这里它不问你就会操作。",
   "ownAsk.mode.bypassPermissions": "{agent} 设为跳过所有询问，所以在这里它不问你就会操作。",
   "ownAsk.mode.never": "{agent} 设为从不询问，所以在这里它不问你就会操作。",
+  "ownAsk.mode.dangerFullAccess": "{agent} 设为完全访问，所以在这里它不问你就会操作。",
   "ownAsk.mode.auto_review": "{agent} 设为由它的审核者决定，所以在这里它不问你就会操作。",
   "ownAsk.mode.guardian_subagent": "{agent} 设为由它的审核者决定，所以在这里它不问你就会操作。",
   "noteAsk.did.read_mind": "读了“{summary}”",

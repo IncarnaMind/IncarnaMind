@@ -6,11 +6,10 @@
  * keep it. One the User picks goes back exactly as Claude Code gave it.
  */
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { NoteAction, NoteAnswer, NoteKept, NoteRule, NoteSuggested } from "../core/api";
 import { object } from "./agentCommand";
-import { elsewhereOnWindows, leadsTo, type Places, placeOf, steeringOf } from "./ownPlaces";
+import { agentSteering, elsewhereOnWindows, leadsTo, type Places, placeOf } from "./ownPlaces";
 
 export type { Places } from "./ownPlaces";
 
@@ -18,24 +17,8 @@ const lines = (text: string) => (text === "" ? 0 : text.replace(/\n$/, "").split
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
-/**
- * What Claude Code reads as its own: CLAUDE.md, CLAUDE.local.md, a folder's servers (.mcp.json)
- * and the User's own (.claude.json in their home folder), each a command started next time, and
- * anything under a .claude folder; in the conversation's folder and each above it, and in the
- * User's own ~/.claude and ~/.claude.json. `.claude` may follow a short option's letter with
- * nothing between, as in -C.claude.
- */
-const CLAUDE_STEERING = steeringOf({
-  files: new Set(["claude.md", "claude.local.md", ".mcp.json", ".claude.json"]),
-  folders: new Set([".claude"]),
-  near: ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".claude"],
-  own: () => [join(homedir(), ".claude"), join(homedir(), ".claude.json")],
-  named: /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])/i,
-});
-
-const steering = CLAUDE_STEERING.steering;
-const steeringMark = CLAUDE_STEERING.mark;
-const namesSteering = CLAUDE_STEERING.names;
+const steeringMark = (path: string, places: Places) =>
+  agentSteering(places).mark(path, places.folders[0] ?? "");
 
 const changeOf = (pairs: readonly { from: string; to: string }[]) =>
   pairs
@@ -78,7 +61,7 @@ export function actionOf(
     return {
       kind: "command",
       value: command,
-      ...(namesSteering(command) && { steers: true }),
+      ...(agentSteering(places).names(command) && { steers: true }),
       ...(input.run_in_background === true && { background: true }),
       ...(input.dangerouslyDisableSandbox === true && { unsandboxed: true }),
       ...(text(input.description).trim() !== "" && { description: text(input.description).trim() }),
@@ -89,7 +72,7 @@ export function actionOf(
     if (path === "") return null;
     const whole = resolve(places.folders[0] ?? "", path);
     const content = text(input.content);
-    const marked = steeringMark(path, places.folders[0] ?? "");
+    const marked = steeringMark(path, places);
     // Whether a file on another computer, or one a link takes there, is there can't be asked
     // without reaching it.
     const real = elsewhereOnWindows(whole) ? null : leadsTo(whole);
@@ -117,7 +100,7 @@ export function actionOf(
     return {
       kind: "change",
       ...placeOf(path, places),
-      ...steeringMark(path, places.folders[0] ?? ""),
+      ...steeringMark(path, places),
       size: everywhere
         ? { kind: "everywhere", count: 0 }
         : {
@@ -135,7 +118,7 @@ export function actionOf(
     return {
       kind: "change",
       ...placeOf(path, places),
-      ...steeringMark(path, places.folders[0] ?? ""),
+      ...steeringMark(path, places),
       ...(mode === "delete"
         ? { size: { kind: "cellGone", count: 0 } }
         : {
@@ -222,15 +205,22 @@ export const STEERING_HOOKS = {
   ],
 };
 
-/** IncarnaMind's answer to its own hook for a tool call `input` of the hook's input. */
-export function steeringAnswer(input: Record<string, unknown>): Record<string, unknown> {
+/**
+ * IncarnaMind's answer to its own hook for a tool call `input` of the hook's input, with the
+ * User's homes as `places` gives them.
+ */
+export function steeringAnswer(
+  input: Record<string, unknown>,
+  places: Places,
+): Record<string, unknown> {
   const name = text(input.tool_name);
   const given = object(input.tool_input);
   const path = text(given.file_path) || text(given.notebook_path);
+  const steering = agentSteering(places);
   const asks =
     name === "Bash" || name === "PowerShell"
-      ? namesSteering(text(given.command))
-      : path !== "" && steering(path, text(input.cwd)) !== null;
+      ? steering.names(text(given.command))
+      : path !== "" && steering.steering(path, text(input.cwd)) !== null;
   if (!asks) return {};
   return {
     hookSpecificOutput: {

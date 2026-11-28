@@ -3,39 +3,17 @@
  * app-server: each item it starts as a step, and each approval it asks for as a question, with the
  * answers its own request offers, each passed back as Codex gave it.
  */
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { resolve } from "node:path";
 import type { OwnAiAsk } from "../core/adapters";
 import type { NoteAction, NoteAnswer, NoteRule, NoteSuggested } from "../core/api";
 import { object } from "./agentCommand";
-import { type Places, placeOf, steeringOf } from "./ownPlaces";
+import { type agentSteering, type Places, placeOf } from "./ownPlaces";
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
 const lines = (value: string) => (value === "" ? 0 : value.replace(/\n$/, "").split("\n").length);
 
-/**
- * Codex's own home, where its global AGENTS.md, config, rules and skills are: its CODEX_HOME, as
- * the login shell gives it to Codex, else ~/.codex.
- */
-export const codexHomeOf = (environment: Readonly<Record<string, string | undefined>>) =>
-  environment.CODEX_HOME || join(environment.HOME || homedir(), ".codex");
-
-/**
- * What Codex reads as its own: anything in its home (its global AGENTS.md, config, rules, skills),
- * and a folder's .codex (project config) and .agents (skills), in the conversation's folder and
- * each above it. A project AGENTS.md is not: the conversation's run reads none (#3653).
- */
-export const codexSteering = (home: () => string) =>
-  steeringOf({
-    files: new Set(),
-    folders: new Set([".codex", ".agents"]),
-    near: [".codex", ".agents"],
-    own: () => [home()],
-    named: /\.codex(?:$|[^\w.-])|\.agents(?:$|[^\w.-])/i,
-  });
-
-type Steering = ReturnType<typeof codexSteering>;
+type Steering = ReturnType<typeof agentSteering>;
 
 // Codex runs each command as `<shell> -lc '<command>'`, or in double quotes when it holds a single
 // one: the card shows the command it runs. In double quotes, only one with nothing the shell would
@@ -168,7 +146,18 @@ function fileChangeOf(item: Record<string, unknown>, places: Places, steering: S
   return { action, paths: actions.map((each) => each.value) };
 }
 
-/** What a tool's input says, one row per field, as Codex shows it. */
+/**
+ * A field's label, as Codex's own prompt shows it: only the label is taken from what it displays,
+ * since the value the tool is sent is what the card must show.
+ */
+function labelOf(display: unknown, name: string): string {
+  const shown = Array.isArray(display)
+    ? display.map(object).find((each) => text(each.name) === name)
+    : undefined;
+  return (shown && text(shown.display_name)) || name;
+}
+
+/** What a tool's input says, one row per field, exactly as it is sent. */
 function inputOf(given: unknown): { name: string; value: string }[] {
   const fields = object(given);
   return Object.entries(fields).map(([name, value]) => ({
@@ -228,9 +217,26 @@ export function itemActionOf(
   return null;
 }
 
-/** Codex's answer to a request IncarnaMind can't show, by its method: no, as Codex reads one. */
-export function refusalOf(method: string): Record<string, unknown> | null {
-  if (method === "item/commandExecution/requestApproval") return { decision: "decline" };
+/**
+ * No to a command, as its request lets Codex take one: "decline", or "cancel" where it doesn't offer
+ * that; with no list of what it offers, "decline", as it takes from every request.
+ */
+const noOf = (params: Record<string, unknown>) =>
+  Array.isArray(params.availableDecisions) &&
+  !params.availableDecisions.includes("decline") &&
+  params.availableDecisions.includes("cancel")
+    ? "cancel"
+    : "decline";
+
+/**
+ * Codex's answer to a request IncarnaMind can't show, by its method and what it offers: no, as
+ * Codex reads one.
+ */
+export function refusalOf(
+  method: string,
+  params: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (method === "item/commandExecution/requestApproval") return { decision: noOf(params) };
   if (method === "item/fileChange/requestApproval") return { decision: "decline" };
   if (method === "mcpServer/elicitation/request") {
     return { action: "decline", content: null, _meta: null };
@@ -260,69 +266,112 @@ function lastingOf(decisions: readonly unknown[]) {
 }
 
 /**
+ * Whether a command's request asks for more than running it, as files or the network beyond what
+ * its sandbox allows: the card can't show that, so it is refused (ADR-0034's addendum).
+ */
+function grantsMore(given: unknown): boolean {
+  const { network, fileSystem, ...rest } = object(given);
+  const files = Object.entries(object(fileSystem)).filter(([key]) => key !== "globScanMaxDepth");
+  return (
+    object(network).enabled === true ||
+    files.some(([, each]) => (Array.isArray(each) ? each.length > 0 : each != null)) ||
+    Object.values(rest).some((each) => each != null)
+  );
+}
+
+/** What a question of Codex's is read with: where it works, what steers it, and its file changes. */
+export interface Asking {
+  places: Places;
+  steering: Steering;
+  /** The file change an item of Codex's is, by its id, which a question names. */
+  files(itemId: string): Record<string, unknown> | undefined;
+  /** Codex runs commands in a sandbox of its own: one it asks about runs outside it once allowed. */
+  sandboxed: boolean;
+}
+
+/** A command's question: the command, where it runs and the site it reaches, as Codex asked. */
+function commandQuestion(
+  params: Record<string, unknown>,
+  step: string | null,
+  { places, steering, sandboxed }: Asking,
+): CodexQuestion | null {
+  if (params.kind === "writeStdin" || grantsMore(params.additionalPermissions)) return null;
+  const decisions = Array.isArray(params.availableDecisions)
+    ? params.availableDecisions
+    : ["accept", "decline"];
+  if (!decisions.includes("accept")) return null;
+  const command = commandOf(text(params.command));
+  const network = object(params.networkApprovalContext);
+  const host = text(network.host);
+  const reason = text(params.reason).trim();
+  if (command === "" && host === "") return null;
+  const cwd = text(params.cwd);
+  const elsewhere =
+    cwd !== "" && !places.folders.some((folder) => resolve(folder) === resolve(cwd));
+  const action: NoteAction =
+    command === ""
+      ? {
+          kind: "web",
+          value: `${text(network.protocol) || "https"}://${host}`,
+          host,
+          ...(reason !== "" && { reason }),
+        }
+      : {
+          kind: "command",
+          value: command,
+          ...(host !== "" && { host }),
+          ...(elsewhere && { folder: placeOf(cwd, places).value }),
+          ...(steering.names(command) && { steers: true }),
+          // A request for the network alone runs the command in the sandbox still.
+          ...(sandboxed && host === "" && { unsandboxed: true }),
+          ...(reason !== "" && { reason }),
+        };
+  const lasting = lastingOf(decisions);
+  const forSession = decisions.includes("acceptForSession");
+  const no = noOf({ availableDecisions: decisions });
+  // What Codex allows for the session is the site where it asks for one, else the command.
+  const rule: NoteRule = host !== "" ? { kind: "site", host } : { kind: "command", value: command };
+  return {
+    step,
+    action,
+    suggested: lasting
+      ? [{ kind: "rules", kept: "everywhere", rules: [{ kind: "commands", start: lasting.start }] }]
+      : [],
+    forRequest: forSession ? [{ kind: "rules", kept: "request", rules: [rule] }] : [],
+    answer: (answer) => ({
+      decision:
+        answer === "once"
+          ? "accept"
+          : answer === "request" && forSession
+            ? "acceptForSession"
+            : answer === "suggested" && lasting
+              ? lasting.decision
+              : no,
+    }),
+  };
+}
+
+/**
  * The question a request of Codex's asks, by its method: a command, a change to files (by the
- * step `files` holds for its item), or a tool of a server the User set up in it; null for a request
- * the card can't show.
+ * step `asking.files` holds for its item), or a tool of a server the User set up in it; null for a
+ * request the card can't show.
  */
 export function questionOf(
   method: string,
   params: Record<string, unknown>,
-  places: Places,
-  steering: Steering,
-  files: (itemId: string) => Record<string, unknown> | undefined,
+  asking: Asking,
 ): CodexQuestion | null {
   const step = text(params.itemId) || null;
+  const { places, steering } = asking;
   if (method === "item/commandExecution/requestApproval") {
-    if (params.kind === "writeStdin") return null;
-    const command = commandOf(text(params.command));
-    const network = object(params.networkApprovalContext);
-    const host = text(network.host);
-    const reason = text(params.reason).trim();
-    if (command === "" && host === "") return null;
-    const action: NoteAction =
-      command === ""
-        ? { kind: "web", value: `${text(network.protocol) || "https"}://${host}`, host }
-        : {
-            kind: "command",
-            value: command,
-            ...(steering.names(command) && { steers: true }),
-            ...(reason !== "" && { description: reason }),
-          };
-    const decisions = Array.isArray(params.availableDecisions) ? params.availableDecisions : [];
-    const lasting = lastingOf(decisions);
-    const forSession = decisions.includes("acceptForSession");
-    const rule: NoteRule =
-      command === "" ? { kind: "site", host } : { kind: "command", value: command };
-    return {
-      step,
-      action,
-      suggested: lasting
-        ? [
-            {
-              kind: "rules",
-              kept: "everywhere",
-              rules: [{ kind: "commands", start: lasting.start }],
-            },
-          ]
-        : [],
-      forRequest: forSession ? [{ kind: "rules", kept: "request", rules: [rule] }] : [],
-      answer: (answer) => ({
-        decision:
-          answer === "once"
-            ? "accept"
-            : answer === "request" && forSession
-              ? "acceptForSession"
-              : answer === "suggested" && lasting
-                ? lasting.decision
-                : "decline",
-      }),
-    };
+    return commandQuestion(params, step, asking);
   }
   if (method === "item/fileChange/requestApproval") {
-    const item = step === null ? undefined : files(step);
+    const item = step === null ? undefined : asking.files(step);
     const found = item ? fileChangeOf(item, places, steering) : null;
     if (!found) return null;
     const root = text(params.grantRoot);
+    const reason = text(params.reason).trim();
     const forRequest: NoteSuggested[] =
       root !== ""
         ? [{ kind: "folders", kept: "request", folders: [placeOf(root, places).value] }]
@@ -330,12 +379,12 @@ export function questionOf(
             {
               kind: "rules",
               kept: "request",
-              rules: found.paths.map((folder) => ({ kind: "files", change: true, folder })),
+              rules: found.paths.map((path) => ({ kind: "file", path })),
             },
           ];
     return {
       step,
-      action: found.action,
+      action: { ...found.action, ...(reason !== "" && { reason }) },
       suggested: [],
       forRequest,
       answer: (answer) => ({
@@ -352,12 +401,10 @@ export function questionOf(
     if (tool === "" || server === "") return null;
     const persist = Array.isArray(meta.persist) ? meta.persist : [];
     const rules: NoteRule[] = [{ kind: "tool", tool, server }];
-    const shown = Array.isArray(meta.tool_params_display)
-      ? meta.tool_params_display.map(object).map((each) => ({
-          name: text(each.display_name) || text(each.name),
-          value: typeof each.value === "string" ? each.value : JSON.stringify(each.value),
-        }))
-      : inputOf(meta.tool_params);
+    const shown = inputOf(meta.tool_params).map((field) => ({
+      ...field,
+      name: labelOf(meta.tool_params_display, field.name),
+    }));
     return {
       step,
       action: {

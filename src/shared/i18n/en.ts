@@ -4007,7 +4007,7 @@ export const en = {
   "consent.data.note-requests.codex":
     "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Codex keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back",
   "consent.data.own-ai-context.codex":
-    "In a note’s conversation, what Codex adds by its own settings: your AGENTS.md in its own folder, its memories, your skills, and what your own servers, apps, commands, files and web pages give it, as its settings allow",
+    "In a note’s conversation, what Codex adds by its own settings: your AGENTS.md in its own folder, your skills, and what your own servers, apps, commands, files and web pages give it, as its settings allow. Its memories are off here",
   "consent.data.own-ai-context":
     "In a note’s conversation, what Claude Code adds by its own settings: your CLAUDE.md files, its memory, your skills, and what your own servers, connectors, commands, files and web pages give it, as its settings allow",
   "consent.data.source-quotes":
@@ -9567,6 +9567,8 @@ export const en = {
   "ownAsk.key.what": "what",
   "ownAsk.key.server": "server",
   "ownAsk.key.runs": "runs",
+  "ownAsk.key.site": "site",
+  "ownAsk.key.says": "{agent} says",
   "ownAsk.runs.background": "in the background",
   "ownAsk.runs.unsandboxed": "outside {agent}’s own sandbox",
   "ownAsk.steers": "This file changes how {agent} behaves from now on.",
@@ -9625,6 +9627,7 @@ export const en = {
   "ownAsk.what.searches": "web searches",
   "ownAsk.what.reads": "reading {folder}",
   "ownAsk.what.changes": "edits in {folder}",
+  "ownAsk.what.file": "edits to the file {file}",
   "ownAsk.answers": "Reply to {agent}",
   "ownAsk.announce": "{agent} asks: {title}. {value}. Answers: {answers}. Shift+Tab to answer.",
   "ownAsk.doing.command": "Running {value}",
@@ -9668,6 +9671,8 @@ export const en = {
   "ownAsk.mode.bypassPermissions":
     "{agent} is set to skip every question, so here it acts without asking you.",
   "ownAsk.mode.never": "{agent} is set never to ask, so here it acts without asking you.",
+  "ownAsk.mode.dangerFullAccess":
+    "{agent} is set to full access, so here it acts without asking you.",
   "ownAsk.mode.auto_review":
     "{agent} is set to let its reviewer decide, so here it acts without asking you.",
   "ownAsk.mode.guardian_subagent":

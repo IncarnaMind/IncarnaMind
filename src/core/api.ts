@@ -13636,7 +13636,10 @@ export interface NoteAction {
   value: string;
   /** For a file: it is in the conversation's own folder. */
   inFolder?: boolean;
+  /** For a web page, or a command that would reach a site: the site. */
   host?: string;
+  /** For a command: the folder it runs in, where that isn't the conversation's own. */
+  folder?: string;
   /** For a tool: the server it is on, and the input it would send, one row per field. */
   server?: string;
   input?: { name: string; value: string }[];
@@ -13662,6 +13665,8 @@ export interface NoteAction {
   unsandboxed?: true;
   /** For a command: what the AI says it does, in its own words, as its own prompt shows them. */
   description?: string;
+  /** For a command: why the AI says it asks, in its own words. */
+  reason?: string;
 }
 
 /**
@@ -13674,7 +13679,7 @@ export type NoteKept = "request" | "conversation" | "everywhere";
 /**
  * What a rule the AI suggests covers: commands that start with `start`, one exact command, pages
  * on a site, one tool of a server, web searches, reading or changing the files in a folder (`""`:
- * the conversation's own); or a rule the card can't say in plain words, as it is.
+ * the conversation's own), changing one file; or a rule the card can't say in plain words, as it is.
  */
 export type NoteRule =
   | { kind: "commands"; start: string }
@@ -13683,6 +13688,7 @@ export type NoteRule =
   | { kind: "tool"; tool: string; server: string }
   | { kind: "searches" }
   | { kind: "files"; change: boolean; folder: string }
+  | { kind: "file"; path: string }
   | { kind: "rule"; rule: string };
 
 /**

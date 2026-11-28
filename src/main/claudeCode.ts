@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { Writable } from "node:stream";
 import { object, processes, readJsonLines, wholeTree } from "./agentCommand";
 import { STEERING_HOOK, STEERING_HOOKS, steeringAnswer } from "./claudeCodeAsks";
+import type { Places } from "./ownPlaces";
 
 export interface ClaudeCodeTurn {
   /** The command: `claude`, unless a test build gives another. */
@@ -49,6 +50,8 @@ export interface ClaudeCodeTurn {
       reply: (answer: Record<string, unknown>) => void,
     ): void;
     withdrawn(id: string): void;
+    /** The conversation's folder and the User's homes, which IncarnaMind's own hook reads by. */
+    places(): Places;
     /** Where what the turn starts is noted while it runs, for the next start to end after a crash. */
     processes?: string;
     /** How long Claude Code may take to answer `initialize`, before which nothing is sent. */
@@ -410,7 +413,7 @@ function readOwnTurn(
             response: {
               subtype: "success",
               request_id: id,
-              response: steeringAnswer(object(request.input)),
+              response: steeringAnswer(object(request.input), own.places()),
             },
           });
         } else if (request.subtype === "can_use_tool" && id !== "") {
